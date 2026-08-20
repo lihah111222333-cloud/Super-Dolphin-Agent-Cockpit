@@ -35,6 +35,14 @@ duration-ledger SQLite physical schema：`22`
 
 未来 composition root 的 `validate-only` 形态只能验证 engine/target/global authority 的身份、引用、regular-blob 和 digest 绑定，必须不得产出 plan/PASS、shard、ECI side effect 或 SQLite authority 写入。它只能返回 validation evidence；只有接入既有唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 唯一路径后，才可进入正常规划与执行。当前实现继续以本文已有路径为准；本节未来 engine 仍标记为未接线。
 
+### 未来 portable source baseline artifact（Accepted 预留，当前未接线）
+
+未来 engine source baseline 的 portable artifact byte domain 固定为标准自包含 Git bundle 单文件 `source-baseline-git-bundle/v1`。该单文件只能有唯一 advertised ref `refs/source/baseline` -> `DeterministicSourceBaselineCommitSHA` 的 zero-parent commit；bundle 必须有 0 prerequisites，并携带该 baseline commit 所需完整且无额外的 tree/blob closure。artifact SHA/size 按实际 bundle bytes 计算，不能按导入后的仓库、裸对象目录或工作树推导。
+
+producer 是唯一 `aliyun-eci/v1` artifact builder。未来 builder receipt 的绑定字段序列固定为 builder/toolchain/repository_id/object_format/baseline commit/tree/artifact SHA/size，并逐项记录实际 builder、toolchain、repository_id、object_format、baseline commit、baseline tree、artifact SHA 和 artifact size；这些字段与 `source-baseline-git-bundle/v1` 一起构成 artifact identity。该 artifact 仅属于未来 engine boundary，不改变当前 v3 的 v2 `git-bundle-thin` source transport。
+
+`validate-only` resolver 只能只读已有 artifact；可执行私有 `0700` 临时导入验证，以验证单文件 bundle 的 byte SHA/size、唯一 ref、zero-parent commit、0 prerequisites 与完整 closure，但不得生产 artifact 或修改来源。禁止 `tar bare ODB`、禁止 `index-only`、禁止 `worktree tar`、禁止自动生成、禁止自动修复、禁止 fallback、禁止 OSS 写、禁止 SQLite 写、禁止 PASS、禁止 plan。该 resolver 仍是未来未接线的验证边界，不能冒充 artifact builder、Coordinator、executor 或 runtime evidence。
+
 Git hook 的职责边界固定为：`pre-commit` 先用受信 Gate 在 exact staged tree 上校验项目地图，drift 时自动刷新并暂存受管输出，再对最终 exact staged tree 运行仓库代码守卫；该过程不执行候选生成器，不进入本契约的 remote CI 执行路径，也不消费 remote config、duration ledger 或 agent token。`pre-push` 是 Git 交付路径唯一的完整 remote ECI 门禁，并继续绑定 exact pushed ref update。手动 remote run 与 release 入口不受该 hook 分工影响。
 
 本契约不禁止非权威的宿主开发红绿测试。宿主入口唯一为 `scripts/test_with_guard.sh --host-test <light|medium>`：只接受一个精确 Go package、一个精确 top-level `Test` selector、`-count=1` 和有界 timeout；light 不接受 build tag 且 timeout 不超过 120 秒，medium 只可额外使用 `-tags=e2e` 且 timeout 不超过 600 秒。入口必须在执行前后使用 5 秒采样窗口获取实际 CPU busy 百分比并读取可用内存证据：低负载（CPU busy 小于 50% 且可用内存不少于 25%）或中负载（CPU busy 小于 80% 且可用内存不少于 15%）均可运行 light/medium；CPU busy 达到 80%、可用内存低于 15%、无法取证或其他高负载必须 fail-fast 并转 ECI。不得使用 load average/逻辑 CPU 比值替代 CPU busy，因为 runnable 与 I/O wait 不等于实际 CPU 占用。宿主执行固定限制 light=`GOMAXPROCS=2,-p=1`、medium=`GOMAXPROCS=4,-p=2`，结果必须标记 `LOCAL_NON_AUTHORITATIVE`，不得写入 SQLite authority、PASS evidence、release receipt 或冒充 ECI。宿主编译缓存必须由 `scripts/local_go_cache.sh` 按本机 Go 二进制、`asm/cgo/compile/link` 工具闭包、目标平台、架构级别、CGO/C 工具链与编译策略生成身份；同一设备的 linked worktree 共享该身份的持久 `GOCACHE`，每次运行使用独立 `GOTMPDIR`。每台设备只读取自己的 Git common-dir 邻接缓存与私有状态 JSON；发现协议可跨设备复用，但对象物料、绝对路径和状态文件不得跨设备传输或进入 Git。race、benchmark、fuzz、整包/递归包、多 selector、超过 medium 上限、重型代码门禁和未知负载仍只允许 `super-dolphin-gate test --target=remote` 经 ECI 执行；不得 remote-to-local fallback。
@@ -376,3 +384,4 @@ Windows workload 按 inventory 中任意 `N` 个 live Windows 节点的实时容
 | `future-engine.5` | §3.7 | protocol 必须交叉绑定 engine/target/artifact/manifest ABI digest；`validate-only` 只能验证，不得产出 plan/PASS 或 side effect | `validation-only guard; runtime not wired` |
 | `future-engine.6` | §8 | 禁止第二 artifact builder、第二 executor、target Gate artifact、host-path manifest、隐式输入与 validation-only promotion | `forbidden-path archtest guard` |
 | `future-engine.7` | §9 | RED→GREEN guard、LSP/测试/尺寸证据与未接线声明必须随 future contract 变更保留 | `contract review evidence` |
+| `future-engine.8` | §1.1 | portable source baseline artifact 固定为 `source-baseline-git-bundle/v1` 标准自包含单文件 Git bundle：唯一 `refs/source/baseline`、`DeterministicSourceBaselineCommitSHA` zero-parent commit、0 prerequisites、完整且无额外 closure；唯一 `aliyun-eci/v1` builder 的 receipt 绑定 builder/toolchain/repository_id/object_format/baseline commit/tree/artifact SHA/size，`validate-only` 只读验证且仅允许私有 0700 临时导入，不得产出或写 authority | `documentation guard RED→GREEN; runtime not wired` |

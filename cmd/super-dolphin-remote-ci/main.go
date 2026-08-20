@@ -94,7 +94,7 @@ func dispatchValidate(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return newCLIFailure("bind portable run", err)
 	}
-	output, err := boundedBindingJSON(raw, binding.BindingSHA256)
+	output, err := boundedBindingJSON(raw, binding)
 	if err != nil {
 		return newCLIFailure("render binding", err)
 	}
@@ -149,15 +149,30 @@ func readDescriptorFile(path string) ([]byte, error) {
 }
 
 // boundedBindingJSON 只投影 descriptor 与 identity 摘要，拒绝把 binding 原样写到 stdout。
-func boundedBindingJSON(descriptor []byte, bindingDigest string) ([]byte, error) {
+func boundedBindingJSON(descriptor []byte, binding remoteci.BoundPortableRun) ([]byte, error) {
 	descriptorDigest := digestBytes(descriptor)
-	if !isDigest(bindingDigest) {
+	if !isDigest(binding.BindingSHA256) {
 		return nil, errors.New("portable binding omitted canonical identity digest")
 	}
 	result := struct {
-		DescriptorDigest string `json:"descriptor_sha256"`
-		BindingDigest    string `json:"binding_sha256"`
-	}{DescriptorDigest: descriptorDigest, BindingDigest: bindingDigest}
+		Schema                 string `json:"schema"`
+		Status                 string `json:"status"`
+		ExecutionProvider      string `json:"execution_provider"`
+		RepositoryID           string `json:"repository_id"`
+		TargetCommitSHA        string `json:"target_commit_sha"`
+		TargetTreeSHA          string `json:"target_tree_sha"`
+		WorkloadManifestSHA256 string `json:"workload_manifest_sha256"`
+		EngineArtifactSHA256   string `json:"engine_artifact_sha256"`
+		DescriptorDigest       string `json:"descriptor_sha256"`
+		BindingDigest          string `json:"binding_sha256"`
+	}{
+		Schema: "portable-remote-ci-validation/v1", Status: "NOT_VERIFIED",
+		ExecutionProvider: binding.ExecutionProvider, RepositoryID: binding.Target.RepositoryID,
+		TargetCommitSHA: binding.Target.CommitSHA, TargetTreeSHA: binding.Target.TreeSHA,
+		WorkloadManifestSHA256: binding.WorkloadManifest.SHA256,
+		EngineArtifactSHA256:   binding.Engine.RuntimeArtifactSHA256,
+		DescriptorDigest:       descriptorDigest, BindingDigest: binding.BindingSHA256,
+	}
 	data, err := json.Marshal(result)
 	if err != nil {
 		return nil, errors.New("encode bounded binding result")

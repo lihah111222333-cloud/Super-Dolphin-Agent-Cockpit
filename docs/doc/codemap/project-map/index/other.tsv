@@ -21,8 +21,8 @@ cmd/super-dolphin-guard/main.go	cmd	other	go-source	15872	未细分职责：请�
 cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	24984	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14448	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
-cmd/super-dolphin-remote-ci/main.go	cmd	other	go-source	14655	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-remote-ci/main_test.go	cmd	other	go-test	12988	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-remote-ci/main.go	cmd	other	go-source	15519	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-remote-ci/main_test.go	cmd	other	go-test	13305	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,default,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/install.go	cmd	other	go-source	35145	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
@@ -338,7 +338,7 @@ internal/archtest/remote_ci_host_docker_wrapper_guard_test.go	internal	other	go-
 internal/archtest/remote_ci_identity_domain_guard_test.go	internal	other	go-test	4517	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,identity,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_image_layer_direct_read_guard_test.go	internal	other	go-test	7736	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,image,layer,direct,read,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_imagecache_refresh_runtime_guard_test.go	internal	other	go-test	1785	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,imagecache,refresh,runtime,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go	internal	other	go-test	5928	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,incremental,source,transport,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go	internal	other	go-test	7477	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,incremental,source,transport,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_miss_only_contract_guard_test.go	internal	other	go-test	11872	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,miss,only,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_plan_contract_field_guard_test.go	internal	other	go-test	21631	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,plan,contract,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_plan_report_decoder_binding_guard_test.go	internal	other	go-test	4004	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,plan,report,decoder,binding,guard,test,架构守卫,baseline,ratchet,与冻结规则

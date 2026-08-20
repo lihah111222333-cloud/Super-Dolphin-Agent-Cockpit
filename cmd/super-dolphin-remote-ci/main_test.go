@@ -91,8 +91,14 @@ func TestValidateBindsExactRepositoryObjects(t *testing.T) {
 
 	descriptorPath := portableCLIRealDescriptor(t)
 	code, stdout, stderr := executeCLI([]string{"validate", "--descriptor", descriptorPath})
-	if code != 0 || !strings.Contains(stdout, `"binding_sha256":"sha256:`) {
+	if code != 0 || !strings.Contains(stdout, `"binding_sha256":"sha256:`) ||
+		!strings.Contains(stdout, `"repository_id":"fixture"`) || !strings.Contains(stdout, `"status":"NOT_VERIFIED"`) {
 		t.Fatalf("validate result = code %d stdout %q stderr %q", code, stdout, stderr)
+	}
+	for _, forbidden := range []string{"repository_root", "config_path", "ledger_path"} {
+		if strings.Contains(stdout, forbidden) {
+			t.Fatalf("validate output leaked %q: %q", forbidden, stdout)
+		}
 	}
 	assertPortableProgressStages(t, stderr)
 }

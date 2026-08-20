@@ -39,6 +39,49 @@ func TestRemoteCIIncrementalSourceTransportContract(t *testing.T) {
 	assertBaselinePublishedByImages(t, root)
 }
 
+// TestRemoteCIFuturePortableSourceBaselineArtifactContract freezes the future
+// source-baseline artifact byte domain without claiming that runtime wiring
+// already exists in this repository.
+func TestRemoteCIFuturePortableSourceBaselineArtifactContract(t *testing.T) {
+	root := findRepoRoot(t)
+	contract := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(cicontract.DocumentPath)))
+	for _, required := range []string{
+		"source-baseline-git-bundle/v1",
+		"标准自包含 Git bundle 单文件",
+		"`refs/source/baseline`",
+		"`DeterministicSourceBaselineCommitSHA`",
+		"zero-parent commit",
+		"0 prerequisites",
+		"完整且无额外的 tree/blob closure",
+		"artifact SHA/size 按实际 bundle bytes",
+		"唯一 `aliyun-eci/v1` artifact builder",
+		"builder/toolchain/repository_id/object_format/baseline commit/tree/artifact SHA/size",
+		"`validate-only` resolver",
+		"只读已有 artifact",
+		"私有 `0700` 临时导入验证",
+	} {
+		if !strings.Contains(contract, required) {
+			t.Errorf("accepted remote CI contract is missing future source-baseline artifact marker %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"禁止 `tar bare ODB`",
+		"禁止 `index-only`",
+		"禁止 `worktree tar`",
+		"禁止自动生成",
+		"禁止自动修复",
+		"禁止 fallback",
+		"禁止 OSS 写",
+		"禁止 SQLite 写",
+		"禁止 PASS",
+		"禁止 plan",
+	} {
+		if !strings.Contains(contract, forbidden) {
+			t.Errorf("accepted remote CI contract is missing future source-baseline prohibition %q", forbidden)
+		}
+	}
+}
+
 func validateSourceTransportContract(t *testing.T) {
 	t.Helper()
 	if err := cicontract.ValidateSourceTransportContract(); err != nil {
