@@ -21,8 +21,8 @@ cmd/super-dolphin-guard/main.go	cmd	other	go-source	15872	未细分职责：请�
 cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	24984	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14448	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
-cmd/super-dolphin-remote-ci/main.go	cmd	other	go-source	15519	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-remote-ci/main_test.go	cmd	other	go-test	13305	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-remote-ci/main.go	cmd	other	go-source	336	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-remote-ci/main_test.go	cmd	other	go-test	856	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,default,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/install.go	cmd	other	go-source	35145	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
@@ -961,6 +961,8 @@ internal/devtools/projectmaptrusted/generator_asset.go	internal	other	go-source	
 internal/devtools/projectmaptrusted/generator_asset_sync_test.go	internal	other	go-test	2106	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,generator,asset,sync,test,开发工具与生成器辅助包
 internal/devtools/projectmaptrusted/project_map.go	internal	other	go-source	31936	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,开发工具与生成器辅助包
 internal/devtools/projectmaptrusted/project_map_test.go	internal	other	go-test	14700	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	15398	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
+internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	12830	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
 internal/devtools/shardresource/planner.go	internal	other	go-source	20508	开发工具与生成器辅助包	internal,devtools,shardresource,planner,开发工具与生成器辅助包
 internal/devtools/shardresource/planner_test.go	internal	other	go-test	16541	开发工具与生成器辅助包	internal,devtools,shardresource,planner,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/errors.go	internal	other	go-source	1294	开发工具与生成器辅助包	internal,devtools,sourceexport,errors,开发工具与生成器辅助包
