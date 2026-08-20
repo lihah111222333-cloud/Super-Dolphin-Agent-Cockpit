@@ -7,11 +7,11 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path"
 	"reflect"
 	"runtime"
 	"strings"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/toolchainidentity"
 )
@@ -102,14 +102,17 @@ type artifactBuilderObservedIdentityDependencies struct {
 	CompilerClosureDigest func(context.Context, string) (string, error)
 }
 
-// ReadArtifactBuilderObservedIdentity 从 Linux worker 的 /proc/self/exe 与运行中 Go compiler closure 测量身份。
-// Linux 只使用 /proc/self/exe 作为 process authority，不接受 caller path、environment 或 cwd fallback。
-func ReadArtifactBuilderObservedIdentity(ctx context.Context) (identity ArtifactBuilderObservedIdentity, resultErr error) {
+// ReadArtifactBuilderObservedIdentity 从 Linux worker 的 /proc/self/exe 与显式 Go compiler closure 测量身份。
+// Linux 只使用 /proc/self/exe 作为 process authority；compilerPath 是唯一 compiler 输入。
+func ReadArtifactBuilderObservedIdentity(ctx context.Context, compilerPath string) (identity ArtifactBuilderObservedIdentity, resultErr error) {
 	if ctx == nil {
 		return identity, observedIdentityStageError("preflight")
 	}
 	if runtime.GOOS != "linux" {
 		return identity, observedIdentityStageError("platform")
+	}
+	if err := validateCompilerPath(compilerPath); err != nil {
+		return identity, observedIdentityStageError("compiler_path")
 	}
 	file, err := os.Open("/proc/self/exe")
 	if err != nil {
@@ -122,7 +125,7 @@ func ReadArtifactBuilderObservedIdentity(ctx context.Context) (identity Artifact
 	}
 	deps := artifactBuilderObservedIdentityDependencies{
 		OpenExecutable:        func() (io.ReadSeeker, error) { return file, nil },
-		CompilerPath:          gateprivate.CanonicalRuntimeGoExecutable,
+		CompilerPath:          func() (string, error) { return compilerPath, nil },
 		CompilerClosureDigest: toolchainidentity.CompilerClosureDigest,
 	}
 	identity, resultErr = measureArtifactBuilderObservedIdentity(ctx, deps)
@@ -211,8 +214,11 @@ func measureObservedBuilderDigest(executable io.ReadSeeker) (string, error) {
 // measureObservedToolchainDigest 从实际 compiler closure 计算 toolchain digest。
 func measureObservedToolchainDigest(ctx context.Context, deps artifactBuilderObservedIdentityDependencies) (string, error) {
 	compilerPath, err := deps.CompilerPath()
-	if err != nil || compilerPath == "" {
+	if err != nil {
 		return "", observedIdentityStageError("compiler_path")
+	}
+	if compilerPath == "" {
+		return "", observedIdentityStageError("compiler_path_empty")
 	}
 	digest, err := deps.CompilerClosureDigest(ctx, compilerPath)
 	if err != nil {
@@ -222,6 +228,32 @@ func measureObservedToolchainDigest(ctx context.Context, deps artifactBuilderObs
 		return "", observedIdentityStageError("toolchain_digest")
 	}
 	return digest, nil
+}
+
+// validateCompilerPathShape 校验显式容器内 compiler path 的 POSIX wire 形状。
+func validateCompilerPathShape(value string) error {
+	if value == "" || strings.TrimSpace(value) != value || !strings.HasPrefix(value, "/") || path.Clean(value) != value || strings.ContainsAny(value, "\\\x00\r\n\t") {
+		return errors.New("compiler path must be a clean absolute POSIX path")
+	}
+	return nil
+}
+
+// validateCompilerPath 校验 compiler 是 regular、非符号链接且可执行的显式文件。
+func validateCompilerPath(value string) error {
+	if err := validateCompilerPathShape(value); err != nil {
+		return err
+	}
+	info, err := os.Lstat(value)
+	if err != nil {
+		return errors.New("compiler path is unavailable")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return errors.New("compiler path must be a regular non-symlink file")
+	}
+	if info.Mode()&0o111 == 0 {
+		return errors.New("compiler path must be executable")
+	}
+	return nil
 }
 
 func canonicalObservedDigest(value string) bool {
@@ -252,10 +284,11 @@ func observedIdentityFailureStage(err error) string {
 // dispatchArtifactIdentity 输出一个 bounded canonical identity object，不写 progress text。
 // 所有失败都留在既有 CLI-safe error boundary 内。
 func dispatchArtifactIdentity(args []string, stdout, _ io.Writer) error {
-	if len(args) != 0 {
-		return newCLIFailure("artifact identity arguments are invalid", nil)
+	compilerPath, err := parseArtifactIdentityCompilerPath(args)
+	if err != nil {
+		return err
 	}
-	identity, err := ReadArtifactBuilderObservedIdentity(context.Background())
+	identity, err := ReadArtifactBuilderObservedIdentity(context.Background(), compilerPath)
 	if err != nil {
 		return newCLIFailure("measure artifact builder identity: "+observedIdentityFailureStage(err), nil)
 	}
@@ -268,4 +301,11 @@ func dispatchArtifactIdentity(args []string, stdout, _ io.Writer) error {
 		return newCLIFailure("write artifact builder identity", err)
 	}
 	return nil
+}
+
+func parseArtifactIdentityCompilerPath(args []string) (string, error) {
+	if len(args) != 2 || args[0] != "--compiler-path" || args[1] == "" {
+		return "", newCLIFailure("artifact identity requires exactly --compiler-path", nil)
+	}
+	return args[1], nil
 }

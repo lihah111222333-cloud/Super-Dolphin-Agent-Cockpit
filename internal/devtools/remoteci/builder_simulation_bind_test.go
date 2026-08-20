@@ -192,7 +192,8 @@ func TestBindBuilderSimulationRequestRejectsWrongFormatTreeBlobSHARepositorySche
 	if _, err := BindBuilderSimulationRequest(ctx, request, resolver); err == nil {
 		t.Fatal("binder accepted a canceled context")
 	}
-	if _, err := BindBuilderSimulationRequest(nil, request, resolver); err == nil {
+	var nilContext context.Context
+	if _, err := BindBuilderSimulationRequest(nilContext, request, resolver); err == nil {
 		t.Fatal("binder accepted a nil context")
 	}
 }

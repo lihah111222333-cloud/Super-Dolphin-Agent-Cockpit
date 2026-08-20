@@ -246,7 +246,8 @@ func newRuntimeRequest(t *testing.T, input remoteci.SourceBaselineBuildInput) ec
 	t.Helper()
 	request, err := eci.NewArtifactBuilderRequest(eci.ArtifactBuilderConfig{Provider: eci.ArtifactBuilderProvider, RegionID: "cn-hz", ContainerGroupName: "group-1", ContainerName: "worker-1",
 		Image: "registry.example/remote@sha256:" + strings.Repeat("d", 64), ImageSnapshotID: "snapshot-1", EphemeralStorageGiB: eci.ArtifactBuilderEphemeralStorageGiB, CPU: eci.ArtifactBuilderCPU, MemoryGiB: eci.ArtifactBuilderMemoryGiB,
-		VSwitches: []cicontract.ECIVSwitch{{ID: "vsw-zone-a", ZoneID: "cn-test-a"}, {ID: "vsw-zone-b", ZoneID: "cn-test-b"}}, SecurityGroupID: "sg-1", RAMRoleName: "role-1", OSSBucket: "bucket-name", OSSInternalEndpoint: "https://oss.example",
+		CompilerPath: "/usr/local/go/bin/go",
+		VSwitches:    []cicontract.ECIVSwitch{{ID: "vsw-zone-a", ZoneID: "cn-test-a"}, {ID: "vsw-zone-b", ZoneID: "cn-test-b"}}, SecurityGroupID: "sg-1", RAMRoleName: "role-1", OSSBucket: "bucket-name", OSSInternalEndpoint: "https://oss.example",
 		Input: eci.ArtifactBuilderInput{ArtifactPrefix: input.ArtifactPrefix, Key: input.InputObjectKey, SHA256: input.InputSHA256, SizeBytes: input.InputSizeBytes, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat, SourceCommitSHA: input.CommitSHA, SourceTreeSHA: input.TreeSHA, ExpectedBuilderDigest: input.ExpectedBuilderDigest, ExpectedToolchainDigest: input.ExpectedToolchainDigest, ProtocolABIDigest: input.ProtocolABIDigest, WorkloadManifestABIDigest: input.WorkloadManifestABIDigest}})
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +257,8 @@ func newRuntimeRequest(t *testing.T, input remoteci.SourceBaselineBuildInput) ec
 
 func runtimeGroup(request eci.ArtifactBuilderRequest, status, containerState string, exitCode *int64) eci.ArtifactBuilderGroup {
 	return eci.ArtifactBuilderGroup{ID: "group-1", Name: request.ContainerGroupName, Provider: request.Provider, RegionID: request.RegionID, Image: request.Image, ImageSnapshotID: request.ImageSnapshotID,
-		Command: append([]string(nil), request.Command...), Input: request.Input, EphemeralStorageGiB: request.EphemeralStorageGiB, CPU: request.CPU, MemoryGiB: request.MemoryGiB,
+		CompilerPath: request.CompilerPath,
+		Command:      append([]string(nil), request.Command...), Input: request.Input, EphemeralStorageGiB: request.EphemeralStorageGiB, CPU: request.CPU, MemoryGiB: request.MemoryGiB,
 		VSwitches: request.VSwitches, ScheduleStrategy: request.ScheduleStrategy, SecurityGroupID: request.SecurityGroupID, RAMRoleName: request.RAMRoleName, OSSBucket: request.OSSBucket,
 		OSSInternalEndpoint: request.OSSInternalEndpoint, Tags: runtimeExpectedTags(request), Status: status, Container: eci.ArtifactBuilderContainer{Name: request.ContainerName, Image: request.Image, Command: []string{eci.ArtifactBuilderCommand}, Args: request.Command[1:], State: containerState, ExitCode: exitCode}}
 }
@@ -281,6 +283,7 @@ func runtimeExpectedTags(request eci.ArtifactBuilderRequest) map[string]string {
 		RegionID            string
 		ContainerGroupName  string
 		ContainerName       string
+		CompilerPath        string
 		Image               string
 		ImageSnapshotID     string
 		EphemeralStorageGiB int64
@@ -296,7 +299,7 @@ func runtimeExpectedTags(request eci.ArtifactBuilderRequest) map[string]string {
 		ArtifactRef         string
 		Command             []string
 		InputDigest         string
-	}{request.Provider, request.RegionID, request.ContainerGroupName, request.ContainerName, request.Image, request.ImageSnapshotID, request.EphemeralStorageGiB, request.CPU, request.MemoryGiB, request.VSwitches, request.ScheduleStrategy, request.SecurityGroupID, request.RAMRoleName, request.OSSBucket, request.OSSInternalEndpoint, request.ArtifactKind, request.ArtifactRef, request.Command, inputDigest})
+	}{request.Provider, request.RegionID, request.ContainerGroupName, request.ContainerName, request.CompilerPath, request.Image, request.ImageSnapshotID, request.EphemeralStorageGiB, request.CPU, request.MemoryGiB, request.VSwitches, request.ScheduleStrategy, request.SecurityGroupID, request.RAMRoleName, request.OSSBucket, request.OSSInternalEndpoint, request.ArtifactKind, request.ArtifactRef, request.Command, inputDigest})
 	return map[string]string{eci.ArtifactBuilderInputDigestTag: inputDigest, eci.ArtifactBuilderRequestDigestTag: requestDigest}
 }
 

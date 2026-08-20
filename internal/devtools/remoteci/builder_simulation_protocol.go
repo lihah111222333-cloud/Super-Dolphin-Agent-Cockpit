@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path"
 	"reflect"
 	"strings"
 
@@ -67,6 +68,7 @@ type BuilderSimulationECI struct {
 	AliyunCLI         string                  `json:"aliyun_cli"`
 	CredentialProfile string                  `json:"credential_profile"`
 	RegionID          string                  `json:"region_id"`
+	CompilerPath      string                  `json:"compiler_path"`
 	VSwitches         []cicontract.ECIVSwitch `json:"vswitches"`
 	SecurityGroupID   string                  `json:"security_group_id"`
 	RAMRoleName       string                  `json:"ram_role_name"`
@@ -201,6 +203,9 @@ func validateBuilderSimulationECI(config BuilderSimulationECI) error {
 	if err := validatePortableAbsolutePath("eci.aliyun_cli", config.AliyunCLI); err != nil {
 		return err
 	}
+	if err := validateBuilderSimulationCompilerPath(config.CompilerPath); err != nil {
+		return err
+	}
 	for _, value := range []string{config.CredentialProfile, config.RegionID, config.SecurityGroupID, config.RAMRoleName, config.ImageCacheID, config.ImageSnapshotID} {
 		if !validBuilderSimulationToken(value, 256) {
 			return errors.New("builder simulation ECI token is invalid")
@@ -211,6 +216,14 @@ func validateBuilderSimulationECI(config BuilderSimulationECI) error {
 	}
 	if !validBuilderSimulationImage(config.Image) {
 		return errors.New("builder simulation ECI image is not immutable")
+	}
+	return nil
+}
+
+// validateBuilderSimulationCompilerPath 校验 caller 提供的容器内 POSIX compiler path。
+func validateBuilderSimulationCompilerPath(value string) error {
+	if value == "" || strings.TrimSpace(value) != value || !strings.HasPrefix(value, "/") || path.Clean(value) != value || strings.ContainsAny(value, "\\\x00\r\n\t") {
+		return errors.New("builder simulation ECI compiler_path must be a clean absolute POSIX path")
 	}
 	return nil
 }

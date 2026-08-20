@@ -54,10 +54,10 @@ func assertArtifactBuilderCreateArgv(t *testing.T, createCall []string, request 
 		{"--ImageSnapshotId", request.ImageSnapshotID},
 		{"--Container.1.Command.1", ArtifactBuilderCommand},
 		{"--Container.1.Arg.1", ArtifactBuilderSubcommand},
-		{"--Container.1.Arg.3", ArtifactBuilderProvider},
-		{"--Container.1.Arg.5", ArtifactBuilderArtifactKind},
-		{"--Container.1.Arg.37", request.RAMRoleName},
-		{"--Container.1.Arg.9", request.Input.ArtifactPrefix},
+		{"--Container.1.Arg.3", request.CompilerPath},
+		{"--Container.1.Arg.5", ArtifactBuilderProvider},
+		{"--Container.1.Arg.39", request.RAMRoleName},
+		{"--Container.1.Arg.11", request.Input.ArtifactPrefix},
 		{"--Tag.1.Key", ArtifactBuilderInputDigestTag},
 		{"--Tag.2.Key", ArtifactBuilderRequestDigestTag},
 	} {
@@ -65,7 +65,7 @@ func assertArtifactBuilderCreateArgv(t *testing.T, createCall []string, request 
 			t.Fatalf("Create argv missing %v: %#v", pair, createCall)
 		}
 	}
-	for _, flag := range []string{"--Container.1.Arg.2=--execution-provider", "--Container.1.Arg.4=--artifact-kind", "--Container.1.Arg.8=--artifact-prefix", "--Container.1.Arg.36=--ram-role-name"} {
+	for _, flag := range []string{"--Container.1.Arg.2=--compiler-path", "--Container.1.Arg.4=--execution-provider", "--Container.1.Arg.6=--artifact-kind", "--Container.1.Arg.10=--artifact-prefix", "--Container.1.Arg.38=--ram-role-name"} {
 		if !slices.Contains(createCall, flag) {
 			t.Fatalf("Create argv missing flag %q: %#v", flag, createCall)
 		}

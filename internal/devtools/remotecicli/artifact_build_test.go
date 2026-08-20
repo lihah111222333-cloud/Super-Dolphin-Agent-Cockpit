@@ -103,6 +103,12 @@ func TestArtifactBuildRejectsUnknownMissingDuplicateAndIMDSFlags(t *testing.T) {
 	}{
 		{name: "unknown", mutate: func(args []string) []string { return append(args, "--unknown", "value") }},
 		{name: "missing", mutate: func(args []string) []string { return removeArtifactBuildArg(args, "expected-toolchain-digest") }},
+		{name: "missing compiler path", mutate: func(args []string) []string { return removeArtifactBuildArg(args, "compiler-path") }},
+		{name: "duplicate compiler path", mutate: func(args []string) []string { return append(args, "--compiler-path", "/usr/local/go/bin/go") }},
+		{name: "unclean compiler path", mutate: func(args []string) []string {
+			replaceArtifactBuildArg(args, "compiler-path", "/usr/local/go/../go/bin/go")
+			return args
+		}},
 		{name: "duplicate", mutate: func(args []string) []string { return append(args, "--input-key", fixture.inputKey) }},
 		{name: "metadata endpoint injection", mutate: func(args []string) []string { return append(args, "--metadata-base-url", "http://attacker.invalid") }},
 	}
@@ -134,6 +140,7 @@ type artifactBuildTestFixture struct {
 	expectedToolchainDigest   string
 	protocolABIDigest         string
 	workloadManifestABIDigest string
+	compilerPath              string
 }
 
 func newArtifactBuildTestFixture(t *testing.T) artifactBuildTestFixture {
@@ -167,12 +174,13 @@ func newArtifactBuildTestFixture(t *testing.T) artifactBuildTestFixture {
 		bundle: bundle, artifactPrefix: "cli/", inputKey: "cli/inputs/source.bundle", inputSHA256: "sha256:" + hex.EncodeToString(digest[:]), inputSizeBytes: int64(len(bundle)),
 		repositoryID: "repository-1", objectFormat: "sha1", commitSHA: commit, treeSHA: tree,
 		expectedBuilderDigest: "sha256:" + strings.Repeat("b", 64), expectedToolchainDigest: "sha256:" + strings.Repeat("c", 64),
-		protocolABIDigest: protocolABI, workloadManifestABIDigest: workloadABI,
+		protocolABIDigest: protocolABI, workloadManifestABIDigest: workloadABI, compilerPath: "/usr/local/go/bin/go",
 	}
 }
 
 func artifactBuildTestArgs(fixture artifactBuildTestFixture, ossEndpoint string) []string {
 	return []string{
+		"--compiler-path", fixture.compilerPath,
 		"--execution-provider", remoteci.PortableExecutionProvider,
 		"--oss-endpoint", ossEndpoint, "--oss-bucket", artifactBuildTestBucket, "--ram-role-name", "AliyunECIArtifactBuilderRole",
 		"--artifact-kind", remoteci.PortableSourceBaselineArtifactKind, "--artifact-ref", remoteci.PortableSourceBaselineArtifactRef,
@@ -184,8 +192,11 @@ func artifactBuildTestArgs(fixture artifactBuildTestFixture, ossEndpoint string)
 	}
 }
 
-func artifactBuildTestObserver(fixture artifactBuildTestFixture) remoteci.ArtifactBuilderIdentityObserver {
-	return func(context.Context) (remoteci.ObservedArtifactBuilderIdentity, error) {
+func artifactBuildTestObserver(fixture artifactBuildTestFixture) func(context.Context, string) (remoteci.ObservedArtifactBuilderIdentity, error) {
+	return func(_ context.Context, compilerPath string) (remoteci.ObservedArtifactBuilderIdentity, error) {
+		if compilerPath != fixture.compilerPath {
+			return remoteci.ObservedArtifactBuilderIdentity{}, fmt.Errorf("compiler path = %q", compilerPath)
+		}
 		return remoteci.ObservedArtifactBuilderIdentity{BuilderDigest: fixture.expectedBuilderDigest, ToolchainDigest: fixture.expectedToolchainDigest}, nil
 	}
 }

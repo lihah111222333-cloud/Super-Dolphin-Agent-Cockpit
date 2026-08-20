@@ -27,6 +27,7 @@ type artifactBuildFlags struct {
 	ossEndpoint               string
 	ossBucket                 string
 	ramRole                   string
+	compilerPath              string
 	artifactKind              string
 	artifactRef               string
 	artifactPrefix            string
@@ -46,7 +47,7 @@ type artifactBuildFlags struct {
 type artifactBuildDependencies struct {
 	httpClient       *http.Client
 	metadataBaseURL  string
-	observedIdentity remoteci.ArtifactBuilderIdentityObserver
+	observedIdentity func(context.Context, string) (remoteci.ObservedArtifactBuilderIdentity, error)
 }
 
 type strictStringFlag struct {
@@ -99,8 +100,8 @@ func dispatchArtifactBuild(args []string, stdout, stderr io.Writer) error {
 	return dispatchArtifactBuildWithDependencies(args, stdout, stderr, artifactBuildDependencies{httpClient: http.DefaultClient, observedIdentity: observeArtifactBuilderIdentity})
 }
 
-func observeArtifactBuilderIdentity(ctx context.Context) (remoteci.ObservedArtifactBuilderIdentity, error) {
-	identity, err := ReadArtifactBuilderObservedIdentity(ctx)
+func observeArtifactBuilderIdentity(ctx context.Context, compilerPath string) (remoteci.ObservedArtifactBuilderIdentity, error) {
+	identity, err := ReadArtifactBuilderObservedIdentity(ctx, compilerPath)
 	if err != nil {
 		return remoteci.ObservedArtifactBuilderIdentity{}, err
 	}
@@ -109,17 +110,17 @@ func observeArtifactBuilderIdentity(ctx context.Context) (remoteci.ObservedArtif
 
 // dispatchArtifactBuildWithDependencies 使用显式传输依赖执行一次 worker 构建。
 func dispatchArtifactBuildWithDependencies(args []string, stdout, stderr io.Writer, dependencies artifactBuildDependencies) error {
-	input, artifactIO, err := prepareArtifactBuildWorker(args, stderr, dependencies)
+	input, artifactIO, observer, err := prepareArtifactBuildWorker(args, stderr, dependencies)
 	if err != nil {
 		return err
 	}
 	if err := writeProgress(stderr, "artifact build started"); err != nil {
 		return newCLIFailure("write progress", err)
 	}
-	if dependencies.observedIdentity == nil {
+	if observer == nil {
 		return newCLIFailure("artifact builder observed identity observer is required", nil)
 	}
-	result, err := remoteci.BuildSourceBaselineArtifact(context.Background(), artifactIO, input, dependencies.observedIdentity)
+	result, err := remoteci.BuildSourceBaselineArtifact(context.Background(), artifactIO, input, observer)
 	if err != nil {
 		return newCLIFailure("artifact build failed", nil)
 	}
@@ -134,24 +135,24 @@ func dispatchArtifactBuildWithDependencies(args []string, stdout, stderr io.Writ
 }
 
 // prepareArtifactBuildWorker 校验输入并组装 worker 的下载与上传端口。
-func prepareArtifactBuildWorker(args []string, stderr io.Writer, dependencies artifactBuildDependencies) (remoteci.SourceBaselineBuildInput, remoteci.ArtifactIO, error) {
+func prepareArtifactBuildWorker(args []string, stderr io.Writer, dependencies artifactBuildDependencies) (remoteci.SourceBaselineBuildInput, remoteci.ArtifactIO, remoteci.ArtifactBuilderIdentityObserver, error) {
 	flags, err := parseArtifactBuildFlags(args)
 	if err != nil {
-		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, err
+		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, nil, err
 	}
 	if err := writeProgress(stderr, "artifact build arguments accepted"); err != nil {
-		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, newCLIFailure("write progress", err)
+		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, nil, newCLIFailure("write progress", err)
 	}
 	input, err := flags.sourceBaselineBuildInput()
 	if err != nil {
-		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, newCLIFailure("validate artifact build input", nil)
+		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, nil, newCLIFailure("validate artifact build input", nil)
 	}
 	inputClient, err := newArtifactBuildClient(flags, flags.inputKey, flags.inputSizeBytes, dependencies)
 	if err != nil {
-		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, newCLIFailure("configure artifact input client", nil)
+		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, nil, newCLIFailure("configure artifact input client", nil)
 	}
 	if err := writeProgress(stderr, "artifact input client configured"); err != nil {
-		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, newCLIFailure("write progress", err)
+		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, nil, newCLIFailure("write progress", err)
 	}
 	uploadState := &artifactBuildUploadState{}
 	artifactIO := remoteci.ArtifactIO{
@@ -164,7 +165,13 @@ func prepareArtifactBuildWorker(args []string, stderr io.Writer, dependencies ar
 		UploadArtifact: newArtifactBuildUpload(flags, dependencies, artifactBuildArtifactUpload, uploadState),
 		UploadReceipt:  newArtifactBuildUpload(flags, dependencies, artifactBuildReceiptUpload, uploadState),
 	}
-	return input, artifactIO, nil
+	if dependencies.observedIdentity == nil {
+		return remoteci.SourceBaselineBuildInput{}, remoteci.ArtifactIO{}, nil, newCLIFailure("artifact builder observed identity observer is required", nil)
+	}
+	observer := func(ctx context.Context) (remoteci.ObservedArtifactBuilderIdentity, error) {
+		return dependencies.observedIdentity(ctx, flags.compilerPath)
+	}
+	return input, artifactIO, observer, nil
 }
 
 // parseArtifactBuildFlags 严格解析 _artifact-build 参数，拒绝未知、重复和缺失字段。
@@ -174,6 +181,9 @@ func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 		return artifactBuildFlags{}, err
 	}
 	flags := artifactBuildFlagsFromValues(values)
+	if err := validateCompilerPathShape(flags.compilerPath); err != nil {
+		return artifactBuildFlags{}, newCLIFailure("artifact build compiler path is invalid", nil)
+	}
 	if flags.executionProvider != remoteci.PortableExecutionProvider || flags.artifactKind != artifactBuildArtifactKind || flags.artifactRef != artifactBuildArtifactRef {
 		return artifactBuildFlags{}, newCLIFailure("artifact build protocol identity is invalid", nil)
 	}
@@ -183,6 +193,7 @@ func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 type artifactBuildFlagValues struct {
 	executionProvider, ossEndpoint, ossBucket, ramRole                                           strictStringFlag
 	artifactKind, artifactRef, artifactPrefix, inputKey, inputSHA256                             strictStringFlag
+	compilerPath                                                                                 strictStringFlag
 	repositoryID, objectFormat, sourceCommitSHA, sourceTreeSHA                                   strictStringFlag
 	expectedBuilderDigest, expectedToolchainDigest, protocolABIDigest, workloadManifestABIDigest strictStringFlag
 	inputSizeBytes                                                                               strictInt64Flag
@@ -193,6 +204,7 @@ func parseArtifactBuildFlagValues(args []string) (artifactBuildFlagValues, error
 	var values artifactBuildFlagValues
 	set := flag.NewFlagSet("_artifact-build", flag.ContinueOnError)
 	set.SetOutput(io.Discard)
+	set.Var(&values.compilerPath, "compiler-path", "")
 	set.Var(&values.executionProvider, "execution-provider", "")
 	set.Var(&values.ossEndpoint, "oss-endpoint", "")
 	set.Var(&values.ossBucket, "oss-bucket", "")
@@ -230,7 +242,7 @@ func artifactBuildRequiredFlags(values artifactBuildFlagValues) []struct {
 		name string
 		set  bool
 	}{
-		{"execution-provider", values.executionProvider.set}, {"oss-endpoint", values.ossEndpoint.set}, {"oss-bucket", values.ossBucket.set}, {"ram-role-name", values.ramRole.set},
+		{"compiler-path", values.compilerPath.set}, {"execution-provider", values.executionProvider.set}, {"oss-endpoint", values.ossEndpoint.set}, {"oss-bucket", values.ossBucket.set}, {"ram-role-name", values.ramRole.set},
 		{"artifact-kind", values.artifactKind.set}, {"artifact-ref", values.artifactRef.set}, {"artifact-prefix", values.artifactPrefix.set}, {"input-key", values.inputKey.set},
 		{"input-sha256", values.inputSHA256.set}, {"input-size-bytes", values.inputSizeBytes.set}, {"repository-id", values.repositoryID.set}, {"object-format", values.objectFormat.set},
 		{"source-commit-sha", values.sourceCommitSHA.set}, {"source-tree-sha", values.sourceTreeSHA.set}, {"expected-builder-digest", values.expectedBuilderDigest.set},
@@ -240,6 +252,7 @@ func artifactBuildRequiredFlags(values artifactBuildFlagValues) []struct {
 
 func artifactBuildFlagsFromValues(values artifactBuildFlagValues) artifactBuildFlags {
 	return artifactBuildFlags{
+		compilerPath:              values.compilerPath.value,
 		executionProvider:         values.executionProvider.value,
 		ossEndpoint:               values.ossEndpoint.value,
 		ossBucket:                 values.ossBucket.value,

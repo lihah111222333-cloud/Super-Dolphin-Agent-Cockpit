@@ -29,6 +29,9 @@ func assertArtifactBuilderRequestIdentity(t *testing.T, request ArtifactBuilderR
 	if request.EphemeralStorageGiB != ArtifactBuilderEphemeralStorageGiB || request.CPU != ArtifactBuilderCPU || request.MemoryGiB != ArtifactBuilderMemoryGiB {
 		t.Fatalf("request resources = %#v", request)
 	}
+	if request.CompilerPath != testArtifactBuilderConfig().CompilerPath {
+		t.Fatalf("request compiler path = %q", request.CompilerPath)
+	}
 }
 
 func assertArtifactBuilderCommand(t *testing.T, request ArtifactBuilderRequest) {
@@ -59,7 +62,7 @@ func TestArtifactBuilderCommandLineHasExactInputFieldSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
+	want := []string{"--compiler-path", "--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
 	if len(command[2:]) != len(want)*2 {
 		t.Fatalf("builder command field count = %d, want %d: %#v", len(command[2:])/2, len(want), command)
 	}
@@ -83,6 +86,8 @@ func TestArtifactBuilderRequestRejectsIdentityResourceSecretAndPathDrift(t *test
 		{name: "wrong memory", mutate: func(config *ArtifactBuilderConfig) { config.MemoryGiB = 4 }},
 		{name: "wrong ephemeral storage", mutate: func(config *ArtifactBuilderConfig) { config.EphemeralStorageGiB = 20 }},
 		{name: "one vSwitch", mutate: func(config *ArtifactBuilderConfig) { config.VSwitches = config.VSwitches[:1] }},
+		{name: "missing compiler path", mutate: func(config *ArtifactBuilderConfig) { config.CompilerPath = "" }},
+		{name: "unclean compiler path", mutate: func(config *ArtifactBuilderConfig) { config.CompilerPath = "/usr/local/go/../go/bin/go" }},
 		{name: "credential in input key", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "objects/token=password" }},
 		{name: "signed URL", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "https://oss.example/bundle?signature=secret" }},
 		{name: "absolute input path", mutate: func(config *ArtifactBuilderConfig) { config.Input.Key = "/tmp/source.bundle" }},
@@ -146,6 +151,7 @@ func TestArtifactBuilderLifecycleRejectsLiveCommandInputResourceScheduleAndTagDr
 		{name: "schedule", mutate: func(group *ArtifactBuilderGroup) { group.ScheduleStrategy = "VSwitchRandomDrift" }},
 		{name: "security group", mutate: func(group *ArtifactBuilderGroup) { group.SecurityGroupID = "sg-drift" }},
 		{name: "RAM role", mutate: func(group *ArtifactBuilderGroup) { group.RAMRoleName = "role-drift" }},
+		{name: "compiler path", mutate: func(group *ArtifactBuilderGroup) { group.CompilerPath = "/usr/local/go/bin/other-go" }},
 		{name: "request digest tag", mutate: func(group *ArtifactBuilderGroup) {
 			group.Tags[ArtifactBuilderRequestDigestTag] = "sha256:" + strings.Repeat("9", 64)
 		}},
@@ -366,6 +372,7 @@ func testArtifactBuilderConfig() ArtifactBuilderConfig {
 		RegionID:            "cn-shenzhen",
 		ContainerGroupName:  "artifact-builder-1",
 		ContainerName:       "portable-builder",
+		CompilerPath:        "/usr/local/go/bin/go",
 		Image:               "registry.example.com/remote-ci@sha256:" + strings.Repeat("a", 64),
 		ImageSnapshotID:     "snap-builder-1",
 		EphemeralStorageGiB: ArtifactBuilderEphemeralStorageGiB,
@@ -409,6 +416,7 @@ func testArtifactBuilderGroup(t *testing.T, request ArtifactBuilderRequest, stat
 		RegionID:            request.RegionID,
 		Image:               request.Image,
 		ImageSnapshotID:     request.ImageSnapshotID,
+		CompilerPath:        request.CompilerPath,
 		Command:             append([]string(nil), request.Command...),
 		Input:               request.Input,
 		EphemeralStorageGiB: request.EphemeralStorageGiB,

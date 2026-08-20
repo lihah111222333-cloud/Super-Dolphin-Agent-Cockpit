@@ -156,6 +156,7 @@ func validBuilderSimulationRequest(t *testing.T) BuilderSimulationRequest {
 				SchemaVersion: PortableWorkloadManifestSchemaVersion, RepositoryID: "target-repository"}},
 		Artifact: BuilderSimulationArtifact{Prefix: "portable-engine/operation-1/"},
 		ECI: BuilderSimulationECI{AliyunCLI: "/usr/local/bin/aliyun", CredentialProfile: "remote-ci", RegionID: "cn-test",
+			CompilerPath:    "/usr/local/go/bin/go",
 			VSwitches:       []cicontract.ECIVSwitch{{ID: "vsw-zone-a", ZoneID: "cn-test-a"}, {ID: "vsw-zone-b", ZoneID: "cn-test-b"}},
 			SecurityGroupID: "sg-test", RAMRoleName: "role-test", ImageCacheID: "cache-test", ImageSnapshotID: "snapshot-test",
 			Image: "registry.example/remote@" + builderSimulationDigest("2")},

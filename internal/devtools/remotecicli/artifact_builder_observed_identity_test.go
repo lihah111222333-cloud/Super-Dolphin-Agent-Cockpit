@@ -8,6 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
@@ -71,6 +74,14 @@ func TestArtifactBuilderObservedIdentityFailureStageDoesNotLeakCause(t *testing.
 	}
 }
 
+func TestExplicitCompilerPathValidationRejectsImplicitOrUnsafePaths(t *testing.T) {
+	for _, value := range []string{"", "go", "/usr/local/go/../go/bin/go", "/usr/local/go/bin/go\n"} {
+		if err := validateCompilerPath(value); err == nil {
+			t.Fatalf("validateCompilerPath(%q) accepted unsafe path", value)
+		}
+	}
+}
+
 func TestArtifactBuilderObservedIdentityCanonicalJSONAndDynamicFieldGuard(t *testing.T) {
 	t.Parallel()
 
@@ -119,9 +130,11 @@ func assertArtifactBuilderObservedIdentityJSONFields(t *testing.T, encoded []byt
 func TestArtifactBuilderObservedIdentityRejectsUnknownArgsAndJSON(t *testing.T) {
 	t.Parallel()
 
-	code, stdout, stderr := executeCLI([]string{"_artifact-identity", "--unknown"})
-	if code == 0 || stdout != "" || stderr == "" {
-		t.Fatalf("unknown artifact identity args = code %d stdout %q stderr %q", code, stdout, stderr)
+	for _, args := range [][]string{{"_artifact-identity", "--unknown"}, {"_artifact-identity"}, {"_artifact-identity", "--compiler-path"}, {"_artifact-identity", "--compiler-path", "/usr/local/go/bin/go", "--compiler-path", "/usr/local/go/bin/go"}} {
+		code, stdout, stderr := executeCLI(args)
+		if code == 0 || stdout != "" || stderr == "" {
+			t.Fatalf("invalid artifact identity args %#v = code %d stdout %q stderr %q", args, code, stdout, stderr)
+		}
 	}
 	input := []byte(`{"schema_version":"artifact-builder-observed-identity/v1","builder_sha256":"sha256:` + strings.Repeat("a", 64) + `","toolchain_digest":"sha256:` + strings.Repeat("b", 64) + `","protocol_abi_digest":"sha256:` + strings.Repeat("c", 64) + `","workload_manifest_abi_digest":"sha256:` + strings.Repeat("d", 64) + `","unknown":"field"}`)
 	if _, err := DecodeArtifactBuilderObservedIdentity(input); err == nil {
@@ -133,7 +146,7 @@ func TestArtifactBuilderObservedIdentityCLIUsesLinuxAuthorityOnly(t *testing.T) 
 	if runtime.GOOS != "linux" {
 		t.Skip("current executable authority is Linux /proc/self/exe only")
 	}
-	code, stdout, stderr := executeCLI([]string{"_artifact-identity"})
+	code, stdout, stderr := executeCLI([]string{"_artifact-identity", "--compiler-path", compilerPathForTest(t)})
 	if code != 0 || stderr != "" {
 		t.Fatalf("artifact identity CLI = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
@@ -163,7 +176,7 @@ func TestArtifactBuilderObservedIdentityProductionReadUsesCommittedABIs(t *testi
 	if runtime.GOOS != "linux" {
 		t.Skip("current executable authority is Linux /proc/self/exe only")
 	}
-	identity, err := ReadArtifactBuilderObservedIdentity(context.Background())
+	identity, err := ReadArtifactBuilderObservedIdentity(context.Background(), compilerPathForTest(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,4 +191,21 @@ func TestArtifactBuilderObservedIdentityProductionReadUsesCommittedABIs(t *testi
 	if identity.ProtocolABIDigest != protocol || identity.WorkloadManifestABIDigest != workload {
 		t.Fatalf("production ABI identity = %#v, want protocol=%q workload=%q", identity, protocol, workload)
 	}
+}
+
+func compilerPathForTest(t *testing.T) string {
+	t.Helper()
+	path, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err = filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		t.Fatalf("compiler path is not executable regular file: %q (%v)", path, err)
+	}
+	return path
 }

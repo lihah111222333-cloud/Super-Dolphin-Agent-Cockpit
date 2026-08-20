@@ -87,6 +87,7 @@ type ArtifactBuilderConfig struct {
 	RegionID            string
 	ContainerGroupName  string
 	ContainerName       string
+	CompilerPath        string
 	Image               string
 	ImageSnapshotID     string
 	EphemeralStorageGiB int64
@@ -107,6 +108,7 @@ type ArtifactBuilderRequest struct {
 	RegionID            string
 	ContainerGroupName  string
 	ContainerName       string
+	CompilerPath        string
 	Image               string
 	ImageSnapshotID     string
 	EphemeralStorageGiB int64
@@ -132,6 +134,7 @@ func NewArtifactBuilderRequest(config ArtifactBuilderConfig) (ArtifactBuilderReq
 		RegionID:            config.RegionID,
 		ContainerGroupName:  config.ContainerGroupName,
 		ContainerName:       config.ContainerName,
+		CompilerPath:        config.CompilerPath,
 		Image:               config.Image,
 		ImageSnapshotID:     config.ImageSnapshotID,
 		EphemeralStorageGiB: config.EphemeralStorageGiB,
@@ -168,6 +171,7 @@ func ValidateArtifactBuilderRequest(request ArtifactBuilderRequest) error {
 func (request ArtifactBuilderRequest) Validate() error {
 	checks := []func() error{
 		request.validateProvider,
+		request.validateCompilerPath,
 		request.validateNamesAndImage,
 		request.validateResources,
 		request.validateScheduling,
@@ -189,6 +193,21 @@ func (request ArtifactBuilderRequest) validateProvider() error {
 	}
 	if !artifactBuilderTokenPattern.MatchString(request.RegionID) {
 		return errors.New("artifact builder region is required and must be a canonical token")
+	}
+	return nil
+}
+
+// validateArtifactBuilderCompilerPath 校验传入 ECI worker 的 clean absolute POSIX compiler path。
+func validateArtifactBuilderCompilerPath(value string) error {
+	if value == "" || strings.TrimSpace(value) != value || !strings.HasPrefix(value, "/") || path.Clean(value) != value || strings.ContainsAny(value, "\\\x00\r\n\t") || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return errors.New("artifact builder compiler path must be a clean absolute POSIX path")
+	}
+	return nil
+}
+
+func (request ArtifactBuilderRequest) validateCompilerPath() error {
+	if err := validateArtifactBuilderCompilerPath(request.CompilerPath); err != nil {
+		return err
 	}
 	return nil
 }
@@ -322,6 +341,7 @@ func (request ArtifactBuilderRequest) CommandLine() ([]string, error) {
 	input := request.Input
 	args := []string{
 		request.Command[0], request.Command[1],
+		"--compiler-path", request.CompilerPath,
 		"--execution-provider", request.Provider,
 		"--artifact-kind", request.ArtifactKind,
 		"--artifact-ref", request.ArtifactRef,
@@ -470,6 +490,7 @@ type artifactBuilderRequestDigestMaterial struct {
 	RegionID            string
 	ContainerGroupName  string
 	ContainerName       string
+	CompilerPath        string
 	Image               string
 	ImageSnapshotID     string
 	EphemeralStorageGiB int64
@@ -498,7 +519,7 @@ func artifactBuilderRequestDigest(request ArtifactBuilderRequest) (string, error
 	}
 	material := artifactBuilderRequestDigestMaterial{
 		Provider: request.Provider, RegionID: request.RegionID,
-		ContainerGroupName: request.ContainerGroupName, ContainerName: request.ContainerName,
+		ContainerGroupName: request.ContainerGroupName, ContainerName: request.ContainerName, CompilerPath: request.CompilerPath,
 		Image: request.Image, ImageSnapshotID: request.ImageSnapshotID,
 		EphemeralStorageGiB: request.EphemeralStorageGiB, CPU: request.CPU,
 		MemoryGiB: request.MemoryGiB, VSwitches: request.VSwitches,
@@ -561,6 +582,7 @@ type ArtifactBuilderGroup struct {
 	RegionID            string
 	Image               string
 	ImageSnapshotID     string
+	CompilerPath        string
 	Command             []string
 	Input               ArtifactBuilderInput
 	EphemeralStorageGiB int64

@@ -110,11 +110,12 @@ func validateArtifactBuilderLiveInfrastructure(request ArtifactBuilderRequest, g
 }
 
 type artifactBuilderParsedCommand struct {
-	provider string
-	input    ArtifactBuilderInput
-	bucket   string
-	endpoint string
-	role     string
+	provider     string
+	compilerPath string
+	input        ArtifactBuilderInput
+	bucket       string
+	endpoint     string
+	role         string
 }
 
 // mapArtifactBuilderGroup 将 Describe 的真实字段投影为 builder live group。
@@ -140,7 +141,7 @@ func mapArtifactBuilderGroup(live ContainerGroup) (ArtifactBuilderGroup, error) 
 	}
 	return ArtifactBuilderGroup{
 		ID: live.ID, Name: live.Name, Provider: parsed.provider, RegionID: live.RegionID,
-		Image: container.Image, ImageSnapshotID: live.ImageSnapshotID, Command: artifactBuilderGroupCommand(container.Command, container.Args),
+		Image: container.Image, ImageSnapshotID: live.ImageSnapshotID, CompilerPath: parsed.compilerPath, Command: artifactBuilderGroupCommand(container.Command, container.Args),
 		Input: parsed.input, EphemeralStorageGiB: live.EphemeralStorageGiB, CPU: live.CPU, MemoryGiB: live.MemoryGiB,
 		VSwitches: vSwitches, SecurityGroupID: live.SecurityGroupID, RAMRoleName: live.RAMRoleName,
 		OSSBucket: parsed.bucket, OSSInternalEndpoint: parsed.endpoint, Tags: tags, Status: live.Status,
@@ -198,6 +199,9 @@ func parseArtifactBuilderContainerCommand(command, args []string) (artifactBuild
 	if err := validateArtifactBuilderParsedFlags(values); err != nil {
 		return artifactBuilderParsedCommand{}, err
 	}
+	if err := validateArtifactBuilderCompilerPath(values["--compiler-path"]); err != nil {
+		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live compiler path is invalid", ErrArtifactBuilderIdentityDrift)
+	}
 	size, err := strconv.ParseInt(values["--input-size-bytes"], 10, 64)
 	if err != nil {
 		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live builder input size is invalid", ErrArtifactBuilderIdentityDrift)
@@ -210,7 +214,7 @@ func parseArtifactBuilderContainerCommand(command, args []string) (artifactBuild
 	if err := validateArtifactBuilderOSSIdentity(values["--oss-bucket"], values["--oss-endpoint"]); err != nil || !artifactBuilderTokenPattern.MatchString(values["--ram-role-name"]) {
 		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live builder OSS or RAM identity is invalid", ErrArtifactBuilderIdentityDrift)
 	}
-	return artifactBuilderParsedCommand{provider: values["--execution-provider"], input: input, bucket: values["--oss-bucket"], endpoint: values["--oss-endpoint"], role: values["--ram-role-name"]}, nil
+	return artifactBuilderParsedCommand{provider: values["--execution-provider"], compilerPath: values["--compiler-path"], input: input, bucket: values["--oss-bucket"], endpoint: values["--oss-endpoint"], role: values["--ram-role-name"]}, nil
 }
 
 func validateArtifactBuilderContainerCommandShape(command, args []string) error {
@@ -226,17 +230,22 @@ func validateArtifactBuilderContainerCommandShape(command, args []string) error 
 // parseArtifactBuilderFlags 解析并拒绝未知、重复或不成对的 live argv。
 func parseArtifactBuilderFlags(args []string) (map[string]string, error) {
 	allowed := map[string]struct{}{}
-	for _, key := range []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"} {
+	for _, key := range []string{"--compiler-path", "--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"} {
 		allowed[key] = struct{}{}
 	}
 	values := make(map[string]string)
+	seen := make(map[string]struct{}, len(allowed))
 	for index := 0; index < len(args); index += 2 {
-		if index+1 >= len(args) || !strings.HasPrefix(args[index], "--") || values[args[index]] != "" {
+		if index+1 >= len(args) || !strings.HasPrefix(args[index], "--") {
 			return nil, fmt.Errorf("%w: live builder command arguments are malformed", ErrArtifactBuilderIdentityDrift)
 		}
 		if _, ok := allowed[args[index]]; !ok {
 			return nil, fmt.Errorf("%w: live builder command contains an unsupported flag", ErrArtifactBuilderIdentityDrift)
 		}
+		if _, duplicate := seen[args[index]]; duplicate {
+			return nil, fmt.Errorf("%w: live builder command contains a duplicate flag", ErrArtifactBuilderIdentityDrift)
+		}
+		seen[args[index]] = struct{}{}
 		values[args[index]] = args[index+1]
 	}
 	return values, nil
@@ -244,7 +253,7 @@ func parseArtifactBuilderFlags(args []string) (map[string]string, error) {
 
 // validateArtifactBuilderParsedFlags 校验 live argv 的固定协议字段集合。
 func validateArtifactBuilderParsedFlags(values map[string]string) error {
-	required := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
+	required := []string{"--compiler-path", "--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
 	for _, key := range required {
 		if strings.TrimSpace(values[key]) == "" {
 			return fmt.Errorf("%w: live builder command omitted %s", ErrArtifactBuilderIdentityDrift, key)
@@ -312,6 +321,7 @@ func validateArtifactBuilderLiveStrings(request ArtifactBuilderRequest, group Ar
 		{"region", group.RegionID, request.RegionID},
 		{"image", group.Image, request.Image},
 		{"image snapshot", group.ImageSnapshotID, request.ImageSnapshotID},
+		{"compiler path", group.CompilerPath, request.CompilerPath},
 		{"container name", group.Container.Name, request.ContainerName},
 		{"container image", group.Container.Image, request.Image},
 	}

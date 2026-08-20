@@ -20,7 +20,7 @@ func TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary(t *test
 		t.Fatal(err)
 	}
 	source := strings.ToLower(string(content))
-	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=100", "remote-ci-imagecache-refresh-receipt/v4", "go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci", "cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "tar --owner=0 --group=0 --numeric-owner", "chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "remote_ci_binary_sha256", "/tmp/candidate-remote-ci _artifact-identity", "protocol_abi_digest", "workload_manifest_abi_digest", "remote_ci_toolchain_digest", "jq -c -n"} {
+	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=100", "remote-ci-imagecache-refresh-receipt/v4", "go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci", "cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "tar --owner=0 --group=0 --numeric-owner", "chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "remote_ci_binary_sha256", "compiler_path=$(command -v go)", "test -f \"$compiler_path\"", "test -x \"$compiler_path\"", "_artifact-identity --compiler-path \"$compiler_path\"", "protocol_abi_digest", "workload_manifest_abi_digest", "remote_ci_toolchain_digest", "jq -c -n"} {
 		if !strings.Contains(source, strings.ToLower(required)) {
 			t.Errorf("refresh script is missing %q", required)
 		}
@@ -195,14 +195,17 @@ func assertPortableBuilderContract(t *testing.T, builder string) {
 	if got := strings.Count(builder, "./cmd/super-dolphin-remote-ci"); got != 1 {
 		t.Fatalf("remote CI binary build count = %d, want 1", got)
 	}
-	identity := strings.Index(builder, "raw_artifact_identity=$(/tmp/candidate-remote-ci _artifact-identity)")
+	identity := strings.Index(builder, "raw_artifact_identity=$(/tmp/candidate-remote-ci _artifact-identity --compiler-path \"$compiler_path\")")
 	warm := strings.Index(builder, "mkdir -p /tmp/event-probe")
 	if identity < 0 || warm < 0 || identity >= warm {
 		t.Fatal("builder does not fail fast on portable identity before cache warming")
 	}
 	assertRefreshMarkers(t, builder, []string{
 		"go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci",
-		"/tmp/candidate-remote-ci _artifact-identity",
+		"compiler_path=$(command -v go)",
+		"test -f \"$compiler_path\"",
+		"test -x \"$compiler_path\"",
+		"_artifact-identity --compiler-path \"$compiler_path\"",
 		"jq -e -c -s",
 		"builder_sha256",
 		"remote_ci_toolchain_digest",
@@ -226,7 +229,10 @@ func assertPortableVerifierContract(t *testing.T, source, verify string) {
 		"EXPECTED_REMOTE_CI_TOOLCHAIN_DIGEST",
 		"EXPECTED_PROTOCOL_ABI_DIGEST",
 		"EXPECTED_WORKLOAD_MANIFEST_ABI_DIGEST",
-		"/usr/local/bin/super-dolphin-remote-ci _artifact-identity",
+		"compiler_path=$(command -v go)",
+		"test -f \"$compiler_path\"",
+		"test -x \"$compiler_path\"",
+		"/usr/local/bin/super-dolphin-remote-ci _artifact-identity --compiler-path \"$compiler_path\"",
 		"jq -e -c -s",
 		"remote_ci_binary_sha256=%s",
 		"remote_ci_toolchain_digest=%s",
