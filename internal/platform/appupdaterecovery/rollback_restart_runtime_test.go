@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,9 @@ import (
 )
 
 func TestRollbackRestartLauncherReapsEveryPostStartFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("rollback child bounded wait is unsupported on windows")
+	}
 	for _, failure := range []string{"capture", "validation"} {
 		t.Run(failure, func(t *testing.T) { runRollbackRestartLauncherFailure(t, failure) })
 	}
@@ -311,6 +315,9 @@ func (fixture *rollbackRuntimeFailureFixture) waitChild(ctx context.Context, chi
 }
 
 func TestRollbackRestartCleanupReturnsWhenTerminationAndKillDoNotRespond(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bounded rollback child wait is unsupported on windows")
+	}
 	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 	cmd := startRollbackRuntimeChild(t)
 	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)

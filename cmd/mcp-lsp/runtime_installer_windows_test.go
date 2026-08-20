@@ -37,3 +37,28 @@ func TestWindowsProductionInstallActionsUseExtendedTimeout(t *testing.T) {
 		t.Fatalf("Windows shell InstallTimeout = %s, want %s", shellCfg.InstallTimeout, windowsProductionInstallTimeout)
 	}
 }
+
+func TestWindowsSQLInstallerUsesProductOwnedGoSQLS(t *testing.T) {
+	cfg := windowsSQLInstallerConfig("C:/windows-test-product", nil)
+	if cfg.BinaryName != installer.WindowsGoSQLSBinaryName {
+		t.Fatalf("Windows SQL BinaryName = %q, want %q", cfg.BinaryName, installer.WindowsGoSQLSBinaryName)
+	}
+	if cfg.InstallCmd != "" || len(cfg.InstallArgs) != 0 {
+		t.Fatalf("Windows SQL installer exposes host command fields: cmd=%q args=%v", cfg.InstallCmd, cfg.InstallArgs)
+	}
+	if cfg.InstallTimeout != windowsProductionInstallTimeout {
+		t.Fatalf("Windows SQL InstallTimeout = %s, want %s", cfg.InstallTimeout, windowsProductionInstallTimeout)
+	}
+	if cfg.InstallAction == nil {
+		t.Fatal("Windows SQL installer InstallAction is nil")
+	}
+	if cfg.InstalledBinaryPathResolver == nil {
+		t.Fatal("Windows SQL installer InstalledBinaryPathResolver is nil")
+	}
+	if cfg.InstalledReadinessValidator == nil {
+		t.Fatal("Windows SQL installer InstalledReadinessValidator is nil")
+	}
+	if cfg.InstallLockKey != runtimeWindowsSQLSInstallLockKey {
+		t.Fatalf("Windows SQL InstallLockKey = %q, want %q", cfg.InstallLockKey, runtimeWindowsSQLSInstallLockKey)
+	}
+}

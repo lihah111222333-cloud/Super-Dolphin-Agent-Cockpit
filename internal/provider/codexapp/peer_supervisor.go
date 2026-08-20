@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -555,10 +556,14 @@ type execPeerLauncher struct {
 	logger         *slog.Logger
 	workspaceRoots func() []string
 	managedIssuer  contract.ManagedAuthorityIssuer
+	ownerID        string
 }
 
+var execPeerOwnerSequence atomic.Uint64
+
 func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
-	return &execPeerLauncher{logger: defaultCodexAppLogger(logger)}
+	owner := fmt.Sprintf("pid-%d-%d", os.Getpid(), execPeerOwnerSequence.Add(1))
+	return &execPeerLauncher{logger: defaultCodexAppLogger(logger), ownerID: owner}
 }
 
 // Launch 启动指定 peer 二进制并返回可监管 handle。

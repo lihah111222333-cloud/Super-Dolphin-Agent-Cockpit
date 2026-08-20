@@ -55,7 +55,11 @@ func TestSchemaCompilerHelperCompileAndValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve repository root: %v", err)
 	}
-	binary := filepath.Join(t.TempDir(), "mcp-schema-compiler-helper")
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	binary := filepath.Join(t.TempDir(), "mcp-schema-compiler-helper"+filepath.Ext(testExecutable))
 	build := exec.Command("go", "build", "-o", binary, "./cmd/mcp-schema-compiler-helper")
 	build.Dir = root
 	build.Env = append(os.Environ(), "GOWORK=off")

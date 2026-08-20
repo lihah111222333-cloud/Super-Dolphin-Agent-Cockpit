@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -89,7 +90,7 @@ func normalizeRuntimeWorkspaceRootCapability(roots []string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("resolve runtime workspace root capability: %w", err)
 		}
-		resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+		resolved, err := lspplatform.CanonicalDirectoryPath(filepath.Clean(absolute))
 		if err != nil {
 			return nil, fmt.Errorf("resolve runtime workspace root capability: %w", err)
 		}
@@ -258,7 +259,7 @@ func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("resolve work_dir: %w", err)
 	}
-	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+	resolved, err := lspplatform.CanonicalDirectoryPath(filepath.Clean(absolute))
 	if err != nil {
 		return "", fmt.Errorf("resolve work_dir: %w", err)
 	}

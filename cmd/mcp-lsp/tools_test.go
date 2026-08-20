@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	lsptools "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/tools"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -488,9 +489,12 @@ func writeTestFile(t *testing.T, path, contents string) {
 
 func canonicalToolTestRoot(t *testing.T, root string) string {
 	t.Helper()
-	realRoot, err := filepath.EvalSymlinks(root)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("create tool test root: %v", err)
+	}
+	realRoot, err := lspplatform.CanonicalDirectoryPath(root)
 	if err != nil {
-		return root
+		t.Fatalf("canonicalize tool test root: %v", err)
 	}
 	return realRoot
 }

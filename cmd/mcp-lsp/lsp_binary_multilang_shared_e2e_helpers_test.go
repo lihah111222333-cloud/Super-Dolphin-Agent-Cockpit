@@ -4,7 +4,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"slices"
 	"testing"
 	"time"
@@ -15,13 +14,15 @@ import (
 // 这些 E2E 辅助只构造协议测试 fixture 和语言覆盖表。
 // 平台相关的伪服务启动器位于带平台 build tag 的文件中。
 const (
-	fakeMultilangDiagnosticsEnv        = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTICS"
-	fakeMultilangServerEnv             = "MCP_LSP_FAKE_MULTILANG_SERVER"
-	fakeMultilangLifecycleJournalEnv   = "MCP_LSP_FAKE_MULTILANG_LIFECYCLE_JOURNAL"
-	fakeMultilangPendingRequestGateEnv = "MCP_LSP_FAKE_MULTILANG_PENDING_REQUEST_GATE"
-	fakeMultilangDiagnosticDelayEnv    = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTIC_DELAY"
-	binaryColdStartDiagnosticsDelay    = 1750 * time.Millisecond
-	binaryColdStartDiagnosticsSlack    = 250 * time.Millisecond
+	fakeMultilangDiagnosticsEnv             = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTICS"
+	fakeMultilangServerEnv                  = "MCP_LSP_FAKE_MULTILANG_SERVER"
+	fakeMultilangLifecycleJournalEnv        = "MCP_LSP_FAKE_MULTILANG_LIFECYCLE_JOURNAL"
+	fakeMultilangPendingRequestGateEnv      = "MCP_LSP_FAKE_MULTILANG_PENDING_REQUEST_GATE"
+	fakeMultilangDiagnosticDelayEnv         = "MCP_LSP_FAKE_MULTILANG_DIAGNOSTIC_DELAY"
+	fakeMultilangRequireGraphQLConfigDirEnv = "MCP_LSP_FAKE_REQUIRE_GRAPHQL_CONFIG_DIR"
+	fakeMultilangGraphQLConfigDirEnv        = "MCP_LSP_FAKE_GRAPHQL_CONFIG_DIR"
+	binaryColdStartDiagnosticsDelay         = 1750 * time.Millisecond
+	binaryColdStartDiagnosticsSlack         = 250 * time.Millisecond
 )
 
 type realLSPDiagnosticsCase struct {
@@ -32,19 +33,11 @@ type realLSPDiagnosticsCase struct {
 
 func requireHostBinariesForE2E(t *testing.T, cases []realLSPDiagnosticsCase) {
 	t.Helper()
-	seen := map[string]struct{}{}
-	for _, tc := range cases {
-		for _, binary := range tc.binaries {
-			if _, ok := seen[binary]; ok {
-				continue
-			}
-			seen[binary] = struct{}{}
-			if _, err := exec.LookPath(binary); err != nil {
-				t.Fatalf("real system e2e requires %s in PATH: %v", binary, err)
-			}
-		}
-	}
+	requireRealLanguageServersForE2E(t, cases)
 }
+
+// requireRealLanguageServersForE2E 由平台 build tag 选择真实语言服务器的来源检查。
+// 公共 E2E 只保留语言矩阵契约，避免把 Windows 产品缓存策略泄漏到跨平台代码。
 
 type binaryColdStartLanguageCase struct {
 	languageID string

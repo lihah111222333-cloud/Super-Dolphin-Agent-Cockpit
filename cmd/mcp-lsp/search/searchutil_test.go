@@ -674,7 +674,7 @@ func writeSearchTestFile(t *testing.T, path, content string) {
 }
 
 func TestSearchTextSkipsGoModCache(t *testing.T) {
-	root, _ := filepath.EvalSymlinks(t.TempDir())
+	root := cleanRealPath(t, t.TempDir())
 	keep := filepath.Join(root, "src", "keep.go")
 	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
 	modCache := filepath.Join(root, "go", "pkg", "mod", "github.com", "foo", "bar")
@@ -693,7 +693,7 @@ func TestSearchTextSkipsGoModCache(t *testing.T) {
 }
 
 func TestSearchTextSkipsGoModCacheByPathSegment(t *testing.T) {
-	root, _ := filepath.EvalSymlinks(t.TempDir())
+	root := cleanRealPath(t, t.TempDir())
 	keep := filepath.Join(root, "src", "keep.go")
 	writeSearchTestFile(t, keep, "package main\nconst needle = true\n")
 	modDir := filepath.Join(root, "go", "pkg", "mod", "example.com", "lib")
@@ -713,7 +713,7 @@ func TestSearchTextSkipsGoModCacheByPathSegment(t *testing.T) {
 }
 
 func TestSearchTextDoesNotSkipUserDirNamedMod(t *testing.T) {
-	root, _ := filepath.EvalSymlinks(t.TempDir())
+	root := cleanRealPath(t, t.TempDir())
 	modFile := filepath.Join(root, "mod", "keep.go")
 	writeSearchTestFile(t, modFile, "package mod\nconst needle = true\n")
 	t.Setenv("GOMODCACHE", "/nonexistent/path")

@@ -29,7 +29,7 @@ func TestHTTPRunnerInjectsWindowsToolErrorClassifier(t *testing.T) {
 			raw := syscall.Errno(5)
 			return nil, securefs.WrapErrorForPath(raw, path)
 		},
-	}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	}, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), readySidecarFileLoggerGateForTest(t))
 	if err != nil {
 		t.Fatalf("newHTTPRunner() error = %v", err)
 	}

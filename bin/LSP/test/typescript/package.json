@@ -1,0 +1,47 @@
+{
+  "name": "typescript-node-starter",
+  "version": "1.0.0",
+  "description": "A minimal boilerplate for Node.js web applications written in TypeScript.",
+  "main": "./build/index.js",
+  "scripts": {
+    "start": "npm run build && node build/index.js",
+    "build": "rimraf ./build && tsc",
+    "dev": "nodemon",
+    "pretty": "prettier --config .prettierrc 'src/**/*.ts'",
+    "pretty:fix": "npm run pretty -- --write",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "npm run lint -- --fix",
+    "test": "jest",
+    "test:watch": "jest --watchAll",
+    "prepare": "husky install"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nicksp/typescript-node-starter.git"
+  },
+  "keywords": [],
+  "author": "Nick Khan",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nicksp/typescript-node-starter/issues"
+  },
+  "homepage": "https://github.com/nicksp/typescript-node-starter#readme",
+  "devDependencies": {
+    "@types/jest": "^29.0.3",
+    "@types/node": "^18.7.18",
+    "@typescript-eslint/eslint-plugin": "^5.37.0",
+    "@typescript-eslint/parser": "^5.37.0",
+    "eslint": "^8.23.1",
+    "eslint-config-prettier": "^8.5.0",
+    "eslint-plugin-jest": "^27.0.4",
+    "eslint-plugin-prettier": "^4.2.1",
+    "husky": "^8.0.1",
+    "jest": "^29.0.3",
+    "nodemon": "^2.0.20",
+    "prettier": "^2.7.1",
+    "rimraf": "^3.0.2",
+    "ts-jest": "^29.0.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.8.3"
+  }
+}

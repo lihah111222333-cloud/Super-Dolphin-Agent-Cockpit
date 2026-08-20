@@ -109,7 +109,7 @@ func TestUpdateRecoveryReleaseGateUsesGuardForEveryRequiredPackage(t *testing.T)
 		"set -euo pipefail",
 		`root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"`,
 		`cd "$root"`,
-		"./scripts/test_with_guard.sh ./internal/platform/appupdaterecovery ./cmd/super-dolphin-updater ./cmd/super-dolphin-guard ./internal/app -count=1",
+		"./scripts/test_with_guard.sh -tags=e2e ./internal/platform/appupdaterecovery ./cmd/super-dolphin-updater ./cmd/super-dolphin-guard ./internal/app -count=1",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("update recovery release gate missing %q", want)
@@ -145,7 +145,7 @@ func TestUpdateRecoveryReleaseGateRunsFromArbitraryWorkingDirectory(t *testing.T
 	if len(lines) != 2 || lines[0] != fixture {
 		t.Fatalf("gate invocation log = %#v, want repo root %q plus args", lines, fixture)
 	}
-	if lines[1] != "./internal/platform/appupdaterecovery ./cmd/super-dolphin-updater ./cmd/super-dolphin-guard ./internal/app -count=1" {
+	if lines[1] != "-tags=e2e ./internal/platform/appupdaterecovery ./cmd/super-dolphin-updater ./cmd/super-dolphin-guard ./internal/app -count=1" {
 		t.Fatalf("guard args = %q, want complete release package set", lines[1])
 	}
 }
@@ -293,6 +293,7 @@ func updateRecoveryPackageTestNames(t *testing.T, dir string) []string {
 	buildContext.GOOS = "darwin"
 	buildContext.GOARCH = "arm64"
 	buildContext.CgoEnabled = true
+	buildContext.BuildTags = []string{"e2e"}
 	packageInfo, err := buildContext.ImportDir(dir, build.ImportComment)
 	if err != nil {
 		t.Fatalf("enumerate darwin/arm64 tests under %s: %v", dir, err)

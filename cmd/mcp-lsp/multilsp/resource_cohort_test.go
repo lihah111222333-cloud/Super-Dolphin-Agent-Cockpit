@@ -71,6 +71,10 @@ func TestResourceCohortAllowsHeavyPrimaryAndLightSecondaryBelowHardLimit(t *test
 }
 
 func TestResourceCohortAllowsSecondaryRSSAt2560MiB(t *testing.T) {
+	const (
+		wantRSSLimitBytes        uint64 = 2560 * 1024 * 1024
+		wantCohortHardLimitBytes uint64 = 5120 * 1024 * 1024
+	)
 	env := []string{
 		ResourceRepositoryCohortIDEnv + "=repo-secondary-budget",
 		ResourceCohortRoleEnv + "=" + ResourceCohortRoleSecondary,
@@ -81,9 +85,9 @@ func TestResourceCohortAllowsSecondaryRSSAt2560MiB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repositoryResourcePolicyFromEnvironment() error = %v", err)
 	}
-	if policy.rssLimitBytes != 2560*1024*1024 || policy.cohortHardLimitBytes != 5120*1024*1024 {
+	if policy.rssLimitBytes != wantRSSLimitBytes || policy.cohortHardLimitBytes != wantCohortHardLimitBytes {
 		t.Fatalf("secondary policy limits = (rss=%d cohort=%d), want (rss=%d cohort=%d)",
-			policy.rssLimitBytes, policy.cohortHardLimitBytes, 2560*1024*1024, 5120*1024*1024)
+			policy.rssLimitBytes, policy.cohortHardLimitBytes, wantRSSLimitBytes, wantCohortHardLimitBytes)
 	}
 }
 

@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 type languageOverrideRegistry struct {
@@ -290,7 +291,7 @@ func TestDiagnosticsLanguageOverrideReopensDocumentWithResolvedScope(t *testing.
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload); err != nil {
 		t.Fatalf("diagnostics with language_id returned error: %v", err)
 	}
-	canonicalPath, err := filepath.EvalSymlinks(path)
+	canonicalPath, err := lspplatform.CanonicalExistingPath(path)
 	if err != nil {
 		t.Fatalf("resolve canonical fixture path: %v", err)
 	}

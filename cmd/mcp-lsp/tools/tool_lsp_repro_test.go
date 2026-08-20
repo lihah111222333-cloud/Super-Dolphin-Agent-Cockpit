@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -117,6 +118,68 @@ func TestEditFormatAppliesLSPTextEditsAndSyncsDocument(t *testing.T) {
 		t.Fatalf("Format path = %q, want %q", manager.gotFormatPath, canonicalReproPath(t, target))
 	}
 	assertSingleDidChange(t, manager.didChanges, 11, want)
+	assertFileContent(t, target, want)
+}
+
+func TestEditFormatAcceptsObjectiveCUtf16LineEndSentinelAtEOF(t *testing.T) {
+	root := t.TempDir()
+	original := "NSString *title = @\"\U0001F642\";"
+	target := writeReproFile(t, root, "main.m", original)
+	want := "NSString *title = @\"formatted\";"
+	manager := &lspReproManager{
+		formatEdits: []protocol.TextEdit{{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 1, Character: lspEndOfLineCharacter},
+			},
+			NewText: want,
+		}},
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input := marshalReproParams(t, EditRequest{
+		Action:     "format",
+		FilePath:   "main.m",
+		LanguageID: "objective-c",
+		Version:    13,
+	})
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("format returned error = %v, want Objective-C UTF-16 EOF edit applied", err)
+	}
+	assertAppliedFormatResult(t, requireEditEnvelope(t, got))
+	assertSingleDidChange(t, manager.didChanges, 13, want)
+	assertFileContent(t, target, want)
+}
+
+func TestEditFormatAcceptsLuaEOFLineCountAfterTerminalNewline(t *testing.T) {
+	root := t.TempDir()
+	original := "local value = 1\n"
+	target := writeReproFile(t, root, "format.lua", original)
+	want := "local value = 2\n"
+	manager := &lspReproManager{
+		formatEdits: []protocol.TextEdit{{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 2, Character: 0},
+			},
+			NewText: want,
+		}},
+	}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+	input := marshalReproParams(t, EditRequest{
+		Action:     "format",
+		FilePath:   "format.lua",
+		LanguageID: "lua",
+		Version:    14,
+	})
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("format returned error = %v, want Lua EOF line-count edit applied", err)
+	}
+	assertAppliedFormatResult(t, requireEditEnvelope(t, got))
+	assertSingleDidChange(t, manager.didChanges, 14, want)
 	assertFileContent(t, target, want)
 }
 
@@ -252,7 +315,14 @@ func TestApplyTextEditsRejectsInvalidRanges(t *testing.T) {
 			name: "line beyond EOF",
 			edit: protocol.TextEdit{Range: protocol.Range{
 				Start: protocol.Position{Line: 0, Character: 0},
-				End:   protocol.Position{Line: 2, Character: 0},
+				End:   protocol.Position{Line: 3, Character: 0},
+			}},
+		},
+		{
+			name: "line-count with nonzero character",
+			edit: protocol.TextEdit{Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 2, Character: 1},
 			}},
 		},
 		{
@@ -464,7 +534,7 @@ func writeReproFile(t *testing.T, root, relPath, content string) string {
 
 func canonicalReproPath(t *testing.T, path string) string {
 	t.Helper()
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := lspplatform.CanonicalExistingPath(path)
 	if err != nil {
 		t.Fatalf("canonicalize path %s: %v", path, err)
 	}

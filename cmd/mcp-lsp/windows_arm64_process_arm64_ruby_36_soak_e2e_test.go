@@ -38,21 +38,19 @@ const (
 // 使用固定 RubyInstaller ARM64 与 Ruby LSP 0.26.10，禁止其他架构或服务器替代。
 func windowsARM64ProcessARM64Ruby36ServerCase() realNodeServerCase {
 	return realNodeServerCase{
-		name:        "ruby",
-		languageID:  "ruby",
-		packageName: "ruby-lsp",
-		fileName:    "main.rb",
-		content: "class RubyGreeter\n" +
-			"  # Returns a greeting for the supplied name.\n" +
-			"  def greet(name)\n" +
-			"    \"hello #{name}\"\n" +
-			"  end\n" +
-			"end\n\n" +
-			"RubyGreeter.new.greet(\"world\")\n",
-		// Ruby LSP 在调用点能同时解析方法文档与真实引用；类声明位置
-		// 在长时间 idle 后可能合法返回空 hover，不能作为生命周期语义门禁。
-		line:      8,
-		character: 16,
+		name:                 "ruby",
+		languageID:           "ruby",
+		packageName:          "ruby-lsp",
+		fileName:             "lib/rake/application.rb",
+		line:                 20,
+		character:            8,
+		sourceDir:            "ruby",
+		sourceFile:           "lib/rake/application.rb",
+		sourceSecondaryFile:  "lib/rake.rb",
+		sourceIdentifier:     "Application",
+		sourceWorkspaceQuery: "Application",
+		sourceLine:           20,
+		sourceCharacter:      8,
 	}
 }
 
@@ -119,14 +117,23 @@ func TestWindowsARM64ProcessARM64Ruby36CatalogContract(t *testing.T) {
 	}
 
 	server := windowsARM64ProcessARM64Ruby36ServerCase()
-	if server.line != 8 || server.character != 16 || !strings.Contains(server.content, "RubyGreeter.new.greet") {
-		t.Fatalf("Ruby semantic fixture must use the documented greet call site: line=%d character=%d", server.line, server.character)
+	if server.sourceDir != "ruby" || server.sourceFile != "lib/rake/application.rb" || server.sourceSecondaryFile != "lib/rake.rb" || server.sourceIdentifier != "Application" || server.sourceWorkspaceQuery != "Application" || server.sourceLine != 20 || server.sourceCharacter != 8 {
+		t.Fatalf("Ruby semantic fixture source mapping is not locked to bin/LSP/test/ruby: %#v", server)
 	}
 	fixtureRoot := t.TempDir()
 	fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
 	requireRealMCPFixturePositions(t, fixture, server)
-	astFile := filepath.Join(fixtureRoot, "ast_fixture.js")
-	writeRealFixture(t, astFile, "function rubyAst(name) { return name; }\nrubyAst(\"world\");\n")
+	if !realMCPPathWithinRoot(fixtureRoot, fixture.workDir) || !realMCPPathWithinRoot(fixture.workDir, fixture.targetFile) || !realMCPPathWithinRoot(fixture.workDir, fixture.secondaryFile) {
+		t.Fatalf("Ruby fixture escaped isolated workspace: root=%q work_dir=%q target=%q secondary=%q", fixtureRoot, fixture.workDir, fixture.targetFile, fixture.secondaryFile)
+	}
+	if filepath.Clean(fixture.sourcePath) == filepath.Clean(fixture.targetFile) || filepath.Clean(fixture.sourceSecondaryPath) == filepath.Clean(fixture.secondaryFile) {
+		t.Fatalf("Ruby fixture aliases checked-in source: source=%q target=%q secondary_source=%q secondary=%q", fixture.sourcePath, fixture.targetFile, fixture.sourceSecondaryPath, fixture.secondaryFile)
+	}
+	astFile := filepath.Join(fixture.workDir, ".mcp-ast", "ast_fixture.js")
+	copyRealMCPBinSourceFile(t, filepath.Join(realNodeRepoRoot(t), "bin", "LSP", "test"), "javascript/module-examples/top-level-await/main.js", astFile)
+	if !realMCPPathWithinRoot(fixture.workDir, astFile) {
+		t.Fatalf("Ruby ast_search fixture escaped isolated workspace: %q", astFile)
+	}
 	actions := windowsARM64ProcessARM64Ruby36ActionSpecs(server, fixture, astFile)
 	if err := validateRealMCPActionClosure(actions); err != nil {
 		t.Fatalf("Ruby 36-action closure: %v", err)
@@ -148,6 +155,21 @@ func TestWindowsARM64ProcessARM64Ruby36CatalogContract(t *testing.T) {
 	for family, want := range wantFamilies {
 		if familyCounts[family] != want {
 			t.Fatalf("Ruby %s action count=%d, want %d", family, familyCounts[family], want)
+		}
+	}
+	for _, action := range actions {
+		for _, key := range []string{"file_path", "pos"} {
+			value, ok := action.args[key].(string)
+			if !ok || strings.TrimSpace(value) == "" {
+				continue
+			}
+			path := value
+			if key == "pos" {
+				path = realMCPPositionPath(value)
+			}
+			if path != "" && !realMCPPathWithinRoot(fixture.workDir, path) {
+				t.Fatalf("Ruby %s/%s path escaped isolated workspace: %s=%q", action.tool, action.name, key, path)
+			}
 		}
 	}
 }
@@ -475,10 +497,11 @@ func TestWindowsARM64ProcessARM64Ruby36SoakE2E(t *testing.T) {
 	server := windowsARM64ProcessARM64Ruby36ServerCase()
 	fixtureRoot := t.TempDir()
 	registerRealMCPTempRootCleanup(t, fixtureRoot)
-	astFile := filepath.Join(fixtureRoot, "ast_fixture.js")
-	writeRealFixture(t, astFile, "function rubyAst(name) { return name; }\nrubyAst(\"world\");\n")
+	fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
+	astFile := filepath.Join(fixture.workDir, ".mcp-ast", "ast_fixture.js")
+	copyRealMCPBinSourceFile(t, filepath.Join(repoRoot, "bin", "LSP", "test"), "javascript/module-examples/top-level-await/main.js", astFile)
 	binaryPath := buildRealMcpLSPBinary(t, repoRoot)
-	client := startRealMcpLSPBinary(t, ctx, binaryPath, fixtureRoot, repoRoot, "", "", productRoot)
+	client := startRealMcpLSPBinary(t, ctx, binaryPath, fixture.workDir, repoRoot, "", "", productRoot)
 	mcpPID := client.cmd.Process.Pid
 	mcpStart, err := windowsGoplsProcessStartIdentity(mcpPID)
 	if err != nil {
@@ -546,7 +569,7 @@ func TestWindowsARM64ProcessARM64Ruby36SoakE2E(t *testing.T) {
 		t.Fatalf("send Ruby initialized notification: %v", err)
 	}
 	requireRealMCPToolFamilies(t, callMcpLSPBinaryRaw(t, client, "tools/list", map[string]any{}))
-	_, actions, matrix, actionLedger = windowsARM64ProcessARM64Ruby36RunActionMatrix(t, client, mcpPID, fixtureRoot, astFile, server, tracked, wirePath)
+	fixture, actions, matrix, actionLedger = windowsARM64ProcessARM64Ruby36RunActionMatrix(t, client, mcpPID, fixtureRoot, astFile, server, tracked, wirePath)
 	if matrix.total != windowsARM64ProcessARM64Ruby36Actions || matrix.succeeded+matrix.capabilityUnsupported != matrix.total {
 		t.Fatalf("Ruby action accounting failed: total=%d success=%d legal_empty=%d capability_unsupported=%d", matrix.total, matrix.succeeded, matrix.legalEmpty, matrix.capabilityUnsupported)
 	}
@@ -602,12 +625,12 @@ func TestWindowsARM64ProcessARM64Ruby36SoakE2E(t *testing.T) {
 	}
 	// manager idle 可能重建 Ruby child；先用同一 fixture 的公开 open_file
 	// 重新 hydration 文档，再验证 hover 非空，不能把 child 重建后的空状态当语义结果。
-	postIdleOpen := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", map[string]any{
+	postIdleOpen := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{
 		"action":    "open_file",
 		"file_path": postIdlePath,
 	}))
 	requireRealMCPActionResult(t, postIdleOpen, true, "", false, "", false, "ruby post-idle fixture hydration")
-	response := client.callTool(t, postAction.tool, realMCPWindowsToolArguments(server.languageID, fixtureRoot, postAction.tool, postAction.name, postAction.args))
+	response := client.callTool(t, postAction.tool, realMCPWindowsToolArguments(server.languageID, fixture.workDir, postAction.tool, postAction.name, postAction.args))
 	if status := requireRealMCPActionResult(t, response, true, "", false, realMCPActionCapabilityKey(postAction.tool, postAction.name), realMCPActionProtocolOptional(postAction.tool, postAction.name), "ruby post-idle hover"); status != realMCPActionSucceeded {
 		t.Fatalf("Ruby post-idle hover was not a non-empty semantic success: %s", status)
 	}
@@ -766,10 +789,10 @@ func windowsARM64ProcessARM64Ruby36RunActionMatrix(t *testing.T, client *mcpLSPB
 			if path == "" {
 				t.Fatalf("Ruby patch action %s has no target path", action.name)
 			}
-			opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
+			opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
 			requireRealMCPActionResult(t, opened, true, "", false, "", false, "ruby patch target")
 		}
-		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args))
+		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixture.workDir, action.tool, action.name, action.args))
 		status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), "ruby "+action.tool+"/"+action.name)
 		if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
 			assertRealFileContains(t, fixture.replaceFile, "REAL_MCP_REPLACED", "ruby replace_range")

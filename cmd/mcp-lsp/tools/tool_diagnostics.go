@@ -364,7 +364,7 @@ func (h handlerBase) collectDiagnosticTargets(ctx context.Context, input fileToo
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := ensureDiagnosticFile(pathInfo.AbsPath, pathInfo.DisplayPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := ensureDiagnosticFile(pathInfo.AbsPath, pathInfo.DisplayPath); err != nil {
 			return nil, nil, err
 		}
 		uri := fileURI(pathInfo.AbsPath)

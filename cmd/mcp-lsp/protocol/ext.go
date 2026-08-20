@@ -27,11 +27,14 @@ type InitializeParams struct {
 type ClientCapabilities struct {
 	TextDocument *TextDocumentClientCapabilities `json:"textDocument,omitempty"`
 	Workspace    *WorkspaceClientCapability      `json:"workspace,omitempty"`
+	// Experimental declares optional server extensions consumed by the sidecar.
+	Experimental map[string]any `json:"experimental,omitempty"`
 }
 
 // WorkspaceClientCapability 描述客户端 workspace 级特性。
 type WorkspaceClientCapability struct {
 	WorkspaceFolders bool `json:"workspaceFolders,omitempty"`
+	ApplyEdit        bool `json:"applyEdit,omitempty"`
 }
 
 // DynamicRegistrationCapability 表示某类 LSP 能力是否支持动态注册。
@@ -58,6 +61,17 @@ type TextDocumentClientCapabilities struct {
 	Formatting         *FormattingCapability          `json:"formatting,omitempty"`
 	FoldingRange       *FoldingRangeCapability        `json:"foldingRange,omitempty"`
 	SemanticTokens     *SemanticTokensCapability      `json:"semanticTokens,omitempty"`
+}
+
+// CompletionClientCapability 描述 completion 动态注册与候选项能力。
+type CompletionClientCapability struct {
+	DynamicRegistration bool                            `json:"dynamicRegistration,omitempty"`
+	CompletionItem      *CompletionItemClientCapability `json:"completionItem,omitempty"`
+}
+
+// CompletionItemClientCapability 描述 completion item 的具体客户端支持。
+type CompletionItemClientCapability struct {
+	SnippetSupport bool `json:"snippetSupport,omitempty"`
 }
 
 // DocumentSymbolCapability 描述 documentSymbol 请求的层级符号能力。
@@ -136,13 +150,12 @@ type ServerCapabilities struct {
 
 // 常见能力别名复用动态注册结构，保持 initialize JSON 与 LSP 规范字段形状一致。
 type (
-	CompletionClientCapability = DynamicRegistrationCapability
-	CallHierarchyCapability    = DynamicRegistrationCapability
-	TypeHierarchyCapability    = DynamicRegistrationCapability
-	CodeActionCapability       = DynamicRegistrationCapability
-	SignatureHelpCapability    = DynamicRegistrationCapability
-	FormattingCapability       = DynamicRegistrationCapability
-	FoldingRangeCapability     = DynamicRegistrationCapability
+	CallHierarchyCapability = DynamicRegistrationCapability
+	TypeHierarchyCapability = DynamicRegistrationCapability
+	CodeActionCapability    = DynamicRegistrationCapability
+	SignatureHelpCapability = DynamicRegistrationCapability
+	FormattingCapability    = DynamicRegistrationCapability
+	FoldingRangeCapability  = DynamicRegistrationCapability
 )
 
 // LocationResult 统一承接 Location、LocationLink 和附加函数范围信息。

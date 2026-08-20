@@ -121,7 +121,7 @@ func TestWindowsNodeRuntimeNPMFailureSummaryRedactsPackagesAndPaths(t *testing.T
 	if !errors.As(err, &summary) {
 		t.Fatalf("error = %T, want *ProcessFailureError: %v", err, err)
 	}
-	if !summary.ExitCodePresent || summary.ExitCode != 23 || summary.PackageCount != 1 || summary.ArgsCount != 5 || summary.OutputBytes == 0 || summary.OutputSHA256 == "" {
+	if !summary.ExitCodePresent || summary.ExitCode != 23 || summary.PackageCount != 1 || summary.ArgsCount != 6 || summary.OutputBytes == 0 || summary.OutputSHA256 == "" {
 		t.Fatalf("npm process summary = %+v", summary)
 	}
 	if got := err.Error(); strings.Contains(got, secretOutput) || strings.Contains(got, secretPackage) || strings.Contains(got, npmPath) || strings.Contains(got, prefix) {
@@ -135,6 +135,34 @@ func TestWindowsNodeRuntimeNPMFailureSummaryRedactsPackagesAndPaths(t *testing.T
 	}
 	if got := string(receipt); strings.Contains(got, secretOutput) || strings.Contains(got, secretPackage) || strings.Contains(got, prefix) {
 		t.Fatalf("npm receipt leaked process data: %q", got)
+	}
+}
+
+func TestWindowsNodeRuntimeNPMInstallPublishesNodeToLifecycleScriptPATH(t *testing.T) {
+	npmDir := t.TempDir()
+	npmPath := filepath.Join(npmDir, "npm.cmd")
+	if err := os.WriteFile(npmPath, []byte("@echo off\r\nnode lifecycle-proof\r\n"), 0o600); err != nil {
+		t.Fatalf("write npm lifecycle fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(npmDir, "node.cmd"), []byte("@echo off\r\nif not \"%1\"==\"lifecycle-proof\" exit /b 42\r\nexit /b 0\r\n"), 0o600); err != nil {
+		t.Fatalf("write Node lifecycle fixture: %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	prefix := t.TempDir()
+	if err := installWindowsNodeRuntimePackages(context.Background(), npmPath, prefix, []string{"proof-package@1.0.0"}); err != nil {
+		t.Fatalf("install with npm lifecycle Node resolved from runtime directory: %v", err)
+	}
+}
+
+func TestWindowsNodeRuntimeNPMInstallDisablesPackageLifecycleScripts(t *testing.T) {
+	npmDir := t.TempDir()
+	npmPath := filepath.Join(npmDir, "npm.cmd")
+	fixture := "@echo off\r\nset found=\r\nfor %%A in (%*) do if \"%%~A\"==\"--ignore-scripts\" set found=1\r\nif not defined found exit /b 43\r\nexit /b 0\r\n"
+	if err := os.WriteFile(npmPath, []byte(fixture), 0o600); err != nil {
+		t.Fatalf("write npm lifecycle policy fixture: %v", err)
+	}
+	if err := installWindowsNodeRuntimePackages(context.Background(), npmPath, t.TempDir(), []string{"proof-package@1.0.0"}); err != nil {
+		t.Fatalf("install locked npm package with lifecycle scripts disabled: %v", err)
 	}
 }
 

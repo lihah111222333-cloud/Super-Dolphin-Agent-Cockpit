@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -289,7 +290,7 @@ func absoluteCandidatePath(root, target string) (string, error) {
 
 func resolveExistingPath(absPath string) (string, error) {
 	parent := filepath.Dir(absPath)
-	parentReal, err := filepath.EvalSymlinks(parent)
+	parentReal, err := lspplatform.CanonicalDirectoryPath(parent)
 	if err != nil {
 		return "", fmt.Errorf("resolve parent path: %w", err)
 	}

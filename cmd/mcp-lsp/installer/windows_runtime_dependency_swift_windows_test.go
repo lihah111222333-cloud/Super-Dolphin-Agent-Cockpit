@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
+	"golang.org/x/sys/windows"
 )
 
 func TestSwiftWindowsLaunchSelectsOfficialPlatformSDK(t *testing.T) {
@@ -175,6 +176,53 @@ func TestSwiftWindowsRejectedRuntimeOriginProof(t *testing.T) {
 	if err := validateSwiftWindowsRejectedRuntimeOrigin(root); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestEnsureWindowsSwiftProductRootOwnerOnlyConvergesACL(t *testing.T) {
+	root := t.TempDir()
+	if err := setBroadSwiftProductRootACL(root); err != nil {
+		t.Fatalf("set broad Swift product root ACL: %v", err)
+	}
+	if err := EnsureWindowsSwiftProductRootOwnerOnly(root); err != nil {
+		t.Fatalf("EnsureWindowsSwiftProductRootOwnerOnly() did not converge a current-user-writable ACL: %v", err)
+	}
+	if err := securefs.CheckPrivateOwnerOnly(root, nil); err != nil {
+		t.Fatalf("Swift product root ACL remains broad after convergence: %v", err)
+	}
+}
+
+func setBroadSwiftProductRootACL(path string) error {
+	token, err := windows.OpenCurrentProcessToken()
+	if err != nil {
+		return err
+	}
+	defer token.Close()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return err
+	}
+	userSID, err := windows.StringToSid(user.User.Sid.String())
+	if err != nil {
+		return err
+	}
+	sddl := "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;" + userSID.String() + ")(A;OICI;FA;;;BU)"
+	descriptor, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return err
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
+		nil,
+		dacl,
+		nil,
+	)
 }
 
 // swiftWindowsFastPathFixture 保存一个扁平 Swift cohort，供 check-only 完整性测试使用。

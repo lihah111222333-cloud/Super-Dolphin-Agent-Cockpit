@@ -1,0 +1,14 @@
+.card {
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.card__title {
+  color: var(--heading-color, #1e293b);
+  font-size: 1.25rem;
+}
+
+.card__body {
+  line-height: 1.5;
+}

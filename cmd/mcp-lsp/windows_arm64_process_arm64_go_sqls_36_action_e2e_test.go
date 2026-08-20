@@ -230,6 +230,281 @@ func TestWindowsARM64ProcessARM64GoSQLSPostIdleContract(t *testing.T) {
 	}
 }
 
+// windowsARM64ProcessARM64GoSQLSServerCase 锁定 bin/LSP/test/sql 的真实文件、标识符和查询。
+// 36-action 矩阵必须从该快照复制到隔离 workspace，不能重新拼接一个 synthetic SQL。
+func windowsARM64ProcessARM64GoSQLSServerCase() realNodeServerCase {
+	return realNodeServerCase{
+		name:                 "sql",
+		languageID:           "sql",
+		fileName:             "001_schema.sql",
+		sourceDir:            "sql",
+		sourceFile:           "fixtures/001_schema.sql",
+		sourceSecondaryFile:  "fixtures/003_queries.sql",
+		sourceIdentifier:     "users",
+		sourceWorkspaceQuery: "users",
+		sourceLine:           1,
+		sourceCharacter:      13,
+	}
+}
+
+func windowsARM64ProcessARM64GoSQLSFixtureReproJSON(repoRoot, fixtureRoot string, server realNodeServerCase) string {
+	payload := map[string]any{
+		"test":                   "windows-arm64-process-arm64-go-sqls-36-action-fixture",
+		"repo_root":              filepath.ToSlash(repoRoot),
+		"fixture_root":           filepath.ToSlash(fixtureRoot),
+		"source_root":            filepath.ToSlash(filepath.Join(repoRoot, "bin", "LSP", "test")),
+		"source_dir":             server.sourceDir,
+		"source_file":            server.sourceFile,
+		"source_secondary_file":  server.sourceSecondaryFile,
+		"source_identifier":      server.sourceIdentifier,
+		"source_workspace_query": server.sourceWorkspaceQuery,
+		"source_line":            server.sourceLine,
+		"source_character":       server.sourceCharacter,
+		"isolated_workspace":     filepath.ToSlash(filepath.Join(fixtureRoot, server.name)),
+		"patch_edit_root":        filepath.ToSlash(filepath.Join(fixtureRoot, server.name, ".mcp-actions")),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return `{"json_marshal_error":"` + strings.ReplaceAll(err.Error(), `"`, `'`) + `"}`
+	}
+	return string(encoded)
+}
+
+// validateWindowsARM64ProcessARM64GoSQLSFixtureSpec 在复制前验证源/目标边界和真实语义锚点。
+// 所有失败由调用方附带固定 JSON 复现参数，避免路径越界或缺失被复制过程吞掉。
+func validateWindowsARM64ProcessARM64GoSQLSFixtureSpec(repoRoot, fixtureRoot string, server realNodeServerCase) error {
+	repoRoot = filepath.Clean(repoRoot)
+	fixtureRoot = filepath.Clean(fixtureRoot)
+	if !filepath.IsAbs(repoRoot) || !filepath.IsAbs(fixtureRoot) {
+		return fmt.Errorf("repo/fixture roots must be absolute: repo=%q fixture=%q", repoRoot, fixtureRoot)
+	}
+	sourceRoot := filepath.Join(repoRoot, "bin", "LSP", "test")
+	sourceDir := filepath.Clean(filepath.FromSlash(strings.TrimSpace(server.sourceDir)))
+	if sourceDir == "." || filepath.IsAbs(sourceDir) {
+		return fmt.Errorf("source directory must be relative and non-empty: %q", server.sourceDir)
+	}
+	sourceProjectRoot := filepath.Join(sourceRoot, sourceDir)
+	workspaceRoot := filepath.Join(fixtureRoot, filepath.FromSlash(strings.TrimSpace(server.name)))
+	if !realMCPPathWithinRoot(sourceRoot, sourceProjectRoot) {
+		return fmt.Errorf("source project escaped bin/LSP/test: %q", sourceProjectRoot)
+	}
+	if !realMCPPathWithinRoot(fixtureRoot, workspaceRoot) {
+		return fmt.Errorf("isolated workspace escaped fixture root: %q", workspaceRoot)
+	}
+	sourceInfo, err := os.Lstat(sourceProjectRoot)
+	if err != nil {
+		return fmt.Errorf("stat source project %q: %w", sourceProjectRoot, err)
+	}
+	if !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("source project is not a regular directory: %q", sourceProjectRoot)
+	}
+	if err := filepath.WalkDir(sourceProjectRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("source snapshot contains unsupported symlink %q", path)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("walk source project %q: %w", sourceProjectRoot, err)
+	}
+
+	checkRelativeFile := func(label, relative string) (string, error) {
+		relative = strings.TrimSpace(relative)
+		if relative == "" || filepath.IsAbs(filepath.FromSlash(relative)) {
+			return "", fmt.Errorf("%s must be a relative non-empty path: %q", label, relative)
+		}
+		path := filepath.Join(sourceProjectRoot, filepath.FromSlash(relative))
+		if !realMCPPathWithinRoot(sourceProjectRoot, path) {
+			return "", fmt.Errorf("%s escaped source project: %q", label, path)
+		}
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return "", fmt.Errorf("%s is missing: %q: %w", label, path, statErr)
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("%s is not a regular file: %q", label, path)
+		}
+		return path, nil
+	}
+	sourcePath, err := checkRelativeFile("source file", server.sourceFile)
+	if err != nil {
+		return err
+	}
+	secondaryPath, err := checkRelativeFile("secondary source file", server.sourceSecondaryFile)
+	if err != nil {
+		return err
+	}
+	if sourcePath == secondaryPath {
+		return fmt.Errorf("source and secondary files must be distinct: %q", sourcePath)
+	}
+	sourceBytes, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("read source file %q: %w", sourcePath, err)
+	}
+	if len(sourceBytes) == 0 {
+		return fmt.Errorf("source file is empty: %q", sourcePath)
+	}
+	identifier := strings.TrimSpace(server.sourceIdentifier)
+	workspaceQuery := strings.TrimSpace(server.sourceWorkspaceQuery)
+	if identifier == "" || workspaceQuery == "" || server.sourceLine <= 0 || server.sourceCharacter < 0 {
+		return fmt.Errorf("source semantic mapping is incomplete: identifier=%q query=%q line=%d character=%d", identifier, workspaceQuery, server.sourceLine, server.sourceCharacter)
+	}
+	sourceLines := strings.Split(strings.ReplaceAll(string(sourceBytes), "\r\n", "\n"), "\n")
+	if server.sourceLine > len(sourceLines) {
+		return fmt.Errorf("source semantic line=%d exceeds %d lines", server.sourceLine, len(sourceLines))
+	}
+	semanticLine := sourceLines[server.sourceLine-1]
+	semanticEnd := server.sourceCharacter + len(identifier)
+	if semanticEnd > len(semanticLine) || semanticLine[server.sourceCharacter:semanticEnd] != identifier {
+		return fmt.Errorf("source semantic anchor does not target %q at %d:%d: %q", identifier, server.sourceLine, server.sourceCharacter, semanticLine)
+	}
+	if !strings.Contains(string(sourceBytes), workspaceQuery) {
+		return fmt.Errorf("workspace query %q is absent from source file %q", workspaceQuery, sourcePath)
+	}
+	if _, err := os.ReadFile(secondaryPath); err != nil {
+		return fmt.Errorf("read secondary source file %q: %w", secondaryPath, err)
+	}
+	return nil
+}
+
+func writeWindowsARM64ProcessARM64GoSQLSFixture(t *testing.T, fixtureRoot string) realMCPFixture {
+	t.Helper()
+	server := windowsARM64ProcessARM64GoSQLSServerCase()
+	repoRoot := realNodeRepoRoot(t)
+	if err := validateWindowsARM64ProcessARM64GoSQLSFixtureSpec(repoRoot, fixtureRoot, server); err != nil {
+		t.Fatalf("GoSQLS SQL fixture preflight failed: %v; repro_json=%s", err, windowsARM64ProcessARM64GoSQLSFixtureReproJSON(repoRoot, fixtureRoot, server))
+	}
+	return writeRealMCPBinSourceFixture(t, fixtureRoot, server)
+}
+
+func TestWindowsARM64ProcessARM64GoSQLSFixtureContract(t *testing.T) {
+	fixtureRoot := t.TempDir()
+	server := windowsARM64ProcessARM64GoSQLSServerCase()
+	repoRoot := realNodeRepoRoot(t)
+	fixture := writeWindowsARM64ProcessARM64GoSQLSFixture(t, fixtureRoot)
+	repro := windowsARM64ProcessARM64GoSQLSFixtureReproJSON(repoRoot, fixtureRoot, server)
+	sourceSQLRoot := filepath.Join(repoRoot, "bin", "LSP", "test", "sql")
+	if !realMCPPathWithinRoot(fixtureRoot, fixture.workDir) || filepath.Clean(fixture.workDir) != filepath.Join(fixtureRoot, server.name) {
+		t.Fatalf("GoSQLS fixture workspace is not isolated: work_dir=%q; repro_json=%s", fixture.workDir, repro)
+	}
+	expectedFiles := []string{
+		"LICENSE.md", "README.md",
+		"fixtures/001_schema.sql", "fixtures/002_seed.sql", "fixtures/003_queries.sql", "fixtures/004_views.sql",
+		"fixtures/005_trigger.sql", "fixtures/006_indexes.sql", "fixtures/007_transaction.sql", "fixtures/008_report.sql",
+	}
+	for _, relative := range expectedFiles {
+		sourcePath := filepath.Join(sourceSQLRoot, filepath.FromSlash(relative))
+		targetPath := filepath.Join(fixture.workDir, filepath.FromSlash(relative))
+		if !realMCPPathWithinRoot(sourceSQLRoot, sourcePath) || !realMCPPathWithinRoot(fixture.workDir, targetPath) {
+			t.Fatalf("GoSQLS fixture path escaped root: source=%q target=%q; repro_json=%s", sourcePath, targetPath, repro)
+		}
+		sourceBytes, err := os.ReadFile(sourcePath)
+		if err != nil {
+			t.Fatalf("read GoSQLS source fixture %q: %v; repro_json=%s", sourcePath, err, repro)
+		}
+		targetBytes, err := os.ReadFile(targetPath)
+		if err != nil {
+			t.Fatalf("read isolated GoSQLS fixture %q: %v; repro_json=%s", targetPath, err, repro)
+		}
+		if !bytes.Equal(sourceBytes, targetBytes) {
+			t.Fatalf("isolated GoSQLS fixture differs from source snapshot: relative=%q; repro_json=%s", relative, repro)
+		}
+	}
+	for label, path := range map[string]string{
+		"replace": fixture.replaceFile, "rename": fixture.renameFile, "code_action": fixture.codeActionFile,
+		"format": fixture.formatFile, "completion": fixture.completionFile,
+	} {
+		if !realMCPPathWithinRoot(fixture.workDir, path) || !strings.Contains(filepath.ToSlash(path), "/.mcp-actions/") {
+			t.Fatalf("GoSQLS patch_edit %s target is not an isolated copy: %q; repro_json=%s", label, path, repro)
+		}
+		if filepath.Clean(path) == filepath.Clean(fixture.targetFile) {
+			t.Fatalf("GoSQLS patch_edit %s target aliases primary source: %q; repro_json=%s", label, path, repro)
+		}
+	}
+	if fixture.workspaceQuery != server.sourceWorkspaceQuery || fixture.searchNeedle == "" {
+		t.Fatalf("GoSQLS fixture semantic mapping drifted: workspace_query=%q search_needle=%q; repro_json=%s", fixture.workspaceQuery, fixture.searchNeedle, repro)
+	}
+}
+
+func TestWindowsARM64GoSQLSBuildCompilerUsesResolvedProductGoAsset(t *testing.T) {
+	root := t.TempDir()
+	goExecutable := filepath.Join(root, "go", "bin", "go.exe")
+	if err := os.MkdirAll(filepath.Dir(goExecutable), 0o700); err != nil {
+		t.Fatalf("create product-owned Go directory: %v", err)
+	}
+	if err := os.WriteFile(goExecutable, []byte("locked-go"), 0o700); err != nil {
+		t.Fatalf("write product-owned Go fixture: %v", err)
+	}
+	resolved := installer.WindowsRuntimeDependencyProvisionResult{
+		Product:      installer.WindowsRuntimeDependencyProductGoSQLS,
+		Architecture: installer.WindowsHostArchARM64,
+		RootPath:     root,
+	}
+
+	got, err := windowsARM64GoSQLSBuildCompiler(resolved)
+	if err != nil {
+		t.Fatalf("resolve product-owned Go compiler: %v", err)
+	}
+	if filepath.Clean(got) != filepath.Clean(goExecutable) {
+		t.Fatalf("resolved Go compiler = %q, want %q", got, goExecutable)
+	}
+}
+
+// windowsARM64GoSQLSBuildCompiler 从已解析的 product-owned cohort 目录读取锁定的原生 Go 编译器，不触发下载。
+func windowsARM64GoSQLSBuildCompiler(resolved installer.WindowsRuntimeDependencyProvisionResult) (string, error) {
+	if resolved.Product != installer.WindowsRuntimeDependencyProductGoSQLS {
+		return "", fmt.Errorf("resolved compiler product=%q, want %q", resolved.Product, installer.WindowsRuntimeDependencyProductGoSQLS)
+	}
+	if resolved.Architecture != installer.WindowsHostArchARM64 {
+		return "", fmt.Errorf("resolved compiler architecture=%q, want %q", resolved.Architecture, installer.WindowsHostArchARM64)
+	}
+	root := filepath.Clean(strings.TrimSpace(resolved.RootPath))
+	if root == "." {
+		return "", fmt.Errorf("resolved product compiler root is empty")
+	}
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("resolved product compiler root must be absolute: %q", root)
+	}
+	assets, err := installer.WindowsRuntimeDependencyAssetsForArchitecture(resolved.Product, resolved.Architecture)
+	if err != nil {
+		return "", fmt.Errorf("read locked GoSQLS assets: %w", err)
+	}
+	var goAsset installer.WindowsRuntimeDependencyAsset
+	for _, asset := range assets {
+		if asset.Component != "go" {
+			continue
+		}
+		if goAsset.Component != "" {
+			return "", fmt.Errorf("locked GoSQLS catalog contains multiple Go assets")
+		}
+		goAsset = asset
+	}
+	if goAsset.Component == "" || goAsset.BinaryPath == "" {
+		return "", fmt.Errorf("locked GoSQLS catalog has no Go compiler asset")
+	}
+	if !goAsset.Native || goAsset.Version != "1.26.5" || !strings.EqualFold(filepath.ToSlash(goAsset.BinaryPath), "go/bin/go.exe") {
+		return "", fmt.Errorf("locked GoSQLS Go asset is not the native 1.26.5 compiler: %#v", goAsset)
+	}
+	path := filepath.Join(root, filepath.FromSlash(goAsset.BinaryPath))
+	relative, err := filepath.Rel(root, path)
+	if err != nil || filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("resolved compiler escaped product root: relative=%q err=%v", relative, err)
+	}
+	if !strings.EqualFold(filepath.ToSlash(relative), "go/bin/go.exe") {
+		return "", fmt.Errorf("resolved compiler path=%q, want product go/bin/go.exe", filepath.ToSlash(relative))
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect resolved product Go compiler: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("resolved product Go compiler is not a regular file")
+	}
+	return path, nil
+}
+
 // requireWindowsARM64GoSQLSIdentity 在每个阶段用 PID+启动 token 复核同一
 // MCP/GoSQLS 进程，避免 PID 复用或 server 重启被误计为生命周期稳定。
 func requireWindowsARM64GoSQLSIdentity(pid int, startToken, label string) error {
@@ -484,12 +759,6 @@ func TestWindowsARM64ProcessARM64GoSQLS36ActionE2E(t *testing.T) {
 	// 注入 cohort/config，而不是把系统用户目录当作隐式兜底。
 	t.Setenv("APPDATA", "")
 
-	goBin := filepath.Join(repoRoot, ".build-cache", "codex-emmylua-arm64-proof", "toolchain-go1.26.5", "sdk", "go", "bin", "go.exe")
-	if !fileExists(goBin) {
-		t.Fatalf("locked Go 1.26.5 executable is missing: %s", goBin)
-	}
-	t.Setenv("SUPER_DOLPHIN_GO_BIN", goBin)
-
 	contextTimeout := 40 * time.Minute
 	if precheck {
 		contextTimeout = 6 * time.Minute
@@ -509,6 +778,11 @@ func TestWindowsARM64ProcessARM64GoSQLS36ActionE2E(t *testing.T) {
 	if filepath.Clean(result.Path) != filepath.Clean(resolved.ServerPath) {
 		t.Fatalf("EnsureInstalled(sql) path=%q, resolver server=%q", result.Path, resolved.ServerPath)
 	}
+	goBin, err := windowsARM64GoSQLSBuildCompiler(resolved)
+	if err != nil {
+		t.Fatalf("resolve product-owned locked Go 1.26.5 compiler: %v", err)
+	}
+	t.Setenv("SUPER_DOLPHIN_GO_BIN", goBin)
 	if _, err := installer.WindowsShortProcessPathWithinRoot(productRoot, result.Path); err != nil {
 		t.Fatalf("GoSQLS server escaped product root: %v", err)
 	}
@@ -544,12 +818,8 @@ func TestWindowsARM64ProcessARM64GoSQLS36ActionE2E(t *testing.T) {
 	if err := os.MkdirAll(fixtureRoot, 0o700); err != nil {
 		t.Fatalf("create GoSQLS fixture root: %v", err)
 	}
-	server := realNodeServerCase{
-		name: "sql", languageID: "sql", fileName: "query.sql",
-		content: "CREATE TABLE users (\n  id INTEGER PRIMARY KEY,\n  name TEXT\n);\nSELECT id, name FROM users WHERE name = 'world';\n",
-		line:    2, character: 2,
-	}
-	fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
+	server := windowsARM64ProcessARM64GoSQLSServerCase()
+	fixture := writeWindowsARM64ProcessARM64GoSQLSFixture(t, fixtureRoot)
 	astFile := filepath.Join(fixtureRoot, "ast_fixture.js")
 	writeRealFixture(t, astFile, "function goSQLSAstFixture(name) { return name; }\ngoSQLSAstFixture(\"world\");\n")
 

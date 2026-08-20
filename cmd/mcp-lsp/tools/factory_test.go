@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -391,7 +392,7 @@ func mustMarshalToolPayload(t *testing.T, value any) json.RawMessage {
 
 func mustEvalCleanSymlinks(t *testing.T, path string) string {
 	t.Helper()
-	want, err := filepath.EvalSymlinks(path)
+	want, err := lspplatform.CanonicalDirectoryPath(path)
 	if err != nil {
 		t.Fatalf("eval worktree root: %v", err)
 	}

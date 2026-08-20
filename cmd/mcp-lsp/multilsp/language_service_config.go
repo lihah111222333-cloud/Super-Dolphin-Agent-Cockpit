@@ -2,6 +2,8 @@ package multilsp
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -47,7 +49,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 		projectAdapterFromConfig(graphqlAdapterDefaults(), cfg, contract.LSPServiceGraphQL),
 		projectAdapterFromConfig(prismaAdapterDefaults(), cfg, contract.LSPServicePrisma),
 		projectAdapterFromConfig(shellAdapterDefaults(), cfg, contract.LSPServiceShell),
-		projectAdapterFromConfig(protoAdapterDefaults(), cfg, contract.LSPServiceProto),
+		protoAdapterFromConfig(cfg),
 		sqliteSQLAdapterFromConfig(cfg),
 		documentFallbackAdapter{languageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs)},
 	)
@@ -170,6 +172,7 @@ func jsonAdapterDefaults() projectLanguageAdapter {
 		languageIDs: []string{"json"},
 		command:     ServerCommand{Executable: "vscode-json-language-server", Args: []string{"--stdio"}},
 		rootKind:    "json_project",
+		initOptions: map[string]any{"provideFormatter": true},
 	}
 }
 
@@ -316,6 +319,97 @@ func protoAdapterDefaults() projectLanguageAdapter {
 		command:     ServerCommand{Executable: "buf", Args: []string{"lsp", "serve"}},
 		rootKind:    "proto_project",
 	}
+}
+
+type protoLanguageAdapter struct {
+	projectLanguageAdapter
+}
+
+func protoAdapterFromConfig(cfg contract.LSPConfig) protoLanguageAdapter {
+	return protoLanguageAdapter{
+		projectLanguageAdapter: projectAdapterFromConfig(protoAdapterDefaults(), cfg, contract.LSPServiceProto),
+	}
+}
+
+// ResolveRoot 优先使用 Buf workspace 根，避免模块根遮蔽 workspace 中的 sibling import。
+func (a protoLanguageAdapter) ResolveRoot(ctx context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
+	languageID := normalizeLanguageID(scope.LanguageID)
+	if languageID == "" {
+		return ResolvedLanguageScope{}, fmt.Errorf("adapter requires a resolved language ID")
+	}
+	targetPath := firstNonEmpty(target, scope.TargetPath)
+	root := firstNonEmpty(scope.CWD, filepath.Dir(targetPath))
+	searchPath := firstNonEmpty(targetPath, root)
+
+	workspaceMarkers, moduleMarkers, fallbackMarkers := protoRootMarkerGroups(a.rootMarkers)
+	rootResolved := false
+	if markerRoot, err := findProjectRoot(searchPath, workspaceMarkers); err != nil {
+		return ResolvedLanguageScope{}, err
+	} else if markerRoot != "" {
+		root = markerRoot
+		rootResolved = true
+	} else if markerRoot, err := findProjectRoot(searchPath, moduleMarkers); err != nil {
+		return ResolvedLanguageScope{}, err
+	} else if markerRoot != "" {
+		root = markerRoot
+		rootResolved = true
+	} else if len(fallbackMarkers) > 0 && strings.TrimSpace(scope.CWD) == "" {
+		if markerRoot, err := findProjectRoot(searchPath, fallbackMarkers); err != nil {
+			return ResolvedLanguageScope{}, err
+		} else if markerRoot != "" {
+			root = markerRoot
+			rootResolved = true
+		}
+	}
+	if !rootResolved && a.shouldSearchNestedProjectRoot(root, targetPath) {
+		nested, err := findProjectRootWithin(ctx, root, a.rootMarkers, a.ignoredDirNames)
+		if err != nil {
+			return ResolvedLanguageScope{}, err
+		}
+		if nested != "" {
+			root = nested
+		}
+	}
+
+	normalized, err := normalizeRegistryWorkspaceRoot(root)
+	if err != nil {
+		return ResolvedLanguageScope{}, err
+	}
+	rootKind := a.rootKind
+	if !hasProjectMarker(normalized, a.rootMarkers) {
+		rootKind = "dir_fallback"
+	}
+	languageSpecific, err := a.languageSpecificForResolvedRoot(scope, normalized)
+	if err != nil {
+		return ResolvedLanguageScope{}, err
+	}
+	return ResolvedLanguageScope{
+		LanguageID:            languageID,
+		WorkspaceRoot:         normalized,
+		LanguageWorkspaceRoot: normalized,
+		ProjectRoot:           normalized,
+		RootKind:              rootKind,
+		LanguageSpecific:      languageSpecific,
+	}, nil
+}
+
+func protoRootMarkerGroups(markers []string) (workspace, module, fallback []string) {
+	for _, marker := range markers {
+		name := strings.ToLower(filepath.Base(strings.TrimSpace(marker)))
+		switch name {
+		case "buf.work.yaml", "buf.work.yml", "buf.workspace":
+			workspace = append(workspace, marker)
+		case "buf.yaml", "buf.yml":
+			module = append(module, marker)
+		case ".git":
+			fallback = append(fallback, marker)
+		default:
+			if strings.TrimSpace(marker) != "" {
+				fallback = append(fallback, marker)
+			}
+		}
+	}
+	return workspace, module, fallback
 }
 
 type sqliteSQLLanguageAdapter struct {

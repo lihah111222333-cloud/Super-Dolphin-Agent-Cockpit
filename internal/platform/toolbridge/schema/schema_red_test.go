@@ -695,10 +695,18 @@ func assertProducerFieldsAcceptedByConsumer(t *testing.T, producer, consumer any
 
 func TestSchemaCompilerRejectsNonAbsoluteOrUncleanHelperPaths(t *testing.T) {
 	directory := t.TempDir()
-	helper := filepath.Join(directory, "mcp-schema-compiler-helper")
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	helper := filepath.Join(directory, "mcp-schema-compiler-helper"+filepath.Ext(testExecutable))
 	marker := filepath.Join(directory, "started")
 	script := "#!/bin/sh\nprintf started >" + marker + "\n"
-	if err := os.WriteFile(helper, []byte(script), 0o700); err != nil {
+	image := []byte(script)
+	if runtime.GOOS == "windows" {
+		image = append([]byte{'M', 'Z'}, image...)
+	}
+	if err := os.WriteFile(helper, image, 0o700); err != nil {
 		t.Fatalf("write helper fixture: %v", err)
 	}
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))

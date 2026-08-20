@@ -23,7 +23,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
 // TestMcpLSPBinaryRepresentativeFakeLanguageToolContractCrossPlatformE2E 先用 Python 锁定跨平台 fake-LSP
@@ -114,21 +113,22 @@ func requiresLSPClientLanguageIDs(t *testing.T) []string {
 
 func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, checkManifest bool) {
 	t.Helper()
-	root := t.TempDir()
-	productHome := filepath.Join(root, ".super-dolphin")
-	if err := os.MkdirAll(productHome, 0o700); err != nil {
-		t.Fatalf("create isolated all-language product home: %v", err)
-	}
-	if err := securefs.RestrictPrivateOwnerOnly(productHome, 0o700); err != nil {
-		t.Fatalf("restrict isolated all-language product home: %v", err)
-	}
+	root := allLanguageToolContractWorkDir(t)
+	productHome := prepareAllLanguageToolContractProductHome(t, root)
 	fixture := writeAllLanguageToolContractFixture(t, root, languageID)
 	fakeBinDir := writeAllLanguageToolContractBinaries(t, root, languageID)
+	fakeBundle := writeAllLanguageToolContractBundle(t, fakeBinDir)
+	binaryPackage := prepareAllLanguageToolContractBinaryPackage(t, binary, productHome, fakeBundle, fakeBinDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeBinDir, []string{
+	contractEnv := []string{
 		"MCP_LSP_CROSS_PLATFORM_ALL_LANGUAGE_CONTRACT_FAKE=1",
+		"MCP_LSP_CROSS_PLATFORM_ALL_LANGUAGE_CONTRACT_TRACE=1",
+		"MCP_LSP_CROSS_PLATFORM_ALL_LANGUAGE_CONTRACT_TRACE_FILE=" + filepath.Join(root, "fake-lsp-trace.log"),
+		"SUPER_DOLPHIN_LSP_BUNDLE_DIR=" + binaryPackage.bundle,
+		"SUPER_DOLPHIN_LSP_MANIFEST=" + binaryPackage.manifest,
+		"SUPER_DOLPHIN_WINDOWS_NODE_PATH=" + binaryPackage.nodePath,
 		// The fake Go-family server is intentionally much smaller than real
 		// gopls. A one-megabyte root-cohort limit exercises the production
 		// zero-lease pressure-reclaim path so this matrix does not leave the
@@ -136,9 +136,15 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 		"AGENT_LSP_GO_RSS_LIMIT_MB=1",
 		"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(root, ".lsp-cache"),
 		"SUPER_DOLPHIN_HOME=" + productHome,
-		"HOME=" + root,
-		"USERPROFILE=" + root,
-	})
+		"HOME=" + filepath.Dir(productHome),
+		"USERPROFILE=" + filepath.Dir(productHome),
+	}
+	if languageID == "gowork" {
+		// gowork fixture 同时含有仓库级和目标级 go.work；显式锁定目标，
+		// 让 file-scoped 与 language-only 请求进入同一 immutable scope。
+		contractEnv = append(contractEnv, "GOWORK="+fixture.target)
+	}
+	client := startAllLanguageToolContractBinaryForTest(t, ctx, binaryPackage.binary, root, fakeBinDir, contractEnv)
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{
@@ -249,6 +255,12 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 			"pos":       semanticPos,
 			"direction": direction,
 		}))
+		if allLanguageToolContractUsesDocumentSymbolFallback(languageID) {
+			// JSON/Markdown/YAML 的产品契约只有 document_symbol 静态降级；call_hierarchy
+			// 返回能力不支持信封时必须单独断言，不能把空结果计为成功。
+			requireAllLanguageToolUnsupported(t, response, "call hierarchy", languageID, languageID+" xref call_hierarchy "+direction)
+			continue
+		}
 		requireMCPToolSuccess(t, client, response, languageID+" xref call_hierarchy "+direction)
 		requireAllLanguageToolContains(t, response, "contract-call", languageID+" xref call_hierarchy "+direction)
 	}
@@ -342,12 +354,22 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 	requireAllLanguageToolContains(t, documentSymbols, "ContractFunction", languageID+" structure document_symbol")
 
 	workspaceByFile := client.callTool(t, "structure", map[string]any{
-		"action":      "workspace_symbol",
-		"file_path":   fixture.target,
-		"query":       "Contract",
+		"action":    "workspace_symbol",
+		"file_path": fixture.target,
+		"query":     "Contract",
+		// fake-LSP 返回 ContractWorkspace*，需显式覆盖默认 exact 匹配，
+		// 同时保留 max_results 截断契约的验证。
+		"match_mode":  "fuzzy",
 		"max_results": 10,
 		"work_dir":    root,
 	})
+	if !strings.Contains(workspaceByFile.Result.ContentText(), "ContractWorkspace") {
+		trace, err := os.ReadFile(filepath.Join(root, "fake-lsp-trace.log"))
+		if err != nil {
+			t.Fatalf("workspace_symbol file missing fake trace: %v; stderr=%s", err, client.stderrString())
+		}
+		t.Logf("workspace_symbol file trace: fake=%s stderr=%s", trace, client.stderrString())
+	}
 	requireMCPToolSuccess(t, client, workspaceByFile, languageID+" structure workspace_symbol file")
 	requireAllLanguageToolContains(t, workspaceByFile, "ContractWorkspace", languageID+" structure workspace_symbol file")
 
@@ -355,6 +377,7 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 		"action":             "workspace_symbol",
 		"workspace_language": languageID,
 		"query":              "Contract",
+		"match_mode":         "fuzzy",
 		"max_results":        1,
 		"work_dir":           root,
 	})
@@ -373,7 +396,8 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 		"file_path": fixture.target,
 	}))
 	requireMCPToolSuccess(t, client, folding, languageID+" structure folding_range")
-	requireAllLanguageToolContains(t, folding, "startLine", languageID+" structure folding_range")
+	// 纯文本行协议使用 snake_case 字段，和 formatter 的 ROW 契约保持一致。
+	requireAllLanguageToolContains(t, folding, "start_line", languageID+" structure folding_range")
 
 	semanticTokens := client.callTool(t, "structure", common(map[string]any{
 		"action":      "semantic_tokens",
@@ -381,7 +405,8 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 		"max_results": 10,
 	}))
 	requireMCPToolSuccess(t, client, semanticTokens, languageID+" structure semantic_tokens")
-	requireAllLanguageToolContains(t, semanticTokens, "data", languageID+" structure semantic_tokens")
+	// 纯文本协议通过语义行暴露解码后的 token 类型，而不是原始 data 数组。
+	requireAllLanguageToolContains(t, semanticTokens, "type=variable", languageID+" structure semantic_tokens")
 
 	completion := client.callTool(t, "completion", common(map[string]any{
 		"pos":         semanticPos,
@@ -428,7 +453,10 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 	}))
 	requireMCPToolSuccess(t, client, rename, languageID+" patch_edit rename")
 	requireAllLanguageToolContains(t, rename, "CONTRACT_RENAMED", languageID+" patch_edit rename response")
-	requireAllLanguageToolPositiveNumber(t, rename, "total_edits", languageID+" patch_edit rename total_edits")
+	// rename 的纯文本协议在 FILE 行报告 edits，并分别报告持久化与 LSP 同步状态。
+	requireAllLanguageToolPositiveNumber(t, rename, "edits", languageID+" patch_edit rename edits")
+	requireAllLanguageToolBool(t, rename, "persisted", true, languageID+" patch_edit rename persisted")
+	requireAllLanguageToolBool(t, rename, "lsp_sync", true, languageID+" patch_edit rename lsp_sync")
 	requireAllLanguageFileContains(t, fixture.renameTarget, "CONTRACT_RENAMED", languageID+" patch_edit rename disk")
 
 	codeAction := client.callTool(t, "patch_edit", common(map[string]any{
@@ -446,7 +474,10 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 		"file_path": fixture.formatTarget,
 	}))
 	requireMCPToolSuccess(t, client, format, languageID+" patch_edit format")
-	requireAllLanguageToolPositiveNumber(t, format, "applied_count", languageID+" patch_edit format applied_count")
+	// format 的纯文本协议在 FILE 行统一报告 edits、status、持久化与同步状态。
+	requireAllLanguageToolPositiveNumber(t, format, "edits", languageID+" patch_edit format edits")
+	requireAllLanguageToolContains(t, format, "status=applied", languageID+" patch_edit format status")
+	requireAllLanguageToolBool(t, format, "persisted", true, languageID+" patch_edit format persisted")
 	requireAllLanguageToolBool(t, format, "lsp_sync", true, languageID+" patch_edit format lsp_sync")
 	requireAllLanguageFileContains(t, fixture.formatTarget, "CONTRACT_FORMATTED", languageID+" patch_edit format disk")
 }
@@ -545,6 +576,34 @@ func requireAllLanguageToolErrorContains(t *testing.T, response mcpLSPBinaryResp
 	}
 	if !strings.Contains(response.Result.ContentText(), want) {
 		t.Fatalf("%s error missing %q: text=%q", label, want, response.Result.ContentText())
+	}
+}
+
+// requireAllLanguageToolUnsupported 断言能力不支持信封的精确产品文本，避免
+// 把 empty/unsupported 响应伪装成语义成功；当前 content-only wire 不携带结构化
+// result，因此同时锁定 isError 与 structuredContent 边界。
+func requireAllLanguageToolUnsupported(t *testing.T, response mcpLSPBinaryResponse, capability, languageID, label string) {
+	t.Helper()
+	if response.Result.IsError {
+		t.Fatalf("%s returned MCP error for typed capability unsupported result: text=%q", label, response.Result.ContentText())
+	}
+	if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {
+		t.Fatalf("%s returned deprecated structuredContent: %s", label, response.Result.StructuredContent)
+	}
+	want := fmt.Sprintf("%s is not available for %s. %s support is limited to document_symbol fallback; use structure action=document_symbol file_path=<%s file> or grep action=text_search.", capability, languageID, languageID, languageID)
+	if got := strings.TrimSpace(response.Result.ContentText()); got != want {
+		t.Fatalf("%s unsupported message=%q, want exact %q", label, got, want)
+	}
+}
+
+// allLanguageToolContractUsesDocumentSymbolFallback 对齐 tool_capability 的实际产品契约；
+// adapter 的 RequiresLSPClient 仍然保持开启，只有这三个文档语言的 call_hierarchy 明确不支持。
+func allLanguageToolContractUsesDocumentSymbolFallback(languageID string) bool {
+	switch strings.ToLower(strings.TrimSpace(languageID)) {
+	case "json", "markdown", "yaml":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -929,7 +988,24 @@ type allLanguageToolContractFakeRequest struct {
 
 type allLanguageToolContractFakeState struct {
 	primaryURI     string
+	secondaryURI   string
 	primaryVersion int
+}
+
+// allLanguageToolContractTracef 仅在受控 fake 矩阵追踪时写入子进程 stderr，避免污染 LSP stdout 协议。
+func allLanguageToolContractTracef(format string, args ...any) {
+	if os.Getenv("MCP_LSP_CROSS_PLATFORM_ALL_LANGUAGE_CONTRACT_TRACE") != "1" {
+		return
+	}
+	line := fmt.Sprintf("fake-lsp "+format+"\n", args...)
+	if path := strings.TrimSpace(os.Getenv("MCP_LSP_CROSS_PLATFORM_ALL_LANGUAGE_CONTRACT_TRACE_FILE")); path != "" {
+		// 追踪文件仅用于受控 fake 矩阵的进程间证据，避免把调试文本写入 LSP stdout。
+		if file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			_, _ = file.WriteString(line)
+			_ = file.Close()
+		}
+	}
+	_, _ = fmt.Fprint(os.Stderr, line)
 }
 
 func runAllLanguageToolContractFakeServer() {
@@ -993,14 +1069,24 @@ func runAllLanguageToolContractFakeLSPStream(input io.Reader, output io.Writer) 
 			if request.Method == "textDocument/didOpen" {
 				uri := allLanguageToolContractRequestURI(request.Params)
 				if uri != "" {
-					state.primaryURI = uri
+					// file_path 的 workspace_symbol 必须能从 fake 返回的多文件结果
+					// 中保留目标文件；不能把最后一次 didOpen 的 sibling 冒充目标。
+					if state.primaryURI == "" {
+						state.primaryURI = uri
+					} else if state.secondaryURI == "" && state.primaryURI != uri {
+						state.secondaryURI = uri
+					}
 					state.primaryVersion = allLanguageToolContractRequestVersion(request.Params)
+					allLanguageToolContractTracef("didOpen uri=%q version=%d", uri, state.primaryVersion)
 					_ = writeAllLanguageToolContractDiagnosticsTo(output, uri, state.primaryVersion)
 				}
 			}
 			continue
 		}
 		result := allLanguageToolContractResult(request, state)
+		if request.Method == "workspace/symbol" {
+			allLanguageToolContractTracef("workspace/symbol primaryURI=%q secondaryURI=%q resultURI=%q", state.primaryURI, state.secondaryURI, allLanguageToolContractRequestURI(request.Params))
+		}
 		_ = writeAllLanguageToolContractResponseTo(output, request.ID, result)
 	}
 }
@@ -1170,14 +1256,20 @@ func allLanguageToolContractResult(request allLanguageToolContractFakeRequest, s
 			map[string]any{"name": "ContractDocument", "kind": 5, "range": allLanguageToolContractRange(), "selectionRange": allLanguageToolContractRange()},
 		}
 	case "workspace/symbol":
+		secondaryURI := state.secondaryURI
+		if secondaryURI == "" {
+			secondaryURI = allLanguageToolContractSecondaryURI(uri)
+		}
+		secondaryLocation := map[string]any{"uri": secondaryURI, "range": allLanguageToolContractRange()}
 		return []any{
 			map[string]any{"name": "ContractWorkspace", "kind": 12, "location": location},
-			map[string]any{"name": "ContractWorkspaceSecondary", "kind": 12, "location": location},
+			map[string]any{"name": "ContractWorkspaceSecondary", "kind": 12, "location": secondaryLocation},
 		}
 	case "textDocument/foldingRange":
 		return []any{map[string]any{"startLine": 0, "startCharacter": 0, "endLine": 2, "endCharacter": 1}}
 	case "textDocument/semanticTokens/full":
-		return map[string]any{"data": []int{0, 0, 14, 1, 0}}
+		// initialize 仅声明 variable 一个 token type，索引必须为 0。
+		return map[string]any{"data": []int{0, 0, 14, 0, 0}}
 	case "textDocument/completion":
 		return map[string]any{
 			"isIncomplete": false,

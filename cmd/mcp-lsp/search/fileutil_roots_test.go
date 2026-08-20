@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 )
 
 func TestResolvePathInRootsAllowsAbsolutePathInAdditionalRoot(t *testing.T) {
@@ -73,9 +75,10 @@ func TestResolvePathInRootsRejectsPathOutsideTrustedRoots(t *testing.T) {
 
 func cleanRealPath(t *testing.T, path string) string {
 	t.Helper()
-	real, err := filepath.EvalSymlinks(path)
+	// 使用与生产路径解析相同的平台 canonicalizer，避免 Windows 受限 token 下 EvalSymlinks 误报 Access Denied。
+	real, err := lspplatform.CanonicalExistingPath(path)
 	if err != nil {
-		t.Fatalf("eval symlink %q: %v", path, err)
+		t.Fatalf("canonicalize path %q: %v", path, err)
 	}
 	return filepath.Clean(real)
 }

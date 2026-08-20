@@ -3,7 +3,9 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -18,10 +20,26 @@ func TestNormalizeLanguageIDMQLAliasesUseCpp(t *testing.T) {
 }
 
 func TestMQLPathDetectionCoversMQL4AndMQL5(t *testing.T) {
-	for _, path := range []string{"Experts/legacy.mq4", "Experts/robot.mq5", "Include/common.mqh"} {
+	for _, path := range []string{"Experts/legacy.mq4", "Experts/robot.mq5", "Include/common.mqh", "Experts/legacy.mql", "Experts/legacy.mql4", "Experts/legacy.mql5"} {
 		if !isMQLPath(path) {
 			t.Fatalf("isMQLPath(%q) = false, want true", path)
 		}
+	}
+}
+
+func TestMQLFixtureCompileFlagsSelectCXXForNonStandardExtension(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixtureRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "bin", "LSP", "test", "mql"))
+	payload, err := os.ReadFile(filepath.Join(fixtureRoot, "compile_flags.txt"))
+	if err != nil {
+		t.Fatalf("read MQL fixture compile flags: %v", err)
+	}
+	flags := strings.Fields(string(payload))
+	if !slices.Contains(flags, "-x") || !slices.Contains(flags, "c++") {
+		t.Fatalf("MQL fixture compile flags = %#v, want explicit -x c++ for .mq5", flags)
 	}
 }
 
@@ -115,6 +133,40 @@ func TestClangdMQLSourceUsesUniqueSameStemCompileTask(t *testing.T) {
 	}
 	if got := resolved.LanguageSpecific[clangdMQLStrategyKey]; got != clangdMQLStrategySameStemTask {
 		t.Fatalf("MQL source strategy = %q, want %q", got, clangdMQLStrategySameStemTask)
+	}
+}
+
+func TestClangdMQLAliasesUseUniqueSameStemCompileTask(t *testing.T) {
+	cases := []struct {
+		name      string
+		targetExt string
+		sourceExt string
+	}{
+		{name: "mql_to_mql4", targetExt: ".mql", sourceExt: ".mql4"},
+		{name: "mql4_to_mql5", targetExt: ".mql4", sourceExt: ".mql5"},
+		{name: "mql5_to_mql", targetExt: ".mql5", sourceExt: ".mql"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := canonicalScopePath(t.TempDir(), "")
+			target := filepath.Join(root, "Experts", "robot"+tc.targetExt)
+			source := filepath.Join(root, "Experts", "robot"+tc.sourceExt)
+			writeGenericTestFile(t, target, "void OnTick() {}\\n")
+			writeGenericTestFile(t, source, "int OnInit() { return 0; }\\n")
+			writeMQLCompileDatabase(t, root, []map[string]any{{
+				"directory": root,
+				"file":      source,
+				"arguments": []string{"clang++", "-c", source},
+			}})
+
+			resolved, err := resolveClangdMQLTestRoot(t, root, target)
+			if err != nil {
+				t.Fatalf("ResolveRoot: %v", err)
+			}
+			if got := resolved.LanguageSpecific[clangdMQLStrategyKey]; got != clangdMQLStrategySameStemTask {
+				t.Fatalf("MQL alias source strategy = %q, want %q", got, clangdMQLStrategySameStemTask)
+			}
+		})
 	}
 }
 

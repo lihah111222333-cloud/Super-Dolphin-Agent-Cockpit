@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 )
 
 func TestParseGoWorkModuleRootsCachesByContentAndInvalidatesOnChange(t *testing.T) {
@@ -238,9 +240,9 @@ func writeProjectMarker(t *testing.T, dir, marker string) {
 
 func resolveSymlinks(t *testing.T, dir string) string {
 	t.Helper()
-	resolved, err := filepath.EvalSymlinks(dir)
+	resolved, err := lspplatform.CanonicalDirectoryPath(dir)
 	if err != nil {
-		t.Fatalf("EvalSymlinks(%q): %v", dir, err)
+		t.Fatalf("canonicalize test directory %q: %v", dir, err)
 	}
 	return resolved
 }

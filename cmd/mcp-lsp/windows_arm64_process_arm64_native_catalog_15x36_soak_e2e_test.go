@@ -208,9 +208,9 @@ func TestWindowsARM64ProcessARM64NativeCatalogKotlinProbeE2E(t *testing.T) {
 	writePhase("installed", fmt.Sprintf("server=%s;pe_machine=0x%04x", filepath.Base(result.Path), machine))
 	server := nativeCatalog15x36ServerCases()[11]
 	fixtureRoot := t.TempDir()
-	fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
+	fixture := nativeCatalog15x36WriteSnapshotFixture(t, fixtureRoot, server)
 	binary := buildRealMcpLSPBinary(t, repoRoot)
-	client := startRealMcpLSPBinary(t, ctx, binary, fixtureRoot, repoRoot, "", "", productRoot)
+	client := startRealMcpLSPBinary(t, ctx, binary, fixture.workDir, repoRoot, "", "", productRoot)
 	mcpPID := client.cmd.Process.Pid
 	mcpStart, err := windowsGoplsProcessStartIdentity(mcpPID)
 	if err != nil {
@@ -242,7 +242,7 @@ func TestWindowsARM64ProcessARM64NativeCatalogKotlinProbeE2E(t *testing.T) {
 		t.Fatalf("Kotlin initialized notification: %v", err)
 	}
 	logPhase("initialized", client, mcpStart)
-	response := client.callTool(t, "file", realMCPWindowsToolArguments("kotlin", fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile}))
+	response := client.callTool(t, "file", realMCPWindowsToolArguments("kotlin", fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile}))
 	if response.Result.IsError || strings.TrimSpace(response.Result.ContentText()) == "" {
 		writePhase("open_file_error", fmt.Sprintf("context_err=%v;response_sha256=%x", ctx.Err(), sha256.Sum256([]byte(response.Result.ContentText()))))
 		logPhase("open_file_error", client, mcpStart)
@@ -322,11 +322,10 @@ func TestWindowsARM64ProcessARM64NativeCatalog15x36Closure(t *testing.T) {
 		t.Fatalf("native catalog server count=%d, want %d", len(servers), len(nativeCatalog15x36LanguageIDs))
 	}
 	root := t.TempDir()
-	astFile := filepath.Join(root, "ast_fixture.js")
-	writeRealFixture(t, astFile, "function nativeCatalogAst(name) { return name; }\nnativeCatalogAst(\"world\");\n")
 	for _, server := range servers {
-		fixture := writeRealMCPLanguageFixture(t, root, server)
-		nativeCatalog15x36PrepareClangdFixture(t, root, server)
+		fixture := nativeCatalog15x36WriteSnapshotFixture(t, root, server)
+		nativeCatalog15x36PrepareClangdFixture(t, fixture.workDir, server)
+		astFile := nativeCatalog15x36WriteAstSnapshot(t, fixture.workDir)
 		requireRealMCPFixturePositions(t, fixture, server)
 		actions := nativeCatalog15x36ActionSpecs(server, fixture, astFile)
 		if err := validateRealMCPActionClosure(actions); err != nil {
@@ -348,6 +347,92 @@ func TestWindowsARM64ProcessARM64NativeCatalog15x36Closure(t *testing.T) {
 
 // TestWindowsARM64ProcessARM64NativeCatalog15x36PrecheckE2E 的预检只验证平台和
 // 合同，收据明确 NON_PASS；即使启用也不能被当作冷安装、语义或 15 分钟证明。
+// TestNativeCatalog15x36SnapshotFixtureContract 是无网络的 RED/GREEN 合同：
+// 15 个语言 case 必须映射到真实快照，identifier/query 必须落在源文件内，且
+// 所有 MCP 路径都必须位于隔离 workspace；它不启动语言服务器或执行长矩阵。
+func TestNativeCatalog15x36SnapshotFixtureContract(t *testing.T) {
+	servers := nativeCatalog15x36ServerCases()
+	if len(servers) != len(nativeCatalog15x36LanguageIDs) {
+		t.Fatalf("snapshot fixture server count=%d, want %d", len(servers), len(nativeCatalog15x36LanguageIDs))
+	}
+	root := t.TempDir()
+	repoRoot := realNodeRepoRoot(t)
+	sourceRoot := filepath.Join(repoRoot, "bin", "LSP", "test")
+	for _, server := range servers {
+		server := server
+		t.Run(server.languageID, func(t *testing.T) {
+			if strings.TrimSpace(server.content) != "" {
+				t.Fatalf("%s still carries synthetic server content", server.languageID)
+			}
+			fixture := nativeCatalog15x36WriteSnapshotFixture(t, root, server)
+			nativeCatalog15x36PrepareClangdFixture(t, fixture.workDir, server)
+			astFile := nativeCatalog15x36WriteAstSnapshot(t, fixture.workDir)
+			if !realMCPPathWithinRoot(sourceRoot, fixture.sourcePath) || !realMCPPathWithinRoot(sourceRoot, fixture.sourceSecondaryPath) {
+				t.Fatalf("%s fixture source escaped bin/LSP/test: source=%q secondary=%q", server.languageID, fixture.sourcePath, fixture.sourceSecondaryPath)
+			}
+			if filepath.Clean(fixture.sourcePath) == filepath.Clean(fixture.targetFile) {
+				t.Fatalf("%s target aliases checked-in source: %q", server.languageID, fixture.targetFile)
+			}
+			if !realMCPPathWithinRoot(fixture.workDir, fixture.targetFile) || !realMCPPathWithinRoot(fixture.workDir, fixture.secondaryFile) {
+				t.Fatalf("%s fixture path escaped isolated workspace", server.languageID)
+			}
+			if fixture.workspaceQuery != server.sourceWorkspaceQuery || fixture.readLine != server.sourceLine {
+				t.Fatalf("%s fixture mapping lost query/line: query=%q line=%d", server.languageID, fixture.workspaceQuery, fixture.readLine)
+			}
+			sourceBefore := readRealMCPBinSourceFile(t, fixture.sourcePath)
+			targetBytes := readRealMCPBinSourceFile(t, fixture.targetFile)
+			if !bytes.Equal(sourceBefore, targetBytes) {
+				t.Fatalf("%s target was not copied byte-identically from source snapshot", server.languageID)
+			}
+			actions := nativeCatalog15x36ActionSpecs(server, fixture, astFile)
+			if err := validateRealMCPActionClosure(actions); err != nil {
+				t.Fatalf("%s 36-action snapshot contract: %v", server.languageID, err)
+			}
+			for _, action := range actions {
+				nativeCatalog15x36AssertActionPathsIsolated(t, fixture.workDir, sourceRoot, action)
+			}
+			sourceAfter := readRealMCPBinSourceFile(t, fixture.sourcePath)
+			if !bytes.Equal(sourceBefore, sourceAfter) {
+				t.Fatalf("%s source snapshot changed while preparing action copies", server.languageID)
+			}
+		})
+	}
+}
+
+func nativeCatalog15x36AssertActionPathsIsolated(t *testing.T, workspaceRoot, sourceRoot string, action realMCPActionSpec) {
+	t.Helper()
+	check := func(value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		path := value
+		if strings.Contains(value, ":") {
+			if candidate := realMCPPositionPath(value); candidate != "" {
+				path = candidate
+			}
+		}
+		if !filepath.IsAbs(path) {
+			return
+		}
+		if !realMCPPathWithinRoot(workspaceRoot, path) {
+			t.Fatalf("action %s/%s path escaped isolated workspace: %q", action.tool, action.name, path)
+		}
+		if realMCPPathWithinRoot(sourceRoot, path) {
+			t.Fatalf("action %s/%s points at checked-in source: %q", action.tool, action.name, path)
+		}
+	}
+	for _, key := range []string{"file_path", "pos"} {
+		if value, ok := action.args[key].(string); ok {
+			check(value)
+		}
+	}
+	if values, ok := action.args["file_paths"].([]string); ok {
+		for _, value := range values {
+			check(value)
+		}
+	}
+}
+
 func TestWindowsARM64ProcessARM64NativeCatalog15x36PrecheckE2E(t *testing.T) {
 	if os.Getenv(nativeCatalog15x36PrecheckEnv) != "1" {
 		t.Skipf("set %s=1 for the bounded NON_PASS native catalog precheck", nativeCatalog15x36PrecheckEnv)
@@ -476,7 +561,7 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdCProbeE2E(t *testing.T) {
 		t.Fatalf("native probe language %q is not in the locked catalog", probeLanguage)
 	}
 	fixtureRoot := t.TempDir()
-	fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
+	fixture := nativeCatalog15x36WriteSnapshotFixture(t, fixtureRoot, server)
 	if probeLanguage == "terraform" {
 		cliPath, err := installer.ResolveWindowsTerraformCLIPath(productRoot)
 		if err != nil {
@@ -489,7 +574,7 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdCProbeE2E(t *testing.T) {
 		}
 	}
 	binary := buildRealMcpLSPBinary(t, repoRoot)
-	client := startRealMcpLSPBinary(t, ctx, binary, fixtureRoot, repoRoot, "", "", productRoot)
+	client := startRealMcpLSPBinary(t, ctx, binary, fixture.workDir, repoRoot, "", "", productRoot)
 	mcpPID := client.cmd.Process.Pid
 	mcpStart, err := windowsGoplsProcessStartIdentity(mcpPID)
 	if err != nil {
@@ -510,33 +595,33 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdCProbeE2E(t *testing.T) {
 	if err := nativeCatalog15x36Notify(client, "notifications/initialized", map[string]any{}); err != nil {
 		t.Fatalf("C probe initialized notification: %v", err)
 	}
-	response := client.callTool(t, "file", realMCPWindowsToolArguments(probeLanguage, fixtureRoot, "file", "open_file", map[string]any{
+	response := client.callTool(t, "file", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "file", "open_file", map[string]any{
 		"action":    "open_file",
 		"file_path": fixture.targetFile,
 	}))
 	requireRealMCPActionResult(t, response, true, "", false, "", false, "native language file/open_file probe")
 	if probeLanguage == "terraform" {
-		definition := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixtureRoot, "inspect", "definition", map[string]any{
+		definition := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "inspect", "definition", map[string]any{
 			"action": "definition",
 			"pos":    fixture.semanticPosition,
 		}))
 		requireRealMCPActionResult(t, definition, true, "", false, "", false, "native terraform inspect/definition probe")
 	} else if probeLanguage == "rust" {
-		hover := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixtureRoot, "inspect", "hover", map[string]any{
+		hover := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "inspect", "hover", map[string]any{
 			"action": "hover",
 			"pos":    fixture.semanticPosition,
 		}))
 		requireRealMCPActionResult(t, hover, true, "", false, "", false, "native rust inspect/hover probe")
-		definition := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixtureRoot, "inspect", "definition", map[string]any{
+		definition := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "inspect", "definition", map[string]any{
 			"action": "definition",
 			"pos":    fixture.semanticPosition,
 		}))
 		requireRealMCPActionResult(t, definition, true, "", false, "", false, "native rust inspect/definition probe")
-		completion := client.callTool(t, "completion", realMCPWindowsToolArguments(probeLanguage, fixtureRoot, "completion", "completion", map[string]any{
+		completion := client.callTool(t, "completion", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "completion", "completion", map[string]any{
 			"pos": fixture.completionPosition,
 		}))
 		requireRealMCPActionResult(t, completion, false, "", true, "completion", false, "native rust completion probe")
-		format := client.callTool(t, "patch_edit", realMCPWindowsToolArguments(probeLanguage, fixtureRoot, "patch_edit", "format", map[string]any{
+		format := client.callTool(t, "patch_edit", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "patch_edit", "format", map[string]any{
 			"action":    "format",
 			"file_path": fixture.formatFile,
 		}))
@@ -728,11 +813,9 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdWarmInitPrecheckE2E(t *testi
 	if singleDiagnostic {
 		binary := buildRealMcpLSPBinary(t, repoRoot)
 		fixtureRoot := t.TempDir()
-		astFile := filepath.Join(fixtureRoot, "ast_fixture.js")
-		writeRealFixture(t, astFile, "function nativeCatalogAst(name) { return name; }\nnativeCatalogAst(\"world\");\n")
 		var fixture realMCPFixture
 		if diagnosticVariant == "fixture_early" {
-			fixture = writeRealMCPLanguageFixture(t, fixtureRoot, nativeCatalog15x36ServerCases()[0])
+			fixture = nativeCatalog15x36WriteSnapshotFixture(t, fixtureRoot, nativeCatalog15x36ServerCases()[0])
 		}
 		wirePath := filepath.Join(receiptDir, "windows-arm64-process-arm64-native-catalog-clangd-single-diagnostic.wire.log")
 		_ = nativeCatalog15x36WriteWire(wirePath, "phase=started;status=NON_PASS_diag;installed_languages=15")
@@ -748,14 +831,18 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdWarmInitPrecheckE2E(t *testi
 		}
 		clientCtx, clientCancel := context.WithTimeout(ctx, 3*time.Hour)
 		defer clientCancel()
-		client := startRealMcpLSPBinary(t, clientCtx, binary, fixtureRoot, repoRoot, "", "", productRoot)
+		clientRoot := fixtureRoot
+		if fixture.workDir != "" {
+			clientRoot = fixture.workDir
+		}
+		client := startRealMcpLSPBinary(t, clientCtx, binary, clientRoot, repoRoot, "", "", productRoot)
 		pid := client.cmd.Process.Pid
 		start, startErr := windowsGoplsProcessStartIdentity(pid)
 		nativeCatalog15x36LogResourceSnapshot(t, wirePath, "single_diag_before_clangd", pid, productRoot, 0)
 		tracked := map[realMCPProcessKey]realMCPProcessIdentity{{PID: pid, StartToken: start}: {PID: pid, StartToken: start, Name: "mcp-lsp", Language: "c"}}
 		_ = trackRealMCPProcessTree(t, pid, "single_diag_before_initialize", tracked)
 		if diagnosticVariant != "fixture_early" {
-			fixture = writeRealMCPLanguageFixture(t, fixtureRoot, nativeCatalog15x36ServerCases()[0])
+			fixture = nativeCatalog15x36WriteSnapshotFixture(t, fixtureRoot, nativeCatalog15x36ServerCases()[0])
 		}
 		status := "runtime_failure"
 		childObserved := false
@@ -766,13 +853,13 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdWarmInitPrecheckE2E(t *testi
 			if diagnosticVariant != "without_tools_list" {
 				requireRealMCPToolFamilies(t, callMcpLSPBinaryRaw(t, client, "tools/list", map[string]any{}))
 			}
-			response := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile}))
+			response := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile}))
 			_ = trackRealMCPProcessTree(t, pid, "single_diag_after_open_file", tracked)
 			childObserved = childObserved || len(tracked) > 1
-			definition := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixtureRoot, "file", "definition", map[string]any{"action": "definition", "file_path": fixture.targetFile, "position": fixture.semanticPosition}))
+			definition := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "definition", map[string]any{"action": "definition", "file_path": fixture.targetFile, "position": fixture.semanticPosition}))
 			_ = trackRealMCPProcessTree(t, pid, "single_diag_after_definition", tracked)
 			childObserved = childObserved || len(tracked) > 1
-			hover := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixtureRoot, "file", "hover", map[string]any{"action": "hover", "file_path": fixture.targetFile, "position": fixture.semanticPosition}))
+			hover := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "hover", map[string]any{"action": "hover", "file_path": fixture.targetFile, "position": fixture.semanticPosition}))
 			_ = trackRealMCPProcessTree(t, pid, "single_diag_after_hover", tracked)
 			childObserved = childObserved || len(tracked) > 1
 			if response.Error == nil && strings.TrimSpace(response.Result.ContentText()) != "" && definition.Error == nil && strings.TrimSpace(definition.Result.ContentText()) != "" && hover.Error == nil && strings.TrimSpace(hover.Result.ContentText()) != "" && childObserved {
@@ -810,7 +897,7 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdWarmInitPrecheckE2E(t *testi
 	}
 	binary := buildRealMcpLSPBinary(t, repoRoot)
 	fixtureRoot := t.TempDir()
-	fixture := writeRealMCPLanguageFixture(t, fixtureRoot, nativeCatalog15x36ServerCases()[0])
+	fixture := nativeCatalog15x36WriteSnapshotFixture(t, fixtureRoot, nativeCatalog15x36ServerCases()[0])
 	lines := []string{"status=NON_PASS_precheck", "installed_languages=15", fmt.Sprintf("warm_cache_reused=%t", warmCacheReused), "formal_lifecycle=not_run", "absolute_path_markers=0"}
 	for trial := 1; trial <= 3; trial++ {
 		if ctx.Err() != nil {
@@ -818,13 +905,13 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdWarmInitPrecheckE2E(t *testi
 			break
 		}
 		clientCtx, clientCancel := context.WithTimeout(ctx, 75*time.Second)
-		client := startRealMcpLSPBinary(t, clientCtx, binary, fixtureRoot, repoRoot, "", "", productRoot)
+		client := startRealMcpLSPBinary(t, clientCtx, binary, fixture.workDir, repoRoot, "", "", productRoot)
 		pid := client.cmd.Process.Pid
 		start, startErr := windowsGoplsProcessStartIdentity(pid)
 		trialStatus := "runtime_failure"
 		initialize := client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}})
 		if initialize.Error == nil && nativeCatalog15x36Notify(client, "notifications/initialized", map[string]any{}) == nil {
-			response := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixtureRoot, "file", "open_file", map[string]any{
+			response := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "open_file", map[string]any{
 				"action":    "open_file",
 				"file_path": fixture.targetFile,
 			}))
@@ -1395,6 +1482,7 @@ func TestWindowsARM64ProcessARM64NativeCatalog15x36SoakE2E(t *testing.T) {
 	var finalMatrix realMCPMatrixSummary
 	var actionLedger []string
 	var matrix realMCPMatrixSummary
+	var fixturesByLanguage map[string]realMCPFixture
 	var actionsByLanguage map[string][]realMCPActionSpec
 	finalized := false
 	// 安装阶段也必须留下终态收据；started 不能在 EnsureInstalledDetailed 首错后残留。
@@ -1644,8 +1732,6 @@ func TestWindowsARM64ProcessARM64NativeCatalog15x36SoakE2E(t *testing.T) {
 	binaryPath := buildRealMcpLSPBinary(t, repoRoot)
 	fixtureRoot := t.TempDir()
 	registerRealMCPTempRootCleanup(t, fixtureRoot)
-	astFile := filepath.Join(fixtureRoot, "ast_fixture.js")
-	writeRealFixture(t, astFile, "function nativeCatalogAst(name) { return name; }\nnativeCatalogAst(\"world\");\n")
 	client = startRealMcpLSPBinary(t, ctx, binaryPath, fixtureRoot, repoRoot, "", "", productRoot)
 	mcpPID = client.cmd.Process.Pid
 	mcpStart, err = windowsGoplsProcessStartIdentity(mcpPID)
@@ -1748,7 +1834,7 @@ func TestWindowsARM64ProcessARM64NativeCatalog15x36SoakE2E(t *testing.T) {
 		t.Fatalf("write native catalog initialized wire: %v", err)
 	}
 
-	matrix, _, actionsByLanguage, actionLedger = nativeCatalog15x36RunActionMatrix(t, client, mcpPID, fixtureRoot, productRoot, astFile, servers, tracked, wirePath, &finalMatrix)
+	matrix, fixturesByLanguage, actionsByLanguage, actionLedger = nativeCatalog15x36RunActionMatrix(t, client, mcpPID, fixtureRoot, productRoot, "", servers, tracked, wirePath, &finalMatrix)
 	finalMatrix = matrix
 	if matrix.total != nativeCatalog15x36ExpectedActions || matrix.succeeded+matrix.capabilityUnsupported != matrix.total {
 		t.Fatalf("native catalog matrix accounting failed: total=%d success=%d legal_empty=%d capability_unsupported=%d", matrix.total, matrix.succeeded, matrix.legalEmpty, matrix.capabilityUnsupported)
@@ -1764,7 +1850,7 @@ func TestWindowsARM64ProcessARM64NativeCatalog15x36SoakE2E(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s has no required pre-idle refresh hover contract", server.languageID)
 		}
-		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args))
+		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixturesByLanguage[server.languageID].workDir, action.tool, action.name, action.args))
 		status := requireRealMCPActionResult(t, response, true, "", false, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), server.languageID+" pre-idle refresh")
 		if status != realMCPActionSucceeded {
 			t.Fatalf("%s pre-idle refresh was not a non-empty semantic success: %s", server.languageID, status)
@@ -1831,7 +1917,7 @@ func TestWindowsARM64ProcessARM64NativeCatalog15x36SoakE2E(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s has no required post-idle hover contract", server.languageID)
 		}
-		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args))
+		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixturesByLanguage[server.languageID].workDir, action.tool, action.name, action.args))
 		status := requireRealMCPActionResult(t, response, true, "", false, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), server.languageID+" post-idle hover")
 		if status != realMCPActionSucceeded {
 			t.Fatalf("%s post-idle hover was not a non-empty semantic success: %s", server.languageID, status)
@@ -2106,21 +2192,21 @@ func nativeCatalog15x36ValidateCatalog() error {
 
 func nativeCatalog15x36ServerCases() []realNodeServerCase {
 	return []realNodeServerCase{
-		{name: "c", languageID: "c", packageName: "clangd", fileName: "main.c", content: "int native_value = 1;\nint native_function(int value) { return value + native_value; }\nint main(void) { return native_function(1); }\n", line: 2, character: 4},
-		{name: "cpp", languageID: "cpp", packageName: "clangd", fileName: "main.cpp", content: "int native_value = 1;\nint native_function(int value) { return value + native_value; }\nint main() { return native_function(1); }\n", line: 2, character: 4},
-		{name: "objective-c", languageID: "objective-c", packageName: "clangd", fileName: "main.m", content: "int native_value = 1;\nint native_function(int value) { return value + native_value; }\nint main(void) { return native_function(1); }\n", line: 2, character: 4},
-		{name: "objective-cpp", languageID: "objective-cpp", packageName: "clangd", fileName: "main.mm", content: "int native_value = 1;\nint native_function(int value) { return value + native_value; }\nint main() { return native_function(1); }\n", line: 2, character: 4},
-		{name: "mq4", languageID: "mq4", packageName: "clangd", fileName: "main.mq4", content: "#property strict\nint native_function(int value) { return value + 1; }\nint OnInit() { return native_function(1); }\n", line: 2, character: 4},
-		{name: "mq5", languageID: "mq5", packageName: "clangd", fileName: "main.mq5", content: "#property strict\nint native_function(int value) { return value + 1; }\nint OnInit() { return native_function(1); }\n", line: 2, character: 4},
-		{name: "mqh", languageID: "mqh", packageName: "clangd", fileName: "common.mqh", content: "#property strict\nint native_function(int value) { return value + 1; }\n", line: 2, character: 4},
-		{name: "mql", languageID: "mql", packageName: "clangd", fileName: "main.mql", content: "#property strict\nint native_function(int value) { return value + 1; }\nint OnInit() { return native_function(1); }\n", line: 2, character: 4},
-		{name: "mql4", languageID: "mql4", packageName: "clangd", fileName: "main.mql4", content: "#property strict\nint native_function(int value) { return value + 1; }\nint OnInit() { return native_function(1); }\n", line: 2, character: 4},
-		{name: "mql5", languageID: "mql5", packageName: "clangd", fileName: "main.mql5", content: "#property strict\nint native_function(int value) { return value + 1; }\nint OnInit() { return native_function(1); }\n", line: 2, character: 4},
-		{name: "proto", languageID: "proto", packageName: "buf", fileName: "service.proto", content: "syntax = \"proto3\";\nmessage NativeMessage { string value = 1; }\nservice NativeService { rpc Get(NativeMessage) returns (NativeMessage); }\n", line: 2, character: 8},
-		{name: "kotlin", languageID: "kotlin", packageName: "kotlin-lsp", fileName: "Main.kt", content: "class NativeGreeter {\n    fun greet(value: String): String = value\n}\nfun main() { NativeGreeter().greet(\"world\") }\n", line: 2, character: 8},
-		{name: "dart", languageID: "dart", packageName: "dart", fileName: "main.dart", content: "class NativeGreeter {\n  String greet(String value) => value;\n}\nvoid main() { NativeGreeter().greet('world'); }\n", line: 2, character: 9},
-		{name: "terraform", languageID: "terraform", packageName: "terraform-ls", fileName: "main.tf", content: "variable \"native_value\" {\n  type = string\n}\noutput \"native_output\" { value = var.native_value }\n", line: 4, character: 33},
-		{name: "rust", languageID: "rust", packageName: "rust-analyzer", fileName: "main.rs", content: "fn native_function(value: i32) -> i32 {\n    value + 1\n}\nfn main() { native_function(1); }\n", line: 1, character: 3},
+		{name: "c", languageID: "c", packageName: "clangd", fileName: "lsp_fixture.c", line: 1, character: 4, sourceDir: "c", sourceFile: "lsp_fixture.c", sourceSecondaryFile: "math/fibonacci.c", sourceIdentifier: "add", sourceWorkspaceQuery: "add", sourceLine: 1, sourceCharacter: 4},
+		{name: "cpp", languageID: "cpp", packageName: "clangd", fileName: "lsp_fixture.cpp", line: 3, character: 6, sourceDir: "cpp", sourceFile: "lsp_fixture.cpp", sourceSecondaryFile: "math/area.cpp", sourceIdentifier: "add", sourceWorkspaceQuery: "add", sourceLine: 3, sourceCharacter: 6},
+		{name: "objective-c", languageID: "objective-c", packageName: "clangd", fileName: "lsp_fixture.m", line: 3, character: 7, sourceDir: "objective-c", sourceFile: "lsp_fixture.m", sourceSecondaryFile: "AFNetworking/AFHTTPSessionManager.m", sourceIdentifier: "add", sourceWorkspaceQuery: "add", sourceLine: 3, sourceCharacter: 7},
+		{name: "objective-cpp", languageID: "objective-cpp", packageName: "clangd", fileName: "lsp_fixture.mm", line: 3, character: 7, sourceDir: "objective-cpp", sourceFile: "lsp_fixture.mm", sourceSecondaryFile: "example/example-lib/HelloWorld.cpp", sourceIdentifier: "add", sourceWorkspaceQuery: "add", sourceLine: 3, sourceCharacter: 7},
+		{name: "mq4", languageID: "mq4", packageName: "clangd", fileName: "main.mq4", line: 1, character: 4, sourceDir: "mql", sourceFile: "lsp_fixture_entry.mq5", sourceSecondaryFile: "Array.mqh", sourceIdentifier: "OnInit", sourceWorkspaceQuery: "OnInit", sourceLine: 1, sourceCharacter: 4},
+		{name: "mq5", languageID: "mq5", packageName: "clangd", fileName: "main.mq5", line: 1, character: 4, sourceDir: "mql", sourceFile: "lsp_fixture_entry.mq5", sourceSecondaryFile: "Array.mqh", sourceIdentifier: "OnInit", sourceWorkspaceQuery: "OnInit", sourceLine: 1, sourceCharacter: 4},
+		{name: "mqh", languageID: "mqh", packageName: "clangd", fileName: "common.mqh", line: 53, character: 6, sourceDir: "mql", sourceFile: "Array.mqh", sourceSecondaryFile: "Chart.mqh", sourceIdentifier: "Array", sourceWorkspaceQuery: "Array", sourceLine: 53, sourceCharacter: 6},
+		{name: "mql", languageID: "mql", packageName: "clangd", fileName: "main.mql", line: 1, character: 4, sourceDir: "mql", sourceFile: "lsp_fixture_entry.mq5", sourceSecondaryFile: "Array.mqh", sourceIdentifier: "OnInit", sourceWorkspaceQuery: "OnInit", sourceLine: 1, sourceCharacter: 4},
+		{name: "mql4", languageID: "mql4", packageName: "clangd", fileName: "main.mql4", line: 1, character: 4, sourceDir: "mql", sourceFile: "lsp_fixture_entry.mq5", sourceSecondaryFile: "Array.mqh", sourceIdentifier: "OnInit", sourceWorkspaceQuery: "OnInit", sourceLine: 1, sourceCharacter: 4},
+		{name: "mql5", languageID: "mql5", packageName: "clangd", fileName: "main.mql5", line: 1, character: 4, sourceDir: "mql", sourceFile: "lsp_fixture_entry.mq5", sourceSecondaryFile: "Array.mqh", sourceIdentifier: "OnInit", sourceWorkspaceQuery: "OnInit", sourceLine: 1, sourceCharacter: 4},
+		{name: "proto", languageID: "proto", packageName: "buf", fileName: "grpc/testing/test.proto", line: 29, character: 8, sourceDir: "proto", sourceFile: "grpc/testing/test.proto", sourceSecondaryFile: "grpc/testing/messages.proto", sourceIdentifier: "TestService", sourceWorkspaceQuery: "TestService", sourceLine: 29, sourceCharacter: 8},
+		{name: "kotlin", languageID: "kotlin", packageName: "kotlin-lsp", fileName: "src/ii_collections/n13Introduction.kt", line: 13, character: 4, sourceDir: "kotlin", sourceFile: "src/ii_collections/n13Introduction.kt", sourceSecondaryFile: "src/ii_collections/n14FilterMap.kt", sourceIdentifier: "example0", sourceWorkspaceQuery: "example0", sourceLine: 13, sourceCharacter: 4},
+		{name: "dart", languageID: "dart", packageName: "dart", fileName: "parameters/lib/named_parameters.dart", line: 17, character: 4, sourceDir: "dart", sourceFile: "parameters/lib/named_parameters.dart", sourceSecondaryFile: "parameters/lib/super_initalizer.dart", sourceIdentifier: "countWhere", sourceWorkspaceQuery: "countWhere", sourceLine: 17, sourceCharacter: 4},
+		{name: "terraform", languageID: "terraform", packageName: "terraform-ls", fileName: "variables.tf", line: 1, character: 10, sourceDir: "terraform", sourceFile: "variables.tf", sourceSecondaryFile: "outputs.tf", sourceIdentifier: "environment", sourceWorkspaceQuery: "environment", sourceLine: 1, sourceCharacter: 10},
+		{name: "rust", languageID: "rust", packageName: "rust-analyzer", fileName: "src/app_state.rs", line: 50, character: 11, sourceDir: "rust", sourceFile: "src/app_state.rs", sourceSecondaryFile: "src/cli.rs", sourceIdentifier: "AppState", sourceWorkspaceQuery: "AppState", sourceLine: 50, sourceCharacter: 11},
 	}
 }
 
@@ -2128,6 +2214,182 @@ func nativeCatalog15x36ServerCases() []realNodeServerCase {
 // MQL 文件不是 clangd 原生扩展名；-x c++ 让 clangd 在产品真实启动路径中建立
 // compile task。缺少该 bootstrap 时，file/open_file 必须报 runtime failure，不能
 // 被测试错误归类为合法空结果或 capability_unsupported。
+// nativeCatalog15x36WriteSnapshotFixture 将锁定的 bin/LSP/test 快照复制到每个
+// 语言独立的 workspace。源文件只读，MCP 的每个编辑动作都使用独立副本；因此
+// 36 个动作的路径、位置和查询都来自真实快照，而不是测试内 synthetic 文本。
+func nativeCatalog15x36WriteSnapshotFixture(t *testing.T, root string, server realNodeServerCase) realMCPFixture {
+	t.Helper()
+	if strings.TrimSpace(server.sourceDir) == "" || strings.TrimSpace(server.sourceFile) == "" || strings.TrimSpace(server.sourceSecondaryFile) == "" {
+		t.Fatalf("%s snapshot mapping is incomplete: dir=%q file=%q secondary=%q", server.languageID, server.sourceDir, server.sourceFile, server.sourceSecondaryFile)
+	}
+	if strings.TrimSpace(server.sourceIdentifier) == "" || strings.TrimSpace(server.sourceWorkspaceQuery) == "" {
+		t.Fatalf("%s snapshot mapping lacks identifier/query: identifier=%q query=%q", server.languageID, server.sourceIdentifier, server.sourceWorkspaceQuery)
+	}
+	if server.sourceLine <= 0 || server.sourceCharacter < 0 {
+		t.Fatalf("%s snapshot mapping has invalid raw position: line=%d character=%d", server.languageID, server.sourceLine, server.sourceCharacter)
+	}
+	repoRoot := realNodeRepoRoot(t)
+	sourceRoot := filepath.Join(repoRoot, "bin", "LSP", "test")
+	sourceDir := filepath.Clean(filepath.FromSlash(server.sourceDir))
+	if sourceDir == "." || filepath.IsAbs(sourceDir) {
+		t.Fatalf("%s snapshot source directory must be relative: %q", server.languageID, server.sourceDir)
+	}
+	sourceProjectRoot := filepath.Join(sourceRoot, sourceDir)
+	if !realMCPPathWithinRoot(sourceRoot, sourceProjectRoot) {
+		t.Fatalf("%s snapshot source directory escaped bin/LSP/test: %q", server.languageID, sourceProjectRoot)
+	}
+	sourceFile := filepath.Clean(filepath.FromSlash(server.sourceFile))
+	secondaryFile := filepath.Clean(filepath.FromSlash(server.sourceSecondaryFile))
+	if sourceFile == "." || secondaryFile == "." || filepath.IsAbs(sourceFile) || filepath.IsAbs(secondaryFile) {
+		t.Fatalf("%s snapshot files must be relative: file=%q secondary=%q", server.languageID, server.sourceFile, server.sourceSecondaryFile)
+	}
+	sourcePath := filepath.Join(sourceProjectRoot, sourceFile)
+	secondarySourcePath := filepath.Join(sourceProjectRoot, secondaryFile)
+	if !realMCPPathWithinRoot(sourceProjectRoot, sourcePath) || !realMCPPathWithinRoot(sourceProjectRoot, secondarySourcePath) {
+		t.Fatalf("%s snapshot file escaped language root: source=%q secondary=%q", server.languageID, sourcePath, secondarySourcePath)
+	}
+	sourceBytes := readRealMCPBinSourceFile(t, sourcePath)
+	secondaryBytes := readRealMCPBinSourceFile(t, secondarySourcePath)
+	if len(sourceBytes) == 0 || len(secondaryBytes) == 0 {
+		t.Fatalf("%s snapshot source files must be non-empty: source=%q secondary=%q", server.languageID, sourcePath, secondarySourcePath)
+	}
+	if err := nativeCatalog15x36ValidateSnapshotIdentifier(sourceBytes, server.sourceLine, server.sourceCharacter, server.sourceIdentifier); err != nil {
+		t.Fatalf("%s snapshot identifier mapping: %v", server.languageID, err)
+	}
+	if !bytes.Contains(sourceBytes, []byte(server.sourceWorkspaceQuery)) {
+		t.Fatalf("%s workspace query %q is absent from source snapshot %q", server.languageID, server.sourceWorkspaceQuery, sourcePath)
+	}
+	searchNeedle := nativeCatalog15x36SnapshotNeedle(secondaryBytes)
+	if searchNeedle == "" {
+		t.Fatalf("%s secondary snapshot has no searchable identifier: %q", server.languageID, secondarySourcePath)
+	}
+
+	workspaceRoot := filepath.Join(root, server.name)
+	if !realMCPPathWithinRoot(root, workspaceRoot) {
+		t.Fatalf("%s isolated workspace escaped fixture root: %q", server.languageID, workspaceRoot)
+	}
+	copyRealMCPBinSourceTree(t, sourceProjectRoot, workspaceRoot)
+	targetRelative := filepath.Clean(filepath.FromSlash(server.fileName))
+	if targetRelative == "." || filepath.IsAbs(targetRelative) {
+		t.Fatalf("%s target file must be relative: %q", server.languageID, server.fileName)
+	}
+	target := filepath.Join(workspaceRoot, targetRelative)
+	if !realMCPPathWithinRoot(workspaceRoot, target) {
+		t.Fatalf("%s target escaped isolated workspace: %q", server.languageID, target)
+	}
+	nativeCatalog15x36WriteSnapshotPayload(t, workspaceRoot, target, sourceBytes)
+	secondary := filepath.Join(workspaceRoot, ".mcp-secondary", filepath.Base(secondarySourcePath))
+	if !realMCPPathWithinRoot(workspaceRoot, secondary) {
+		t.Fatalf("%s secondary escaped isolated workspace: %q", server.languageID, secondary)
+	}
+	nativeCatalog15x36WriteSnapshotPayload(t, workspaceRoot, secondary, secondaryBytes)
+
+	lines := strings.Split(strings.ReplaceAll(string(sourceBytes), "\r\n", "\n"), "\n")
+	oldLine := lines[server.sourceLine-1]
+	if strings.TrimSpace(oldLine) == "" {
+		t.Fatalf("%s replace source line %d is empty", server.languageID, server.sourceLine)
+	}
+	copyAction := func(name string) string {
+		destination := filepath.Join(workspaceRoot, ".mcp-actions", name, filepath.Base(target))
+		if !realMCPPathWithinRoot(workspaceRoot, destination) {
+			t.Fatalf("%s %s action copy escaped isolated workspace: %q", server.languageID, name, destination)
+		}
+		nativeCatalog15x36WriteSnapshotPayload(t, workspaceRoot, destination, sourceBytes)
+		return destination
+	}
+	replace := copyAction("replace")
+	rename := copyAction("rename")
+	codeAction := copyAction("code_action")
+	format := copyAction("format")
+	completion := copyAction("completion")
+	semanticPosition := realMCPPositionFromLSP(target, server.sourceLine, server.sourceCharacter)
+	return realMCPFixture{
+		workDir:                workspaceRoot,
+		sourceRoot:             sourceRoot,
+		sourcePath:             sourcePath,
+		sourceSecondaryPath:    secondarySourcePath,
+		searchNeedle:           searchNeedle,
+		replaceExpectation:     "REAL_MCP_REPLACED",
+		workspaceQuery:         server.sourceWorkspaceQuery,
+		readLine:               server.sourceLine,
+		targetFile:             target,
+		secondaryFile:          secondary,
+		replaceFile:            replace,
+		renameFile:             rename,
+		codeActionFile:         codeAction,
+		formatFile:             format,
+		completionFile:         completion,
+		semanticPosition:       semanticPosition,
+		renamePosition:         realMCPPositionFromLSP(rename, server.sourceLine, server.sourceCharacter),
+		implementationPosition: semanticPosition,
+		typeDefinitionPosition: semanticPosition,
+		callHierarchyPosition:  semanticPosition,
+		typeHierarchyPosition:  semanticPosition,
+		signaturePosition:      semanticPosition,
+		completionPosition:     realMCPPositionFromLSP(completion, server.sourceLine, server.sourceCharacter),
+		codeActionPosition:     realMCPPositionFromLSP(codeAction, server.sourceLine, server.sourceCharacter),
+		replacePatch:           "@@\n-" + oldLine + "\n+REAL_MCP_REPLACED\n",
+	}
+}
+
+// nativeCatalog15x36WriteSnapshotPayload 只允许写入已校验的隔离 workspace。
+func nativeCatalog15x36WriteSnapshotPayload(t *testing.T, workspaceRoot, destination string, payload []byte) {
+	t.Helper()
+	if !realMCPPathWithinRoot(workspaceRoot, destination) {
+		t.Fatalf("snapshot destination escaped isolated workspace: %q", destination)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		t.Fatalf("create snapshot destination parent %q: %v", destination, err)
+	}
+	if err := os.WriteFile(destination, payload, 0o600); err != nil {
+		t.Fatalf("write isolated snapshot copy %q: %v", destination, err)
+	}
+}
+
+func nativeCatalog15x36ValidateSnapshotIdentifier(payload []byte, line, character int, identifier string) error {
+	if line <= 0 || character < 0 || strings.TrimSpace(identifier) == "" {
+		return fmt.Errorf("invalid identifier mapping line=%d character=%d identifier=%q", line, character, identifier)
+	}
+	lines := strings.Split(strings.ReplaceAll(string(payload), "\r\n", "\n"), "\n")
+	if line > len(lines) {
+		return fmt.Errorf("line=%d exceeds snapshot line count=%d", line, len(lines))
+	}
+	text := lines[line-1]
+	if character > len(text) || character+len(identifier) > len(text) || text[character:character+len(identifier)] != identifier {
+		return fmt.Errorf("identifier %q is not at raw position line=%d character=%d", identifier, line, character)
+	}
+	return nil
+}
+
+func nativeCatalog15x36SnapshotNeedle(payload []byte) string {
+	for _, token := range strings.FieldsFunc(string(payload), func(r rune) bool {
+		return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+	}) {
+		if len(token) >= 4 {
+			return token
+		}
+	}
+	return ""
+}
+
+func nativeCatalog15x36WriteAstSnapshot(t *testing.T, workspaceRoot string) string {
+	t.Helper()
+	if !filepath.IsAbs(workspaceRoot) {
+		t.Fatalf("native catalog AST workspace must be absolute: %q", workspaceRoot)
+	}
+	repoRoot := realNodeRepoRoot(t)
+	sourceRoot := filepath.Join(repoRoot, "bin", "LSP", "test")
+	sourceRelative := "javascript/module-examples/top-level-await/main.js"
+	source := filepath.Join(sourceRoot, filepath.FromSlash(sourceRelative))
+	readRealMCPBinSourceFile(t, source)
+	destination := filepath.Join(workspaceRoot, ".mcp-ast", "ast_fixture.js")
+	if !realMCPPathWithinRoot(workspaceRoot, destination) {
+		t.Fatalf("native catalog AST snapshot escaped workspace: %q", destination)
+	}
+	copyRealMCPBinSourceFile(t, sourceRoot, sourceRelative, destination)
+	return destination
+}
+
 func nativeCatalog15x36PrepareClangdFixture(t *testing.T, root string, server realNodeServerCase) {
 	t.Helper()
 	switch server.languageID {
@@ -2216,9 +2478,10 @@ func nativeCatalog15x36RunActionMatrix(t *testing.T, client *mcpLSPBinaryClient,
 	actionsByLanguage := make(map[string][]realMCPActionSpec, len(servers))
 	ledger := make([]string, 0, len(servers))
 	for _, server := range servers {
-		fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
-		nativeCatalog15x36PrepareClangdFixture(t, fixtureRoot, server)
-		actions := nativeCatalog15x36ActionSpecs(server, fixture, astFile)
+		fixture := nativeCatalog15x36WriteSnapshotFixture(t, fixtureRoot, server)
+		nativeCatalog15x36PrepareClangdFixture(t, fixture.workDir, server)
+		languageAST := nativeCatalog15x36WriteAstSnapshot(t, fixture.workDir)
+		actions := nativeCatalog15x36ActionSpecs(server, fixture, languageAST)
 		if err := validateRealMCPActionClosure(actions); err != nil {
 			t.Fatalf("%s native action closure: %v", server.languageID, err)
 		}
@@ -2242,10 +2505,10 @@ func nativeCatalog15x36RunActionMatrix(t *testing.T, client *mcpLSPBinaryClient,
 				if path == "" {
 					t.Fatalf("%s patch action %s has no target path", server.languageID, action.name)
 				}
-				opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
+				opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
 				requireRealMCPActionResult(t, opened, true, "", false, "", false, server.languageID+" patch target")
 			}
-			response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args))
+			response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixture.workDir, action.tool, action.name, action.args))
 			if server.languageID == "proto" && action.tool == "inspect" && action.name == "hover" && !nativeCatalog15x36ProtoHoverIsStrictLegalEmpty(response) && strings.Contains(response.Result.ContentText(), "OK total=0") {
 				t.Fatalf("proto hover empty response violated strict legal-empty contract: %q", response.Result.ContentText())
 			}

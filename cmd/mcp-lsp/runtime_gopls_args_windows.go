@@ -19,6 +19,9 @@ func runtimeServerArgsPlatform(command multilsp.ServerCommand, binary string, en
 	} else if handled {
 		return args, nil
 	}
+	if strings.EqualFold(windowsRuntimeExecutableStem(command.Executable), "clangd") {
+		return runtimeServerWindowsClangdArguments(command, binary)
+	}
 	if strings.EqualFold(filepath.Base(filepath.Clean(binary)), "sourcekit-lsp.exe") {
 		return runtimeServerWindowsSwiftLaunchArgs(binary, command.Args)
 	}

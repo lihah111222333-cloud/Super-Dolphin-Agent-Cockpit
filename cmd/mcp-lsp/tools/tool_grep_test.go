@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -445,7 +446,7 @@ func writeGrepFixtureFile(t *testing.T, path string, body string) {
 
 func canonicalGrepPath(t *testing.T, path string) string {
 	t.Helper()
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := lspplatform.CanonicalExistingPath(path)
 	if err != nil {
 		t.Fatalf("canonicalize grep path %s: %v", path, err)
 	}

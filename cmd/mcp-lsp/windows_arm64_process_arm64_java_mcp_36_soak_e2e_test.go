@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
@@ -84,6 +85,8 @@ type windowsARM64ProcessARM64JavaScopeInputEvent struct {
 	FinalPathDigest     string `json:"final_path_digest"`
 	FileIDAvailable     bool   `json:"file_id_available"`
 	FinalPathAvailable  bool   `json:"final_path_available"`
+	FileIDStatus        string `json:"file_id_status"`
+	FinalPathStatus     string `json:"final_path_status"`
 }
 
 func windowsARM64ProcessARM64JavaScopeInput(t *testing.T, filePath, workDir string) {
@@ -97,19 +100,43 @@ func windowsARM64ProcessARM64JavaScopeInput(t *testing.T, filePath, workDir stri
 		ContainsTilde:       strings.Contains(workDir, "~"),
 		WindowsVolumeDigest: windowsARM64ProcessARM64JavaDigest(filepath.VolumeName(workDir)),
 	}
-	if finalPath, err := filepath.EvalSymlinks(filePath); err == nil {
+	finalPath, err := lspplatform.CanonicalExistingPath(filePath)
+	if err == nil {
 		event.FinalPathDigest = windowsARM64ProcessARM64JavaDigest(finalPath)
 		event.FinalPathAvailable = true
+		event.FinalPathStatus = "available"
+	} else {
+		event.FinalPathStatus = windowsARM64ProcessARM64JavaOptionalObservationStatus(err)
+		t.Logf("Java scope input final path unavailable: status=%s", event.FinalPathStatus)
 	}
-	if output, err := exec.Command("fsutil", "file", "queryfileid", filePath).CombinedOutput(); err == nil && len(output) > 0 {
+	output, err := exec.Command("fsutil", "file", "queryfileid", filePath).CombinedOutput()
+	if err == nil && len(output) > 0 {
 		event.FileIDDigest = windowsARM64ProcessARM64JavaDigest(string(output))
 		event.FileIDAvailable = true
+		event.FileIDStatus = "available"
+	} else if err != nil {
+		event.FileIDStatus = windowsARM64ProcessARM64JavaOptionalObservationStatus(err)
+		t.Logf("Java scope input file ID unavailable: status=%s", event.FileIDStatus)
+	} else {
+		event.FileIDStatus = "unavailable:empty"
+		t.Logf("Java scope input file ID unavailable: status=%s", event.FileIDStatus)
 	}
 	payload, err := json.Marshal(event)
 	if err != nil {
 		t.Fatalf("marshal Java scope input observation: %v", err)
 	}
 	t.Logf("Java scope input event=%s", payload)
+}
+
+// windowsARM64ProcessARM64JavaOptionalObservationStatus 将可选观测失败归类为稳定状态，保留 ACL 失败语义但不落盘原始路径。
+func windowsARM64ProcessARM64JavaOptionalObservationStatus(err error) string {
+	if err == nil {
+		return "available"
+	}
+	if kind, ok := securefs.ClassifyWindowsPermissionError(err); ok {
+		return "unavailable:" + kind.String()
+	}
+	return "unavailable:error"
 }
 
 func (o *windowsARM64ProcessARM64JavaHTTPObserver) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -368,68 +395,35 @@ func windowsARM64ProcessARM64JavaReceiptFailure(receipt *windowsARM64ProcessARM6
 	}
 }
 
-const windowsARM64ProcessARM64JavaMain = "package com.example;\n\ninterface Greeter {\n    String greet(String name);\n}\n\nclass EnglishGreeter implements Greeter {\n    @Override\n    public String greet(String name) {\n        return formatGreeting(name);\n    }\n\n    private String formatGreeting(String name) {\n        return \"Hello, \" + name;\n    }\n}\n\npublic class JavaProof {\n    public static void main(String[] args) {\n        Greeter greeter = new EnglishGreeter();\n        System.out.println(greeter.greet(\"world\"));\n    }\n}\n"
-
-func windowsARM64ProcessARM64JavaPosition(t *testing.T, path, content string, line int, needle string) string {
-	t.Helper()
-	lines := strings.Split(content, "\n")
-	if line <= 0 || line > len(lines) {
-		t.Fatalf("Java fixture line %d is outside %d lines", line, len(lines))
-	}
-	character := strings.Index(lines[line-1], needle)
-	if character < 0 {
-		t.Fatalf("Java fixture line %d lacks %q", line, needle)
-	}
-	return realMCPPositionFromLSP(path, line, character)
-}
-
-// Java fixture 使用 Maven 自然 source tree；其他文件只承载 edit/rename/format/completion 请求。
+// Java fixture 使用仓库内受版本控制的 Maven 快照；所有编辑动作只操作快照副本。
 func windowsARM64ProcessARM64JavaWriteFixture(t *testing.T, root string) (realNodeServerCase, realMCPFixture) {
 	t.Helper()
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		t.Fatalf("create Java fixture root: %v", err)
-	}
-	sourceRoot := filepath.Join(root, "src", "main", "java", "com", "example")
-	if err := os.MkdirAll(sourceRoot, 0o700); err != nil {
-		t.Fatalf("create Java source root: %v", err)
-	}
-	target := filepath.Join(sourceRoot, "JavaProof.java")
-	writeRealFixture(t, target, windowsARM64ProcessARM64JavaMain)
-	writeRealFixture(t, filepath.Join(root, "pom.xml"), "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\">\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>com.example</groupId>\n  <artifactId>java-proof</artifactId>\n  <version>1.0</version>\n  <properties><maven.compiler.release>21</maven.compiler.release></properties>\n</project>\n")
-	secondary := filepath.Join(sourceRoot, "JavaSecondary.java")
-	writeRealFixture(t, secondary, "package com.example;\n\nfinal class JavaSecondary {\n    static String repeatedFormatGreeting(String name) {\n        return new EnglishGreeter().greet(name);\n    }\n}\n")
-	replace := filepath.Join(sourceRoot, "JavaReplace.java")
-	writeRealFixture(t, replace, "package com.example;\nfinal class JavaReplace {\n    // REAL_JAVA_REPLACE_ME\n}\n")
-	rename := filepath.Join(sourceRoot, "JavaRename.java")
-	writeRealFixture(t, rename, "package com.example;\nfinal class JavaRenameTarget {\n    static String value() { return \"FormatGreeting\"; }\n}\n")
-	codeAction := filepath.Join(sourceRoot, "JavaCodeAction.java")
-	writeRealFixture(t, codeAction, "package com.example;\nfinal class JavaCodeAction {\n    String value() { return MissingJavaIdentifier; }\n}\n")
-	format := filepath.Join(sourceRoot, "JavaFormat.java")
-	writeRealFixture(t, format, "package com.example;\nfinal class JavaFormat { static String value(){return \"format\";} }\n")
-	completion := filepath.Join(sourceRoot, "JavaCompletion.java")
-	completionContent := "package com.example;\nfinal class JavaCompletion { void run() { Greeter greeter = new EnglishGreeter(); greeter. } }\n"
-	writeRealFixture(t, completion, completionContent)
-	// EnglishGreeter 在主文件声明，并在主/secondary 文件各有真实构造引用，
-	// 比私有 formatGreeting 方法更适合作为 JDTLS references 的稳定自然符号。
-	semantic := windowsARM64ProcessARM64JavaPosition(t, target, windowsARM64ProcessARM64JavaMain, 7, "EnglishGreeter")
-	renamePosition := windowsARM64ProcessARM64JavaPosition(t, rename, "package com.example;\nfinal class JavaRenameTarget {\n    static String value() { return \"FormatGreeting\"; }\n}\n", 2, "JavaRenameTarget")
-	completionLine := strings.Split(completionContent, "\n")[1]
-	completionPosition := realMCPPositionFromLSP(completion, 2, strings.Index(completionLine, "greeter.")+len("greeter."))
-	codeActionPosition := windowsARM64ProcessARM64JavaPosition(t, codeAction, "package com.example;\nfinal class JavaCodeAction {\n    String value() { return MissingJavaIdentifier; }\n}\n", 3, "MissingJavaIdentifier")
 	server := realNodeServerCase{
-		name: "java", languageID: "java", fileName: filepath.Join("src", "main", "java", "com", "example", "JavaProof.java"),
-		content: windowsARM64ProcessARM64JavaMain, line: 7,
-		character: strings.Index(strings.Split(windowsARM64ProcessARM64JavaMain, "\n")[6], "EnglishGreeter"),
+		name: "java", languageID: "java", fileName: filepath.FromSlash("src/main/java/hello/HelloWorld.java"),
+		sourceDir: "java/initial", sourceFile: "src/main/java/hello/HelloWorld.java",
+		sourceSecondaryFile: "src/main/java/hello/Greeter.java", sourceIdentifier: "Greeter",
+		sourceWorkspaceQuery: "Greeter", sourceLine: 5, sourceCharacter: 2,
+		line: 5, character: 2,
 	}
-	fixture := realMCPFixture{
-		targetFile: target, secondaryFile: secondary, replaceFile: replace, renameFile: rename,
-		codeActionFile: codeAction, formatFile: format, completionFile: completion,
-		semanticPosition: semantic, renamePosition: renamePosition,
-		implementationPosition: semantic, typeDefinitionPosition: semantic,
-		callHierarchyPosition: semantic, typeHierarchyPosition: semantic, signaturePosition: semantic,
-		completionPosition: completionPosition, codeActionPosition: codeActionPosition,
-		replacePatch: "@@\n-    // REAL_JAVA_REPLACE_ME\n+    // REAL_JAVA_REPLACED\n",
+	fixture := writeRealMCPBinSourceFixture(t, root, server)
+	sourceBytes := readRealMCPBinSourceFile(t, fixture.sourcePath)
+	server.content = string(sourceBytes)
+	fixture.searchNeedle = server.sourceIdentifier
+	fixture.workspaceQuery = server.sourceWorkspaceQuery
+	secondaryBytes := readRealMCPBinSourceFile(t, fixture.sourceSecondaryPath)
+	if !bytes.Contains(secondaryBytes, []byte(server.sourceIdentifier)) {
+		t.Fatalf("Java secondary source %q lacks real identifier %q", fixture.sourceSecondaryPath, server.sourceIdentifier)
 	}
+	sourceLines := strings.Split(strings.ReplaceAll(string(sourceBytes), "\r\n", "\n"), "\n")
+	if server.sourceLine <= 0 || server.sourceLine > len(sourceLines) {
+		t.Fatalf("Java source line=%d exceeds copied snapshot line count=%d: source=%q", server.sourceLine, len(sourceLines), fixture.sourcePath)
+	}
+	oldLine := sourceLines[server.sourceLine-1]
+	if strings.TrimSpace(oldLine) == "" {
+		t.Fatalf("Java replace source line=%d is empty: source=%q", server.sourceLine, fixture.sourcePath)
+	}
+	fixture.replaceExpectation = "REAL_JAVA_REPLACED"
+	fixture.replacePatch = "@@\n-" + oldLine + "\n+" + oldLine + " // REAL_JAVA_REPLACED\n"
 	return server, fixture
 }
 
@@ -472,14 +466,14 @@ func windowsARM64ProcessARM64JavaActions(server realNodeServerCase, fixture real
 			action.args["query"] = "class $NAME { $$$BODY }"
 			action.args["ast_language"] = "java"
 		case "structure/workspace_symbol-file":
-			action.args["query"] = "formatGreeting"
+			action.args["query"] = fixture.workspaceQuery
 			action.args["file_path"] = fixture.targetFile
 		case "structure/workspace_symbol-language":
-			action.args["query"] = "formatGreeting"
+			action.args["query"] = fixture.workspaceQuery
 			action.args["workspace_language"] = "java"
 		}
 		if action.tool == "grep" {
-			action.args["query"] = "formatGreeting"
+			action.args["query"] = fixture.searchNeedle
 			action.args["paths"] = []string{fixture.targetFile}
 			action.args["glob"] = filepath.Base(fixture.targetFile)
 			if action.name == "ast_search" {
@@ -513,12 +507,36 @@ func TestWindowsARM64ProcessARM64JavaContract(t *testing.T) {
 		t.Fatalf("Java architecture verdicts must be ARM64/x64 installable and x86 typed unsupported: arm64=%q x64=%q x86=%q", arm64Plan.StatusByArchitecture[installer.WindowsHostArchARM64], x64Plan.StatusByArchitecture[installer.WindowsHostArchX64], x86Plan.StatusByArchitecture[installer.WindowsHostArchX86])
 	}
 	server, fixture := windowsARM64ProcessARM64JavaWriteFixture(t, t.TempDir())
-	if server.languageID != "java" || filepath.Base(fixture.targetFile) != "JavaProof.java" {
-		t.Fatalf("natural Java target is not JavaProof.java: server=%#v fixture=%#v", server, fixture)
+	if server.languageID != "java" || filepath.Base(fixture.targetFile) != "HelloWorld.java" {
+		t.Fatalf("natural Java target is not HelloWorld.java: server=%#v fixture=%#v", server, fixture)
 	}
-	payload, err := os.ReadFile(fixture.targetFile)
-	if err != nil || !bytes.Contains(payload, []byte("formatGreeting")) || !bytes.Contains(payload, []byte("implements Greeter")) {
-		t.Fatalf("natural Java fixture missing semantic symbols: err=%v", err)
+	if server.sourceDir != "java/initial" || server.sourceFile != "src/main/java/hello/HelloWorld.java" ||
+		server.sourceSecondaryFile != "src/main/java/hello/Greeter.java" || server.sourceIdentifier != "Greeter" ||
+		server.sourceWorkspaceQuery != "Greeter" {
+		t.Fatalf("Java source mapping drifted: server=%#v", server)
+	}
+	if !realMCPPathWithinRoot(fixture.workDir, fixture.targetFile) || realMCPPathWithinRoot(fixture.workDir, fixture.sourcePath) {
+		t.Fatalf("Java source/target isolation boundary failed: work_dir=%q source=%q target=%q", fixture.workDir, fixture.sourcePath, fixture.targetFile)
+	}
+	sourcePayload := readRealMCPBinSourceFile(t, fixture.sourcePath)
+	payload := readRealMCPBinSourceFile(t, fixture.targetFile)
+	if !bytes.Equal(sourcePayload, payload) || !bytes.Contains(payload, []byte("Greeter")) || !bytes.Contains(payload, []byte("sayHello")) {
+		t.Fatalf("isolated Java fixture differs from real snapshot or lacks symbols: source=%q target=%q source_bytes=%d target_bytes=%d", fixture.sourcePath, fixture.targetFile, len(sourcePayload), len(payload))
+	}
+	for _, relative := range []string{"pom.xml", ".classpath", ".project", filepath.FromSlash("src/main/java/hello/Greeter.java"), filepath.FromSlash("src/main/java/hello/Message.java"), filepath.FromSlash("src/main/java/hello/NameFormatter.java")} {
+		copied := filepath.Join(fixture.workDir, relative)
+		if _, err := os.Stat(copied); err != nil {
+			t.Fatalf("Java snapshot file is missing from isolated workspace: relative=%q work_dir=%q error=%v", relative, fixture.workDir, err)
+		}
+	}
+	if fixture.searchNeedle != "Greeter" || fixture.workspaceQuery != "Greeter" {
+		t.Fatalf("Java action query is not a real source identifier: search=%q workspace=%q", fixture.searchNeedle, fixture.workspaceQuery)
+	}
+	for _, copyPath := range []string{fixture.replaceFile, fixture.renameFile, fixture.codeActionFile, fixture.formatFile, fixture.completionFile} {
+		copyPayload := readRealMCPBinSourceFile(t, copyPath)
+		if !bytes.Equal(payload, copyPayload) || !realMCPPathWithinRoot(fixture.workDir, copyPath) {
+			t.Fatalf("Java patch action does not use an isolated copy: target=%q copy=%q target_bytes=%d copy_bytes=%d", fixture.targetFile, copyPath, len(payload), len(copyPayload))
+		}
 	}
 	actions := windowsARM64ProcessARM64JavaActions(server, fixture)
 	if len(actions) != realMCPExpectedActionCount {
@@ -533,6 +551,25 @@ func TestWindowsARM64ProcessARM64JavaContract(t *testing.T) {
 		}
 		if action.requireResult && action.emptyResultReason != "" {
 			t.Fatalf("%s/%s is both required and legal-empty", action.tool, action.name)
+		}
+		if action.tool == "grep" && action.name != "ast_search" && action.args["query"] != "Greeter" {
+			t.Fatalf("Java %s/%s query=%#v, want real identifier Greeter", action.tool, action.name, action.args["query"])
+		}
+		if action.tool == "structure" && strings.HasPrefix(action.name, "workspace_symbol-") && action.args["query"] != "Greeter" {
+			t.Fatalf("Java %s/%s query=%#v, want real identifier Greeter", action.tool, action.name, action.args["query"])
+		}
+		if action.tool == "patch_edit" {
+			var actionPath string
+			switch action.name {
+			case "replace_range", "format":
+				actionPath, _ = action.args["file_path"].(string)
+			case "rename", "code_action":
+				position, _ := action.args["pos"].(string)
+				actionPath = realMCPPositionPath(position)
+			}
+			if actionPath == "" || actionPath == fixture.targetFile || !strings.HasPrefix(filepath.Clean(actionPath), filepath.Clean(fixture.workDir)+string(filepath.Separator)) {
+				t.Fatalf("Java %s/%s patch target is not an isolated copy: args=%#v target=%q work_dir=%q", action.tool, action.name, action.args, fixture.targetFile, fixture.workDir)
+			}
 		}
 	}
 	for _, want := range []struct{ tool, action string }{{"inspect", "hover"}, {"inspect", "definition"}} {
@@ -1278,6 +1315,25 @@ func TestWindowsARM64ProcessARM64Java36SoakE2E(t *testing.T) {
 	if err := windowsARM64ProcessARM64JavaNotify(client, "notifications/initialized", map[string]any{}); err != nil {
 		t.Fatalf("Java initialized notification failed: %v", err)
 	}
+	// The production startup contract must prove that a real JDTLS session can
+	// serve document symbols after diagnostics has established the same file route.
+	// This intentionally runs before the long action ledger so a capability gate
+	// regression remains a focused red failure instead of an allowed empty action.
+	receipt.FailurePhase, receipt.FailureOperation = "document_symbol_capability_contract", "diagnostics_then_document_symbol"
+	diagnostics := client.callTool(t, "file", realMCPWindowsToolArguments("java", fixtureRoot, "file", "diagnostics", map[string]any{
+		"action":    "diagnostics",
+		"file_path": fixture.targetFile,
+	}))
+	requireRealMCPActionResult(t, diagnostics, false, "Java diagnostics may legally contain zero diagnostics", false, realMCPActionCapabilityKey("file", "diagnostics"), realMCPActionProtocolOptional("file", "diagnostics"), "Java startup diagnostics")
+	documentSymbols := client.callTool(t, "structure", realMCPWindowsToolArguments("java", fixtureRoot, "structure", "document_symbol", map[string]any{
+		"action":      "document_symbol",
+		"file_path":   fixture.targetFile,
+		"max_results": 20,
+	}))
+	if status := requireRealMCPActionResult(t, documentSymbols, true, "", false, realMCPActionCapabilityKey("structure", "document_symbol"), realMCPActionProtocolOptional("structure", "document_symbol"), "Java startup document_symbol"); status != realMCPActionSucceeded {
+		t.Fatalf("Java startup document_symbol status=%s, want semantic success", status)
+	}
+	realMCPActionSemanticContentNonEmpty(t, documentSymbols, "Java startup document_symbol")
 	receipt.FailurePhase, receipt.FailureOperation = "actions", "run_36_actions"
 	tools := callMcpLSPBinaryRaw(t, client, "tools/list", map[string]any{})
 	requireRealMCPToolFamilies(t, tools)

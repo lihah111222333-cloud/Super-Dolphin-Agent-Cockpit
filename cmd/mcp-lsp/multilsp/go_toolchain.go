@@ -18,8 +18,9 @@ import (
 const goVersionProbeTimeout = 30 * time.Second
 
 type goToolchainCandidate struct {
-	binDir string
-	path   string
+	binDir   string
+	path     string
+	fromPATH bool
 }
 
 const goToolchainSelectionCacheLimit = 128
@@ -148,16 +149,17 @@ func selectGoToolchainFromPATH(requiredText, probeDir string, env []string, cach
 		return GoToolchainInfo{}, err
 	}
 	pathValue := goToolchainPATHValue(env)
-	if strings.TrimSpace(pathValue) == "" {
-		return GoToolchainInfo{}, fmt.Errorf("PATH is empty")
-	}
 	cacheKey := goToolchainSelectionKey(requiredText, probeDir, env)
 	if cached, ok := loadGoToolchainSelection(caches, cacheKey); ok {
 		traceLSPTiming("go_toolchain cache=hit root=%q elapsed=%s", probeDir, time.Since(startedAt))
 		return cached, nil
 	}
 	candidates := goToolchainCandidates(pathValue)
+	candidates = append(candidates, managedGoToolchainCandidates(env)...)
 	if len(candidates) == 0 {
+		if strings.TrimSpace(pathValue) == "" {
+			return GoToolchainInfo{}, fmt.Errorf("PATH is empty")
+		}
 		return GoToolchainInfo{}, fmt.Errorf("no go executable found in PATH")
 	}
 	selected, err := selectGoToolchainCandidate(required, pathValue, probeDir, env, candidates)
@@ -256,7 +258,7 @@ func selectGoToolchainCandidate(
 		}
 		probed = append(probed, fmt.Sprintf("%s=%s", candidate.path, version.String()))
 		if version.compare(required) >= 0 {
-			return selectedGoToolchain(required, version, pathValue, candidate.binDir, index > 0), nil
+			return selectedGoToolchain(required, version, pathValue, candidate.binDir, index > 0 || !candidate.fromPATH), nil
 		}
 	}
 	return GoToolchainInfo{}, fmt.Errorf("checked PATH candidates: %s", strings.Join(probed, ", "))
@@ -307,7 +309,7 @@ func goToolchainCandidateForDir(dir string, seenDirs map[string]struct{}) (goToo
 	for _, name := range goExecutableNames() {
 		candidate := filepath.Join(normalized, name)
 		if isExecutableFile(candidate) {
-			return goToolchainCandidate{binDir: normalized, path: candidate}, true
+			return goToolchainCandidate{binDir: normalized, path: candidate, fromPATH: true}, true
 		}
 	}
 	return goToolchainCandidate{}, false

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -37,6 +38,55 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsNPMBackedLanguageServersWithRealPack
 			diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
 			requireMCPToolSuccess(t, client, diagnostics, "real "+tc.languageID+" diagnostics")
 			requireRealInstalledBinaries(t, npmBin, tc.binaries)
+		})
+	}
+}
+
+// TestMcpLSPBinaryCompletionAutoInstallsRealCSSHTMLLanguageServers_E2E 锁定真实 npm
+// 自动安装后的 CSS/HTML 启动契约：安装目录为空时，completion 首次请求必须触发生产
+// recipe，随后 completion、hover 和 document_symbol 都不能返回 capability_unsupported。
+func TestMcpLSPBinaryCompletionAutoInstallsRealCSSHTMLLanguageServers_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping real CSS/HTML completion auto-install e2e in short mode")
+	}
+	binary := buildMcpLSPBinaryForTest(t)
+	root := t.TempDir()
+	npmPrefix := t.TempDir()
+	npmBin := filepath.Join(npmPrefix, "bin")
+	if err := os.MkdirAll(npmBin, 0o755); err != nil {
+		t.Fatalf("mkdir npm prefix bin: %v", err)
+	}
+	toolBin := symlinkHostToolsForE2E(t, "node", "npm")
+	path := npmBin + string(os.PathListSeparator) + toolBin + string(os.PathListSeparator) + "/usr/bin:/bin"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{"PATH=" + path, "NPM_CONFIG_PREFIX=" + npmPrefix})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	cases := []struct {
+		name     string
+		language string
+		source   string
+		line     int
+		column   int
+		binary   string
+	}{
+		{name: "css", language: "css", source: "css/styles/style.css", line: 1, column: 2, binary: "vscode-css-language-server"},
+		{name: "html", language: "html", source: "html/index.html", line: 2, column: 2, binary: "vscode-html-language-server"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			target := copyRealCSSHTMLCompletionFixture(t, root, tc.source)
+			position := target + ":" + strconv.Itoa(tc.line) + ":" + strconv.Itoa(tc.column)
+			completion := client.callTool(t, "completion", map[string]any{"pos": position, "max_results": 20})
+			requireRealCSSHTMLCompletionSuccess(t, client, completion, tc.language+" completion after npm auto-install")
+			hover := client.callTool(t, "inspect", map[string]any{"action": "hover", "pos": position})
+			requireRealCSSHTMLCompletionSuccess(t, client, hover, tc.language+" hover after npm auto-install")
+			symbols := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": target})
+			requireRealCSSHTMLCompletionSuccess(t, client, symbols, tc.language+" document_symbol after npm auto-install")
+			requireRealInstalledBinaries(t, npmBin, []string{tc.binary})
 		})
 	}
 }

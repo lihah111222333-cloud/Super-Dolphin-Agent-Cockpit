@@ -49,24 +49,28 @@ type runtimeParams struct {
 type registryToolProvider struct {
 	defs                   []toolDefinition
 	semanticToolsAvailable func(context.Context) bool
+	ensureReady            func() error
 }
 
 // run 组装并启动 mcp-lsp sidecar 自身的 fx 应用。
 // 该进程只暴露 ctl 工具与 manifest 元数据，stdout 必须保留给 MCP stdio 协议通道。
-func run(stdout *os.File, logRuntime *pkglogger.Runtime) error {
+func run(stdout *os.File, logRuntime *pkglogger.Runtime, loggerGate *sidecarFileLoggerGate) error {
+	if loggerGate == nil {
+		return errors.New("mcp-lsp file logger gate is required")
+	}
 	// MCP stdio 协议把 stdout 当作 JSON-RPC 通道；日志必须固定写 stderr。
 	// 如果这里回到 stdout，客户端会把普通日志当作协议帧解析而失败。
 
 	app := fx.New(
 		fx.NopLogger,
-		fx.Supply(stdout, logRuntime),
+		fx.Supply(stdout, logRuntime, loggerGate),
 		fx.Provide(
-			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager, metrics *platformmetrics.BootstrapMetrics) bootstrap.Config {
+			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager, metrics *platformmetrics.BootstrapMetrics, loggerGate *sidecarFileLoggerGate) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
 				cfg.Metrics = metrics
 				cfg.Capabilities = []string{"tools/lsp"}
-				tp := registryToolProvider{defs: toolDefinitions(handlers)}
+				tp := registryToolProvider{defs: toolDefinitions(handlers), ensureReady: loggerGate.Ensure}
 				cfg.OnToolsList = func(ctx context.Context) (any, error) {
 					tools, err := tp.ListTools(ctx)
 					if err != nil {
@@ -127,15 +131,19 @@ func run(stdout *os.File, logRuntime *pkglogger.Runtime) error {
 }
 
 // newServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
-func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Runtime) (*common.Server, error) {
+func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Runtime, loggerGate *sidecarFileLoggerGate) (*common.Server, error) {
 	if stdout == nil {
 		return nil, errors.New("mcp-lsp: stdout is nil; program assembly order is broken")
+	}
+	if loggerGate == nil {
+		return nil, errors.New("mcp-lsp file logger gate is required")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
 	// ToolErrorClassifier 是共享传输契约：它只识别显式 typed Windows 错误，
 	// 非 Windows 原生 errno/PathError 保持普通工具错误，不能改变其他平台的授权语义。
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
-		defs: toolDefinitions(handlers),
+		defs:        toolDefinitions(handlers),
+		ensureReady: loggerGate.Ensure,
 	}, common.WithLoggerRuntime(logRuntime), common.WithToolCallResultPolicy(lspToolCallResultPolicy()), common.WithToolErrorClassifier(tools.ToolErrorClassifier)), nil
 }
 
@@ -263,6 +271,11 @@ func runtimeSemanticLSPServerBinaries() ([]string, error) {
 
 // CallTool 调用当前 peer 暴露的工具，先补全工作区作用域后分发到具体处理器。
 func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
+	if p.ensureReady != nil {
+		if err := p.ensureReady(); err != nil {
+			return nil, err
+		}
+	}
 	var err error
 	ctx, err = withRuntimeWorkspaceScopeFallback(ctx)
 	if err != nil {

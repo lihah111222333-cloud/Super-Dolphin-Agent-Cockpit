@@ -20,6 +20,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
@@ -147,15 +148,6 @@ func runtimeMarkdownProductRoot(serverBinary string) (string, error) {
 		return "", fmt.Errorf("resolve locked Markdown product root: %w", err)
 	}
 	return runtimeMarkdownSecurePath(productRoot, "Markdown product root", true)
-}
-
-func runtimeMarkdownAdapter(adapter multilsp.LanguageAdapter) bool {
-	for _, languageID := range adapter.LanguageIDs() {
-		if strings.EqualFold(strings.TrimSpace(languageID), "markdown") {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *runtimeWindowsMarkdownClientProtocol) RequestHandler() multilsp.ServerRequestHandler {
@@ -877,7 +869,7 @@ func newRuntimeMarkdownWorkspace(root string) (*runtimeMarkdownWorkspace, error)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Markdown workspace root: %w", err)
 	}
-	resolvedRoot, err := filepath.EvalSymlinks(absRoot)
+	resolvedRoot, err := lspplatform.CanonicalDirectoryPath(absRoot)
 	if err != nil {
 		return nil, runtimeMarkdownFilesystemError("resolve Markdown workspace root", absRoot, err)
 	}
@@ -925,21 +917,30 @@ func (w *runtimeMarkdownWorkspace) resolvePath(path string) (string, error) {
 	if !runtimeMarkdownWithin(w.root, absPath) {
 		return "", fmt.Errorf("%w: %s", errRuntimeMarkdownWorkspaceEscape, absPath)
 	}
-	evaluated, err := filepath.EvalSymlinks(absPath)
+	evaluated, err := lspplatform.CanonicalExistingPath(absPath)
 	if err == nil {
-		if !runtimeMarkdownWithin(w.root, evaluated) {
+		if runtimeMarkdownWithin(w.root, evaluated) {
+			return filepath.Clean(absPath), nil
+		}
+		// Windows 删除挂起句柄可能把已不存在的路径解析到 $Extend\\$Deleted；只有 Lstat
+		// 已确认路径消失时才允许按现存父目录继续校验，真实存在的越界路径仍然拒绝。
+		_, lstatErr := os.Lstat(absPath)
+		if lstatErr == nil || !errors.Is(lstatErr, fs.ErrNotExist) {
 			return "", fmt.Errorf("%w: %s", errRuntimeMarkdownWorkspaceEscape, absPath)
 		}
-		return filepath.Clean(absPath), nil
-	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		return "", runtimeMarkdownFilesystemError("resolve Markdown path", absPath, err)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		// CanonicalExistingPath 可能在删除挂起文件消失期间报告拒绝访问；仅当 Lstat
+		// 确认路径已消失时才回退，其他错误继续保持 fail-fast。
+		_, lstatErr := os.Lstat(absPath)
+		if !errors.Is(lstatErr, fs.ErrNotExist) {
+			return "", runtimeMarkdownFilesystemError("resolve Markdown path", absPath, err)
+		}
 	}
 	parent, suffix, err := runtimeMarkdownExistingParent(absPath)
 	if err != nil {
 		return "", runtimeMarkdownFilesystemError("resolve Markdown path parent", absPath, err)
 	}
-	evaluatedParent, err := filepath.EvalSymlinks(parent)
+	evaluatedParent, err := lspplatform.CanonicalDirectoryPath(parent)
 	if err != nil {
 		return "", runtimeMarkdownFilesystemError("resolve Markdown path parent", parent, err)
 	}
@@ -1017,7 +1018,12 @@ func runtimeMarkdownSecurePath(path, label string, directory bool) (string, erro
 	if err := runtimeMarkdownValidatePathComponents(clean, label); err != nil {
 		return "", err
 	}
-	resolved, err := filepath.EvalSymlinks(clean)
+	var resolved string
+	if directory {
+		resolved, err = lspplatform.CanonicalDirectoryPath(clean)
+	} else {
+		resolved, err = lspplatform.CanonicalExistingPath(clean)
+	}
 	if err != nil {
 		return "", runtimeMarkdownFilesystemError("resolve "+label, clean, err)
 	}
@@ -1194,6 +1200,16 @@ func (c *runtimeWindowsMarkdownClient) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	return errors.Join(c.support.Close(), c.Client.Shutdown(ctx))
+}
+
+func (c *runtimeWindowsMarkdownClient) Initialize(ctx context.Context, rootURI string) error {
+	if c == nil || c.Client == nil {
+		return errors.New("Markdown LSP client is nil")
+	}
+	if err := c.Client.Initialize(ctx, rootURI); err != nil {
+		return err
+	}
+	return runtimeMarkdownNotifyConfiguration(ctx, c.Client)
 }
 
 func (c *runtimeWindowsMarkdownClient) Close() error {

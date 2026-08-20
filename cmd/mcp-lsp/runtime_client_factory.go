@@ -127,6 +127,10 @@ func runtimeServerPrepareLSPClient(adapter multilsp.LanguageAdapter, command mul
 	if err != nil {
 		return preparation, err
 	}
+	serverArgs, err = runtimeServerGraphQLConfigDirArgs(command, serverArgs, dir)
+	if err != nil {
+		return preparation, err
+	}
 	serverArgs, preparation.vueBridgeSpec, err = runtimeServerPrepareVueBridge(adapter, serverBinary, serverArgs)
 	if err != nil {
 		return preparation, err

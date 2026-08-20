@@ -31,14 +31,17 @@ type httpRunner struct {
 
 // newHTTPRunner 根据 peer 配置选择 HTTP MCP runner 或空阻塞 runner。
 // 非 peer 模式仍要阻塞进程生命周期，避免 sidecar 初始化后立即退出。
-func newHTTPRunner(handlers ToolHandlers, logRuntime *pkglogger.Runtime) (platformrunner.Runner, error) {
+func newHTTPRunner(handlers ToolHandlers, logRuntime *pkglogger.Runtime, loggerGate *sidecarFileLoggerGate) (platformrunner.Runner, error) {
 	if logRuntime == nil {
 		return nil, errors.New("mcp-lsp logger runtime is required")
+	}
+	if loggerGate == nil {
+		return nil, errors.New("mcp-lsp file logger gate is required")
 	}
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		return lspBlockRunner{}, nil
 	}
-	tools := registryToolProvider{defs: toolDefinitions(handlers)}
+	tools := registryToolProvider{defs: toolDefinitions(handlers), ensureReady: loggerGate.Ensure}
 	bearerToken := bootstrap.SessionTokenFromEnv()
 	return &httpRunner{
 		bearerToken: bearerToken,

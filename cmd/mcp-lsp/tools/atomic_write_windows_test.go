@@ -165,7 +165,7 @@ func TestAtomicReplaceFileWindowsPreservesPrivateDACL(t *testing.T) {
 	}
 }
 
-// setAtomicWriteBroadInheritedACL 为测试父目录设置可继承的宽泛 Everyone ACL。
+// setAtomicWriteBroadInheritedACL 仅为测试父目录写入可继承的宽泛 Everyone ACL，不修改目录所有者。
 func setAtomicWriteBroadInheritedACL(path string) error {
 	token, err := windows.OpenCurrentProcessToken()
 	if err != nil {
@@ -180,13 +180,8 @@ func setAtomicWriteBroadInheritedACL(path string) error {
 	if err != nil {
 		return err
 	}
-	sddl := "O:" + userSID.String() +
-		"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;" + userSID.String() + ")(A;OICI;FA;;;WD)"
+	sddl := "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;" + userSID.String() + ")(A;OICI;FA;;;WD)"
 	descriptor, err := windows.SecurityDescriptorFromString(sddl)
-	if err != nil {
-		return err
-	}
-	owner, _, err := descriptor.Owner()
 	if err != nil {
 		return err
 	}
@@ -197,9 +192,8 @@ func setAtomicWriteBroadInheritedACL(path string) error {
 	return windows.SetNamedSecurityInfo(
 		path,
 		windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|
-			windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		owner,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
 		nil,
 		dacl,
 		nil,

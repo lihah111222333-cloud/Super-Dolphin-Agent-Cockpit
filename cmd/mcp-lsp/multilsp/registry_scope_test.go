@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
@@ -251,9 +252,9 @@ func assertRegistryOtherAgentHasNoManagers(t *testing.T, resolver lspmanager.Sco
 
 func canonicalTestRoot(t *testing.T, root string) string {
 	t.Helper()
-	realRoot, err := filepath.EvalSymlinks(root)
+	realRoot, err := lspplatform.CanonicalDirectoryPath(root)
 	if err != nil {
-		return root
+		t.Fatalf("canonicalize test root %q: %v", root, err)
 	}
 	return realRoot
 }

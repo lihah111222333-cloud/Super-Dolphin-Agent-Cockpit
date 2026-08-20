@@ -918,6 +918,37 @@ func validateSwiftWindowsRuntimeDependencyPayloads(root string) error {
 	return validateSwiftWindowsFlatLayout(root)
 }
 
+// EnsureWindowsSwiftProductRootOwnerOnly 在 Swift 安装动作边界确保产品根使用当前用户与 LocalSystem 的受保护 DACL。
+// 已能安全修改 DACL 时先收敛再复验；确需 Windows 权限的错误保留为稳定 typed 权限错误，交由宿主提示授权。
+func EnsureWindowsSwiftProductRootOwnerOnly(productRoot string) error {
+	productRoot = filepath.Clean(strings.TrimSpace(productRoot))
+	if productRoot == "." || !filepath.IsAbs(productRoot) {
+		return errors.New("Swift product root must be an absolute path")
+	}
+	if err := ensureDirectoryNoSymlink(productRoot); err != nil {
+		return fmt.Errorf("prepare Swift product root directory: %w", securefs.WrapErrorForPath(err, productRoot))
+	}
+	info, err := os.Lstat(productRoot)
+	if err != nil {
+		return fmt.Errorf("inspect Swift product root: %w", securefs.WrapErrorForPath(err, productRoot))
+	}
+	if isUnsafeAssetFile(info) || !info.IsDir() {
+		return errors.New("Swift product root is not a real directory")
+	}
+	if err := securefs.CheckPrivateOwnerOnly(productRoot, info); err == nil {
+		return nil
+	} else if _, ok := securefs.ClassifyWindowsPermissionError(err); ok {
+		return securefs.WrapErrorForPath(err, productRoot)
+	}
+	if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
+		return fmt.Errorf("restrict Swift product root ACL: %w", securefs.WrapErrorForPath(err, productRoot))
+	}
+	if err := securefs.CheckPrivateOwnerOnly(productRoot, nil); err != nil {
+		return fmt.Errorf("verify Swift product root ACL: %w", securefs.WrapErrorForPath(err, productRoot))
+	}
+	return nil
+}
+
 // runtimeDependencySwiftCacheResult 仅用于 Swift check-only：复验私有产品根、
 // ready manifest、无重解析路径和锁定的关键二进制/DLL；安装与发布仍执行完整树校验。
 func runtimeDependencySwiftCacheResult(ctx context.Context, entry WindowsRuntimeDependencyCatalogEntry, platform WindowsHostPlatform, architecture, cohort, cacheRoot, root string) (WindowsRuntimeDependencyProvisionResult, error) {

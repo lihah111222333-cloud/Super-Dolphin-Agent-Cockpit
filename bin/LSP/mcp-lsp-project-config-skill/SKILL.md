@@ -165,7 +165,7 @@ SUPER_DOLPHIN_LSP_BUNDLE_DIR=<bin/LSP/lsp 的绝对路径>
 SUPER_DOLPHIN_LSP_MANIFEST=<bin/LSP/lsp/lsp-manifest.json 的绝对路径>
 ~~~
 
-这两个字段只证明包内 gopls 的路径与摘要，不改变可信 workspace；不得把它们与 `GO_AGENT_LSP_ROOT(S)` 混用。bundle、manifest 或原生 `gopls.exe` 缺失时 fail-fast，不得退回 PATH gopls。
+这两个字段只证明包内 gopls 的路径与摘要，不改变可信 workspace；不得把它们与 `GO_AGENT_LSP_ROOT(S)` 混用。bundle、manifest 或原生 `gopls.exe` 缺失时 fail-fast，不得退回 PATH gopls。把 bundle 仅视为命中 adapter 的受信二进制覆盖，禁止据此裁剪通用语言注册；manifest 未包含的其他已支持语言仍须进入自动发现或按需安装链路。
 
 `SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR` 在本 dev 分发布局中是随 `bin/LSP` 交付的资源根；从源码构建时是 source checkout 根。它不是目标源码文件目录，也不是凭二进制位置临时猜出的值。若用户采用其他资源布局，必须先核对真实资源根，再显式配置。
 

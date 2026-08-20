@@ -120,6 +120,7 @@ func (fn ClientFactoryWithEnvFunc) NewClientWithEnv(rootDir string, env []string
 
 // Config 描述 multilsp manager 的启动参数和诊断等待策略。
 type Config struct {
+	TypeScriptNavigationModuleRoot   func() (string, error)   // 产品锁定的 TypeScript 包根解析器；配置后导航树禁止使用 workspace 依赖。
 	WorkspaceRoot                    string                   // 必填 workspace root，空值时直接报错。
 	ClientFactory                    ClientFactory            // 创建语言服务器客户端的必填工厂。
 	LanguageAdapters                 *LanguageAdapterRegistry // 语言适配器注册表，空值时使用默认注册表。
@@ -136,6 +137,7 @@ type Config struct {
 
 // manager 维护 workspace 客户端、诊断缓存和后台分片池；所有共享状态必须经对应锁访问。
 type manager struct {
+	typeScriptNavigationModuleRoot   func() (string, error)   // 产品锁定的 TypeScript 包根解析器。
 	workspaceRoot                    string                   // manager 默认根目录，参与相对路径解析。
 	workspaceGeneration              atomic.Uint64            // 每个 workspace client 的单调代际分配器。
 	clock                            func() time.Time         // 测试可注入时钟；生产路径使用 time.Now。
@@ -348,6 +350,7 @@ func newManager(cfg Config) (*manager, error) {
 		return nil, fmt.Errorf("initialize process observation store: %w", err)
 	}
 	mgr := &manager{
+		typeScriptNavigationModuleRoot:   cfg.TypeScriptNavigationModuleRoot,
 		workspaceRoot:                    root,
 		instanceID:                       instanceID,
 		provisionalEntropy:               cfg.provisionalEntropy,
@@ -442,6 +445,7 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 	if m != nil {
 		clone.factory = m.factory
 		clone.adapters = m.adapters
+		clone.typeScriptNavigationModuleRoot = m.typeScriptNavigationModuleRoot
 		clone.logger = m.logger
 		clone.provisionalEntropy = m.provisionalEntropy
 		clone.idleTimeout = m.idleTimeout
@@ -543,6 +547,11 @@ func (m *manager) resolveDocumentRef(ctx context.Context, target, languageID str
 	// bootstrap 到一个 client，却把后续语义请求发给仅盘符大小写不同的另一个 client。
 	absPath = platformCanonicalAbsolutePath(absPath)
 	lang := normalizeLanguageID(languageID)
+	if lang == "" {
+		if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
+			lang = normalizeLanguageID(resolved.LanguageID)
+		}
+	}
 	if lang == "" {
 		lang = lspmanager.DetectLanguageID(absPath)
 	}

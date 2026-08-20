@@ -1,0 +1,8 @@
+sdk:
+  - stable
+  - dev
+
+stages:
+  - analysis:
+    - analyze: --fatal-infos .
+    - format

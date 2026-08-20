@@ -29,11 +29,15 @@ func windowsRubyLSPRuntimeRoot(root string) string {
 // GEM_PATH、Bundler 或用户目录把 rbs/prism 解析到系统安装。调用方会把这些覆盖项
 // 合并到子进程环境；PATH 只保留 cohort Ruby bin 与 Windows System32。
 func windowsRubyLSPPrivateEnvironment(root string) []string {
+	return windowsRubyLSPPrivateEnvironmentAt(root, filepath.Join(root, ".ruby-lsp-private"))
+}
+
+func windowsRubyLSPPrivateEnvironmentAt(root, privateRoot string) []string {
 	root = filepath.Clean(root)
+	privateRoot = filepath.Clean(privateRoot)
 	runtimeRoot := windowsRubyLSPRuntimeRoot(root)
 	gemRoot := filepath.Join(root, windowsRubyLSPGemRootName)
 	defaultGemRoot := filepath.Join(runtimeRoot, "lib", "ruby", "gems", "4.0.0")
-	privateRoot := filepath.Join(root, ".ruby-lsp-private")
 	bundleRoot := filepath.Join(privateRoot, ".bundle")
 	pathValue := filepath.Join(runtimeRoot, "bin")
 	if systemRoot := os.Getenv("SystemRoot"); systemRoot != "" {
@@ -83,6 +87,21 @@ func WindowsRubyLSPProcessEnvironment(root string) ([]string, error) {
 		return nil, err
 	}
 	return windowsRubyLSPPrivateEnvironment(shortRoot), nil
+}
+
+// WindowsRubyLSPProcessEnvironmentWithState shares the validated, read-only
+// Ruby cohort while placing Bundler and user configuration under one owner
+// runtime directory per sidecar.
+func WindowsRubyLSPProcessEnvironmentWithState(root, stateRoot string) ([]string, error) {
+	shortRoot, err := windowsRubyLSPProcessRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	stateRoot = filepath.Clean(strings.TrimSpace(stateRoot))
+	if stateRoot == "." || !filepath.IsAbs(stateRoot) {
+		return nil, fmt.Errorf("Ruby LSP state root must be absolute")
+	}
+	return windowsRubyLSPPrivateEnvironmentAt(shortRoot, stateRoot), nil
 }
 
 // WindowsRubyLSPEnvironment 返回产品启动 Ruby LSP 所需的私有环境覆盖项。

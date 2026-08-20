@@ -28,7 +28,9 @@ const (
 	node17x36PrecheckEnv  = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_PRECHECK"
 	node17x36EvidenceEnv  = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_EVIDENCE_DIR"
 	node17x36FormalIdle   = 15 * time.Minute
-	node17x36ManagerIdle  = 17 * time.Minute
+	// 17 个语言按顺序完成矩阵后才开始正式 idle；管理器预算必须覆盖最早语言的
+	// 矩阵耗时和完整十五分钟观察窗，不能只比 formal idle 多两分钟。
+	node17x36ManagerIdle = 30 * time.Minute
 	node17x36TestTimeout  = 45 * time.Minute
 	node17x36PrecheckTime = 30 * time.Second
 )
@@ -134,6 +136,74 @@ func TestWindowsARM64ProcessARM64Node17x36LockedPayloadPathE2E(t *testing.T) {
 	}
 }
 
+// TestNode17x36ReusableProductRoot 验证显式复用根必须是现有绝对目录，并且不会被测试修改。
+func TestNode17x36ReusableProductRoot(t *testing.T) {
+	t.Run("unset keeps private-root mode", func(t *testing.T) {
+		t.Setenv(realNodeWindowsReuseProductRootEnv, "")
+		got, reused, err := node17x36ReusableProductRoot()
+		if err != nil {
+			t.Fatalf("node17x36ReusableProductRoot() error = %v", err)
+		}
+		if got != "" || reused {
+			t.Fatalf("node17x36ReusableProductRoot() = (%q, %t), want (empty, false)", got, reused)
+		}
+	})
+
+	t.Run("existing absolute root is reused", func(t *testing.T) {
+		productRoot := t.TempDir()
+		sentinel := filepath.Join(productRoot, "reuse-sentinel")
+		if err := os.WriteFile(sentinel, []byte("must remain"), 0o600); err != nil {
+			t.Fatalf("write reuse sentinel: %v", err)
+		}
+		t.Setenv(realNodeWindowsReuseProductRootEnv, productRoot)
+		got, reused, err := node17x36ReusableProductRoot()
+		if err != nil {
+			t.Fatalf("node17x36ReusableProductRoot() error = %v", err)
+		}
+		if filepath.Clean(got) != filepath.Clean(productRoot) || !reused {
+			t.Fatalf("node17x36ReusableProductRoot() = (%q, %t), want (%q, true)", got, reused, productRoot)
+		}
+		if _, err := os.Stat(sentinel); err != nil {
+			t.Fatalf("reuse sentinel was changed: %v", err)
+		}
+	})
+
+	t.Run("relative root fails fast", func(t *testing.T) {
+		t.Setenv(realNodeWindowsReuseProductRootEnv, "relative-product-root")
+		if _, _, err := node17x36ReusableProductRoot(); err == nil {
+			t.Fatal("node17x36ReusableProductRoot() accepted a relative root")
+		}
+	})
+
+	t.Run("missing root fails fast", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "missing-product-root")
+		t.Setenv(realNodeWindowsReuseProductRootEnv, missing)
+		if _, _, err := node17x36ReusableProductRoot(); err == nil {
+			t.Fatal("node17x36ReusableProductRoot() accepted a missing root")
+		}
+	})
+}
+
+// node17x36ReusableProductRoot 解析显式复用根；未设置时返回空根和 false。
+func node17x36ReusableProductRoot() (string, bool, error) {
+	productRoot := strings.TrimSpace(os.Getenv(realNodeWindowsReuseProductRootEnv))
+	if productRoot == "" {
+		return "", false, nil
+	}
+	productRoot = filepath.Clean(productRoot)
+	if !filepath.IsAbs(productRoot) {
+		return "", true, fmt.Errorf("%s must be an absolute Windows product root: %q", realNodeWindowsReuseProductRootEnv, productRoot)
+	}
+	info, err := os.Stat(productRoot)
+	if err != nil {
+		return "", true, fmt.Errorf("stat reusable Windows product root %q: %w", productRoot, err)
+	}
+	if !info.IsDir() {
+		return "", true, fmt.Errorf("reusable Windows product root %q is not a directory", productRoot)
+	}
+	return productRoot, true, nil
+}
+
 // TestWindowsARM64ProcessARM64Node17x36SoakE2E 先通过生产 EnsureInstalledDetailed
 // 建立空私有产品根中的锁定 Node/npm cohort，再在同一 production MCP 进程中完成
 // 17x36 action、十五分钟 idle、真实非空 LSP 请求和 PID+start-token 零残留证明。
@@ -166,6 +236,14 @@ func TestWindowsARM64ProcessARM64Node17x36SoakE2E(t *testing.T) {
 	if len(servers) != realMCPExpectedLanguageCount {
 		t.Fatalf("Node 17x36 lifecycle server count=%d, want %d", len(servers), realMCPExpectedLanguageCount)
 	}
+	productRoot, reuseProductRoot, err := node17x36ReusableProductRoot()
+	if err != nil {
+		t.Fatalf("resolve reusable Node 17x36 product root: %v", err)
+	}
+	productRootMode := "private_empty"
+	if reuseProductRoot {
+		productRootMode = "reused_existing"
+	}
 
 	evidenceDir := node17x36EvidenceDirectory(t, repoRoot)
 	receiptPath := filepath.Join(evidenceDir, "node-windows-arm64-process-arm64-17x36-soak.receipt")
@@ -174,7 +252,10 @@ func TestWindowsARM64ProcessARM64Node17x36SoakE2E(t *testing.T) {
 		"formal_lifecycle=required",
 		"action_total=not_started",
 		"absolute_path_markers=0",
+		fmt.Sprintf("product_root_mode=%s", productRootMode),
 		"http_download_install_observation=required",
+		"http_download_install_observation_scope=go_default_transport_only",
+		"npm_child_network_observation=not_observed",
 		"acl_win32_5_1314=typed_authorization_required_only;acl_changes=none",
 		fmt.Sprintf("started_at=%s", startedAt.Format(time.RFC3339Nano)),
 		fmt.Sprintf("host_os=%s", host.OS),
@@ -223,17 +304,21 @@ func TestWindowsARM64ProcessARM64Node17x36SoakE2E(t *testing.T) {
 		}
 	})
 
-	productRoot, err := os.MkdirTemp("", "sd-node-production-windows-arm64-process-arm64-17x36-")
-	if err != nil {
-		t.Fatalf("create empty private Node 17x36 product root: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := removeRealWindowsProductRoot(productRoot); err != nil {
-			t.Errorf("remove Node 17x36 product root: %v", err)
+	if !reuseProductRoot {
+		productRoot, err = os.MkdirTemp("", "sd-node-production-windows-arm64-process-arm64-17x36-")
+		if err != nil {
+			t.Fatalf("create empty private Node 17x36 product root: %v", err)
 		}
-	})
-	if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
-		t.Fatalf("restrict empty private Node 17x36 product root: %v", err)
+		t.Cleanup(func() {
+			if err := removeRealWindowsProductRoot(productRoot); err != nil {
+				t.Errorf("remove Node 17x36 product root: %v", err)
+			}
+		})
+		if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
+			t.Fatalf("restrict empty private Node 17x36 product root: %v", err)
+		}
+	} else {
+		t.Logf("reusing existing Node 17x36 product root without cleanup: %s", productRoot)
 	}
 
 	t.Setenv("SUPER_DOLPHIN_HOME", productRoot)
@@ -253,7 +338,7 @@ func TestWindowsARM64ProcessARM64Node17x36SoakE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspect empty Node 17x36 product cache: %v", err)
 	}
-	if cacheBefore != 0 {
+	if !reuseProductRoot && cacheBefore != 0 {
 		t.Fatalf("Node 17x36 product cache was not empty before production installation: entries=%d", cacheBefore)
 	}
 
@@ -304,7 +389,11 @@ func TestWindowsARM64ProcessARM64Node17x36SoakE2E(t *testing.T) {
 	http.DefaultTransport = previousHTTPTransport
 	httpTransportRestored = true
 	installHTTP := httpObserver.Snapshot()
-	if installHTTP.Requests <= 0 || installHTTP.Attempts != installHTTP.Requests || installHTTP.TransportErrors != 0 || installHTTP.Responses != installHTTP.Requests || installHTTP.SuccessfulResponses <= 0 || installHTTP.FailedResponses != 0 {
+	if reuseProductRoot {
+		if installHTTP.Requests != 0 || installHTTP.Attempts != 0 || installHTTP.Responses != 0 || installHTTP.ActiveResponses != 0 || installHTTP.TransportErrors != 0 || installHTTP.RedirectResponses != 0 || installHTTP.SuccessfulResponses != 0 || installHTTP.FailedResponses != 0 {
+			t.Fatalf("reused Node 17x36 product root performed installation HTTP work: requests=%d attempts=%d responses=%d active=%d transport_errors=%d redirects=%d successes=%d failed=%d", installHTTP.Requests, installHTTP.Attempts, installHTTP.Responses, installHTTP.ActiveResponses, installHTTP.TransportErrors, installHTTP.RedirectResponses, installHTTP.SuccessfulResponses, installHTTP.FailedResponses)
+		}
+	} else if installHTTP.Requests <= 0 || installHTTP.Attempts != installHTTP.Requests || installHTTP.TransportErrors != 0 || installHTTP.Responses != installHTTP.Requests || installHTTP.SuccessfulResponses <= 0 || installHTTP.FailedResponses != 0 {
 		t.Fatalf("Node 17x36 HTTP install observation failed: requests=%d attempts=%d responses=%d transport_errors=%d redirects=%d successes=%d failed=%d", installHTTP.Requests, installHTTP.Attempts, installHTTP.Responses, installHTTP.TransportErrors, installHTTP.RedirectResponses, installHTTP.SuccessfulResponses, installHTTP.FailedResponses)
 	}
 
@@ -577,7 +666,7 @@ func node17x36RunActionMatrix(t *testing.T, client *mcpLSPBinaryClient, mcpPID i
 				}
 			}
 			response := client.callTool(t, action.tool, requestArgs)
-			status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), server.languageID+" "+action.tool+"/"+action.name)
+			status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptionalForServer(server, action.tool, action.name), server.languageID+" "+action.tool+"/"+action.name)
 			t.Logf("Node 17x36 action done language=%s ordinal=%d/%d tool=%s name=%s duration=%s status=%s", server.languageID, actionOrdinal, realMCPExpectedActionCount, action.tool, action.name, time.Since(actionStarted).Round(time.Millisecond), status)
 			if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
 				assertRealFileContains(t, fixture.replaceFile, "REAL_MCP_REPLACED", server.languageID+" patch_edit replace_range")

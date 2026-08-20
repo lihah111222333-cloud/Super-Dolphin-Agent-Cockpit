@@ -32,6 +32,16 @@ func writeHelperPackageFixture(t *testing.T, dir, content string, identity Helpe
 	return helper, manifest
 }
 
+func requireSymlink(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink requires privilege on windows: %v", err)
+		}
+		t.Fatal(err)
+	}
+}
+
 func TestHelperPackageRejectsMissingMixedAndTamperedArtifacts(t *testing.T) {
 	identity := HelperIdentity{AppCommit: "commit-a", GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	for _, test := range []struct {
@@ -45,9 +55,7 @@ func TestHelperPackageRejectsMissingMixedAndTamperedArtifacts(t *testing.T) {
 			if err := os.Rename(manifest, realManifest); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink(realManifest, manifest); err != nil {
-				t.Fatal(err)
-			}
+			requireSymlink(t, realManifest, manifest)
 		}},
 		{"tampered helper", func(t *testing.T, helper, _ string) { t.Helper(); _ = os.WriteFile(helper, []byte("tampered"), 0o700) }},
 		{"mixed identity", func(t *testing.T, helper, manifest string) {
@@ -267,6 +275,9 @@ func verifyIdentityMappingCoverage(t *testing.T, coverage map[string]helperIdent
 	base := helperManifestGuardIdentity()
 	for identityField, fieldCoverage := range coverage {
 		t.Run("mapping_"+identityField, func(t *testing.T) {
+			if runtime.GOOS == "windows" && identityField == "GOOS" {
+				t.Skip("GOOS mutation exercises non-windows executable policy on windows")
+			}
 			identity := base
 			marker := "field-guard-" + strings.ToLower(identityField)
 			reflect.ValueOf(&identity).Elem().FieldByName(identityField).SetString(marker)

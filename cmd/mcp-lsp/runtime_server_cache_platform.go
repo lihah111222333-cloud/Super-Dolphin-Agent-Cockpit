@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
@@ -276,7 +277,7 @@ func runtimeServerResolveGitCommonDir(gitDir string, linked bool) (string, error
 	if err != nil {
 		return "", fmt.Errorf("resolve Git common directory: %w", err)
 	}
-	absCommon, err = filepath.EvalSymlinks(absCommon)
+	absCommon, err = lspplatform.CanonicalDirectoryPath(absCommon)
 	if err != nil {
 		return "", fmt.Errorf("resolve real Git common directory: %w", err)
 	}

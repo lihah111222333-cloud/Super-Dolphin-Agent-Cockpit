@@ -54,6 +54,20 @@ func TestInitSidecarFileLoggerPersistsFatalError(t *testing.T) {
 	assertPrivateLogPermissions(t, wantDir, logPath)
 }
 
+func TestSidecarLogDirIsOwnerScopedUnderProductRuntimeState(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "user")
+	product := filepath.Join(t.TempDir(), "product")
+	t.Setenv("SUPER_DOLPHIN_HOME", product)
+	got := sidecarLogDir(home, "task-a")
+	want := filepath.Join(product, "runtime-state", "sidecars", "task-a", "log", binaryName)
+	if filepath.Clean(got) != filepath.Clean(want) {
+		t.Fatalf("sidecarLogDir() = %q, want %q", got, want)
+	}
+	if strings.Contains(got, filepath.Join(product, "log", binaryName)) {
+		t.Fatalf("sidecar log path is not owner scoped: %q", got)
+	}
+}
+
 // TestInitSidecarFileLoggerFailsClosed 验证持久日志目录不可创建时启动明确失败。
 func TestInitSidecarFileLoggerFailsClosed(t *testing.T) {
 	homeFile := filepath.Join(t.TempDir(), "not-a-directory")
@@ -84,9 +98,38 @@ func TestInitSidecarFileLoggerFailsClosedWithoutAlternateDirectory(t *testing.T)
 	}
 }
 
+// TestSidecarFileLoggerGateRetriesFailureAndMemoizesSuccess 验证门只记忆成功：首次权限失败
+// 原样返回，批准后的下一次调用重做同一初始化，成功后不再触碰 ACL。
+func TestSidecarFileLoggerGateRetriesFailureAndMemoizesSuccess(t *testing.T) {
+	wantErr := errors.New("authorization required")
+	attempts := 0
+	gate, err := newSidecarFileLoggerGate(func() error {
+		attempts++
+		if attempts == 1 {
+			return wantErr
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("newSidecarFileLoggerGate() error = %v", err)
+	}
+	if err := gate.Ensure(); !errors.Is(err, wantErr) {
+		t.Fatalf("first Ensure() error = %v, want %v", err, wantErr)
+	}
+	if err := gate.Ensure(); err != nil {
+		t.Fatalf("retry Ensure() error = %v", err)
+	}
+	if err := gate.Ensure(); err != nil {
+		t.Fatalf("memoized Ensure() error = %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("initializer attempts = %d, want 2", attempts)
+	}
+}
+
 // TestRunMainRequiresExistingLoggerRuntime 锁定 Fx runtime 必须复用 main 已初始化的私有文件 logger。
 func TestRunMainRequiresExistingLoggerRuntime(t *testing.T) {
-	if exitCode := runMain(nil, nil); exitCode != 1 {
+	if exitCode := runMain(nil, nil, nil); exitCode != 1 {
 		t.Fatalf("runMain(nil, nil) exit code = %d, want 1", exitCode)
 	}
 }

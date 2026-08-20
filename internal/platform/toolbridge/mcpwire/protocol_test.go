@@ -83,6 +83,16 @@ func TestClassifyToolErrorKeepsDefaultAndCallerPrecedence(t *testing.T) {
 	}
 }
 
+func TestScopeTooBroadHintUsesWorkspaceSymbolSchemaFields(t *testing.T) {
+	code, retryable, hint, _ := ClassifyToolError("structure", errors.New("project walk entry limit exceeded"))
+	if code != "scope_too_broad" || !retryable {
+		t.Fatalf("classification = (%q, %v), want scope_too_broad retryable", code, retryable)
+	}
+	if strings.Contains(hint, "file_path=") || !strings.Contains(hint, "work_dir=") {
+		t.Fatalf("hint = %q, want schema-valid work_dir narrowing without file_path", hint)
+	}
+}
+
 func TestClassifyToolErrorTreatsForeignPlatformPathAsOutsideWorkspace(t *testing.T) {
 	code, retryable, hint, meta := ClassifyToolError("file", errors.New(`path "C:\\repo\\main.go" belongs to a foreign platform path family`))
 	if code != "path_outside_workspace" || retryable || hint == "" || meta != nil {

@@ -59,12 +59,16 @@ func preparePrebuiltReleaseFilesystemTestHelper() (func() error, error) {
 		return nil, fmt.Errorf("resolve app update recovery test directory: %w", err)
 	}
 	repoRoot := filepath.Clean(filepath.Join(workDir, "..", "..", ".."))
+	testExecutable, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve app update recovery test executable: %w", err)
+	}
 	dir, err := os.MkdirTemp("", "release-filesystem-test-helper-")
 	if err != nil {
 		return nil, fmt.Errorf("create prebuilt release filesystem test helper directory: %w", err)
 	}
 	source := filepath.Join(repoRoot, "internal", "platform", "appupdaterecovery", "testdata", "release_filesystem_helper", "main.go")
-	helper := filepath.Join(dir, "helper")
+	helper := filepath.Join(dir, "helper"+filepath.Ext(testExecutable))
 	cmd := exec.Command("go", "build", "-trimpath", "-o", helper, source)
 	cmd.Dir = repoRoot
 	output, err := cmd.CombinedOutput()

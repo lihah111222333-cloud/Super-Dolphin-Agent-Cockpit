@@ -27,22 +27,25 @@ import (
 )
 
 const (
-	windowsARM64ProcessARM64CSharpE2EEnv      = "SUPER_DOLPHIN_RUN_WINDOWS_ARM64_CSHARP_36_E2E"
-	windowsARM64ProcessARM64CSharpInstallEnv  = "SUPER_DOLPHIN_RUN_WINDOWS_ARM64_CSHARP_INSTALL_PRECHECK"
-	windowsARM64ProcessARM64CSharpPrecheckEnv = "SUPER_DOLPHIN_RUN_WINDOWS_ARM64_CSHARP_PRECHECK"
-	windowsARM64ProcessARM64CSharpEvidenceDir = ".build-cache/codex-csharp-windows-proof"
-	windowsARM64ProcessARM64CSharpReceiptName = "windows-arm64-process-arm64-csharp-mcp-36-soak-receipt.json"
-	windowsARM64ProcessARM64CSharpWireName    = "windows-arm64-process-arm64-csharp-mcp-36-soak-wire.jsonl"
-	windowsARM64ProcessARM64CSharpManagerIdle = 17 * time.Minute
-	windowsARM64ProcessARM64CSharpProofIdle   = 15 * time.Minute
-	windowsARM64ProcessARM64CSharpPrecheckMax = 30 * time.Second
-	windowsARM64ProcessARM64CSharpFormalMax   = 3 * time.Hour
-	windowsARM64ProcessARM64CSharpSDKVersion  = "10.0.400"
-	windowsARM64ProcessARM64CSharpVersion     = "0.26.0"
-	windowsARM64ProcessARM64CSharpSDKURL      = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.400/dotnet-sdk-10.0.400-win-arm64.zip"
-	windowsARM64ProcessARM64CSharpSDKSHA512   = "9d4ecd7439f15c7797d6f46d368cb7aa6513755c5fc3d6de7621bc4878a1805f6b8ffb60ffb9d3e72a049cca87edb252f7c8c03023b643e333544c4606509d7f"
-	windowsARM64ProcessARM64CSharpURL         = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.26.0/csharp-ls.0.26.0.nupkg"
-	windowsARM64ProcessARM64CSharpSHA256      = "2b03987aef07bb708bfe56a7bfb370364c7c8203e69aa677a37594bbe21a15b0"
+	windowsARM64ProcessARM64CSharpE2EEnv         = "SUPER_DOLPHIN_RUN_WINDOWS_ARM64_CSHARP_36_E2E"
+	windowsARM64ProcessARM64CSharpInstallEnv     = "SUPER_DOLPHIN_RUN_WINDOWS_ARM64_CSHARP_INSTALL_PRECHECK"
+	windowsARM64ProcessARM64CSharpPrecheckEnv    = "SUPER_DOLPHIN_RUN_WINDOWS_ARM64_CSHARP_PRECHECK"
+	windowsARM64ProcessARM64CSharpEvidenceDir    = ".build-cache/codex-csharp-windows-proof"
+	windowsARM64ProcessARM64CSharpReceiptName    = "windows-arm64-process-arm64-csharp-mcp-36-soak-receipt.json"
+	windowsARM64ProcessARM64CSharpWireName       = "windows-arm64-process-arm64-csharp-mcp-36-soak-wire.jsonl"
+	windowsARM64ProcessARM64CSharpManagerIdle    = 17 * time.Minute
+	windowsARM64ProcessARM64CSharpProofIdle      = 15 * time.Minute
+	windowsARM64ProcessARM64CSharpPrecheckMax    = 30 * time.Second
+	windowsARM64ProcessARM64CSharpFormalMax      = 3 * time.Hour
+	windowsARM64ProcessARM64CSharpSDKVersion     = "10.0.400"
+	windowsARM64ProcessARM64CSharpNet8SDKVersion = "8.0.424"
+	windowsARM64ProcessARM64CSharpVersion        = "0.26.0"
+	windowsARM64ProcessARM64CSharpSDKURL         = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.400/dotnet-sdk-10.0.400-win-arm64.zip"
+	windowsARM64ProcessARM64CSharpSDKSHA512      = "9d4ecd7439f15c7797d6f46d368cb7aa6513755c5fc3d6de7621bc4878a1805f6b8ffb60ffb9d3e72a049cca87edb252f7c8c03023b643e333544c4606509d7f"
+	windowsARM64ProcessARM64CSharpNet8SDKURL     = "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.424/dotnet-sdk-8.0.424-win-arm64.zip"
+	windowsARM64ProcessARM64CSharpNet8SDKSHA512  = "fcabd5dfd8587610fce8619827f54ff4d4e8f64b30c161e56e3597e391126621ff1888d83bbfca121b02dab7cc2d9dac68a49b06045320e5a88b5c5ff7bb5eb9"
+	windowsARM64ProcessARM64CSharpURL            = "https://api.nuget.org/v3-flatcontainer/csharp-ls/0.26.0/csharp-ls.0.26.0.nupkg"
+	windowsARM64ProcessARM64CSharpSHA256         = "2b03987aef07bb708bfe56a7bfb370364c7c8203e69aa677a37594bbe21a15b0"
 )
 
 // windowsARM64ProcessARM64CSharpHTTPReceipt 只保存计数，不保存 URL、请求头、token 或绝对路径。
@@ -196,14 +199,16 @@ func windowsARM64ProcessARM64CSharpLockedPlan(t *testing.T, architecture string)
 		t.Fatalf("C# install contract changed: product=%q command=%q runtime=%q args=%v server=%q", plan.Product, plan.Install.Command, plan.Install.RuntimeExecutablePath, plan.Install.Args, plan.Install.ServerPath)
 	}
 	assets := plan.AssetsByArchitecture[architecture]
-	if len(assets) != 2 {
-		t.Fatalf("C# %s asset count=%d, want 2", architecture, len(assets))
+	if len(assets) != 3 {
+		t.Fatalf("C# %s asset count=%d, want 3", architecture, len(assets))
 	}
-	var sdk, languageServer installer.WindowsRuntimeDependencyAsset
+	var sdk, net8SDK, languageServer installer.WindowsRuntimeDependencyAsset
 	for _, asset := range assets {
 		switch asset.Component {
 		case "dotnet-sdk":
 			sdk = asset
+		case "dotnet-sdk-net8":
+			net8SDK = asset
 		case "csharp-ls":
 			languageServer = asset
 		}
@@ -212,12 +217,15 @@ func windowsARM64ProcessARM64CSharpLockedPlan(t *testing.T, architecture string)
 		if sdk.Version != windowsARM64ProcessARM64CSharpSDKVersion || sdk.URL != windowsARM64ProcessARM64CSharpSDKURL || sdk.Checksum != windowsARM64ProcessARM64CSharpSDKSHA512 || sdk.ChecksumAlgorithm != installer.WindowsRuntimeDependencyChecksumSHA512 || !sdk.Native {
 			t.Fatalf("locked ARM64 SDK asset changed: %#v", sdk)
 		}
+		if net8SDK.Version != windowsARM64ProcessARM64CSharpNet8SDKVersion || net8SDK.URL != windowsARM64ProcessARM64CSharpNet8SDKURL || net8SDK.Checksum != windowsARM64ProcessARM64CSharpNet8SDKSHA512 || net8SDK.ChecksumAlgorithm != installer.WindowsRuntimeDependencyChecksumSHA512 || !net8SDK.Native {
+			t.Fatalf("locked ARM64 .NET 8 targeting-pack SDK asset changed: %#v", net8SDK)
+		}
 		if languageServer.Version != windowsARM64ProcessARM64CSharpVersion || languageServer.URL != windowsARM64ProcessARM64CSharpURL || languageServer.Checksum != windowsARM64ProcessARM64CSharpSHA256 || languageServer.ChecksumAlgorithm != installer.WindowsRuntimeDependencyChecksumSHA256 || languageServer.Native || languageServer.ArchivePath != "tools/net10.0/any/DotnetToolSettings.xml" || languageServer.BinaryPath != "tools/net10.0/any/CSharpLanguageServer.dll" {
 			t.Fatalf("locked ARM64 csharp-ls asset changed: %#v", languageServer)
 		}
 	}
-	if sdk.Architecture != architecture || languageServer.Architecture != architecture {
-		t.Fatalf("C# plan selected a cross-architecture asset: sdk=%q server=%q want=%q", sdk.Architecture, languageServer.Architecture, architecture)
+	if sdk.Architecture != architecture || net8SDK.Architecture != architecture || languageServer.Architecture != architecture {
+		t.Fatalf("C# plan selected a cross-architecture asset: sdk=%q net8_sdk=%q server=%q want=%q", sdk.Architecture, net8SDK.Architecture, languageServer.Architecture, architecture)
 	}
 	if plan.StatusByArchitecture[architecture] != installer.WindowsRuntimeDependencyStatusInstallable {
 		t.Fatalf("C# architecture %s status=%q, want installable", architecture, plan.StatusByArchitecture[architecture])
@@ -301,6 +309,20 @@ func windowsARM64ProcessARM64CSharpPosition(t *testing.T, path, content string, 
 // 其他文件只承载可编辑动作，不把另一个语言的 fixture 借来冒充 C# 语义。
 func windowsARM64ProcessARM64CSharpWriteFixture(t *testing.T, root string) (realNodeServerCase, realMCPFixture) {
 	t.Helper()
+	server := realNodeServerCase{
+		name: "csharp", languageID: "csharp", fileName: "LspFixture.cs",
+		sourceDir: "csharp", sourceFile: "Projects/Yahtzee/LspFixture.cs",
+		sourceSecondaryFile: "Projects/Yahtzee/Program.cs",
+		sourceIdentifier:    "LspFixture", sourceWorkspaceQuery: "LspFixture",
+		sourceLine: 3, sourceCharacter: 20,
+	}
+	return server, writeRealMCPBinSourceFixture(t, root, server)
+}
+
+// windowsARM64ProcessARM64CSharpWriteSyntheticFixture 保留旧自然工程构造器，供精确协议回归复用；
+// 正式 36-action 入口只调用上面的 bin/LSP/test 隔离快照构造器。
+func windowsARM64ProcessARM64CSharpWriteSyntheticFixture(t *testing.T, root string) (realNodeServerCase, realMCPFixture) {
+	t.Helper()
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatalf("create C# fixture root: %v", err)
 	}
@@ -350,7 +372,7 @@ func windowsARM64ProcessARM64CSharpWriteFixture(t *testing.T, root string) (real
 func windowsARM64ProcessARM64CSharpActionContract(tool, action string) (bool, string, bool) {
 	switch {
 	case tool == "file" && action == "diagnostics", tool == "file" && action == "diagnostics-batch":
-		return false, "无诊断时 diagnostics 的空数组是合法成功", false
+		return false, "C# 生产 fixture 必须返回零诊断；调用方执行严格零诊断校验", false
 	case tool == "file" && action == "read_file-function":
 		return false, "C# 文件 scope 读取由服务器决定，空结果单列", false
 	case tool == "grep" && action == "ast_search":
@@ -424,12 +446,12 @@ func TestWindowsARM64ProcessARM64CSharpContract(t *testing.T) {
 		t.Fatalf("C# catalog lost x64/x86 installable verdicts")
 	}
 	server, fixture := windowsARM64ProcessARM64CSharpWriteFixture(t, t.TempDir())
-	if filepath.Base(fixture.targetFile) != "Program.cs" || server.languageID != "csharp" {
-		t.Fatalf("natural C# target is not Program.cs: server=%#v fixture=%#v", server, fixture)
+	if filepath.Base(fixture.targetFile) != "LspFixture.cs" || server.languageID != "csharp" {
+		t.Fatalf("real C# target is not LspFixture.cs: server=%#v fixture=%#v", server, fixture)
 	}
 	payload, err := os.ReadFile(fixture.targetFile)
-	if err != nil || !bytes.Contains(payload, []byte("FormatGreeting")) || !bytes.Contains(payload, []byte("IGreeter")) {
-		t.Fatalf("natural C# fixture missing semantic symbols: err=%v", err)
+	if err != nil || !bytes.Contains(payload, []byte("LspFixture")) || !bytes.Contains(payload, []byte("Add")) {
+		t.Fatalf("real C# fixture missing snapshot symbols: err=%v", err)
 	}
 	actions := windowsARM64ProcessARM64CSharpActions(server, fixture)
 	if len(actions) != realMCPExpectedActionCount {
@@ -794,6 +816,11 @@ func windowsARM64ProcessARM64CSharpRunActions(t *testing.T, client *mcpLSPBinary
 		}
 		response := client.callTool(t, action.tool, args)
 		status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), "C# "+key)
+		if action.tool == "file" && (action.name == "diagnostics" || action.name == "diagnostics-batch") {
+			if err := validateZeroDiagnosticsResult(response); err != nil {
+				t.Fatalf("C# %s must return zero diagnostics: %v; text=%q", key, err, response.Result.ContentText())
+			}
+		}
 		content := response.Result.ContentText()
 		contentDigest := windowsARM64ProcessARM64CSharpDigest(content)
 		record := windowsARM64ProcessARM64CSharpActionReceipt{Tool: action.tool, Action: action.name, Status: string(status), ContentBytes: len(content), ContentSHA256: contentDigest}

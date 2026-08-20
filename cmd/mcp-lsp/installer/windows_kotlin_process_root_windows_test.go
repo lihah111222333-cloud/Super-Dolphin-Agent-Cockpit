@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
+	"golang.org/x/sys/windows"
 )
 
 func TestKotlinWindowsPathErrorPreservesAuthorizationCodes(t *testing.T) {
@@ -83,6 +84,68 @@ func TestMaterializeWindowsKotlinProcessRootPublishesDigestIsolatedFlatTree(t *t
 	if _, err := MaterializeWindowsKotlinProcessRoot(root, server); err == nil || !strings.Contains(err.Error(), "digest") {
 		t.Fatalf("tampered Kotlin process tree accepted: %v", err)
 	}
+}
+
+func TestMaterializeWindowsKotlinProcessRootConvergesReadyRootACL(t *testing.T) {
+	root := t.TempDir()
+	readyRoot := filepath.Join(root, "cache", "ready")
+	serverDir := filepath.Join(readyRoot, "bin")
+	if err := os.MkdirAll(serverDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := securefs.RestrictOwnerOnly(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := securefs.RestrictOwnerOnly(filepath.Join(root, "cache"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBroadKotlinReadyRootACL(readyRoot); err != nil {
+		t.Fatalf("set broad ready root ACL: %v", err)
+	}
+	server := filepath.Join(serverDir, "intellij-server.exe")
+	if err := os.WriteFile(server, []byte("acl-convergence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MaterializeWindowsKotlinProcessRoot(root, server); err != nil {
+		t.Fatalf("MaterializeWindowsKotlinProcessRoot() did not converge a current-user-writable ACL: %v", err)
+	}
+	if err := securefs.CheckExistingOwnerOnly(readyRoot, nil); err != nil {
+		t.Fatalf("ready root ACL remains broad after materialization: %v", err)
+	}
+}
+
+func setBroadKotlinReadyRootACL(path string) error {
+	token, err := windows.OpenCurrentProcessToken()
+	if err != nil {
+		return err
+	}
+	defer token.Close()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return err
+	}
+	userSID, err := windows.StringToSid(user.User.Sid.String())
+	if err != nil {
+		return err
+	}
+	sddl := "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;" + userSID.String() + ")(A;OICI;FA;;;BU)"
+	descriptor, err := windows.SecurityDescriptorFromString(sddl)
+	if err != nil {
+		return err
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		return err
+	}
+	return windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
+		nil,
+		dacl,
+		nil,
+	)
 }
 
 func TestMaterializeWindowsKotlinProcessRootConcurrentSameDigest(t *testing.T) {

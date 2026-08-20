@@ -4,9 +4,7 @@ package multilsp
 
 import (
 	"errors"
-	"os"
 	"os/exec"
-	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -14,17 +12,20 @@ import (
 
 func makeCacheDirUnwritableForTest(t *testing.T, dir string) {
 	t.Helper()
-	principal := os.Getenv("USERNAME")
-	if domain := os.Getenv("USERDOMAIN"); domain != "" && principal != "" {
-		principal = domain + `\` + principal
+	tokenUser, err := windows.GetCurrentThreadEffectiveToken().GetTokenUser()
+	if err != nil {
+		t.Fatalf("get current Windows token user: %v", err)
 	}
-	if strings.TrimSpace(principal) == "" {
-		t.Skip("USERNAME is required to make the cache directory unwritable on Windows")
+	if tokenUser == nil || tokenUser.User.Sid == nil {
+		t.Fatalf("current Windows token has no user SID")
 	}
+	// USERNAME/USERDOMAIN 可能描述宿主账户，而不是实际执行文件操作的沙箱令牌；
+	// 使用 effective token SID，确保 fixture 确实命中持久化写失败。
+	principal := "*" + tokenUser.User.Sid.String()
 	deny := principal + ":(W)"
 	cmd := exec.Command("icacls", dir, "/deny", deny)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("icacls deny write unavailable: %v; output=%s", err, output)
+		t.Fatalf("icacls deny write failed: %v; output=%s", err, output)
 	}
 	t.Cleanup(func() {
 		_ = exec.Command("icacls", dir, "/remove:d", principal).Run()

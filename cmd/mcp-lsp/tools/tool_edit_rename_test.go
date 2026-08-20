@@ -434,6 +434,48 @@ func TestApplyTextEditsPreservesCRLFAndLF(t *testing.T) {
 		}
 	})
 
+	t.Run("accepts CRLF terminator column from formatter", func(t *testing.T) {
+		got, err := applyTextEdits("abc\r\n", []protocol.TextEdit{{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 4},
+			},
+			NewText: "xyz",
+		}})
+		if err != nil {
+			t.Fatalf("apply CRLF formatter terminator edit: %v", err)
+		}
+		if want := "xyz\r\n"; got != want {
+			t.Fatalf("applyTextEdits result = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("rejects CRLF file unterminated final line out of bounds", func(t *testing.T) {
+		_, err := applyTextEdits("first\r\nabc", []protocol.TextEdit{{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 1, Character: 0},
+				End:   protocol.Position{Line: 1, Character: 4},
+			},
+			NewText: "xyz",
+		}})
+		if err == nil {
+			t.Fatal("applyTextEdits accepted character past unterminated CRLF final line")
+		}
+	})
+
+	t.Run("rejects LF out of bounds column", func(t *testing.T) {
+		_, err := applyTextEdits("abc\n", []protocol.TextEdit{{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 0},
+				End:   protocol.Position{Line: 0, Character: 4},
+			},
+			NewText: "xyz",
+		}})
+		if err == nil {
+			t.Fatal("applyTextEdits accepted LF character past line end")
+		}
+	})
+
 	t.Run("preserves LF", func(t *testing.T) {
 		lfContent := "package main\n\nfunc oldName() {\n\treturn\n}\n"
 		edits := []protocol.TextEdit{
@@ -458,4 +500,3 @@ func TestApplyTextEditsPreservesCRLFAndLF(t *testing.T) {
 		}
 	})
 }
-

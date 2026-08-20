@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve"
 	"golang.org/x/sys/windows"
 )
@@ -45,9 +46,9 @@ func assertUnsafeRootRejected(t *testing.T, root string) {
 
 func canonicalTempRoot(t *testing.T) string {
 	t.Helper()
-	base, err := filepath.EvalSymlinks(t.TempDir())
+	base, err := lspplatform.CanonicalDirectoryPath(t.TempDir())
 	if err != nil {
-		t.Fatalf("EvalSymlinks(temp root): %v", err)
+		t.Fatalf("canonicalize temporary root: %v", err)
 	}
 	return filepath.Join(base, "durable")
 }

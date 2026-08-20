@@ -188,27 +188,13 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 	receipt = append(receipt, "mcp_parent_path=owned_swift_toolchain_bin_first", "child_path_policy=runtime_allowlist_enforced")
 	receipt = append(receipt, "shared_lsp_cache=isolated_evidence_cache")
 
-	fixtureRoot := t.TempDir()
-	server := realNodeServerCase{
-		name:       "swift",
-		languageID: "swift",
-		fileName:   filepath.Join("Sources", "WindowsRuntimeDependencyE2E", "main.swift"),
-		content: "struct Greeter {\n" +
-			"    let message: String\n" +
-			"    func greet(_ name: String) -> String {\n" +
-			"        return message + \", \" + name\n" +
-			"    }\n" +
-			"}\n\n" +
-			"let greeter = Greeter(message: \"hello\")\n" +
-			"let greeting = greeter.greet(\"world\")\n" +
-			"print(greeting)\n",
-		line:      9,
-		character: swiftMCPCompletionCharacter(),
-	}
-	fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
-	writeRealFixture(t, filepath.Join(fixtureRoot, "Package.swift"), "// swift-tools-version: 6.0\nimport PackageDescription\n\nlet package = Package(\n    name: \"WindowsRuntimeDependencyE2E\",\n    targets: [\n        .executableTarget(\n            name: \"WindowsRuntimeDependencyE2E\",\n            path: \"Sources/WindowsRuntimeDependencyE2E\"\n        )\n    ]\n)\n")
-	astFile := filepath.Join(fixtureRoot, "ast_fixture.js")
-	writeRealFixture(t, astFile, "function swiftMCPAstFixture(name) { return name; }\nswiftMCPAstFixture(\"world\");\n")
+	fixtureParentRoot := t.TempDir()
+	server := swiftMCP36FixtureServer()
+	fixture := writeRealMCPBinSourceFixture(t, fixtureParentRoot, server)
+	workspaceRoot := fixture.workDir
+	// AST action 也必须读取仓库快照的副本；任何 patch_edit 都只能命中 workspace 副本。
+	astFile := filepath.Join(workspaceRoot, ".mcp-ast", "ast_fixture.js")
+	copyRealMCPBinSourceFile(t, fixture.sourceRoot, "javascript/module-examples/top-level-await/main.js", astFile)
 	actions := realMCPActionSpecs(server, fixture, astFile)
 	if err := validateRealMCPActionClosure(actions); err != nil {
 		t.Fatalf("Swift MCP action closure: %v", err)
@@ -238,8 +224,9 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 		actions = probeActions
 	}
 	receipt = append(receipt,
-		fmt.Sprintf("fixture_root_digest=%s", swiftMCPPathDigest(fixtureRoot)),
-		"fixture=SwiftPM_Package.swift_plus_Sources_target",
+		fmt.Sprintf("fixture_root_digest=%s", swiftMCPPathDigest(workspaceRoot)),
+		"fixture=bin/LSP/test/swift",
+		"fixture_workspace=isolated_temp_copy",
 		fmt.Sprintf("action_total=%d", len(actions)),
 		"action_contract=unsupported_empty_runtime_failure_are_not_success",
 	)
@@ -247,7 +234,7 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 	t.Setenv("MCP_LSP_IDLE_TIMEOUT", swiftMCP36ManagerIdle.String())
 	binary := buildRealMcpLSPBinary(t, repoRoot)
 	receipt = append(receipt, "binary=temporary_bundled_windows_arm64_mcp_lsp", "binary_path_policy=not_recorded")
-	client := startRealMcpLSPBinary(t, ctx, binary, fixtureRoot, repoRoot, "", "", productRoot)
+	client := startRealMcpLSPBinary(t, ctx, binary, workspaceRoot, repoRoot, "", "", productRoot)
 	mcpPID := client.cmd.Process.Pid
 	startToken, err := windowsGoplsProcessStartIdentity(mcpPID)
 	if err != nil {
@@ -345,8 +332,8 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 			}
 			setup := map[string]any{"action": "open_file", "file_path": path}
 			if _, _, setupErr = swiftMCPCall(t, client, wire, "tools/call", map[string]any{
-				"name": "file", "arguments": realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", setup),
-				"_cwd": fixtureRoot, "_workspaceRoots": []string{fixtureRoot},
+				"name": "file", "arguments": realMCPWindowsToolArguments(server.languageID, workspaceRoot, "file", "open_file", setup),
+				"_cwd": workspaceRoot, "_workspaceRoots": []string{workspaceRoot},
 			}, "setup/file/open_file/"+action.name); setupErr != nil {
 				receipt = append(receipt, "setup_open_for="+key+" status=runtime_failure detail="+swiftMCPRedact(setupErr.Error()))
 			}
@@ -356,9 +343,10 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 		if setupErr != nil {
 			callErr = setupErr
 		} else {
-			requestArgs := realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args)
+			actionWorkspaceRoot := swiftMCP36ActionWorkspaceRoot(fixture, action, workspaceRoot)
+			requestArgs := realMCPWindowsToolArguments(server.languageID, actionWorkspaceRoot, action.tool, action.name, action.args)
 			response, _, callErr = swiftMCPCall(t, client, wire, "tools/call", map[string]any{
-				"name": action.tool, "arguments": requestArgs, "_cwd": fixtureRoot, "_workspaceRoots": []string{fixtureRoot},
+				"name": action.tool, "arguments": requestArgs, "_cwd": actionWorkspaceRoot, "_workspaceRoots": []string{actionWorkspaceRoot},
 			}, key)
 		}
 		status := swiftMCPClassifyAction(action.name, response, callErr)
@@ -515,8 +503,8 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 		t.Fatalf("Swift MCP idle duration=%s, want at least %s", idleDuration, proofIdle)
 	}
 	postIdle, _, postIdleErr := swiftMCPCall(t, client, wire, "tools/call", map[string]any{
-		"name": "structure", "arguments": realMCPWindowsToolArguments(server.languageID, fixtureRoot, "structure", "document_symbol", map[string]any{"action": "document_symbol", "file_path": fixture.targetFile, "max_results": 20}),
-		"_cwd": fixtureRoot, "_workspaceRoots": []string{fixtureRoot},
+		"name": "structure", "arguments": realMCPWindowsToolArguments(server.languageID, workspaceRoot, "structure", "document_symbol", map[string]any{"action": "document_symbol", "file_path": fixture.targetFile, "max_results": 20}),
+		"_cwd": workspaceRoot, "_workspaceRoots": []string{workspaceRoot},
 	}, "boundary/post_idle/structure/document_symbol")
 	postIdleStatus := swiftMCPClassifyAction("document_symbol", postIdle, postIdleErr)
 	postIdleNonEmpty := swiftMCPResponseNonEmpty(postIdle)
@@ -580,6 +568,71 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 	}
 	receipt = append(receipt, "status=full_action_support_and_15m_soak")
 	t.Logf("Swift MCP 36-action matrix and 15-minute soak completed: receipt=%s wire=%s", secureSwiftMCPPath(receiptPath), secureSwiftMCPPath(wirePath))
+}
+
+// swiftMCP36FixtureServer 锁定 Swift 36-action 使用的仓库快照和真实语义锚点。
+func swiftMCP36FixtureServer() realNodeServerCase {
+	return realNodeServerCase{
+		name:                 "swift",
+		languageID:           "swift",
+		fileName:             "Greeting.swift",
+		sourceDir:            "swift",
+		sourceFile:           "lsp-package/Sources/LSPFixture/Greeting.swift",
+		sourceSecondaryFile:  "lsp-package/Sources/LSPFixture/MathTools.swift",
+		sourceIdentifier:     "Greeting",
+		sourceWorkspaceQuery: "Greeting",
+		sourceLine:           1,
+		sourceCharacter:      7,
+	}
+}
+
+// TestWindowsARM64ProcessARM64SwiftActionFixturesSharePackageRoot prevents the
+// action matrix from opening Swift files outside the Package.swift workspace.
+func TestWindowsARM64ProcessARM64SwiftActionFixturesSharePackageRoot(t *testing.T) {
+	server := swiftMCP36FixtureServer()
+	fixture := writeRealMCPBinSourceFixture(t, t.TempDir(), server)
+	packageRoot := filepath.Join(fixture.workDir, "lsp-package")
+	if _, err := os.Stat(filepath.Join(packageRoot, "Package.swift")); err != nil {
+		t.Fatalf("Swift fixture package root is missing Package.swift: %v", err)
+	}
+	paths := map[string]string{
+		"target":      fixture.targetFile,
+		"secondary":   fixture.secondaryFile,
+		"replace":     fixture.replaceFile,
+		"rename":      fixture.renameFile,
+		"code_action": fixture.codeActionFile,
+		"format":      fixture.formatFile,
+		"completion":  fixture.completionFile,
+	}
+	for name, path := range paths {
+		if !swiftMCPPathWithin(packageRoot, path) {
+			t.Errorf("Swift %s fixture escaped Package.swift root: %q", name, path)
+		}
+	}
+}
+
+// swiftMCP36ActionWorkspaceRoot anchors workspace-only actions to the Swift package.
+// workspace_symbol-language has no file_path, so the outer fixture root is otherwise a
+// valid but different dir_fallback workspace and starts a second SourceKit client.
+func swiftMCP36ActionWorkspaceRoot(fixture realMCPFixture, action realMCPActionSpec, defaultRoot string) string {
+	if action.tool == "structure" && action.name == "workspace_symbol-language" {
+		return filepath.Dir(filepath.Dir(filepath.Dir(fixture.targetFile)))
+	}
+	return defaultRoot
+}
+
+func TestWindowsARM64ProcessARM64SwiftWorkspaceSymbolLanguageRoot(t *testing.T) {
+	server := swiftMCP36FixtureServer()
+	fixture := writeRealMCPBinSourceFixture(t, t.TempDir(), server)
+	action := realMCPActionSpec{tool: "structure", name: "workspace_symbol-language"}
+	got := swiftMCP36ActionWorkspaceRoot(fixture, action, fixture.workDir)
+	want := filepath.Join(fixture.workDir, "lsp-package")
+	if filepath.Clean(got) != filepath.Clean(want) {
+		t.Fatalf("Swift workspace_symbol-language work_dir=%q, want package root %q", got, want)
+	}
+	if !swiftMCPPathWithin(got, fixture.targetFile) {
+		t.Fatalf("Swift workspace_symbol-language root %q does not contain target %q", got, fixture.targetFile)
+	}
 }
 
 // swiftMCPCompletionCharacter 使用 greeter. 后的候选位置；环境变量只供有界诊断覆盖。

@@ -1,6 +1,10 @@
 package protocol
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+)
 
 func TestDecodeResponseTracksResultPresence(t *testing.T) {
 	tests := []struct {
@@ -26,6 +30,29 @@ func TestDecodeResponseTracksResultPresence(t *testing.T) {
 			}
 			if err == nil && test.wantResult != string(response.Result) {
 				t.Fatalf("result=%q want=%q", response.Result, test.wantResult)
+			}
+		})
+	}
+}
+
+func TestParameterInformationResultDecodesLabelUnion(t *testing.T) {
+	tests := []struct {
+		name        string
+		wire        string
+		wantLabel   string
+		wantOffsets []int
+	}{
+		{name: "string label", wire: `{"label":"value"}`, wantLabel: "value"},
+		{name: "offset label", wire: `{"label":[12,17]}`, wantOffsets: []int{12, 17}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var got ParameterInformationResult
+			if err := json.Unmarshal([]byte(test.wire), &got); err != nil {
+				t.Fatalf("decode parameter label: %v", err)
+			}
+			if got.Label != test.wantLabel || !reflect.DeepEqual(got.LabelOffsets, test.wantOffsets) {
+				t.Fatalf("decoded parameter = %#v, want label=%q offsets=%v", got, test.wantLabel, test.wantOffsets)
 			}
 		})
 	}

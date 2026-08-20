@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -365,9 +366,9 @@ func (r *Registry) persist() error {
 		pkglogger.Warn("pidregistry: write failed", "error", err)
 		return err
 	}
-	if err := os.Chmod(tmp, registryFilePerm); err != nil {
-		err = fmt.Errorf("pidregistry: chmod registry: %w", err)
-		pkglogger.Warn("pidregistry: chmod failed", "error", err)
+	if err := securefs.RestrictPrivateOwnerOnly(tmp, registryFilePerm); err != nil {
+		err = fmt.Errorf("pidregistry: restrict registry access: %w", err)
+		pkglogger.Warn("pidregistry: access restriction failed", "error", err)
 		_ = os.Remove(tmp)
 		return err
 	}
@@ -505,7 +506,6 @@ func trustedRegistryFileInfo(path string, info os.FileInfo) bool {
 	}
 	return registryFileOwnedByCurrentUser(path, info)
 }
-
 
 // cleanupStaleFiles 删除已经处理完的过期 registry 文件。
 func cleanupStaleFiles(files []staleFile) {

@@ -9,8 +9,17 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
+func readySidecarFileLoggerGateForTest(t *testing.T) *sidecarFileLoggerGate {
+	t.Helper()
+	gate, err := newSidecarFileLoggerGate(func() error { return nil })
+	if err != nil {
+		t.Fatalf("newSidecarFileLoggerGate() error = %v", err)
+	}
+	return gate
+}
+
 func TestNewHTTPRunnerRequiresLoggerRuntime(t *testing.T) {
-	if _, err := newHTTPRunner(nil, nil); err == nil {
+	if _, err := newHTTPRunner(nil, nil, readySidecarFileLoggerGateForTest(t)); err == nil {
 		t.Fatal("newHTTPRunner() error = nil, want missing logger runtime")
 	}
 }
@@ -19,7 +28,7 @@ func TestNewHTTPRunnerPeerModeRequiresSessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_PEER_MODE", "1")
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "")
 
-	runner, err := newHTTPRunner(nil, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	runner, err := newHTTPRunner(nil, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), readySidecarFileLoggerGateForTest(t))
 	if err != nil {
 		t.Fatalf("newHTTPRunner() error = %v", err)
 	}
@@ -41,7 +50,7 @@ func TestNewHTTPRunnerPeerModeCarriesSessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_PEER_MODE", "1")
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", " secret ")
 
-	runner, err := newHTTPRunner(nil, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	runner, err := newHTTPRunner(nil, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), readySidecarFileLoggerGateForTest(t))
 	if err != nil {
 		t.Fatalf("newHTTPRunner() error = %v", err)
 	}
@@ -59,7 +68,7 @@ func TestNewHTTPRunnerPeerModeCarriesLegacySessionToken(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "")
 	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", " legacy-secret ")
 
-	runner, err := newHTTPRunner(nil, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
+	runner, err := newHTTPRunner(nil, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), readySidecarFileLoggerGateForTest(t))
 	if err != nil {
 		t.Fatalf("newHTTPRunner() error = %v", err)
 	}

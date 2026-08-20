@@ -131,6 +131,24 @@ func TestProcessFailureErrorClassifiesDotnetOutputWithoutLeakingIt(t *testing.T)
 	}
 }
 
+func TestProcessFailureErrorDoesNotClassifyNPMOutputAsNuGet(t *testing.T) {
+	failure := newProcessFailureError(
+		"windows-node-npm-install",
+		"npm",
+		errors.New("exit 1"),
+		[]byte("npm error package lifecycle command failed"),
+		6,
+		1,
+	)
+	var summary *ProcessFailureError
+	if !errors.As(failure, &summary) {
+		t.Fatalf("error = %T, want *ProcessFailureError", failure)
+	}
+	if summary.OutputClass != "npm_install_failed" {
+		t.Fatalf("npm output class=%q, want npm_install_failed", summary.OutputClass)
+	}
+}
+
 // TestProcessFailureErrorFieldCoverageGuard 动态枚举安全进程摘要的公共字段，并验证每个字段都进入
 // 低敏 Error 消费端；新增或陈旧字段会直接阻断，避免收据只更新一半。
 func TestProcessFailureErrorFieldCoverageGuard(t *testing.T) {

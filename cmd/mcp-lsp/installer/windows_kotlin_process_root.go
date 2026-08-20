@@ -44,7 +44,7 @@ func MaterializeWindowsKotlinProcessRoot(productRoot, serverBinary string) (targ
 	} else if isUnsafeAssetFile(info) || !info.IsDir() {
 		return "", fmt.Errorf("Kotlin ready root is not a real directory: %w", securefs.WrapErrorForPath(errors.New("not a real directory"), readyRoot))
 	}
-	if err := securefs.CheckExistingOwnerOnly(readyRoot, nil); err != nil {
+	if err := ensureKotlinWindowsOwnerOnlyACL(readyRoot); err != nil {
 		return "", fmt.Errorf("Kotlin ready root ACL validation failed: %w", securefs.WrapErrorForPath(err, readyRoot))
 	}
 	serverHash, err := windowsKotlinProcessFileSHA256(serverBinary)
@@ -76,7 +76,7 @@ func MaterializeWindowsKotlinProcessRoot(productRoot, serverBinary string) (targ
 		if digestErr != nil || targetTreeDigest != sourceTreeDigest {
 			return "", fmt.Errorf("existing Kotlin process tree digest mismatch")
 		}
-		if aclErr := securefs.CheckExistingOwnerOnly(targetRoot, nil); aclErr != nil {
+		if aclErr := ensureKotlinWindowsOwnerOnlyACL(targetRoot); aclErr != nil {
 			return "", fmt.Errorf("existing Kotlin process root ACL validation failed: %w", securefs.WrapErrorForPath(aclErr, targetRoot))
 		}
 		return targetBinary, nil
@@ -116,7 +116,7 @@ func MaterializeWindowsKotlinProcessRoot(productRoot, serverBinary string) (targ
 	if err := renameWindowsInstallerPathChecked(productRoot, stageRoot, targetRoot); err != nil {
 		if info, statErr := os.Lstat(targetBinary); statErr == nil && !isUnsafeAssetFile(info) {
 			if got, hashErr := windowsKotlinProcessFileSHA256(targetBinary); hashErr == nil && got == serverHash {
-				if aclErr := securefs.CheckExistingOwnerOnly(targetRoot, nil); aclErr == nil {
+				if aclErr := ensureKotlinWindowsOwnerOnlyACL(targetRoot); aclErr == nil {
 					return targetBinary, nil
 				}
 			}
@@ -130,6 +130,23 @@ func MaterializeWindowsKotlinProcessRoot(productRoot, serverBinary string) (targ
 		return "", fmt.Errorf("Kotlin physical short process path remains too long: path_units=%d", len([]rune(filepath.Clean(targetBinary))))
 	}
 	return targetBinary, nil
+}
+
+// ensureKotlinWindowsOwnerOnlyACL 在当前用户可修改 DACL 时收敛为受保护 owner-only ACL；
+// 已确认需要 Windows 权限的错误原样保留，供宿主识别并提示授权，不通过放宽 ACL 绕过拒绝。
+func ensureKotlinWindowsOwnerOnlyACL(path string) error {
+	if err := securefs.CheckExistingOwnerOnly(path, nil); err != nil {
+		if _, ok := securefs.ClassifyWindowsPermissionError(err); ok {
+			return err
+		}
+		if restrictErr := securefs.RestrictOwnerOnly(path, 0o700); restrictErr != nil {
+			return securefs.WrapErrorForPath(restrictErr, path)
+		}
+	}
+	if err := securefs.CheckExistingOwnerOnly(path, nil); err != nil {
+		return securefs.WrapErrorForPath(err, path)
+	}
+	return nil
 }
 
 func validateKotlinWindowsProcessTargetPath(targetBinary string) error {

@@ -1,0 +1,10 @@
+[build]
+  functions = "handler"
+  command = "npm run download && npm run build"
+  publish = "public/"
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET,HEAD,POST,OPTIONS"
+    Access-Control-Allow-Headers = "*"

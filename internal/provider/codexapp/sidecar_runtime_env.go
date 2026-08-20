@@ -16,6 +16,7 @@ const (
 	sidecarRuntimeModeEnv       = "SUPER_DOLPHIN_RUNTIME_MODE"
 	sidecarRuntimeResourcesEnv  = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
 	sidecarDependencyProfileEnv = "SUPER_DOLPHIN_DEPENDENCY_PROFILE"
+	sidecarOwnerIDEnv           = "SUPER_DOLPHIN_SIDECAR_OWNER_ID"
 )
 
 func lookupEnvValue(env []string, key string) (string, bool) {
@@ -57,12 +58,24 @@ func (l *execPeerLauncher) peerEnvForLaunch(
 		return nil, err
 	}
 	if strings.TrimSpace(name) != "mcp-orch" {
-		return env, nil
+		return injectPeerOwnerIdentity(env, l.ownerID), nil
 	}
 	if managed == nil {
 		return nil, errors.New("mcp-orch peer requires managed authority bootstrap")
 	}
-	return injectManagedPeerBootstrap(env, *managed)
+	env, err = injectManagedPeerBootstrap(env, *managed)
+	if err != nil {
+		return nil, err
+	}
+	return injectPeerOwnerIdentity(env, l.ownerID), nil
+}
+
+func injectPeerOwnerIdentity(env []string, ownerID string) []string {
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return env
+	}
+	return append(removeEnvKeys(env, sidecarOwnerIDEnv), sidecarOwnerIDEnv+"="+ownerID)
 }
 
 // peerProcessEnv 组装 sidecar peer 进程环境变量。

@@ -15,6 +15,7 @@ import (
 )
 
 func runFakeMultilangDiagnosticsLangserver() {
+	assertFakeGraphQLConfigDir()
 	reader := bufio.NewReader(os.Stdin)
 	var goroutines sync.WaitGroup
 	defer goroutines.Wait()
@@ -33,6 +34,27 @@ func runFakeMultilangDiagnosticsLangserver() {
 			return
 		}
 	}
+}
+
+// assertFakeGraphQLConfigDir 将 GraphQL 生产启动契约固定在 fake server 进程边界：
+// CLI 必须收到实际文件系统项目根，而不是仅有 file:// 的 LSP rootUri。
+func assertFakeGraphQLConfigDir() {
+	if strings.TrimSpace(os.Getenv(fakeMultilangServerEnv)) != "graphql-lsp" ||
+		strings.TrimSpace(os.Getenv(fakeMultilangRequireGraphQLConfigDirEnv)) != "1" {
+		return
+	}
+	expected := strings.TrimSpace(os.Getenv(fakeMultilangGraphQLConfigDirEnv))
+	for index, arg := range os.Args {
+		if arg != "--configDir" || index+1 >= len(os.Args) {
+			continue
+		}
+		actual := strings.TrimSpace(os.Args[index+1])
+		if actual != "" && (expected == "" || filepath.Clean(actual) == filepath.Clean(expected)) {
+			return
+		}
+		fakeMultilangProtocolViolation("graphql server --configDir=%q does not match expected project root %q", actual, expected)
+	}
+	fakeMultilangProtocolViolation("graphql server startup omitted required --configDir %q; args=%q", expected, os.Args[1:])
 }
 
 func handleFakeMultilangMessage(raw []byte, server *fakeMultilangDiagnosticsServer, journal *fakeMultilangLifecycleJournal) bool {

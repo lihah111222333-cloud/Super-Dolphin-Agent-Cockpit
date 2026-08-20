@@ -17,7 +17,7 @@
 
 > 示例中的 `/absolute/project` 代表目标项目根，必须在落地配置时替换为该项目的真实绝对路径。示例二进制使用 macOS Apple Silicon；其他平台只替换 `command` 为“平台二进制映射”中的对应文件，不能同时混用另一平台的路径语义。
 
-原生 Windows 的 Go LSP 还要求同一 server 显式提供 `SUPER_DOLPHIN_LSP_BUNDLE_DIR=<项目根>/bin/LSP/lsp` 和 `SUPER_DOLPHIN_LSP_MANIFEST=<项目根>/bin/LSP/lsp/lsp-manifest.json` 的绝对路径。它们绑定包内 gopls 身份，不扩大 `GO_AGENT_LSP_ROOT(S)` 定义的 workspace。WSL 使用 Linux 二进制，不得混入 Windows bundle 路径。
+原生 Windows 的 Go LSP 还要求同一 server 显式提供 `SUPER_DOLPHIN_LSP_BUNDLE_DIR=<项目根>/bin/LSP/lsp` 和 `SUPER_DOLPHIN_LSP_MANIFEST=<项目根>/bin/LSP/lsp/lsp-manifest.json` 的绝对路径。它们绑定包内 gopls 身份，不扩大 `GO_AGENT_LSP_ROOT(S)` 定义的 workspace，也不定义通用语言支持集合：bundle 命中的 adapter 使用受信首选二进制，未命中的已支持语言仍注册并自动发现或按需安装。WSL 使用 Linux 二进制，不得混入 Windows bundle 路径。
 
 不要配置小于 `15m` 的 `MCP_LSP_IDLE_TIMEOUT` 或旧别名：正式构建把 15 分钟作为默认值和硬下限。更短值只允许专用 `mcp_lsp_short_idle_precheck` 测试 build tag 做快速预检，不能作为生命周期交付证据。Windows 权限错误 `5`/`1314` 会以 `authorization_required` 返回；桌面宿主通过 `ApprovalRequester` 显示真实授权提示，只有用户明确批准后才能对同一已固定 peer 重试一次。拒绝、无决定、无 UI 或再次失败均保持阻断；独立 sidecar 不得放宽 ACL、切换备用目录、自提权或循环重试。
 

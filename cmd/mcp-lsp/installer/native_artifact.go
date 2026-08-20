@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
@@ -376,7 +377,7 @@ func ensureInstallDirectory(directory string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("native artifact install path is not a real directory: %s", directory)
 	}
-	resolved, err := filepath.EvalSymlinks(directory)
+	resolved, err := lspplatform.CanonicalDirectoryPath(directory)
 	if err != nil {
 		return fmt.Errorf("resolve native artifact directory %s: %w", directory, err)
 	}

@@ -116,9 +116,9 @@ func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E
 
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
-			client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, []string{
+			client := startFakeMultilangDiagnosticsClientForTest(t, ctx, binary, root, fakeServersBinDir, []string{
 				fakeMultilangDiagnosticDelayEnv + "=" + binaryColdStartDiagnosticsDelay.String(),
-			})
+			}, tc.languageID)
 			defer client.close(t)
 
 			client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
@@ -425,9 +425,9 @@ func TestMcpLSPBinaryGoAndGoSumSemanticActionsExposeLifecycleTiming_E2E(t *testi
 			journalPath := filepath.Join(t.TempDir(), "fake-gopls-lifecycle.jsonl")
 			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 			defer cancel()
-			client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, []string{
+			client := startFakeMultilangDiagnosticsClientForTest(t, ctx, binary, root, fakeServersBinDir, []string{
 				fakeMultilangLifecycleJournalEnv + "=" + journalPath,
-			})
+			}, tc.languageID)
 			defer client.close(t)
 			client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 			pos := target + ":1:1"
@@ -471,7 +471,7 @@ func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, nil)
+	client := startFakeMultilangDiagnosticsClientForTest(t, ctx, binary, root, fakeServersBinDir, nil, "javascript")
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
@@ -499,7 +499,7 @@ func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing
 	}
 }
 
-func writeFakeAllLanguagesProtocolBundle(t *testing.T, fakeServersBinDir string) string {
+func writeFakeAllLanguagesProtocolBundle(t *testing.T, fakeServersBinDir string, explicitBundleDir ...string) string {
 	t.Helper()
 	servers := map[string][]string{
 		"vscode-css-language-server":      {"css"},
@@ -530,23 +530,38 @@ func writeFakeAllLanguagesProtocolBundle(t *testing.T, fakeServersBinDir string)
 		"vue-language-server":             {"vue"},
 		"yaml-language-server":            {"yaml"},
 	}
-	bundleDir := t.TempDir()
+	bundleDir := ""
+	if len(explicitBundleDir) > 1 {
+		t.Fatalf("all-language fake bundle accepts at most one explicit destination")
+	}
+	if len(explicitBundleDir) == 1 {
+		bundleDir = filepath.Clean(explicitBundleDir[0])
+		if !filepath.IsAbs(bundleDir) {
+			t.Fatalf("all-language fake bundle destination must be absolute: %q", bundleDir)
+		}
+		if err := os.MkdirAll(bundleDir, 0o700); err != nil {
+			t.Fatalf("create explicit all-language fake bundle root: %v", err)
+		}
+	} else {
+		bundleDir = t.TempDir()
+	}
 	bundleBinDir := filepath.Join(bundleDir, "bin")
 	if err := os.MkdirAll(bundleBinDir, 0o755); err != nil {
 		t.Fatalf("create all-language fake bundle: %v", err)
 	}
 	manifestServers := make(map[string]any, len(servers))
 	for serverName, languages := range servers {
-		payload, err := os.ReadFile(filepath.Join(fakeServersBinDir, serverName))
+		executableName := allLanguageToolContractExecutableName(serverName)
+		payload, err := os.ReadFile(filepath.Join(fakeServersBinDir, executableName))
 		if err != nil {
 			t.Fatalf("read fake bundled %s: %v", serverName, err)
 		}
-		if err := os.WriteFile(filepath.Join(bundleBinDir, serverName), payload, 0o700); err != nil {
+		if err := os.WriteFile(filepath.Join(bundleBinDir, executableName), payload, 0o700); err != nil {
 			t.Fatalf("write fake bundled %s: %v", serverName, err)
 		}
 		digest := sha256.Sum256(payload)
 		manifestServers[serverName] = map[string]any{
-			"path":      "bin/" + serverName,
+			"path":      "bin/" + executableName,
 			"version":   "v24.12.0",
 			"sha256":    hex.EncodeToString(digest[:]),
 			"languages": languages,

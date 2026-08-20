@@ -109,7 +109,7 @@ func languageIDForSystemsExtension(ext string) (string, bool) {
 	switch ext {
 	case ".c", ".h":
 		return "c", true
-	case ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx", ".mq4", ".mq5", ".mqh":
+	case ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx", ".mq4", ".mq5", ".mqh", ".mql", ".mql4", ".mql5":
 		return "cpp", true
 	case ".m":
 		return "objective-c", true

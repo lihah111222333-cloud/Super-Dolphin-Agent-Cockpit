@@ -319,7 +319,7 @@ func defaultToolErrorClassifiersLSPPathPolicy() []toolErrorClassifier {
 			retryable: true,
 			hint: func(toolName, _ string) string {
 				if toolName == "structure" {
-					return "next: structure action=workspace_symbol query=\"<symbol>\" file_path=\"<source-file>\" match_mode=exact max_results=20"
+					return "next: structure action=workspace_symbol query=\"<symbol>\" work_dir=\"<narrow-project-root>\" match_mode=exact max_results=20"
 				}
 				return "next: retry with a concrete file_path inside the intended source scope"
 			},

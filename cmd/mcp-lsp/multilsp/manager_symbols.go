@@ -257,7 +257,27 @@ func clientSupportsMethod(client Client, method string) bool {
 		return true
 	}
 	capability, known := serverCapabilityForMethod(capClient.ServerCapabilities(), method)
-	return !known || serverCapabilityAvailable(capability)
+	if !known || serverCapabilityAvailable(capability) {
+		return true
+	}
+	// 真实 client 已在 initialize 中声明动态注册；JDTLS 的 document_symbol
+	// 以及 vscode CSS/HTML server 的 completion 可能在 initialized/首个文档
+	// 事件后才发 client/registerCapability。在注册到达前允许真实协议探测，
+	// 避免把“尚未动态注册”误判为“服务端不支持”。测试 double 不穿透
+	// concreteClient，因此仍 fail-closed。
+	return clientCanProbeDynamicMethod(client, method)
+}
+
+// clientCanProbeDynamicMethod 只允许真实 transport 探测当前已声明可动态注册、
+// 但尚未出现在静态能力快照中的方法，避免扩大旧客户端兼容边界。
+func clientCanProbeDynamicMethod(current Client, method string) bool {
+	switch method {
+	case protocol.MethodDocumentSymbol, protocol.MethodCompletion:
+	default:
+		return false
+	}
+	concrete, ok := concreteClient(current)
+	return ok && concrete != nil && concrete.dynamicRegistrations != nil && concrete.dynamicRegistrations.canProbeBeforeRegistration(method)
 }
 
 // clientMethodCapabilityGuard 把方法级能力裁决封装成文档请求边界需要的 guard。
@@ -707,7 +727,19 @@ func (m *managerCompletion) CompletionAttribution(ctx context.Context, uri strin
 // Rename 请求语言服务器生成跨文件 workspace edit。
 // 不支持 rename 时返回能力错误，调用方不能自行拼接替换以免破坏语义边界。
 func (m *managerEdit) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
-	return requestDocument(ctx, m, uri, protocol.MethodRename,
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
+	if err != nil {
+		return nil, fmt.Errorf("resolve rename document: %w", err)
+	}
+	var client Client
+	var opened []documentRef
+	if isJSTSDocumentSymbolFallbackLanguage(ref.languageID) {
+		client, opened, err = m.prepareFrontendReferenceProject(ctx, ref.uri)
+		if err != nil {
+			return nil, err
+		}
+	}
+	result, requestErr := requestDocument(ctx, m, ref.uri, protocol.MethodRename,
 		func(ref documentRef) any {
 			return protocol.RenameParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
@@ -724,6 +756,20 @@ func (m *managerEdit) Rename(ctx context.Context, uri string, position protocol.
 		},
 		unsupportedDocument[*protocol.WorkspaceEdit]("rename"),
 	)
+	if requestErr != nil && errors.Is(requestErr, lspmanager.ErrUnsupportedCapability) && strings.EqualFold(ref.languageID, "php") {
+		references, referencesErr := m.References(ctx, ref.uri, position, true)
+		definitions, definitionsErr := m.Definition(ctx, ref.uri, position)
+		if referencesErr == nil && definitionsErr == nil {
+			fallback, fallbackErr := buildSemanticPHPRenameEdit(ctx, ref.uri, position, newName, references, definitions)
+			if fallbackErr == nil {
+				return fallback, errors.Join(m.closeFrontendReferenceProjectDocuments(ctx, client, opened))
+			}
+			requestErr = fmt.Errorf("PHP semantic rename fallback: %w", fallbackErr)
+		} else {
+			requestErr = fmt.Errorf("PHP semantic rename fallback references=%v definition=%v", referencesErr, definitionsErr)
+		}
+	}
+	return result, errors.Join(requestErr, m.closeFrontendReferenceProjectDocuments(ctx, client, opened))
 }
 
 // CodeAction 请求当前范围内的代码动作。
@@ -746,6 +792,13 @@ func (m *managerEdit) CodeAction(ctx context.Context, uri string, rng protocol.R
 
 // Format 请求 LSP 格式化指定文档。
 func (m *managerEdit) Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error) {
+	ref, err := m.resolveDocumentRef(ctx, uri, "")
+	if err != nil {
+		return nil, err
+	}
+	if ref.languageID == "python" {
+		return m.formatPythonDocument(ctx, ref)
+	}
 	return requestDocument(ctx, m, uri, protocol.MethodFormatting,
 		func(ref documentRef) any {
 			return protocol.DocumentFormattingParams{

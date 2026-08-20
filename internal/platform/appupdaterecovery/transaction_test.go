@@ -402,9 +402,7 @@ func TestCommitRejectsDiscardSymlink(t *testing.T) {
 	if err := os.Rename(paths.Backup, external); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(external, discard); err != nil {
-		t.Fatal(err)
-	}
+	requireSymlink(t, external, discard)
 	reopened, err := NewStore(store.root)
 	if err != nil {
 		t.Fatal(err)

@@ -34,6 +34,7 @@ const (
 	emmyLuaWindowsARM64E2EEnv           = "SUPER_DOLPHIN_RUN_EMMYLUA_WINDOWS_ARM64_E2E"
 	emmyLuaWindowsARM64PrecheckEnv      = "SUPER_DOLPHIN_EMMYLUA_WINDOWS_ARM64_E2E_PRECHECK"
 	emmyLuaWindowsARM64EvidenceDirEnv   = "SUPER_DOLPHIN_EMMYLUA_WINDOWS_ARM64_E2E_EVIDENCE_DIR"
+	emmyLuaWindowsARM64ProductRootEnv   = "SUPER_DOLPHIN_EMMYLUA_WINDOWS_ARM64_PRODUCT_ROOT"
 	emmyLuaWindowsARM64ArchiveURL       = "https://github.com/EmmyLuaLs/emmylua-analyzer-rust/releases/download/0.25.1/emmylua_ls-win32-arm64.zip"
 	emmyLuaWindowsARM64ArchiveSHA256    = "f6f335f01fccca6f000a6240fb78c6fbab069230b1bb4347361ef3f64550390a"
 	emmyLuaWindowsARM64ExecutableSHA256 = "c05a85e354de013e0300c42197592355d425a8ef7fae7ef1eb3febd68c1791ac"
@@ -158,8 +159,92 @@ func emmyLuaPathExists(t *testing.T, path string) bool {
 	return true
 }
 
+// emmyLuaWindowsARM64ProductRoot 解析受控的产品根；未提供时创建一次性私有根，
+// 提供时只复用现有绝对目录，便于短 precheck 复用已安装的 EmmyLua 缓存。
+func emmyLuaWindowsARM64ProductRoot(t *testing.T) (string, bool, error) {
+	t.Helper()
+	configured := strings.TrimSpace(os.Getenv(emmyLuaWindowsARM64ProductRootEnv))
+	if configured == "" {
+		root, err := os.MkdirTemp("", "sd-emmylua-production-windows-arm64-")
+		if err != nil {
+			return "", false, fmt.Errorf("create private EmmyLua product root: %w", err)
+		}
+		t.Cleanup(func() {
+			if err := removeRealWindowsProductRoot(root); err != nil {
+				t.Errorf("remove EmmyLua Windows ARM64 product root: %v", err)
+			}
+		})
+		return root, false, nil
+	}
+	root := filepath.Clean(configured)
+	if !filepath.IsAbs(root) {
+		return "", true, fmt.Errorf("%s must be an absolute Windows product root: %q", emmyLuaWindowsARM64ProductRootEnv, configured)
+	}
+	if !strings.HasPrefix(strings.ToLower(filepath.Base(root)), "sd-emmylua-production-windows-arm64-") {
+		return "", true, fmt.Errorf("%s must identify an approved EmmyLua product root: %q", emmyLuaWindowsARM64ProductRootEnv, filepath.Base(root))
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return "", true, fmt.Errorf("stat reusable EmmyLua product root %q: %w", root, err)
+	}
+	if !info.IsDir() {
+		return "", true, fmt.Errorf("reusable EmmyLua product root %q is not a directory", root)
+	}
+	return root, true, nil
+}
+
+// TestEmmyLuaWindowsARM64ProductRootContract 锁定 fresh install 与既有缓存复用的入口，
+// 并确保路径不满足产品根约束时立即失败。
+func TestEmmyLuaWindowsARM64ProductRootContract(t *testing.T) {
+	t.Run("unset creates private root", func(t *testing.T) {
+		t.Setenv(emmyLuaWindowsARM64ProductRootEnv, "")
+		root, reused, err := emmyLuaWindowsARM64ProductRoot(t)
+		if err != nil {
+			t.Fatalf("emmyLuaWindowsARM64ProductRoot() error = %v", err)
+		}
+		if reused || !strings.HasPrefix(strings.ToLower(filepath.Base(root)), "sd-emmylua-production-windows-arm64-") {
+			t.Fatalf("emmyLuaWindowsARM64ProductRoot() = (%q, %t), want approved fresh root", root, reused)
+		}
+	})
+	t.Run("approved existing root is reused", func(t *testing.T) {
+		parent := t.TempDir()
+		root := filepath.Join(parent, "sd-emmylua-production-windows-arm64-reuse")
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatalf("create approved product root: %v", err)
+		}
+		t.Setenv(emmyLuaWindowsARM64ProductRootEnv, root)
+		got, reused, err := emmyLuaWindowsARM64ProductRoot(t)
+		if err != nil || filepath.Clean(got) != filepath.Clean(root) || !reused {
+			t.Fatalf("emmyLuaWindowsARM64ProductRoot() = (%q, %t, %v), want (%q, true, nil)", got, reused, err, root)
+		}
+	})
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{name: "relative root", value: "relative-product-root"},
+		{name: "unapproved root", value: filepath.Join(t.TempDir(), "other-product-root")},
+		{name: "missing approved root", value: filepath.Join(t.TempDir(), "sd-emmylua-production-windows-arm64-missing")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(emmyLuaWindowsARM64ProductRootEnv, test.value)
+			if _, _, err := emmyLuaWindowsARM64ProductRoot(t); err == nil {
+				t.Fatalf("emmyLuaWindowsARM64ProductRoot(%q) unexpectedly succeeded", test.value)
+			}
+		})
+	}
+}
+
 func emmyLuaInstallObservationPass(before, after emmyLuaCacheSnapshot, counts emmyLuaHTTPCounts) bool {
-	return before.RootEntries == 0 && !before.PayloadPresent && counts.Requests > 0 && counts.Attempts > 0 && counts.Responses > 0 && counts.TransportErrors == 0 && after.PayloadPresent && after.ReadyExecutablePresent
+	if before.PayloadPresent && before.ReadyExecutablePresent {
+		return after.PayloadPresent && after.ReadyExecutablePresent && counts.Requests == 0 && counts.Attempts == 0 && counts.Responses == 0 && counts.TransportErrors == 0
+	}
+	if before.PayloadPresent {
+		return after.PayloadPresent && after.ReadyExecutablePresent && counts.TransportErrors == 0 &&
+			((counts.Requests == 0 && counts.Attempts == 0 && counts.Responses == 0) ||
+				(counts.Requests > 0 && counts.Attempts > 0 && counts.Responses > 0))
+	}
+	return !before.PayloadPresent && counts.Requests > 0 && counts.Attempts > 0 && counts.Responses > 0 && counts.TransportErrors == 0 && after.PayloadPresent && after.ReadyExecutablePresent
 }
 
 // TestWindowsARM64EmmyLuaProductionE2E 是 Windows ARM64 EmmyLua 的真实生产链路门禁。
@@ -207,23 +292,29 @@ func TestWindowsARM64EmmyLuaProductionE2E(t *testing.T) {
 		t.Fatalf("EmmyLua command args=%v", got)
 	}
 
-	productRoot, err := os.MkdirTemp("", "sd-emmylua-production-windows-arm64-")
+	productRoot, reusedProductRoot, err := emmyLuaWindowsARM64ProductRoot(t)
 	if err != nil {
-		t.Fatalf("create private product root: %v", err)
+		t.Fatalf("resolve EmmyLua Windows ARM64 product root: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := removeRealWindowsProductRoot(productRoot); err != nil {
-			t.Errorf("remove EmmyLua Windows ARM64 product root: %v", err)
-		}
-	})
 	if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
 		t.Fatalf("restrict private product root: %v", err)
 	}
-	assertDirectoryEmpty(t, productRoot)
 	cacheBefore := snapshotEmmyLuaCache(t, productRoot, manifest, asset)
 	cacheAfter := emmyLuaCacheSnapshot{}
 	installHTTP := emmyLuaHTTPCounts{}
 	installObservationPass := false
+	cacheReadyBefore := cacheBefore.PayloadPresent && cacheBefore.ReadyExecutablePresent
+	cacheDecision := "fresh_empty_root_install"
+	if reusedProductRoot {
+		cacheDecision = "existing_product_root_auto_install"
+		if cacheBefore.PayloadPresent {
+			cacheDecision = "reused_payload_cache_repair"
+		}
+		if cacheReadyBefore {
+			cacheDecision = "reused_ready_product_cache"
+		}
+	}
+	t.Logf("EmmyLua product root mode=%s cache_ready_before=%t", cacheDecision, cacheReadyBefore)
 	// The child mcp-lsp uses the same production resolver. No PATH or repository cache is
 	// allowed to satisfy this run.
 	t.Setenv("SUPER_DOLPHIN_HOME", productRoot)
@@ -251,15 +342,26 @@ func TestWindowsARM64EmmyLuaProductionE2E(t *testing.T) {
 	installHTTP = httpObserver.Snapshot()
 	cacheAfter = snapshotEmmyLuaCache(t, productRoot, manifest, asset)
 	installObservationPass = emmyLuaInstallObservationPass(cacheBefore, cacheAfter, installHTTP)
-	t.Logf("EmmyLua install observation cache_before_empty=%t cache_after_payload=%t cache_after_ready=%t http_requests=%d http_attempts=%d http_responses=%d http_transport_errors=%d http_redirect_responses=%d contract_pass=%t", cacheBefore.RootEntries == 0 && !cacheBefore.PayloadPresent, cacheAfter.PayloadPresent, cacheAfter.ReadyExecutablePresent, installHTTP.Requests, installHTTP.Attempts, installHTTP.Responses, installHTTP.TransportErrors, installHTTP.RedirectResponses, installObservationPass)
+	if cacheReadyBefore {
+		installObservationPass = installObservationPass && installed.Status == installer.InstallStatusPathFound && installHTTP.Requests == 0 && installHTTP.Attempts == 0 && installHTTP.Responses == 0
+	} else if cacheBefore.PayloadPresent {
+		installObservationPass = installObservationPass && installed.Status == installer.InstallStatusInstalledPath
+	} else {
+		installObservationPass = installObservationPass && installed.Status == installer.InstallStatusInstalledPath && installHTTP.Requests > 0 && installHTTP.Attempts > 0 && installHTTP.Responses > 0
+	}
+	t.Logf("EmmyLua install observation decision=%s cache_ready_before=%t cache_after_payload=%t cache_after_ready=%t http_requests=%d http_attempts=%d http_responses=%d http_transport_errors=%d http_redirect_responses=%d contract_pass=%t", cacheDecision, cacheReadyBefore, cacheAfter.PayloadPresent, cacheAfter.ReadyExecutablePresent, installHTTP.Requests, installHTTP.Attempts, installHTTP.Responses, installHTTP.TransportErrors, installHTTP.RedirectResponses, installObservationPass)
 	if !installObservationPass {
-		t.Fatalf("EmmyLua empty-cache install observation contract failed: cache_before_empty=%t cache_after_payload=%t cache_after_ready=%t http_requests=%d http_attempts=%d http_responses=%d http_transport_errors=%d", cacheBefore.RootEntries == 0 && !cacheBefore.PayloadPresent, cacheAfter.PayloadPresent, cacheAfter.ReadyExecutablePresent, installHTTP.Requests, installHTTP.Attempts, installHTTP.Responses, installHTTP.TransportErrors)
+		t.Fatalf("EmmyLua install/cache-reuse observation contract failed: decision=%s cache_ready_before=%t cache_after_payload=%t cache_after_ready=%t status=%s http_requests=%d http_attempts=%d http_responses=%d http_transport_errors=%d", cacheDecision, cacheReadyBefore, cacheAfter.PayloadPresent, cacheAfter.ReadyExecutablePresent, installed.Status, installHTTP.Requests, installHTTP.Attempts, installHTTP.Responses, installHTTP.TransportErrors)
 	}
 	if err != nil {
 		t.Fatalf("production EnsureInstalledDetailed(lua) from empty private cache: %v", err)
 	}
-	if installed.Status != installer.InstallStatusInstalledPath || filepath.Clean(installed.Path) != filepath.Clean(mustResolveEmmyLuaPath(t, productRoot)) {
-		t.Fatalf("production install result status=%s binary=%s path_base=%s, want installed_path and resolver path", installed.Status, installed.Binary, filepath.Base(installed.Path))
+	wantStatus := installer.InstallStatusInstalledPath
+	if cacheReadyBefore {
+		wantStatus = installer.InstallStatusPathFound
+	}
+	if installed.Status != wantStatus || filepath.Clean(installed.Path) != filepath.Clean(mustResolveEmmyLuaPath(t, productRoot)) {
+		t.Fatalf("production install/cache result status=%s binary=%s path_base=%s, want status=%s and resolver path", installed.Status, installed.Binary, filepath.Base(installed.Path), wantStatus)
 	}
 	resolvedByConfig, err := cfg.InstalledBinaryPathResolver(ctx)
 	if err != nil {
@@ -773,62 +875,57 @@ func prependEmmyLuaE2EGoToolchainToPATH(t *testing.T) {
 
 func writeEmmyLuaWindowsARM64Fixtures(t *testing.T, root string) {
 	t.Helper()
-	main := `---@class Person
----@field name string
----@field age number
-local Person = {}
-
----@param name string
----@param age number
----@return Person
-function Person.new(name, age)
-  return { name = name, age = age }
-end
-
----@param person Person
----@return string
-local function greet(person)
-  return "Hello " .. person.name
-end
-
-local person = Person.new("Ada", 37)
-local result = greet(person)
-greet(person)
-print(result)
-local typo = person.not_a_field
-`
-	writeRealFixture(t, filepath.Join(root, "main.lua"), main)
-	writeRealFixture(t, filepath.Join(root, "secondary.lua"), main+"\nEMMY_LUA_NEEDLE_lua\n")
-	writeRealFixture(t, filepath.Join(root, "signature.lua"), `---@param x number
----@return number
-function greet(x)
-  return x
-end
-
-local result = greet(1)
-`)
-	writeRealFixture(t, filepath.Join(root, "call.lua"), `function greet(x)
-  return x
-end
-
-function caller()
-  return greet(1)
-end
-`)
-	// grep/ast_search is a sidecar ast-grep action, not an EmmyLua LSP request;
-	// use its supported JavaScript grammar so this public action is tested without
-	// claiming that the Lua language server implements AST search.
-	writeRealFixture(t, filepath.Join(root, "ast.js"), `function ast_greet(x) {
-  return x;
+	repoRoot := repoRootForMcpLSPBinaryTest(t)
+	sourceRoot := filepath.Join(repoRoot, "bin", "LSP", "test")
+	luaSourceRoot := filepath.Join(sourceRoot, "lua")
+	if _, err := os.Stat(luaSourceRoot); err != nil {
+		t.Fatalf("inspect checked-in Lua fixture root: %v", err)
+	}
+	// 真实 Lua 工程快照必须先复制到隔离 workspace；所有 MCP 编辑动作再使用
+	// 该快照的独立副本，避免污染仓库内的 bin/LSP/test/lua 源文件。
+	copyRealMCPBinSourceTree(t, luaSourceRoot, root)
+	for _, relative := range []string{"lsp_fixture.lua", "middleclass.lua", "spec/class_spec.lua"} {
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("copied Lua fixture %q is unavailable: %v", relative, err)
+		}
+	}
+	// grep/ast_search 是 sidecar ast-grep 动作，不是 EmmyLua LSP 请求；使用
+	// 独立 JavaScript 辅助文件验证该公共动作，不把能力归因给 Lua server。
+	writeRealFixture(t, filepath.Join(root, "ast.js"), "function ast_greet(x) {\n  return x;\n}\n")
+	for _, name := range []string{"replace", "rename", "code_action", "format"} {
+		destination := filepath.Join(root, ".mcp-actions", name, "lsp_fixture.lua")
+		copyRealMCPBinSourceFile(t, sourceRoot, "lua/lsp_fixture.lua", destination)
+	}
 }
-`)
-	writeRealFixture(t, filepath.Join(root, "replace.lua"), "REAL_REPLACE\n")
-	writeRealFixture(t, filepath.Join(root, "rename.lua"), main)
-	writeRealFixture(t, filepath.Join(root, "code_action.lua"), "local definitely_undefined = missing_global\n")
-	// EmmyLua's full-document format edit ends at the last content line when the
-	// fixture has no terminal newline; this stays within the patch_edit wrapper's
-	// strict line bound while still exercising a real formatting edit.
-	writeRealFixture(t, filepath.Join(root, "format.lua"), strings.TrimSuffix(main, "\n"))
+
+// TestEmmyLuaWindowsARM64FixtureContract 证明 action fixture 来自 bin/LSP/test/lua 的隔离副本，
+// 且七个公开工具仍保持精确 36-action 闭包；该测试不启动 server 或下载产品。
+func TestEmmyLuaWindowsARM64FixtureContract(t *testing.T) {
+	root := t.TempDir()
+	writeEmmyLuaWindowsARM64Fixtures(t, root)
+	source := filepath.Join(repoRootForMcpLSPBinaryTest(t), "bin", "LSP", "test", "lua", "lsp_fixture.lua")
+	target := filepath.Join(root, "lsp_fixture.lua")
+	sourceBytes, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read checked-in Lua fixture: %v", err)
+	}
+	targetBytes, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read isolated Lua fixture: %v", err)
+	}
+	if !bytes.Equal(sourceBytes, targetBytes) {
+		t.Fatal("isolated Lua fixture differs from bin/LSP/test/lua source")
+	}
+	actions := emmyLuaWindowsARM64ActionSpecs(root)
+	if len(actions) != 36 {
+		t.Fatalf("EmmyLua fixture action count=%d, want exact 36", len(actions))
+	}
+	for _, action := range actions {
+		if strings.TrimSpace(action.Tool) == "" || strings.TrimSpace(action.Name) == "" {
+			t.Fatalf("EmmyLua fixture action has empty tool/name: %#v", action)
+		}
+	}
 }
 
 type emmyLuaARM64ActionSpec struct {
@@ -840,23 +937,23 @@ type emmyLuaARM64ActionSpec struct {
 }
 
 func emmyLuaWindowsARM64ActionSpecs(root string) []emmyLuaARM64ActionSpec {
-	main := filepath.Join(root, "main.lua")
-	secondary := filepath.Join(root, "secondary.lua")
-	signature := filepath.Join(root, "signature.lua")
-	call := filepath.Join(root, "call.lua")
+	main := filepath.Join(root, "lsp_fixture.lua")
+	secondary := filepath.Join(root, "middleclass.lua")
+	signature := filepath.Join(root, "spec", "class_spec.lua")
+	call := filepath.Join(root, "spec", "class_spec.lua")
 	ast := filepath.Join(root, "ast.js")
-	replace := filepath.Join(root, "replace.lua")
-	rename := filepath.Join(root, "rename.lua")
-	codeAction := filepath.Join(root, "code_action.lua")
-	format := filepath.Join(root, "format.lua")
-	mainPos := main + ":20:16"
+	replace := filepath.Join(root, ".mcp-actions", "replace", "lsp_fixture.lua")
+	rename := filepath.Join(root, ".mcp-actions", "rename", "lsp_fixture.lua")
+	codeAction := filepath.Join(root, ".mcp-actions", "code_action", "lsp_fixture.lua")
+	format := filepath.Join(root, ".mcp-actions", "format", "lsp_fixture.lua")
+	mainPos := main + ":3:10"
 	return []emmyLuaARM64ActionSpec{
 		{Tool: "file", Name: "open_file", Args: map[string]any{"action": "open_file", "file_path": main}, TrackFamily: true},
 		{Tool: "file", Name: "read_file-single", Args: map[string]any{"action": "read_file", "file_path": main, "limit": 100}},
 		{Tool: "file", Name: "read_file-full", Args: map[string]any{"action": "read_file", "file_path": main}},
 		{Tool: "file", Name: "read_file-batch", Args: map[string]any{"action": "read_file", "file_paths": []string{main, secondary}, "limit": 100}},
-		{Tool: "file", Name: "read_file-lines", Args: map[string]any{"action": "read_file", "pos": main + ":20", "scope": "lines", "limit": 1}},
-		{Tool: "file", Name: "read_file-function", Args: map[string]any{"action": "read_file", "pos": main + ":20", "limit": 50}},
+		{Tool: "file", Name: "read_file-lines", Args: map[string]any{"action": "read_file", "pos": main + ":3", "scope": "lines", "limit": 1}},
+		{Tool: "file", Name: "read_file-function", Args: map[string]any{"action": "read_file", "pos": main + ":3", "limit": 50}},
 		{Tool: "file", Name: "diagnostics", Args: map[string]any{"action": "diagnostics", "file_path": codeAction}, TrackFamily: true},
 		{Tool: "file", Name: "diagnostics-batch", Args: map[string]any{"action": "diagnostics", "file_paths": []string{codeAction, main}, "limit": 100}},
 
@@ -874,21 +971,21 @@ func emmyLuaWindowsARM64ActionSpecs(root string) []emmyLuaARM64ActionSpec {
 		{Tool: "xref", Name: "type_hierarchy-supertypes", Args: map[string]any{"action": "type_hierarchy", "pos": mainPos, "direction": "supertypes"}},
 		{Tool: "xref", Name: "type_hierarchy-subtypes", Args: map[string]any{"action": "type_hierarchy", "pos": mainPos, "direction": "subtypes"}},
 
-		{Tool: "grep", Name: "text_search", Args: map[string]any{"action": "text_search", "query": "EMMY_LUA_NEEDLE_lua", "paths": []string{secondary}, "max_results": 10}, TrackFamily: true},
-		{Tool: "grep", Name: "text_search-regex", Args: map[string]any{"action": "text_search", "query": "EMMY_LUA_NEEDLE_[a-z]+", "paths": []string{secondary}, "regex": true, "case_sensitive": true, "max_results": 10}},
-		{Tool: "grep", Name: "text_search-paths", Args: map[string]any{"action": "text_search", "query": "EMMY_LUA_NEEDLE_lua", "paths": []string{filepath.Dir(secondary)}, "max_results": 10}},
-		{Tool: "grep", Name: "text_search-file_paths", Args: map[string]any{"action": "text_search", "query": "EMMY_LUA_NEEDLE_lua", "paths": []string{secondary}, "max_results": 10}},
-		{Tool: "grep", Name: "text_search-glob", Args: map[string]any{"action": "text_search", "query": "EMMY_LUA_NEEDLE_lua", "paths": []string{filepath.Dir(secondary)}, "glob": filepath.Base(secondary), "max_results": 10}},
+		{Tool: "grep", Name: "text_search", Args: map[string]any{"action": "text_search", "query": "middleclass v4.1.1", "paths": []string{secondary}, "max_results": 10}, TrackFamily: true},
+		{Tool: "grep", Name: "text_search-regex", Args: map[string]any{"action": "text_search", "query": "middleclass v4\\.[0-9]+\\.[0-9]+", "paths": []string{secondary}, "regex": true, "case_sensitive": true, "max_results": 10}},
+		{Tool: "grep", Name: "text_search-paths", Args: map[string]any{"action": "text_search", "query": "middleclass v4.1.1", "paths": []string{filepath.Dir(secondary)}, "max_results": 10}},
+		{Tool: "grep", Name: "text_search-file_paths", Args: map[string]any{"action": "text_search", "query": "middleclass v4.1.1", "paths": []string{secondary}, "max_results": 10}},
+		{Tool: "grep", Name: "text_search-glob", Args: map[string]any{"action": "text_search", "query": "middleclass v4.1.1", "paths": []string{filepath.Dir(secondary)}, "glob": filepath.Base(secondary), "max_results": 10}},
 		{Tool: "grep", Name: "ast_search", Args: map[string]any{"action": "ast_search", "query": "function $NAME($$$ARGS) { $$$BODY }", "paths": []string{ast}, "ast_language": "javascript", "max_results": 10}},
 
 		{Tool: "structure", Name: "document_symbol", Args: map[string]any{"action": "document_symbol", "file_path": main, "max_results": 20}, TrackFamily: true},
-		{Tool: "structure", Name: "workspace_symbol-file", Args: map[string]any{"action": "workspace_symbol", "file_path": main, "query": "Person", "max_results": 20}},
-		{Tool: "structure", Name: "workspace_symbol-language", Args: map[string]any{"action": "workspace_symbol", "workspace_language": "lua", "query": "Person", "max_results": 20}},
+		{Tool: "structure", Name: "workspace_symbol-file", Args: map[string]any{"action": "workspace_symbol", "file_path": main, "query": "M", "max_results": 20}},
+		{Tool: "structure", Name: "workspace_symbol-language", Args: map[string]any{"action": "workspace_symbol", "workspace_language": "lua", "query": "M", "max_results": 20}},
 		{Tool: "structure", Name: "folding_range", Args: map[string]any{"action": "folding_range", "file_path": main, "max_results": 20}},
 		{Tool: "structure", Name: "semantic_tokens", Args: map[string]any{"action": "semantic_tokens", "file_path": main, "max_results": 20}},
 
-		{Tool: "patch_edit", Name: "replace_range", PreOpen: replace, Args: map[string]any{"action": "replace_range", "file_path": replace, "patch": "@@\n-REAL_REPLACE\n+REAL_REPLACED\n"}, TrackFamily: true},
-		{Tool: "patch_edit", Name: "rename", PreOpen: rename, Args: map[string]any{"action": "rename", "pos": rename + ":20:16", "new_name": "welcome"}},
+		{Tool: "patch_edit", Name: "replace_range", PreOpen: replace, Args: map[string]any{"action": "replace_range", "file_path": replace, "patch": "@@\n-local M = {}\n+local M = { marker = true }\n"}, TrackFamily: true},
+		{Tool: "patch_edit", Name: "rename", PreOpen: rename, Args: map[string]any{"action": "rename", "pos": rename + ":3:10", "new_name": "welcome"}},
 		{Tool: "patch_edit", Name: "code_action", PreOpen: codeAction, Args: map[string]any{"action": "code_action", "pos": codeAction + ":1:1", "only": []string{"quickfix"}}},
 		{Tool: "patch_edit", Name: "format", PreOpen: format, Args: map[string]any{"action": "format", "file_path": format}},
 
@@ -1124,6 +1221,13 @@ func writeEmmyLuaARM64ActionLedger(t *testing.T, host installer.WindowsHostPlatf
 	}
 	counts := emmyLuaActionCounts(records)
 	formalPass := !precheck && emmyLuaActionClosurePass(records) && len(idleSamples) >= int(emmyLuaWindowsARM64ProofIdle/time.Minute) && postIdleSemanticPass && shutdownOK && exitSent && zeroResidual && exitCode == 0
+	cacheReadyBefore := cacheBefore.PayloadPresent && cacheBefore.ReadyExecutablePresent
+	installCacheDecision := "auto_install_or_repair"
+	if cacheReadyBefore {
+		installCacheDecision = "reused_ready_product_cache"
+	} else if cacheBefore.PayloadPresent {
+		installCacheDecision = "reused_payload_cache_repair"
+	}
 	payload := map[string]any{
 		"schema":     "windows-arm64-emmylua-process-arm64-formal-e2e-v3",
 		"phase":      map[bool]string{true: "PRECHECK_ONLY", false: failurePhase}[precheck],
@@ -1140,7 +1244,14 @@ func writeEmmyLuaARM64ActionLedger(t *testing.T, host installer.WindowsHostPlatf
 			"peMachine": fmt.Sprintf("0x%04x", installer.WindowsEmmyLuaPEMachine),
 		},
 		"toolchain": map[string]any{"go": emmyLuaWindowsARM64LockedGoVersion, "buildvcs": false, "gowork": "unset", "gotoolchain": "local", "cgo": "0"},
-		"install":   map[string]any{"source": "production_EnsureInstalled", "status": "installed_path", "cacheEmptyBefore": true, "binary": installer.WindowsEmmyLuaBinaryName},
+		"install": map[string]any{
+			"source":           "production_EnsureInstalled",
+			"status":           map[bool]string{true: string(installer.InstallStatusPathFound), false: string(installer.InstallStatusInstalledPath)}[cacheReadyBefore],
+			"cacheDecision":    installCacheDecision,
+			"cacheEmptyBefore": cacheBefore.RootEntries == 0 && !cacheBefore.PayloadPresent,
+			"cacheReadyBefore": cacheReadyBefore,
+			"binary":           installer.WindowsEmmyLuaBinaryName,
+		},
 		"installationObservation": map[string]any{
 			"contract_pass": installObservationPass,
 			"cache_before":  cacheBefore,

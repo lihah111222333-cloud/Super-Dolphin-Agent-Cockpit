@@ -88,7 +88,7 @@ func newProcessFailureError(operation, logicalName string, cause error, output [
 		ExitCode:        exitCode,
 		OutputBytes:     len(output),
 		OutputSHA256:    hex.EncodeToString(digest[:]),
-		OutputClass:     classifyProcessOutput(output),
+		OutputClass:     classifyProcessOutput(operation, logicalName, output),
 		OutputSummary:   summarizeProcessOutput(output),
 		cause:           cause,
 	}
@@ -132,9 +132,17 @@ var processFailureVersionPattern = regexp.MustCompile(`\b[0-9]+\.[0-9]+(?:\.[0-9
 var processFailureSafeFilePattern = regexp.MustCompile(`(?i)\b[A-Za-z0-9._-]+\.(?:nupkg|config|dll|exe|zip)\b`)
 var processFailureKnownPackagePattern = regexp.MustCompile(`(?i)\b(?:csharp-ls|CSharpLanguageServer|dotnet|NuGet)\b`)
 
-// classifyProcessOutput 只提取可审计的固定错误类别，避免把 dotnet/NuGet 原始输出写入 receipt。
-func classifyProcessOutput(output []byte) string {
+// classifyProcessOutput 只提取可审计的固定错误类别，避免把安装器原始输出写入 receipt。
+// npm 输出中的通用 package/tool 词不能进入 NuGet 分类；操作身份必须优先裁决协议域。
+func classifyProcessOutput(operation, logicalName string, output []byte) string {
 	text := strings.ToLower(string(output))
+	processDomain := strings.ToLower(operation + " " + logicalName)
+	if strings.Contains(processDomain, "npm") {
+		if strings.Contains(text, "error") || strings.Contains(text, "failed") {
+			return "npm_install_failed"
+		}
+		return "npm_install_unclassified"
+	}
 	if code := processFailureNuGetCodePattern.FindString(string(output)); code != "" {
 		return strings.ToUpper(code)
 	}

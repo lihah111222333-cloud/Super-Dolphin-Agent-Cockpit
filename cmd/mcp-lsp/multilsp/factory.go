@@ -112,8 +112,14 @@ func requestDocumentForClientWithCapability[T any](
 	guard func(Client) bool,
 ) (T, error) {
 	var zero T
+	if err := waitForSemanticWorkspace(ctx, client, ref.languageID, method); err != nil {
+		return zero, err
+	}
 	if guard != nil && !guard(client) {
 		return zero, unsupportedCapabilityErrorForAdvertisedMethod(method, client)
+	}
+	if err := synchronizeSwiftWorkspace(ctx, m, client, ref.languageID, method); err != nil {
+		return zero, err
 	}
 	raw, err := m.request(ctx, client, method, buildDocumentParams(ref, build))
 	if err != nil {
@@ -123,6 +129,59 @@ func requestDocumentForClientWithCapability[T any](
 		return zero, nil
 	}
 	return decode(raw)
+}
+
+const swiftWorkspaceSynchronizeMethod = "workspace/synchronize"
+
+// synchronizeSwiftWorkspace 在 Swift completion/references 前等待 SourceKit-LSP 建好 SwiftPM 索引。
+// SourceKit-LSP 的 didOpen 是异步的；没有 index=true 的同步请求，语义请求可能稳定耗尽超时预算。
+func synchronizeSwiftWorkspace(ctx context.Context, m *manager, client Client, languageID, method string) error {
+	if normalizeLanguageID(languageID) != "swift" {
+		return nil
+	}
+	switch method {
+	case protocol.MethodCompletion, protocol.MethodReferences:
+	default:
+		return nil
+	}
+	if _, err := m.request(ctx, client, swiftWorkspaceSynchronizeMethod, map[string]any{"index": true}); err != nil {
+		return fmt.Errorf("swift workspace synchronization before %s: %w", method, err)
+	}
+	return nil
+}
+
+func waitForSemanticWorkspace(ctx context.Context, current Client, languageID, method string) error {
+	if normalizeLanguageID(languageID) != "rust" {
+		return nil
+	}
+	if !requiresSemanticWorkspaceReady(method) {
+		return nil
+	}
+	ready, ok := current.(SemanticWorkspaceReady)
+	if !ok {
+		if concrete, found := concreteClient(current); found {
+			ready, ok = any(concrete).(SemanticWorkspaceReady)
+		}
+	}
+	if !ok {
+		// Test doubles and legacy clients do not expose rust-analyzer's optional
+		// status notification. Preserve their request/retry semantics; the real
+		// transport client implements SemanticWorkspaceReady and is gated above.
+		return nil
+	}
+	if err := ready.WaitSemanticWorkspaceReady(ctx); err != nil {
+		return fmt.Errorf("rust semantic workspace is not ready before %s: %w", method, err)
+	}
+	return nil
+}
+
+func requiresSemanticWorkspaceReady(method string) bool {
+	switch method {
+	case protocol.MethodHover, protocol.MethodDefinition, protocol.MethodReferences, protocol.MethodCompletion:
+		return true
+	default:
+		return false
+	}
 }
 
 func buildDocumentParams(ref documentRef, build documentParamsBuilder) any {
@@ -541,20 +600,27 @@ func (c *client) notifyTextDocument(ctx context.Context, method string, params a
 }
 
 func decodeDocumentSymbolUnion(payload json.RawMessage) (protocol.DocumentSymbol, bool, error) {
-	var symbol protocol.DocumentSymbol
-	if err := json.Unmarshal(payload, &symbol); err == nil {
-		return symbol, true, nil
-	}
-	var info protocol.SymbolInformation
-	if err := json.Unmarshal(payload, &info); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
 		return protocol.DocumentSymbol{}, false, fmt.Errorf("decode document symbols: %w", err)
 	}
-	return protocol.DocumentSymbol{
-		Name:           info.Name,
-		Kind:           info.Kind,
-		Range:          info.Location.Range,
-		SelectionRange: info.Location.Range,
-	}, true, nil
+	if _, ok := fields["location"]; ok {
+		var info protocol.SymbolInformation
+		if err := json.Unmarshal(payload, &info); err != nil {
+			return protocol.DocumentSymbol{}, false, fmt.Errorf("decode document symbols: %w", err)
+		}
+		return protocol.DocumentSymbol{
+			Name:           info.Name,
+			Kind:           info.Kind,
+			Range:          info.Location.Range,
+			SelectionRange: info.Location.Range,
+		}, true, nil
+	}
+	var symbol protocol.DocumentSymbol
+	if err := json.Unmarshal(payload, &symbol); err != nil {
+		return protocol.DocumentSymbol{}, false, fmt.Errorf("decode document symbols: %w", err)
+	}
+	return symbol, true, nil
 }
 
 func decodeWorkspaceSymbolUnion(payload json.RawMessage) (protocol.WorkspaceSymbolResult, bool, error) {

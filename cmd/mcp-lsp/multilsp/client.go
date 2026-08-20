@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	methodExit                 = "exit"
-	gracefulProcessExitTimeout = 500 * time.Millisecond
+	methodExit                     = "exit"
+	gracefulProcessExitTimeout     = 500 * time.Millisecond
+	semanticWorkspaceReadyTimeout  = 20 * time.Second
+	rustAnalyzerServerStatusMethod = "experimental/serverStatus"
 )
 
 var (
@@ -57,6 +59,12 @@ const ServerProfileJDTLS160 = "jdk-jdtls@1.60.0"
 type HealthCheckedClient interface {
 	Client
 	Healthy() bool
+}
+
+// SemanticWorkspaceReady waits until a project language server has loaded its workspace.
+// Implementations may return nil when the server does not expose a readiness signal.
+type SemanticWorkspaceReady interface {
+	WaitSemanticWorkspaceReady(context.Context) error
 }
 
 // WrappedClient 允许装饰器暴露真实 transport owner，供进程树、RSS 与跨 worktree 总账统一管理。
@@ -117,6 +125,19 @@ type client struct {
 	initializeResponseKnown     bool
 	knownJDTLSTypeDefinitionOff bool
 	serverProfile               string
+	semanticStatusDone          chan struct{}
+	semanticStatusDoneOnce      sync.Once
+	semanticStatusHealth        string
+	semanticStatusQuiescent     bool
+	semanticStatusMessage       string
+	semanticStatusErr           error
+	semanticStatusKnown         bool
+}
+
+type rustAnalyzerServerStatus struct {
+	Health    string `json:"health"`
+	Quiescent bool   `json:"quiescent"`
+	Message   string `json:"message"`
 }
 
 // concreteClient 穿透有限层包装器，定位拥有 transport 与进程资源的真实 client。
@@ -141,6 +162,18 @@ func concreteClient(current Client) (*client, bool) {
 type dynamicRegistrationTracker struct {
 	mu            sync.RWMutex
 	registrations map[string]map[string]dynamicRegistration
+}
+
+// canProbeBeforeRegistration 允许动态能力在首次注册到达前进行真实请求探测。
+// 一旦该方法经历过 register/unregister 生命周期，静态能力缺失必须继续 fail-closed。
+func (t *dynamicRegistrationTracker) canProbeBeforeRegistration(method string) bool {
+	if t == nil || !tracksDynamicRegistrationMethod(method) {
+		return false
+	}
+	t.mu.RLock()
+	_, seen := t.registrations[method]
+	t.mu.RUnlock()
+	return !seen
 }
 
 // invalidSemanticTokensProvider 是初始化阶段识别出的协议畸形标记；它只存在于
@@ -420,13 +453,109 @@ func NewClientWithOptions(options Options) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &client{
+	client := &client{
 		transport:            transport,
 		processID:            normalizeProcessID(options.ProcessID),
 		initOptions:          options.InitOptions,
 		dynamicRegistrations: dynamicRegistrations,
 		serverProfile:        strings.TrimSpace(options.ServerProfile),
-	}, nil
+		semanticStatusDone:   make(chan struct{}),
+	}
+	transport.serverNotificationHandler = chainServerNotificationHandlers(client.handleServerNotification, options.ServerNotificationHandler)
+	return client, nil
+}
+
+func chainServerNotificationHandlers(primary, secondary ServerNotificationHandler) ServerNotificationHandler {
+	if primary == nil {
+		return secondary
+	}
+	if secondary == nil {
+		return func(ctx context.Context, method string, params json.RawMessage, sender ServerNotificationSender) error {
+			err := primary(ctx, method, params, sender)
+			if errors.Is(err, ErrMethodNotSupported) {
+				return nil
+			}
+			return err
+		}
+	}
+	return func(ctx context.Context, method string, params json.RawMessage, sender ServerNotificationSender) error {
+		err := primary(ctx, method, params, sender)
+		if err == nil || !errors.Is(err, ErrMethodNotSupported) {
+			return err
+		}
+		return secondary(ctx, method, params, sender)
+	}
+}
+
+func (c *client) handleServerNotification(_ context.Context, method string, params json.RawMessage, _ ServerNotificationSender) error {
+	if method != rustAnalyzerServerStatusMethod {
+		return ErrMethodNotSupported
+	}
+	var status rustAnalyzerServerStatus
+	if err := json.Unmarshal(params, &status); err != nil {
+		return fmt.Errorf("decode rust-analyzer server status: %w", err)
+	}
+	status.Health = strings.ToLower(strings.TrimSpace(status.Health))
+	if status.Health != "ok" && status.Health != "warning" && status.Health != "error" {
+		return fmt.Errorf("invalid rust-analyzer server status health %q", status.Health)
+	}
+	c.stateMu.Lock()
+	c.semanticStatusKnown = true
+	c.semanticStatusHealth = status.Health
+	c.semanticStatusQuiescent = status.Quiescent
+	c.semanticStatusMessage = strings.TrimSpace(status.Message)
+	if status.Health != "ok" {
+		c.semanticStatusErr = fmt.Errorf("rust-analyzer workspace health=%s: %s", status.Health, c.semanticStatusMessage)
+	}
+	done := c.semanticStatusDone
+	c.stateMu.Unlock()
+	if status.Quiescent || status.Health == "error" {
+		c.semanticStatusDoneOnce.Do(func() { close(done) })
+	}
+	return nil
+}
+
+func (c *client) WaitSemanticWorkspaceReady(ctx context.Context) error {
+	if c == nil || c.semanticStatusDone == nil {
+		return nil
+	}
+	c.stateMu.RLock()
+	initialized, serverName := c.initialized, strings.ToLower(strings.TrimSpace(c.serverName))
+	c.stateMu.RUnlock()
+	if !initialized || (serverName != "" && !strings.Contains(serverName, "rust-analyzer")) {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c.stateMu.RLock()
+	done := c.semanticStatusDone
+	known, health, quiescent, statusErr := c.semanticStatusKnown, c.semanticStatusHealth, c.semanticStatusQuiescent, c.semanticStatusErr
+	c.stateMu.RUnlock()
+	if known && quiescent {
+		if statusErr != nil {
+			return statusErr
+		}
+		if health == "ok" {
+			return nil
+		}
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, semanticWorkspaceReadyTimeout)
+	defer cancel()
+	select {
+	case <-done:
+		c.stateMu.RLock()
+		defer c.stateMu.RUnlock()
+		if c.semanticStatusErr != nil {
+			return c.semanticStatusErr
+		}
+		if c.semanticStatusHealth != "ok" || !c.semanticStatusQuiescent {
+			return fmt.Errorf("rust-analyzer workspace is not ready: health=%s quiescent=%t", c.semanticStatusHealth, c.semanticStatusQuiescent)
+		}
+		return nil
+	case <-waitCtx.Done():
+		return fmt.Errorf("rust-analyzer workspace readiness timeout: %w", waitCtx.Err())
+	}
 }
 
 // Initialize 发送 initialize/initialized 握手并记录 rootURI。
@@ -865,8 +994,10 @@ func normalizeSemanticTokensProvider(provider any) any {
 // 这些能力决定 server 初始化后的返回形态，变更时要同步检查 format/render 层。
 func clientCapabilities() protocol.ClientCapabilities {
 	return protocol.ClientCapabilities{
+		Experimental: map[string]any{"serverStatusNotification": true},
 		Workspace: &protocol.WorkspaceClientCapability{
 			WorkspaceFolders: true,
+			ApplyEdit:        true,
 		},
 		TextDocument: &protocol.TextDocumentClientCapabilities{
 			PublishDiagnostics: &protocol.PublishDiagnosticsCapability{
@@ -880,6 +1011,7 @@ func clientCapabilities() protocol.ClientCapabilities {
 			},
 			Completion: &protocol.CompletionClientCapability{
 				DynamicRegistration: true,
+				CompletionItem:      &protocol.CompletionItemClientCapability{SnippetSupport: true},
 			},
 			Rename: &protocol.RenameClientCapability{
 				PrepareSupport: true,

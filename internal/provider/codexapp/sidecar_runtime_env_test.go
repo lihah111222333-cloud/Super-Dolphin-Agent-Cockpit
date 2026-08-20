@@ -57,7 +57,8 @@ func errorString(err error) string {
 }
 
 func TestPeerEnvStrictManagedActivationIsOrchOnly(t *testing.T) {
-	launcher := &execPeerLauncher{workspaceRoots: func() []string { return []string{"/work/repo"} }}
+	root := t.TempDir()
+	launcher := &execPeerLauncher{workspaceRoots: func() []string { return []string{root} }, ownerID: "task-a-sidecar"}
 	parent := append(testPeerParentEnv(),
 		"GO_AGENT_CTL_MANAGED_TOKEN=hostile-parent-token",
 		"GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION=hostile-parent-version",
@@ -96,6 +97,38 @@ func TestPeerEnvStrictManagedActivationIsOrchOnly(t *testing.T) {
 	if _, ok := lookupEnvValue(lspEnv, "GO_AGENT_CTL_MANAGED_PROTOCOL_VERSION"); ok {
 		t.Fatal("mcp-lsp unexpectedly received managed protocol version")
 	}
+	requireEnvValue(t, lspEnv, sidecarOwnerIDEnv, "task-a-sidecar")
+}
+
+func TestPeerEnvUsesDistinctOwnerIdentityWithoutChangingWorkspaceOrCache(t *testing.T) {
+	parent := testPeerParentEnv()
+	root := t.TempDir()
+	a := &execPeerLauncher{workspaceRoots: func() []string { return []string{root} }, ownerID: "task-a"}
+	b := &execPeerLauncher{workspaceRoots: func() []string { return []string{root} }, ownerID: "task-b"}
+	aEnv, err := a.peerEnvForLaunch("mcp-lsp", parent, nil)
+	if err != nil {
+		t.Fatalf("owner a env: %v", err)
+	}
+	bEnv, err := b.peerEnvForLaunch("mcp-lsp", parent, nil)
+	if err != nil {
+		t.Fatalf("owner b env: %v", err)
+	}
+	requireEnvValue(t, aEnv, sidecarOwnerIDEnv, "task-a")
+	requireEnvValue(t, bEnv, sidecarOwnerIDEnv, "task-b")
+	requireEnvValue(t, aEnv, "GO_AGENT_LSP_ROOT", root)
+	requireEnvValue(t, bEnv, "GO_AGENT_LSP_ROOT", root)
+	if gotA, _ := lookupEnvValue(aEnv, sidecarOwnerIDEnv); gotA == lookupValueForTest(t, bEnv, sidecarOwnerIDEnv) {
+		t.Fatalf("owner identities are shared: %q", gotA)
+	}
+}
+
+func lookupValueForTest(t *testing.T, env []string, key string) string {
+	t.Helper()
+	value, ok := lookupEnvValue(env, key)
+	if !ok {
+		t.Fatalf("%s missing from env", key)
+	}
+	return value
 }
 
 func TestPeerProcessEnvRequiresParentSidecarRuntimeContract(t *testing.T) {

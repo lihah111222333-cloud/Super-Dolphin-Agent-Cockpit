@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -147,7 +148,7 @@ func TestDiscardIdentityFieldGuardRejectsRootFieldMutation(t *testing.T) {
 func fieldGuardJournal(t *testing.T) journalPayload {
 	t.Helper()
 	id := TransactionID("00112233445566778899aabbccddeeff")
-	target := "/tmp/SuperDolphin.app"
+	target := filepath.Join(t.TempDir(), "SuperDolphin.app")
 	paths, err := PathsFor(target, id)
 	if err != nil {
 		t.Fatal(err)

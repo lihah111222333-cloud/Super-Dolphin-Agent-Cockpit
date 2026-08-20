@@ -188,6 +188,68 @@ func TestMcpLSPBinaryPatchEditRealCommonLanguages_E2E(t *testing.T) {
 	}
 }
 
+// TestMcpLSPBinaryTypeScriptProjectRenameUpdatesExcludedTestConsumer_E2E is
+// intentionally a TypeScript-only compiled-binary gate. The test consumer is
+// excluded by tsconfig, but remains a real same-project rename target.
+func TestMcpLSPBinaryTypeScriptProjectRenameUpdatesExcludedTestConsumer_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping focused TypeScript compiled-binary e2e test in short mode")
+	}
+	root := t.TempDir()
+	writeBinaryColdStartFile(t, root, "package.json", `{"private":true,"devDependencies":{"typescript":"*"}}`)
+	writeBinaryColdStartFile(t, root, "tsconfig.json", `{"compilerOptions":{"strict":true},"include":["src/**/*"],"exclude":["src/**/*.test.ts"]}`)
+	declaration := writeBinaryColdStartFile(t, root, "src/mathematic.ts", "export class Mathematic {\n  static add(a: number, b: number): number { return a + b }\n}\n")
+	index := writeBinaryColdStartFile(t, root, "src/index.ts", "import { Mathematic } from './mathematic'\nexport const sum = Mathematic.add(1, 2)\n")
+	testConsumer := writeBinaryColdStartFile(t, root, "src/mathematic.test.ts", "import { Mathematic } from './mathematic'\ntest('sum', () => expect(Mathematic.add(1, 2)).toBe(3))\n")
+
+	binary := buildMcpLSPBinaryForTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cacheDir := filepath.Join(t.TempDir(), "lsp-cache")
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
+		"AGENT_LSP_SHARED_CACHE_DIR=" + cacheDir,
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	for _, path := range []string{declaration, index, testConsumer} {
+		warm := client.callTool(t, "file", map[string]any{
+			"action":      "diagnostics",
+			"file_path":   path,
+			"language_id": "typescript",
+		})
+		requireMCPToolSuccess(t, client, warm, "TypeScript pre-rename diagnostics "+filepath.Base(path))
+	}
+
+	rename := client.callTool(t, "patch_edit", map[string]any{
+		"action":      "rename",
+		"pos":         declaration + ":1:14",
+		"new_name":    "MathematicLspProbe",
+		"language_id": "typescript",
+	})
+	requireMCPToolSuccess(t, client, rename, "TypeScript project rename")
+
+	for _, path := range []string{declaration, index, testConsumer} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read renamed TypeScript file %s: %v", path, err)
+		}
+		oldReference := strings.Contains(string(content), "class Mathematic ") || strings.Contains(string(content), "Mathematic.add") || strings.Contains(string(content), "{ Mathematic }")
+		if oldReference || !strings.Contains(string(content), "MathematicLspProbe") {
+			t.Fatalf("TypeScript rename did not update %s: %q", path, string(content))
+		}
+		post := client.callTool(t, "file", map[string]any{
+			"action":      "diagnostics",
+			"file_path":   path,
+			"language_id": "typescript",
+		})
+		requireMCPToolSuccess(t, client, post, "TypeScript post-rename diagnostics "+filepath.Base(path))
+		if err := validateZeroDiagnosticsResult(post); err != nil {
+			t.Fatalf("TypeScript post-rename diagnostics are not zero for %s: %v; text=%q", path, err, post.Result.ContentText())
+		}
+	}
+}
+
 func realPatchEditLanguageCases() []realPatchEditLanguageCase {
 	return []realPatchEditLanguageCase{
 		{languageID: "go", binaries: []string{"gopls"}, files: map[string]string{
@@ -224,6 +286,7 @@ func runRealPatchEditLanguage(t *testing.T, binary string, tc realPatchEditLangu
 	defer cancel()
 	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
 		"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(t.TempDir(), "lsp-cache"),
+		"SUPER_DOLPHIN_HOME=" + filepath.Join(root, ".super-dolphin"),
 	})
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
@@ -234,6 +297,14 @@ func runRealPatchEditLanguage(t *testing.T, binary string, tc realPatchEditLangu
 		"language_id": tc.languageID,
 	})
 	requireMCPToolSuccess(t, client, warm, tc.languageID+" warm diagnostics")
+	if tc.languageID == "python" {
+		format := client.callTool(t, "patch_edit", map[string]any{
+			"action":      "format",
+			"file_path":   target,
+			"language_id": tc.languageID,
+		})
+		requireMCPToolSuccess(t, client, format, tc.languageID+" product formatter")
+	}
 	warmPatchEditRenameSymbol(t, client, target, tc)
 	if tc.languageID == "rust" {
 		waitForPatchEditRenameReferences(t, client, target, tc.pos, tc.languageID)

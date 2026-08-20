@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
+	"debug/pe"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
@@ -271,6 +272,13 @@ func provisionWindowsRuntimeDependencyForPlatform(ctx context.Context, product W
 	}
 	payloads := make(map[string]string, len(assets))
 	for _, asset := range assets {
+		if entry.Product == WindowsRuntimeDependencyProductGoSQLS && asset.Component == "go" {
+			if err := materializeWindowsGoSQLSBuildSDK(stage, architecture, asset); err != nil {
+				return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("materialize managed Go build SDK for SQLS: %w", err)
+			}
+			payloads[asset.Component] = "managed-go-gopls"
+			continue
+		}
 		payload, materializeErr := materializeWindowsRuntimeDependencyAsset(installCtx, stage, asset, fetch)
 		if materializeErr != nil {
 			return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("materialize runtime dependency asset %s/%s: %w", asset.Component, asset.Version, materializeErr)
@@ -584,9 +592,187 @@ func runtimeDependencyHasher(algorithm WindowsRuntimeDependencyChecksumAlgorithm
 	}
 }
 
+const (
+	runtimeDependencyDotnetNet8SDKVersion           = "8.0.424"
+	runtimeDependencyDotnetNet8ReferencePackVersion = "8.0.30"
+	runtimeDependencyDotnetNet8ReferenceFramework   = "net8.0"
+	runtimeDependencyDotnetNet8SDKManifestVersion   = "8.0.100"
+)
+
+// runtimeDependencySystemDotnetSDKRootResolver 只允许返回已验证的系统 .NET 根；返回空值表示系统没有目标 SDK，
+// 调用方随后下载目录锁定的官方 SDK8 归档。测试通过替换该 seam 验证复用与官方下载分支，不读取 PATH。
+var runtimeDependencySystemDotnetSDKRootResolver = defaultRuntimeDependencySystemDotnetSDKRootResolver
+
+func defaultRuntimeDependencySystemDotnetSDKRootResolver(architecture, version string) (string, error) {
+	normalized, err := NormalizeWindowsArchitectureAlias(architecture)
+	if err != nil {
+		return "", err
+	}
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "", errors.New("system .NET SDK version is empty")
+	}
+	for _, root := range runtimeDependencySystemDotnetRootCandidates(normalized) {
+		_, statErr := os.Lstat(root)
+		if os.IsNotExist(statErr) {
+			continue
+		}
+		if statErr != nil {
+			return "", fmt.Errorf("inspect system .NET root %s: %w", securefs.RedactPath(root), statErr)
+		}
+		if err := validateWindowsDotnetNet8SDKRoot(root, normalized, version, true); err != nil {
+			return "", err
+		}
+		return filepath.Clean(root), nil
+	}
+	return "", nil
+}
+
+func runtimeDependencySystemDotnetRootCandidates(architecture string) []string {
+	values := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+	appendCandidate := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || !filepath.IsAbs(raw) {
+			return
+		}
+		candidate := filepath.Clean(raw)
+		key := strings.ToLower(candidate)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		values = append(values, candidate)
+	}
+	switch architecture {
+	case WindowsHostArchARM64, WindowsHostArchX64:
+		if root := strings.TrimSpace(os.Getenv("ProgramW6432")); root != "" {
+			appendCandidate(filepath.Join(root, "dotnet"))
+		}
+		if root := strings.TrimSpace(os.Getenv("ProgramFiles")); root != "" {
+			appendCandidate(filepath.Join(root, "dotnet"))
+		}
+		appendCandidate(`C:\Program Files\dotnet`)
+	case WindowsHostArchX86:
+		if root := strings.TrimSpace(os.Getenv("ProgramFiles(x86)")); root != "" {
+			appendCandidate(filepath.Join(root, "dotnet"))
+		}
+		appendCandidate(`C:\Program Files (x86)\dotnet`)
+	}
+	return values
+}
+
+func validateWindowsDotnetNet8SDKRoot(root, architecture, version string, verifyExecutable bool) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return errors.New("system .NET SDK root is empty")
+	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve system .NET SDK root: %w", err)
+	}
+	root = filepath.Clean(absoluteRoot)
+	info, err := os.Lstat(root)
+	if err != nil {
+		return fmt.Errorf("inspect system .NET SDK root %s: %w", securefs.RedactPath(root), err)
+	}
+	if isUnsafeAssetFile(info) || !info.IsDir() {
+		return fmt.Errorf("system .NET SDK root is not a real directory: %s", securefs.RedactPath(root))
+	}
+	architecture, err = NormalizeWindowsArchitectureAlias(architecture)
+	if err != nil {
+		return err
+	}
+	if version != runtimeDependencyDotnetNet8SDKVersion {
+		return fmt.Errorf("unsupported system .NET SDK8 version %q", version)
+	}
+	requiredDirectories := []string{
+		filepath.Join("sdk", version),
+		filepath.Join("packs", "Microsoft.NETCore.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework),
+		filepath.Join("packs", "Microsoft.AspNetCore.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework),
+		filepath.Join("packs", "Microsoft.WindowsDesktop.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework),
+		filepath.Join("shared", "Microsoft.NETCore.App", runtimeDependencyDotnetNet8ReferencePackVersion),
+		filepath.Join("sdk-manifests", runtimeDependencyDotnetNet8SDKManifestVersion),
+	}
+	for _, relative := range requiredDirectories {
+		path := filepath.Join(root, relative)
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return fmt.Errorf("system .NET SDK8 is missing %s: %w", filepath.ToSlash(relative), statErr)
+		}
+		if isUnsafeAssetFile(info) || !info.IsDir() {
+			return fmt.Errorf("system .NET SDK8 path is not a real directory: %s", securefs.RedactPath(path))
+		}
+	}
+	requiredFiles := []string{
+		"dotnet.exe",
+		filepath.Join("sdk", version, "MSBuild.dll"),
+		filepath.Join("packs", "Microsoft.NETCore.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework, "System.Runtime.dll"),
+		filepath.Join("packs", "Microsoft.AspNetCore.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework, "Microsoft.AspNetCore.App.Ref.dll"),
+		filepath.Join("packs", "Microsoft.WindowsDesktop.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework, "Microsoft.WindowsDesktop.App.Ref.dll"),
+		filepath.Join("shared", "Microsoft.NETCore.App", runtimeDependencyDotnetNet8ReferencePackVersion, "System.Private.CoreLib.dll"),
+	}
+	for _, relative := range requiredFiles {
+		path := filepath.Join(root, relative)
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return fmt.Errorf("system .NET SDK8 is missing %s: %w", filepath.ToSlash(relative), statErr)
+		}
+		if isUnsafeAssetFile(info) || !info.Mode().IsRegular() {
+			return fmt.Errorf("system .NET SDK8 path is not a real file: %s", securefs.RedactPath(path))
+		}
+	}
+	if verifyExecutable {
+		machine, err := windowsDotnetExecutableMachine(filepath.Join(root, "dotnet.exe"))
+		if err != nil {
+			return fmt.Errorf("verify system .NET SDK8 architecture: %w", err)
+		}
+		if machine != architecture {
+			return fmt.Errorf("system .NET SDK8 architecture %q does not match native architecture %q", machine, architecture)
+		}
+	}
+	return nil
+}
+
+func windowsDotnetExecutableMachine(path string) (string, error) {
+	image, err := pe.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open system dotnet.exe: %w", err)
+	}
+	machine, err := NormalizeWindowsImageFileMachine(image.FileHeader.Machine)
+	closeErr := image.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close system dotnet.exe: %w", closeErr)
+	}
+	return machine, nil
+}
+
 func materializeWindowsRuntimeDependencyAsset(ctx context.Context, stage string, asset WindowsRuntimeDependencyAsset, fetch WindowsRuntimeDependencyAssetFetcher) (string, error) {
 	if asset.Component == "swift-toolchain" && asset.Format == WindowsRuntimeDependencyAssetFormatEXE {
 		return materializeSwiftWindowsRuntimeDependencyAsset(ctx, stage, asset, fetch)
+	}
+	if asset.Component == "dotnet-sdk-net8" {
+		systemRoot, err := runtimeDependencySystemDotnetSDKRootResolver(asset.Architecture, asset.Version)
+		if err != nil {
+			return "", fmt.Errorf("resolve system .NET SDK8 for %s/%s: %w", asset.Architecture, asset.Version, err)
+		}
+		if strings.TrimSpace(systemRoot) != "" {
+			absoluteRoot, absErr := filepath.Abs(strings.TrimSpace(systemRoot))
+			if absErr != nil {
+				return "", fmt.Errorf("resolve system .NET SDK8 root: %w", absErr)
+			}
+			systemRoot = filepath.Clean(absoluteRoot)
+			if err := validateWindowsDotnetNet8SDKRoot(systemRoot, asset.Architecture, asset.Version, false); err != nil {
+				return "", fmt.Errorf("validate system .NET SDK8 root: %w", err)
+			}
+			if err := mergeWindowsDotnetNet8SDK(stage, systemRoot); err != nil {
+				return "", fmt.Errorf("merge system .NET SDK8: %w", err)
+			}
+			return filepath.Join(systemRoot, "dotnet.exe"), nil
+		}
 	}
 	if asset.Format == WindowsRuntimeDependencyAssetFormatEXE || asset.Format == WindowsRuntimeDependencyAssetFormatCrate {
 		return "", fmt.Errorf("%w: asset format %q has no safe archive materializer", ErrWindowsRuntimeDependencyEvidenceGap, asset.Format)
@@ -631,7 +817,18 @@ func materializeWindowsRuntimeDependencyAsset(ctx context.Context, stage string,
 	extractedRoot := stage
 	switch asset.Format {
 	case WindowsRuntimeDependencyAssetFormatZIP:
-		if err := extractZipAsset(payload, stage, asset.BinaryPath, runtimeDependencyMaxTreeBytes); err != nil {
+		if asset.Component == "dotnet-sdk-net8" {
+			extractedRoot = filepath.Join(assetDir, "expanded")
+			if err := ensureDirectoryNoSymlink(extractedRoot); err != nil {
+				return "", fmt.Errorf("prepare .NET 8 SDK extraction root: %w", err)
+			}
+			if err := extractZipAsset(payload, extractedRoot, asset.BinaryPath, runtimeDependencyMaxTreeBytes); err != nil {
+				return "", err
+			}
+			if err := mergeWindowsDotnetNet8SDK(stage, extractedRoot); err != nil {
+				return "", err
+			}
+		} else if err := extractZipAsset(payload, stage, asset.BinaryPath, runtimeDependencyMaxTreeBytes); err != nil {
 			return "", err
 		}
 	case WindowsRuntimeDependencyAssetFormatNupkg:
@@ -663,18 +860,61 @@ func materializeWindowsRuntimeDependencyAsset(ctx context.Context, stage string,
 			return "", fmt.Errorf("verify extracted %s path %q: %w", asset.Component, checkPath, err)
 		}
 	}
+	if asset.Component == "dotnet-sdk-net8" {
+		if err := removeWindowsInstallerAllChecked(stage, extractedRoot); err != nil {
+			return "", fmt.Errorf("remove temporary .NET 8 SDK extraction tree: %w", err)
+		}
+	}
 	return payload, nil
 }
 
-func installWindowsRuntimeDependency(ctx context.Context, entry WindowsRuntimeDependencyCatalogEntry, architecture, stage string, payloads map[string]string, runner WindowsRuntimeDependencyCommandRunner) error {
-	if runner == nil {
-		runner = defaultWindowsRuntimeDependencyCommandRunner
+// mergeWindowsDotnetNet8SDK 将固定 .NET 8 SDK 中不与产品 .NET 10 host 冲突的 SDK、packs、runtime
+// 和 manifest 子树合并到同一 cohort；这样 csharp-ls 仍由 .NET 10 host 启动，但 MSBuild 能解析 net8.0。
+func mergeWindowsDotnetNet8SDK(stage, extractedRoot string) error {
+	for _, relative := range []string{"sdk", "packs", "shared", "sdk-manifests"} {
+		source := filepath.Join(extractedRoot, relative)
+		info, err := os.Lstat(source)
+		if err != nil {
+			return fmt.Errorf(".NET 8 SDK is missing %s: %w", relative, err)
+		}
+		if isUnsafeAssetFile(info) || !info.IsDir() {
+			return fmt.Errorf(".NET 8 SDK %s is not a real directory", relative)
+		}
+		if err := copyWindowsRuntimeDependencyDirectory(source, filepath.Join(stage, relative)); err != nil {
+			return fmt.Errorf("merge .NET 8 SDK %s: %w", relative, err)
+		}
 	}
+	for _, relative := range []string{
+		filepath.Join("sdk", runtimeDependencyDotnetNet8SDKVersion),
+		filepath.Join("packs", "Microsoft.NETCore.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework),
+		filepath.Join("packs", "Microsoft.AspNetCore.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework),
+		filepath.Join("packs", "Microsoft.WindowsDesktop.App.Ref", runtimeDependencyDotnetNet8ReferencePackVersion, "ref", runtimeDependencyDotnetNet8ReferenceFramework),
+		filepath.Join("shared", "Microsoft.NETCore.App", runtimeDependencyDotnetNet8ReferencePackVersion),
+	} {
+		path := filepath.Join(stage, filepath.FromSlash(relative))
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("merged .NET 8 SDK is missing %s: %w", relative, err)
+		}
+		if isUnsafeAssetFile(info) || !info.IsDir() {
+			return fmt.Errorf("merged .NET 8 SDK path %s is not a real directory", relative)
+		}
+	}
+	return nil
+}
+
+func installWindowsRuntimeDependency(ctx context.Context, entry WindowsRuntimeDependencyCatalogEntry, architecture, stage string, payloads map[string]string, runner WindowsRuntimeDependencyCommandRunner) error {
 	if entry.Product == WindowsRuntimeDependencyProductSwiftSourceKitLS {
+		if runner == nil {
+			runner = defaultWindowsRuntimeDependencyCommandRunner
+		}
 		return installSwiftWindowsRuntimeDependency(ctx, entry, architecture, stage, payloads, runner)
 	}
 	if entry.Product == WindowsRuntimeDependencyProductGoSQLS {
 		return installWindowsGoSQLS(ctx, entry, architecture, stage, payloads, runner)
+	}
+	if runner == nil {
+		runner = defaultWindowsRuntimeDependencyCommandRunner
 	}
 	if entry.Product == WindowsRuntimeDependencyProductRubyLSP {
 		return installRubyLSPWindowsRuntimeDependency(ctx, entry, architecture, stage, payloads, runner)
@@ -1212,7 +1452,7 @@ func runtimeDependencyCacheResultContext(ctx context.Context, entry WindowsRunti
 		return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("inspect runtime dependency cache %q: %w", root, err)
 	}
 	if isUnsafeAssetFile(info) || !info.IsDir() {
-		return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("%w: runtime dependency cache root is not a real directory: %q", ErrWindowsRuntimeDependencyReadyInvalid, root)
+		return WindowsRuntimeDependencyProvisionResult{}, runtimeDependencyReadyInvalidError("runtime dependency cache root is not a real directory: %q", root)
 	}
 	manifestPath := filepath.Join(root, runtimeDependencyReadyFile)
 	manifestInfo, err := os.Lstat(manifestPath)
@@ -1223,7 +1463,7 @@ func runtimeDependencyCacheResultContext(ctx context.Context, entry WindowsRunti
 		return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("inspect runtime dependency ready manifest: %w", err)
 	}
 	if isUnsafeAssetFile(manifestInfo) || !manifestInfo.Mode().IsRegular() {
-		return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("%w: runtime dependency ready manifest is not a real regular file: %q", ErrWindowsRuntimeDependencyReadyInvalid, manifestPath)
+		return WindowsRuntimeDependencyProvisionResult{}, runtimeDependencyReadyInvalidError("runtime dependency ready manifest is not a real regular file: %q", manifestPath)
 	}
 	if err := validateWindowsInstallerExistingFile(manifestPath); err != nil {
 		return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("validate runtime dependency ready manifest before read: %w", err)
@@ -1234,26 +1474,40 @@ func runtimeDependencyCacheResultContext(ctx context.Context, entry WindowsRunti
 	}
 	var manifest runtimeDependencyReadyManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("%w: decode runtime dependency ready manifest: %w", ErrWindowsRuntimeDependencyReadyInvalid, err)
+		return WindowsRuntimeDependencyProvisionResult{}, errors.Join(ErrWindowsRuntimeDependencyCacheMiss, fmt.Errorf("%w: decode runtime dependency ready manifest: %w", ErrWindowsRuntimeDependencyReadyInvalid, err))
 	}
-	if manifest.Schema != 1 || manifest.Product != entry.Product || manifest.Architecture != architecture || manifest.Cohort != cohort || !runtimeDependencyManifestAssetsEqual(manifest.Assets, runtimeDependencyManifestAssets(entry.AssetsByArchitecture[architecture])) {
-		return WindowsRuntimeDependencyProvisionResult{}, &WindowsRuntimeDependencyCacheMissError{Product: entry.Product, Architecture: architecture, RootPath: root}
+	if manifest.Schema != 1 {
+		return WindowsRuntimeDependencyProvisionResult{}, runtimeDependencyReadyInvalidError("ready manifest schema=%d want=1", manifest.Schema)
+	}
+	if manifest.Product != entry.Product || manifest.Architecture != architecture || manifest.Cohort != cohort {
+		return WindowsRuntimeDependencyProvisionResult{}, runtimeDependencyReadyInvalidError("ready identity product=%q architecture=%q cohort=%q want product=%q architecture=%q cohort=%q", manifest.Product, manifest.Architecture, manifest.Cohort, entry.Product, architecture, cohort)
+	}
+	expectedAssets := runtimeDependencyManifestAssets(entry.AssetsByArchitecture[architecture])
+	if !runtimeDependencyManifestAssetsEqual(manifest.Assets, expectedAssets) {
+		return WindowsRuntimeDependencyProvisionResult{}, runtimeDependencyReadyInvalidError("ready manifest assets mismatch actual=%v expected=%v", manifest.Assets, expectedAssets)
 	}
 	actualTree, err := snapshotAssetTreeContext(ctx, root)
 	if err != nil {
-		return WindowsRuntimeDependencyProvisionResult{}, fmt.Errorf("%w: inspect runtime dependency cache tree: %w", ErrWindowsRuntimeDependencyReadyInvalid, securefs.WrapErrorForPath(err, root))
+		return WindowsRuntimeDependencyProvisionResult{}, errors.Join(ErrWindowsRuntimeDependencyCacheMiss, fmt.Errorf("%w: inspect runtime dependency cache tree: %w", ErrWindowsRuntimeDependencyReadyInvalid, securefs.WrapErrorForPath(err, root)))
 	}
 	delete(actualTree, runtimeDependencyReadyFile)
 	if !runtimeDependencyTreeMatches(manifest.Tree, actualTree) {
-		return WindowsRuntimeDependencyProvisionResult{}, &WindowsRuntimeDependencyCacheMissError{Product: entry.Product, Architecture: architecture, RootPath: root}
+		return WindowsRuntimeDependencyProvisionResult{}, runtimeDependencyReadyInvalidError("ready tree mismatch manifest_entries=%d actual_entries=%d first_diff=%s", len(manifest.Tree), len(actualTree), runtimeDependencyTreeFirstDiff(manifest.Tree, actualTree))
 	}
 	if err := requireWindowsRuntimeDependencyPaths(root, entry, architecture); err != nil {
-		return WindowsRuntimeDependencyProvisionResult{}, &WindowsRuntimeDependencyCacheMissError{Product: entry.Product, Architecture: architecture, RootPath: root}
+		return WindowsRuntimeDependencyProvisionResult{}, errors.Join(ErrWindowsRuntimeDependencyCacheMiss, fmt.Errorf("%w: required runtime path check: %w", ErrWindowsRuntimeDependencyReadyInvalid, err))
 	}
 	return runtimeDependencyResult(entry, platform, architecture, cohort, root, false), nil
 }
 
 // WindowsRuntimeDependencyCacheMissError 表示 Windows cohort 的 ready manifest、完整树或必需绝对路径校验失败；调用方必须重新物化，不得把缓存误报为可用。
+// runtimeDependencyReadyInvalidError keeps invalid ready trees classified as
+// cache misses while retaining the detailed validation reason for callers.
+func runtimeDependencyReadyInvalidError(format string, args ...any) error {
+	return errors.Join(ErrWindowsRuntimeDependencyCacheMiss, fmt.Errorf("%w: "+format, append([]any{ErrWindowsRuntimeDependencyReadyInvalid}, args...)...))
+}
+
+// WindowsRuntimeDependencyCacheMissError 表示 Windows 运行时依赖 ready 校验失败，需要重新物化。
 type WindowsRuntimeDependencyCacheMissError struct {
 	// Product 是 ready 校验失败的 Windows 运行时依赖产品。
 	Product WindowsRuntimeDependencyProduct
@@ -1303,6 +1557,29 @@ func runtimeDependencyTreeMatches(want map[string]runtimeDependencyTreeEntry, go
 		}
 	}
 	return true
+}
+
+func runtimeDependencyTreeFirstDiff(want map[string]runtimeDependencyTreeEntry, got map[string]assetTreeEntry) string {
+	keys := make([]string, 0, len(want)+len(got))
+	seen := make(map[string]struct{}, len(want)+len(got))
+	for key := range want {
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	for key := range got {
+		if _, ok := seen[key]; !ok {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		expected, wantOK := want[key]
+		actual, gotOK := got[key]
+		if !wantOK || !gotOK || expected.Kind != actual.kind || expected.Size != actual.size || expected.SHA256 != actual.hash {
+			return fmt.Sprintf("path=%q want_present=%t got_present=%t want_kind=%q got_kind=%q want_size=%d got_size=%d want_sha256=%q got_sha256=%q", key, wantOK, gotOK, expected.Kind, actual.kind, expected.Size, actual.size, expected.SHA256, actual.hash)
+		}
+	}
+	return "<unknown>"
 }
 
 func runtimeDependencyResult(entry WindowsRuntimeDependencyCatalogEntry, platform WindowsHostPlatform, architecture, cohort, root string, cacheHit bool) WindowsRuntimeDependencyProvisionResult {

@@ -5,21 +5,9 @@ package pidregistry
 import (
 	"os"
 
-	"golang.org/x/sys/windows"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
 
-func registryFileOwnedByCurrentUser(path string, _ os.FileInfo) bool {
-	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
-	if err != nil {
-		return false
-	}
-	owner, _, err := sd.Owner()
-	if err != nil {
-		return false
-	}
-	user, err := windows.GetCurrentProcessToken().GetTokenUser()
-	if err != nil {
-		return false
-	}
-	return windows.EqualSid(owner, user.User.Sid)
+func registryFileOwnedByCurrentUser(path string, info os.FileInfo) bool {
+	return securefs.CheckPrivateOwnerOnly(path, info) == nil
 }

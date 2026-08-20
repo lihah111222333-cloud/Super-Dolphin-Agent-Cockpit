@@ -10,6 +10,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -103,6 +104,31 @@ func TestNewManagerUsesPlatformLSPConfig(t *testing.T) {
 	}
 	if got := scoped.ResolvedScope.WorkspaceRoot; got != root {
 		t.Fatalf("resolved workspace root = %q, want %q", got, root)
+	}
+}
+
+func TestRuntimeTypeScriptNavigationModuleRootResolverUsesBinaryCohort(t *testing.T) {
+	prefix := t.TempDir()
+	binary := filepath.Join(prefix, "bin", "typescript-language-server")
+	typeScriptRoot := filepath.Join(prefix, "node_modules", "typescript")
+	writeRuntimeTestFile(t, binary, "fixture\n")
+	writeRuntimeTestFile(t, filepath.Join(typeScriptRoot, "lib", "tsserver.js"), "fixture\n")
+
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("typescript")
+	if !ok {
+		t.Fatal("missing typescript adapter")
+	}
+	resolver := runtimeTypeScriptNavigationModuleRootResolver(adapter, &runtimeBinaryOverride{value: binary})
+	if resolver == nil {
+		t.Fatal("runtimeTypeScriptNavigationModuleRootResolver() = nil for typescript adapter")
+	}
+	got, err := resolver()
+	if err != nil {
+		t.Fatalf("runtimeTypeScriptNavigationModuleRootResolver() error = %v", err)
+	}
+	if got != typeScriptRoot {
+		t.Fatalf("runtimeTypeScriptNavigationModuleRootResolver() = %q, want %q", got, typeScriptRoot)
 	}
 }
 
@@ -259,9 +285,9 @@ func writeRuntimeExecutable(t *testing.T, path, body string) {
 
 func runtimeCanonicalTempDir(t *testing.T) string {
 	t.Helper()
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	root, err := lspplatform.CanonicalDirectoryPath(t.TempDir())
 	if err != nil {
-		t.Fatalf("EvalSymlinks(temp dir): %v", err)
+		t.Fatalf("canonicalize temporary directory: %v", err)
 	}
 	return root
 }
@@ -575,7 +601,7 @@ func writeTypeScriptNPMFixture(t *testing.T) (string, string) {
 		}
 	}
 	writeTypeScriptNPMBinaryFixture(t, languageServerCLI, filepath.Join(binDir, "typescript-language-server"))
-	canonicalTypeScriptRoot, err := filepath.EvalSymlinks(typeScriptRoot)
+	canonicalTypeScriptRoot, err := lspplatform.CanonicalDirectoryPath(typeScriptRoot)
 	if err != nil {
 		t.Fatalf("canonicalize TypeScript fixture root: %v", err)
 	}

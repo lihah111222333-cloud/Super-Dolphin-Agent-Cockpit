@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -233,6 +235,31 @@ func TestDiagnosticsPreservesLiteralPercentInAbsoluteWorkspacePath(t *testing.T)
 		t.Fatalf("diagnostics literal percent path: %v", err)
 	}
 	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalFileURI(t, target)})
+}
+
+func TestDiagnosticsRejectsDeletedManagedFile(t *testing.T) {
+	workspace := t.TempDir()
+	target := writeDiagnosticsFixture(t, workspace, "HISTORY.md")
+	uri := canonicalFileURI(t, target)
+	registry := &diagnosticsTestRegistry{
+		diagnosticsByURI: map[string][]protocol.Diagnostic{
+			uri: {{Message: "stale cached diagnostic"}},
+		},
+	}
+	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	if err := os.Remove(target); err != nil {
+		t.Fatalf("remove HISTORY.md fixture: %v", err)
+	}
+	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: target})
+
+	_, err := handler(ctx, req)
+	if err == nil {
+		t.Fatal("diagnostics returned OK for deleted HISTORY.md, want file_not_found")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("diagnostics error = %v, want os.ErrNotExist (file_not_found)", err)
+	}
 }
 
 func TestDiagnosticsRejectsAppManagedRootWithoutCapability(t *testing.T) {
@@ -549,18 +576,22 @@ func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsDeletedFileStillCallsRegistryForCleanup(t *testing.T) {
+func TestDiagnosticsDeletedFileFailsFast(t *testing.T) {
 	root := t.TempDir()
-	deletedFile := filepath.Join(root, "deleted.go")
-
 	registry := &diagnosticsTestRegistry{}
 	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "deleted.go"})
 
-	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
-		t.Fatalf("diagnostics returned error for deleted file: %v", err)
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
+	if err == nil {
+		t.Fatal("diagnostics returned OK for deleted file, want file_not_found")
 	}
-	assertDiagnosticURIs(t, registry.lastURIs, []string{canonicalDeletedFileURI(t, deletedFile)})
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("diagnostics error = %v, want os.ErrNotExist (file_not_found)", err)
+	}
+	if len(registry.lastURIs) != 0 {
+		t.Fatalf("registry Diagnostics URIs = %#v, want no call after file_not_found", registry.lastURIs)
+	}
 }
 
 func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
@@ -644,48 +675,21 @@ func TestDiagnosticsLanguageOverrideSingleAndBatchShellResultsAreEquivalent(t *t
 	}
 }
 
-func TestDiagnosticsLanguageOverrideDeletedFilesUseManagerCleanup(t *testing.T) {
+func TestDiagnosticsLanguageOverrideDeletedFilesFailFast(t *testing.T) {
 	root := t.TempDir()
-	for _, tc := range []struct {
-		name  string
-		input fileToolInput
-		paths []string
-	}{
-		{
-			name:  "single",
-			input: fileToolInput{Action: "diagnostics", FilePath: "deleted-single.txt", LanguageID: "javascript"},
-			paths: []string{"deleted-single.txt"},
-		},
-		{
-			name:  "batch",
-			input: fileToolInput{Action: "diagnostics", FilePaths: []string{"deleted-batch-a.txt", "deleted-batch-b.txt"}, LanguageID: "javascript"},
-			paths: []string{"deleted-batch-a.txt", "deleted-batch-b.txt"},
-		},
+	for _, input := range []fileToolInput{
+		{Action: "diagnostics", FilePath: "deleted-single.txt", LanguageID: "javascript"},
+		{Action: "diagnostics", FilePaths: []string{"deleted-batch-a.txt", "deleted-batch-b.txt"}, LanguageID: "javascript"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			manager := &languageOverrideDiagnosticsManager{}
-			registry := &diagnosticsTestRegistry{manager: manager}
+		t.Run(strings.Join(collectDiagnosticTargetPaths(input), ","), func(t *testing.T) {
+			registry := &diagnosticsTestRegistry{manager: &languageOverrideDiagnosticsManager{}}
 			handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
-
-			if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), marshalDiagnosticsInput(t, tc.input)); err != nil {
-				t.Fatalf("diagnostics for deleted language override target: %v", err)
+			_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), marshalDiagnosticsInput(t, input))
+			if err == nil {
+				t.Fatal("diagnostics returned OK for deleted language override target, want file_not_found")
 			}
-			wantURIs := make([][]string, 0, len(tc.paths))
-			for _, path := range tc.paths {
-				wantURIs = append(wantURIs, []string{canonicalDeletedFileURI(t, filepath.Join(root, path))})
-			}
-			if !reflect.DeepEqual(manager.diagnosticsURIs, wantURIs) {
-				t.Fatalf("manager cleanup diagnostics URIs = %#v, want %#v", manager.diagnosticsURIs, wantURIs)
-			}
-			wantLanguageIDs := make([]string, len(tc.paths))
-			for index := range wantLanguageIDs {
-				wantLanguageIDs[index] = "javascript"
-			}
-			if !reflect.DeepEqual(registry.languageIDs, wantLanguageIDs) {
-				t.Fatalf("manager language overrides = %#v, want %#v", registry.languageIDs, wantLanguageIDs)
-			}
-			if manager.didOpenCalls != 0 || manager.reopenCalls != 0 {
-				t.Fatalf("deleted target manager open/reopen calls = %d/%d, want 0/0", manager.didOpenCalls, manager.reopenCalls)
+			if !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("diagnostics error = %v, want os.ErrNotExist (file_not_found)", err)
 			}
 		})
 	}
@@ -780,7 +784,7 @@ func marshalDiagnosticsInput(t *testing.T, input fileToolInput) json.RawMessage 
 
 func canonicalFileURI(t *testing.T, path string) string {
 	t.Helper()
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	parent, err := lspplatform.CanonicalDirectoryPath(filepath.Dir(path))
 	if err != nil {
 		t.Fatalf("resolve fixture parent: %v", err)
 	}
@@ -789,7 +793,7 @@ func canonicalFileURI(t *testing.T, path string) string {
 
 func canonicalDeletedFileURI(t *testing.T, path string) string {
 	t.Helper()
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	parent, err := lspplatform.CanonicalDirectoryPath(filepath.Dir(path))
 	if err != nil {
 		t.Fatalf("resolve fixture parent: %v", err)
 	}

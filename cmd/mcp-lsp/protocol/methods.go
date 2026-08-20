@@ -31,4 +31,5 @@ const (
 	MethodTextDocumentDiagnostic  = "textDocument/diagnostic"
 	MethodPublishDiagnostics      = "textDocument/publishDiagnostics"
 	MethodLogMessage              = "window/logMessage"
+	MethodShowMessage             = "window/showMessage"
 )

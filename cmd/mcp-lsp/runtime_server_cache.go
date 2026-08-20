@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
@@ -97,7 +98,7 @@ func runtimeServerEnvironmentWithNodeResolver(
 	}
 	// 平台依赖环境属于所有语言服务器的公共启动边界；Windows 生产 cache 在这里
 	// 只读注入已安装的 VC++ runtime，其他平台和外部二进制保持原环境。
-	env, err := runtimeServerPlatformDependencyEnvironment(binary, env)
+	env, err := runtimeServerPlatformDependencyEnvironment(binary, workspaceRoot, env)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +255,7 @@ func runtimeServerRepositoryIdentity(workspaceRoot string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace root for resource cohort: %w", err)
 	}
-	absRoot, err = filepath.EvalSymlinks(absRoot)
+	absRoot, err = lspplatform.CanonicalDirectoryPath(absRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve real workspace root for resource cohort: %w", err)
 	}
@@ -764,7 +765,7 @@ func runtimeServerBinaryIdentity(binary string, env []string) (string, string, e
 	if err != nil {
 		return "", "", fmt.Errorf("resolve absolute language-server binary path: %w", err)
 	}
-	resolvedBinary, err = filepath.EvalSymlinks(resolvedBinary)
+	resolvedBinary, err = lspplatform.CanonicalExistingPath(resolvedBinary)
 	if err != nil {
 		return "", "", fmt.Errorf("resolve real language-server binary path: %w", err)
 	}

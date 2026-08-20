@@ -29,6 +29,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
@@ -37,10 +38,15 @@ import (
 )
 
 const (
-	realNodeAllLanguagesWindowsE2EEnv = "MCP_LSP_REAL_NODE_ALL_LANGUAGES_WINDOWS_E2E"
-	realNodeVueWindowsE2EEnv          = "MCP_LSP_REAL_NODE_VUE_WINDOWS_E2E"
-	realNodePrismaDiagnosticE2EEnv    = "MCP_LSP_REAL_NODE_PRISMA_DIAGNOSTIC_WINDOWS_E2E"
-	realNodeProductionWindowsE2EEnv   = "MCP_LSP_REAL_NODE_PRODUCTION_WINDOWS_E2E"
+	realNodeAllLanguagesWindowsE2EEnv         = "MCP_LSP_REAL_NODE_ALL_LANGUAGES_WINDOWS_E2E"
+	realNodePHPWindowsE2EEnv                  = "MCP_LSP_REAL_NODE_PHP_WINDOWS_E2E"
+	realNodeDockerfileCapabilityWindowsE2EEnv = "MCP_LSP_REAL_NODE_DOCKERFILE_CAPABILITY_WINDOWS_E2E"
+	realNodeJSONCapabilityWindowsE2EEnv       = "MCP_LSP_REAL_NODE_JSON_CAPABILITY_WINDOWS_E2E"
+	realNodeVueWindowsE2EEnv                  = "MCP_LSP_REAL_NODE_VUE_WINDOWS_E2E"
+	realNodePrismaDiagnosticE2EEnv            = "MCP_LSP_REAL_NODE_PRISMA_DIAGNOSTIC_WINDOWS_E2E"
+	realNodeProductionWindowsE2EEnv           = "MCP_LSP_REAL_NODE_PRODUCTION_WINDOWS_E2E"
+	realNodeWindowsReuseProductRootEnv        = "MCP_LSP_REAL_NODE_WINDOWS_REUSE_PRODUCT_ROOT"
+	realNodeWindowsReuseRawNPMInstallRootEnv  = "MCP_LSP_REAL_NODE_WINDOWS_REUSE_RAW_NPM_INSTALL_ROOT"
 )
 
 var realNodeExpectedPins = map[string]string{
@@ -96,6 +102,15 @@ type realNodeServerCase struct {
 	content     string
 	line        int // raw LSP line (1-based).
 	character   int // raw LSP character (0-based); MCP conversion adds one.
+	// sourceDir/sourceFile 指向受版本控制的 bin/LSP/test 快照；真实矩阵会在
+	// 任何 MCP 编辑动作前复制该快照。
+	sourceDir            string
+	sourceFile           string
+	sourceSecondaryFile  string
+	sourceIdentifier     string
+	sourceWorkspaceQuery string
+	sourceLine           int
+	sourceCharacter      int
 }
 
 // TestMcpLSPBinaryRealNodeAllLanguagesWindowsE2E 在 Windows 原生架构上冷安装 Node、VC++ 运行库与精确 npm 语言服务，覆盖全部 Node 语言 ID、七类 MCP 工具及其公开小动作。
@@ -108,15 +123,7 @@ func TestMcpLSPBinaryRealNodeAllLanguagesWindowsE2E(t *testing.T) {
 	realNodeProvisionWindowsVCLibsDesktopAppLocal(t)
 	nodeDist, npmBin := realNodeBundle(t, root)
 	pins := realNodeScriptPins(t, root)
-	installDir := t.TempDir()
-	registerRealMCPTempRootCleanup(t, installDir)
-	if strings.Contains(filepath.ToSlash(installDir), "lsp-all-npm") {
-		t.Fatalf("real npm test install unexpectedly uses the forbidden lsp-all-npm cache: %s", installDir)
-	}
-	realNodeInstall(t, npmBin, nodeDist, installDir, pins)
-	realNodeVerifyInstall(t, installDir)
-	realNodeVerifyNativeAstGrepRuntime(t, installDir)
-	t.Logf("real npm cohort installed in fresh directory %s with pins %v", installDir, pins)
+	installDir := realNodeInstallRootForE2E(t, npmBin, nodeDist, pins)
 
 	servers := realNodeServerCases()
 	requireRealNodeServerCaseClosure(t, servers)
@@ -176,6 +183,121 @@ func TestMcpLSPBinaryRealNodeAllLanguagesWindowsE2E(t *testing.T) {
 	t.Logf("real Node all-language LSP E2E completed in %s", time.Since(started).Round(time.Millisecond))
 }
 
+func realNodeFocusedVueInstallRootForE2E(t *testing.T) string {
+	t.Helper()
+	configured := strings.TrimSpace(os.Getenv(realNodeWindowsReuseRawNPMInstallRootEnv))
+	if configured == "" {
+		t.Fatal("focused Vue E2E requires MCP_LSP_REAL_NODE_WINDOWS_REUSE_RAW_NPM_INSTALL_ROOT")
+	}
+	root, err := filepath.Abs(configured)
+	if err != nil {
+		t.Fatalf("resolve focused Vue npm cohort root: %v", err)
+	}
+	checks := []struct {
+		name    string
+		version string
+	}{
+		{name: "@vue/language-server", version: vueLanguageServerInstallVersion},
+		{name: "@vue/typescript-plugin", version: vueLanguageServerInstallVersion},
+		{name: "typescript", version: typeScriptInstallVersion},
+	}
+	for _, check := range checks {
+		packageJSON := filepath.Join(root, "node_modules", filepath.FromSlash(check.name), "package.json")
+		if !fileExists(packageJSON) {
+			t.Fatalf("focused Vue npm cohort is missing %s: %s", check.name, packageJSON)
+		}
+		verifyRealNodePackageVersion(t, root, check.name, check.version)
+	}
+	return root
+}
+
+// TestMcpLSPBinaryRealNodePHPWindowsE2E runs only the real PHP fixture so a
+// missing unrelated npm package cannot mask the PHP semantic-rename contract.
+func TestMcpLSPBinaryRealNodePHPWindowsE2E(t *testing.T) {
+	if os.Getenv(realNodePHPWindowsE2EEnv) != "1" {
+		t.Skipf("set %s=1 to run the focused real Windows PHP e2e", realNodePHPWindowsE2EEnv)
+	}
+	root := realNodeRepoRoot(t)
+	realNodeProvisionWindowsVCLibsDesktopAppLocal(t)
+	nodeDist, _ := realNodeBundle(t, root)
+	installDir, reused, err := realNodeReusableRawNPMInstallRoot()
+	if err != nil || !reused {
+		t.Fatalf("focused PHP E2E requires an existing raw npm cohort: reused=%t root=%q err=%v", reused, installDir, err)
+	}
+	server := realNodeServerCasesForLanguage("php")
+	if len(server) != 1 {
+		t.Fatalf("focused PHP server cases=%d, want 1", len(server))
+	}
+	binary := buildRealMcpLSPBinary(t, root)
+	summary := runRealMCPToolCoverageForServers(t, root, binary, nodeDist, installDir, server, 1)
+	if summary.total != realMCPExpectedActionCount || slices.Contains(summary.unsupportedActions, "patch_edit/rename") {
+		t.Fatalf("focused PHP semantic rename matrix failed: total=%d success=%d legal_empty=%d unsupported=%v", summary.total, summary.succeeded, summary.legalEmpty, summary.unsupportedActions)
+	}
+}
+
+// TestMcpLSPBinaryRealNodeDockerfileCapabilityWindowsE2E 在真实 Dockerfile 会话中
+// 锁定 references 的服务端能力边界与 code_action 的适配能力，禁止把二者都记为可选。
+func TestMcpLSPBinaryRealNodeDockerfileCapabilityWindowsE2E(t *testing.T) {
+	if os.Getenv(realNodeDockerfileCapabilityWindowsE2EEnv) != "1" {
+		t.Skipf("set %s=1 to run the targeted real Windows Dockerfile capability e2e", realNodeDockerfileCapabilityWindowsE2EEnv)
+	}
+	started := time.Now()
+	root := realNodeRepoRoot(t)
+	realNodeProvisionWindowsVCLibsDesktopAppLocal(t)
+	nodeDist, _ := realNodeBundle(t, root)
+	installDir := realNodeFocusedVueInstallRootForE2E(t)
+	servers := realNodeServerCasesForLanguage("dockerfile")
+	requireRealNodeServerCaseIdentities(t, servers)
+	if len(servers) != 1 {
+		t.Fatalf("targeted Dockerfile server cases=%d, want exactly 1", len(servers))
+	}
+	binary := buildRealMcpLSPBinary(t, root)
+	summary := runRealMCPToolCoverageForServers(t, root, binary, nodeDist, installDir, servers, 1)
+	if summary.total != realMCPExpectedActionCount {
+		t.Fatalf("Dockerfile capability matrix total=%d, want %d", summary.total, realMCPExpectedActionCount)
+	}
+	if !slices.Contains(summary.unsupportedActions, "xref/references") {
+		t.Fatalf("Dockerfile references must remain a typed server capability boundary: unsupported=%v", summary.unsupportedActions)
+	}
+	if slices.Contains(summary.unsupportedActions, "patch_edit/code_action") {
+		t.Fatalf("Dockerfile code_action must reach the server and return success/legal-empty, not capability_unsupported: unsupported=%v", summary.unsupportedActions)
+	}
+	t.Logf("targeted real Dockerfile capability E2E completed in %s: total=%d success=%d legal_empty=%d capability_unsupported=%d", time.Since(started).Round(time.Millisecond), summary.total, summary.succeeded, summary.legalEmpty, summary.capabilityUnsupported)
+}
+
+// TestMcpLSPBinaryRealNodeJSONCapabilityWindowsE2E 锁定 JSON server 的客户端能力门槛：
+// completion/format 必须可调用，references/semantic_tokens 仍按真实上游能力记账。
+func TestMcpLSPBinaryRealNodeJSONCapabilityWindowsE2E(t *testing.T) {
+	if os.Getenv(realNodeJSONCapabilityWindowsE2EEnv) != "1" {
+		t.Skipf("set %s=1 to run the targeted real Windows JSON capability e2e", realNodeJSONCapabilityWindowsE2EEnv)
+	}
+	root := realNodeRepoRoot(t)
+	realNodeProvisionWindowsVCLibsDesktopAppLocal(t)
+	nodeDist, npmBin := realNodeBundle(t, root)
+	pins := realNodeJSONScriptPins(t, root)
+	installDir := realNodeFocusedJSONInstallRootForE2E(t, npmBin, nodeDist, pins)
+	servers := realNodeServerCasesForLanguage("json")
+	requireRealNodeServerCaseIdentities(t, servers)
+	if len(servers) != 1 {
+		t.Fatalf("targeted JSON server cases=%d, want exactly 1", len(servers))
+	}
+	binary := buildRealMcpLSPBinary(t, root)
+	summary := runRealMCPToolCoverageForServers(t, root, binary, nodeDist, installDir, servers, 1)
+	if summary.total != realMCPExpectedActionCount {
+		t.Fatalf("JSON capability matrix total=%d, want %d", summary.total, realMCPExpectedActionCount)
+	}
+	for _, action := range []string{"xref/references", "structure/semantic_tokens"} {
+		if !slices.Contains(summary.unsupportedActions, action) {
+			t.Fatalf("JSON %s must remain a typed upstream capability boundary: unsupported=%v", action, summary.unsupportedActions)
+		}
+	}
+	for _, action := range []string{"completion/completion", "patch_edit/format"} {
+		if slices.Contains(summary.unsupportedActions, action) {
+			t.Fatalf("JSON %s must be callable after initialize capability adaptation: unsupported=%v", action, summary.unsupportedActions)
+		}
+	}
+}
+
 // TestMcpLSPBinaryRealNodeVueWindowsE2E 只运行 Vue 的真实安装、握手和 36-action 矩阵；
 // 正式全量测试仍固定要求 17 个 Node language ID，不受该 targeted selector 影响。
 func TestMcpLSPBinaryRealNodeVueWindowsE2E(t *testing.T) {
@@ -185,16 +307,8 @@ func TestMcpLSPBinaryRealNodeVueWindowsE2E(t *testing.T) {
 	started := time.Now()
 	root := realNodeRepoRoot(t)
 	realNodeProvisionWindowsVCLibsDesktopAppLocal(t)
-	nodeDist, npmBin := realNodeBundle(t, root)
-	pins := realNodeScriptPins(t, root)
-	installDir := t.TempDir()
-	registerRealMCPTempRootCleanup(t, installDir)
-	if strings.Contains(filepath.ToSlash(installDir), "lsp-all-npm") {
-		t.Fatalf("real npm targeted test install unexpectedly uses the forbidden lsp-all-npm cache: %s", installDir)
-	}
-	realNodeInstall(t, npmBin, nodeDist, installDir, pins)
-	realNodeVerifyInstall(t, installDir)
-	realNodeVerifyNativeAstGrepRuntime(t, installDir)
+	nodeDist, _ := realNodeBundle(t, root)
+	installDir := realNodeFocusedVueInstallRootForE2E(t)
 	servers := realNodeServerCasesForLanguage("vue")
 	requireRealNodeServerCaseIdentities(t, servers)
 	if len(servers) != 1 {
@@ -205,7 +319,8 @@ func TestMcpLSPBinaryRealNodeVueWindowsE2E(t *testing.T) {
 	t.Log("targeted Vue raw server semantic phase skipped; production product-owned bridge is the sole semantic evidence")
 	productionProductRoot := prepareRealNodeProductionVueCohort(t)
 	binary := buildRealMcpLSPBinary(t, root)
-	runRealMCPToolCoverageForServersWithProductRoot(t, root, binary, nodeDist, installDir, servers, 1, productionProductRoot)
+	runRealMCPToolCoverageForServersWithProductRoot(t, root, binary, nodeDist, installDir, servers, 1, productionProductRoot,
+		"file/diagnostics", "structure/document_symbol", "completion/completion")
 	t.Logf("targeted real Node Vue E2E completed in %s", time.Since(started).Round(time.Millisecond))
 }
 
@@ -220,11 +335,7 @@ func TestMcpLSPBinaryRealNodePrismaDiagnosticWindowsE2E(t *testing.T) {
 	realNodeProvisionWindowsVCLibsDesktopAppLocal(t)
 	nodeDist, npmBin := realNodeBundle(t, root)
 	pins := realNodeScriptPins(t, root)
-	installDir := t.TempDir()
-	registerRealMCPTempRootCleanup(t, installDir)
-	realNodeInstall(t, npmBin, nodeDist, installDir, pins)
-	realNodeVerifyInstall(t, installDir)
-	realNodeVerifyNativeAstGrepRuntime(t, installDir)
+	installDir := realNodeInstallRootForE2E(t, npmBin, nodeDist, pins)
 	servers := realNodeServerCasesForLanguage("prisma")
 	requireRealNodeServerCaseIdentities(t, servers)
 	if len(servers) != 1 {
@@ -247,17 +358,34 @@ func prepareRealNodeProductionVueCohort(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("detect Windows platform for targeted production Vue cohort: %v", err)
 	}
-	productRoot, err := os.MkdirTemp("", "sd-node-production-windows-"+platform.NativeArch+"-targeted-")
-	if err != nil {
-		t.Fatalf("create targeted production Vue product root: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := removeRealWindowsProductRoot(productRoot); err != nil {
-			t.Errorf("remove targeted production Vue product root %s: %v", productRoot, err)
+	configuredRoot := strings.TrimSpace(os.Getenv(realNodeWindowsReuseProductRootEnv))
+	reusedRoot := configuredRoot != ""
+	productRoot := configuredRoot
+	if reusedRoot {
+		productRoot, err = filepath.Abs(productRoot)
+		if err != nil {
+			t.Fatalf("resolve configured targeted production Vue product root: %v", err)
 		}
-	})
-	if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
-		t.Fatalf("restrict targeted production Vue product root: %v", err)
+		info, statErr := os.Stat(productRoot)
+		if statErr != nil || !info.IsDir() {
+			t.Fatalf("configured targeted production Vue product root is not an existing directory: %q (%v)", productRoot, statErr)
+		}
+		if err := securefs.CheckPrivateOwnerOnly(productRoot, info); err != nil {
+			t.Fatalf("configured targeted production Vue product root is not owner-only: %v", err)
+		}
+	} else {
+		productRoot, err = os.MkdirTemp("", "sd-node-production-windows-"+platform.NativeArch+"-targeted-")
+		if err != nil {
+			t.Fatalf("create targeted production Vue product root: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := removeRealWindowsProductRoot(productRoot); err != nil {
+				t.Errorf("remove targeted production Vue product root %s: %v", productRoot, err)
+			}
+		})
+		if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
+			t.Fatalf("restrict targeted production Vue product root: %v", err)
+		}
 	}
 	t.Setenv("SUPER_DOLPHIN_HOME", productRoot)
 	t.Setenv("PROJECT_ROOT", "")
@@ -1427,6 +1555,50 @@ func realNodeScriptPins(t *testing.T, root string) []string {
 	return keys
 }
 
+// realNodeReusableRawNPMInstallRoot 解析显式 raw npm cohort 根目录；设置后只允许
+// 复用已有绝对目录，不能创建、清空或替换调用方提供的目录。
+func realNodeReusableRawNPMInstallRoot() (string, bool, error) {
+	configured := strings.TrimSpace(os.Getenv(realNodeWindowsReuseRawNPMInstallRootEnv))
+	if configured == "" {
+		return "", false, nil
+	}
+	configured = filepath.Clean(configured)
+	if !filepath.IsAbs(configured) {
+		return "", true, fmt.Errorf("%s must be an absolute Windows raw npm install root: %q", realNodeWindowsReuseRawNPMInstallRootEnv, configured)
+	}
+	info, err := os.Stat(configured)
+	if err != nil {
+		return "", true, fmt.Errorf("stat reusable Windows raw npm install root %q: %w", configured, err)
+	}
+	if !info.IsDir() {
+		return "", true, fmt.Errorf("reusable Windows raw npm install root %q is not a directory", configured)
+	}
+	return configured, true, nil
+}
+
+// realNodeInstallRootForE2E 选择 raw npm cohort：未设置环境变量时冷安装并由测试
+// 清理临时根；设置后先验证全部精确 pin、Windows .bin shim 与 ast-grep 原生文件，
+// 随后直接复用已有根，绝不执行 npm install 或注册 cleanup。
+func realNodeInstallRootForE2E(t *testing.T, npmBin, nodeDist string, pins []string) string {
+	t.Helper()
+	installDir, reused, err := realNodeReusableRawNPMInstallRoot()
+	if err != nil {
+		t.Fatalf("resolve reusable raw npm install root: %v", err)
+	}
+	if !reused {
+		installDir = t.TempDir()
+		registerRealMCPTempRootCleanup(t, installDir)
+		realNodeInstall(t, npmBin, nodeDist, installDir, pins)
+		t.Logf("real npm cohort cold-installed in private directory %s with pins %v", installDir, pins)
+	} else {
+		t.Logf("reusing existing raw npm cohort without npm install or cleanup: %s", installDir)
+	}
+	realNodeVerifyInstall(t, installDir)
+	realNodeVerifyNPMBinEntries(t, installDir)
+	realNodeVerifyNativeAstGrepRuntime(t, installDir)
+	return installDir
+}
+
 // realNodeInstall 冷安装固定 npm 语言服务，并每 30 秒输出阶段心跳，避免长网络步骤无证据静默。
 func realNodeInstall(t *testing.T, npmBin, nodeDist, installDir string, pins []string) {
 	t.Helper()
@@ -1606,6 +1778,55 @@ func realNodeVerifyInstall(t *testing.T, installDir string) {
 	}
 }
 
+// realNodeVerifyNPMBinEntries 从每个精确 pin 的 package.json 读取 bin 声明，逐一
+// 验证 Windows npm 生成的 .cmd shim，避免只检查版本却复用不完整的 raw cohort。
+func realNodeVerifyNPMBinEntries(t *testing.T, installDir string) {
+	t.Helper()
+	binRoot := filepath.Join(installDir, "node_modules", ".bin")
+	if info, err := os.Stat(binRoot); err != nil || !info.IsDir() {
+		if err == nil {
+			err = fmt.Errorf("path is not a directory")
+		}
+		t.Fatalf("installed npm .bin directory is unavailable: %s: %v", binRoot, err)
+	}
+	for packageName := range realNodeExpectedPins {
+		manifestPath := filepath.Join(installDir, "node_modules", filepath.FromSlash(packageName), "package.json")
+		payload, err := os.ReadFile(manifestPath)
+		if err != nil {
+			t.Fatalf("read installed npm package %s for bin verification: %v", packageName, err)
+		}
+		var manifest struct {
+			Bin json.RawMessage `json:"bin"`
+		}
+		if err := json.Unmarshal(payload, &manifest); err != nil {
+			t.Fatalf("decode installed npm package %s for bin verification: %v", packageName, err)
+		}
+		rawBin := bytes.TrimSpace(manifest.Bin)
+		if len(rawBin) == 0 || bytes.Equal(rawBin, []byte("null")) {
+			continue
+		}
+		entries := make(map[string]string)
+		if rawBin[0] == '"' {
+			var target string
+			if err := json.Unmarshal(rawBin, &target); err != nil {
+				t.Fatalf("decode string bin for installed npm package %s: %v", packageName, err)
+			}
+			entries[filepath.Base(filepath.FromSlash(packageName))] = target
+		} else if err := json.Unmarshal(rawBin, &entries); err != nil {
+			t.Fatalf("decode map bin for installed npm package %s: %v", packageName, err)
+		}
+		for binName, target := range entries {
+			if strings.TrimSpace(binName) == "" || strings.TrimSpace(target) == "" {
+				t.Fatalf("installed npm package %s has an empty bin declaration: name=%q target=%q", packageName, binName, target)
+			}
+			shim := filepath.Join(binRoot, binName+".cmd")
+			if !fileExists(shim) {
+				t.Fatalf("installed npm package %s bin %q is missing Windows shim %q", packageName, binName, shim)
+			}
+		}
+	}
+}
+
 func realNodeVerifyNativeAstGrepRuntime(t *testing.T, installDir string) {
 	t.Helper()
 	if runtime.GOOS != "windows" {
@@ -1619,8 +1840,10 @@ func realNodeVerifyNativeAstGrepRuntime(t *testing.T, installDir string) {
 	if arch == installer.WindowsHostArchX86 {
 		t.Fatalf("ast-grep Windows x86 has no supported exact native cohort")
 	}
-	if !fileExists(filepath.Join(installDir, "node_modules", "@ast-grep", "cli", "sg.exe")) {
-		t.Fatalf("ast-grep %s native executable is missing; no architecture fallback is allowed", arch)
+	for _, executable := range []string{"sg.exe", "ast-grep.exe"} {
+		if !fileExists(filepath.Join(installDir, "node_modules", "@ast-grep", "cli", executable)) {
+			t.Fatalf("ast-grep %s native executable %s is missing; no architecture fallback is allowed", arch, executable)
+		}
 	}
 	if realNodeAstGrepRuntimePaths(installDir) == "" {
 		t.Fatalf("ast-grep %s native executable has no automatically provisioned vcruntime140.dll", arch)
@@ -1629,25 +1852,25 @@ func realNodeVerifyNativeAstGrepRuntime(t *testing.T, installDir string) {
 
 func realNodeServerCases() []realNodeServerCase {
 	return []realNodeServerCase{
-		{name: "javascript", languageID: "javascript", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.js", content: "const answer = 42;\nfunction greet(name) { return \"Hello \" + name; }\nconsole.log(greet(\"world\"));\n", line: 2, character: 9},
-		{name: "javascriptreact", languageID: "javascriptreact", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.jsx", content: "function Greeting(props) { return <h1>Hello {props.name}</h1>; }\nconst view = <Greeting name=\"world\" />;\n", line: 1, character: 10},
-		{name: "typescript", languageID: "typescript", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.ts", content: "interface Greeting { text: string }\nconst answer: number = 42;\nfunction greet(name: string): Greeting { return { text: name }; }\nconsole.log(greet(\"world\").text);\n", line: 3, character: 9},
-		{name: "typescriptreact", languageID: "typescriptreact", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.tsx", content: "interface Props { name: string }\nfunction Greeting(props: Props) { return <h1>Hello {props.name}</h1>; }\nconst view = <Greeting name=\"world\" />;\n", line: 2, character: 10},
-		{name: "css", languageID: "css", packageName: "vscode-langservers-extracted", script: "vscode-langservers-extracted/bin/vscode-css-language-server", args: []string{"--stdio"}, fileName: "fixture.css", content: ".button { color: red; padding: 4px; }\n", line: 1, character: 2},
-		{name: "html", languageID: "html", packageName: "vscode-langservers-extracted", script: "vscode-langservers-extracted/bin/vscode-html-language-server", args: []string{"--stdio"}, fileName: "fixture.html", content: "<!doctype html>\n<html>\n  <body>\n    <main id=\"app\">\n      <h1>Hello</h1>\n    </main>\n  </body>\n</html>\n", line: 4, character: 10},
-		{name: "json", languageID: "json", packageName: "vscode-langservers-extracted", script: "vscode-langservers-extracted/bin/vscode-json-language-server", args: []string{"--stdio"}, fileName: "fixture.json", content: "{\n  \"name\": \"dolphin\",\n  \"version\": \"1.0\",\n  \"items\": [1, 2, 3]\n}\n", line: 2, character: 5},
-		{name: "markdown", languageID: "markdown", packageName: "vscode-langservers-extracted", script: "vscode-langservers-extracted/bin/vscode-markdown-language-server", args: []string{"--stdio"}, fileName: "fixture.md", content: "# Real LSP Fixture\n\n## Section\n\nA [link](https://example.com/docs).\n", line: 3, character: 3},
-		{name: "python", languageID: "python", packageName: "pyright", script: "pyright/langserver.index.js", args: []string{"--stdio"}, fileName: "fixture.py", content: "def greet(name: str) -> str:\n    return f\"Hello {name}\"\n\nanswer: int = 42\nprint(greet(\"world\"))\n", line: 1, character: 4},
-		{name: "yaml", languageID: "yaml", packageName: "yaml-language-server", script: "yaml-language-server/bin/yaml-language-server", args: []string{"--stdio"}, fileName: "fixture.yaml", content: "name: dolphin\nversion: \"1.0\"\nservices:\n  web:\n    image: node:24\n", line: 1, character: 1},
-		{name: "vue", languageID: "vue", packageName: "@vue/language-server", script: "@vue/language-server/bin/vue-language-server.js", args: []string{"--stdio"}, fileName: "fixture.vue", content: "<template><button>{{ message }}</button></template>\n<script setup lang=\"ts\">\nconst message = 'hello'\n</script>\n", line: 3, character: 6},
-		{name: "svelte", languageID: "svelte", packageName: "svelte-language-server", script: "svelte-language-server/bin/server.js", args: []string{"--stdio"}, fileName: "fixture.svelte", content: "<script lang=\"ts\">\nlet count = 0;\n</script>\n<button>{count}</button>\n", line: 2, character: 5},
-		{name: "php", languageID: "php", packageName: "intelephense", script: "intelephense/lib/intelephense.js", args: []string{"--stdio"}, fileName: "fixture.php", content: "<?php\nfunction greet(string $name): string { return \"Hello \" . $name; }\necho greet(\"world\");\n", line: 2, character: 9},
+		{name: "javascript", languageID: "javascript", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.js", content: "const answer = 42;\nfunction greet(name) { return \"Hello \" + name; }\nconsole.log(greet(\"world\"));\n", line: 2, character: 9, sourceDir: "javascript", sourceFile: "module-examples/top-level-await/main.js", sourceSecondaryFile: "module-examples/top-level-await/modules/triangle.js", sourceIdentifier: "myCanvas", sourceWorkspaceQuery: "myCanvas", sourceLine: 9, sourceCharacter: 4},
+		{name: "javascriptreact", languageID: "javascriptreact", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.jsx", content: "function Greeting(props) { return <h1>Hello {props.name}</h1>; }\nconst view = <Greeting name=\"world\" />;\n", line: 1, character: 10, sourceDir: "javascriptreact", sourceFile: "src/component/App.js", sourceSecondaryFile: "src/component/Button.js", sourceIdentifier: "handleClick", sourceWorkspaceQuery: "handleClick", sourceLine: 14, sourceCharacter: 2},
+		{name: "typescript", languageID: "typescript", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.ts", content: "interface Greeting { text: string }\nconst answer: number = 42;\nfunction greet(name: string): Greeting { return { text: name }; }\nconsole.log(greet(\"world\").text);\n", line: 3, character: 9, sourceDir: "typescript", sourceFile: "src/mathematic.ts", sourceSecondaryFile: "src/index.ts", sourceIdentifier: "Mathematic", sourceWorkspaceQuery: "Mathematic", sourceLine: 1, sourceCharacter: 13},
+		{name: "typescriptreact", languageID: "typescriptreact", packageName: "typescript-language-server", script: "typescript-language-server/lib/cli.mjs", args: []string{"--stdio"}, fileName: "fixture.tsx", content: "interface Props { name: string }\nfunction Greeting(props: Props) { return <h1>Hello {props.name}</h1>; }\nconst view = <Greeting name=\"world\" />;\n", line: 2, character: 10, sourceDir: "typescriptreact", sourceFile: "src/App.tsx", sourceSecondaryFile: "src/main.tsx", sourceIdentifier: "App", sourceWorkspaceQuery: "App", sourceLine: 7, sourceCharacter: 9},
+		{name: "css", languageID: "css", packageName: "vscode-langservers-extracted", script: "vscode-langservers-extracted/bin/vscode-css-language-server", args: []string{"--stdio"}, fileName: "fixture.css", content: ".button { color: red; padding: 4px; }\n", line: 1, character: 2, sourceDir: "css", sourceFile: "styles/style.css", sourceSecondaryFile: "index.html", sourceIdentifier: "body", sourceWorkspaceQuery: "body", sourceLine: 23, sourceCharacter: 0},
+		{name: "html", languageID: "html", packageName: "vscode-langservers-extracted", script: "vscode-langservers-extracted/bin/vscode-html-language-server", args: []string{"--stdio"}, fileName: "fixture.html", content: "<!doctype html>\n<html>\n  <body>\n    <main id=\"app\">\n      <h1>Hello</h1>\n    </main>\n  </body>\n</html>\n", line: 4, character: 10, sourceDir: "html", sourceFile: "index.html", sourceSecondaryFile: "styles/style.css", sourceIdentifier: "body", sourceWorkspaceQuery: "body", sourceLine: 9, sourceCharacter: 3},
+		{name: "json", languageID: "json", packageName: "vscode-langservers-extracted", script: "vscode-langservers-extracted/bin/vscode-json-language-server", args: []string{"--stdio"}, fileName: "fixture.json", content: "{\n  \"name\": \"dolphin\",\n  \"version\": \"1.0\",\n  \"items\": [1, 2, 3]\n}\n", line: 2, character: 5, sourceDir: "json", sourceFile: "tests/v1/uniqueItems.json", sourceSecondaryFile: "tests/v1/anyOf.json", sourceIdentifier: "uniqueItems", sourceWorkspaceQuery: "uniqueItems", sourceLine: 6, sourceCharacter: 13},
+		{name: "markdown", languageID: "markdown", packageName: "vscode-langservers-extracted", script: "vscode-markdown-language-server/bin/vscode-markdown-language-server", args: []string{"--stdio"}, fileName: "fixture.md", content: "# Real LSP Fixture\n\n## Section\n\nA [link](https://example.com/docs).\n", line: 3, character: 3, sourceDir: "markdown", sourceFile: "README.md", sourceSecondaryFile: "README.md", sourceIdentifier: "Markups", sourceWorkspaceQuery: "Markups", sourceLine: 16, sourceCharacter: 0},
+		{name: "python", languageID: "python", packageName: "pyright", script: "pyright/langserver.index.js", args: []string{"--stdio"}, fileName: "fixture.py", content: "def greet(name: str) -> str:\n    return f\"Hello {name}\"\n\nanswer: int = 42\nprint(greet(\"world\"))\n", line: 1, character: 4, sourceDir: "python", sourceFile: "src/sample/simple.py", sourceSecondaryFile: "tests/test_simple.py", sourceIdentifier: "add_one", sourceWorkspaceQuery: "add_one", sourceLine: 1, sourceCharacter: 4},
+		{name: "yaml", languageID: "yaml", packageName: "yaml-language-server", script: "yaml-language-server/bin/yaml-language-server", args: []string{"--stdio"}, fileName: "fixture.yaml", content: "name: dolphin\nversion: \"1.0\"\nservices:\n  web:\n    image: node:24\n", line: 1, character: 1, sourceDir: "yaml", sourceFile: "src/4JVG.yaml", sourceSecondaryFile: "src/36F6.yaml", sourceIdentifier: "name", sourceWorkspaceQuery: "name", sourceLine: 2, sourceCharacter: 2},
+		{name: "vue", languageID: "vue", packageName: "@vue/language-server", script: "@vue/language-server/bin/vue-language-server.js", args: []string{"--stdio"}, fileName: "fixture.vue", content: "<template><button>{{ message }}</button></template>\n<script setup lang=\"ts\">\nconst message = 'hello'\n</script>\n", line: 3, character: 6, sourceDir: "vue", sourceFile: "src/App.vue", sourceSecondaryFile: "src/components/Item.vue", sourceIdentifier: "header", sourceWorkspaceQuery: "header", sourceLine: 38, sourceCharacter: 1},
+		{name: "svelte", languageID: "svelte", packageName: "svelte-language-server", script: "svelte-language-server/bin/server.js", args: []string{"--stdio"}, fileName: "fixture.svelte", content: "<script lang=\"ts\">\nlet count = 0;\n</script>\n<button>{count}</button>\n", line: 2, character: 5, sourceDir: "svelte", sourceFile: "src/App.svelte", sourceSecondaryFile: "src/main.js", sourceIdentifier: "name", sourceWorkspaceQuery: "name", sourceLine: 2, sourceCharacter: 12},
+		{name: "php", languageID: "php", packageName: "intelephense", script: "intelephense/lib/intelephense.js", args: []string{"--stdio"}, fileName: "fixture.php", content: "<?php\nfunction greet(string $name): string { return \"Hello \" . $name; }\necho greet(\"world\");\n", line: 2, character: 9, sourceDir: "php", sourceFile: "src/VersionParser.php", sourceSecondaryFile: "src/Semver.php", sourceIdentifier: "VersionParser", sourceWorkspaceQuery: "VersionParser", sourceLine: 24, sourceCharacter: 6},
 		// Docker 0.15.0 只为跨行 instruction 返回 folding range；RUN continuation
 		// 是真实协议输入，避免把没有可折叠结构的单行 fixture 误判为服务失败。
-		{name: "dockerfile", languageID: "dockerfile", packageName: "dockerfile-language-server-nodejs", script: "dockerfile-language-server-nodejs/bin/docker-langserver", args: []string{"--stdio"}, fileName: "Dockerfile", content: "FROM node:24\nWORKDIR /app\nCOPY package.json .\nRUN echo preparing \\\n    && npm install\nCMD [\"node\", \"index.js\"]\n", line: 1, character: 2},
-		{name: "graphql", languageID: "graphql", packageName: "graphql-language-service-cli", script: "graphql-language-service-cli/bin/graphql.js", args: []string{"server", "-m", "stream"}, fileName: "fixture.graphql", content: "type User { id: ID! name: String }\ntype Query { user: User }\nquery GetUser { user { id name } }\n", line: 3, character: 5},
-		{name: "prisma", languageID: "prisma", packageName: "@prisma/language-server", script: "@prisma/language-server/dist/bin.js", args: []string{"--stdio"}, fileName: "schema.prisma", content: realMCPPrismaNaturalFixture, line: 16, character: 13},
-		{name: "shellscript", languageID: "shellscript", packageName: "bash-language-server", script: "bash-language-server/out/cli.js", args: []string{"start"}, fileName: "fixture.sh", content: "#!/usr/bin/env bash\ngreet() { echo \"Hello $1\"; }\ngreet world\n", line: 2, character: 2},
+		{name: "dockerfile", languageID: "dockerfile", packageName: "dockerfile-language-server-nodejs", script: "dockerfile-language-server-nodejs/bin/docker-langserver", args: []string{"--stdio"}, fileName: "Dockerfile", content: "FROM node:24\nWORKDIR /app\nCOPY package.json .\nRUN echo preparing \\\n    && npm install\nCMD [\"node\", \"index.js\"]\n", line: 1, character: 2, sourceDir: "dockerfile", sourceFile: "Dockerfile", sourceSecondaryFile: "Dockerfile", sourceIdentifier: "FROM", sourceWorkspaceQuery: "FROM", sourceLine: 3, sourceCharacter: 0},
+		{name: "graphql", languageID: "graphql", packageName: "graphql-language-service-cli", script: "graphql-language-service-cli/bin/graphql.js", args: []string{"server", "-m", "stream"}, fileName: "fixture.graphql", content: "type User { id: ID! name: String }\ntype Query { user: User }\nquery GetUser { user { id name } }\n", line: 3, character: 5, sourceDir: "graphql", sourceFile: "schema.graphql", sourceSecondaryFile: "handler/graphql.mjs", sourceIdentifier: "Film", sourceWorkspaceQuery: "Film", sourceLine: 6, sourceCharacter: 5},
+		{name: "prisma", languageID: "prisma", packageName: "@prisma/language-server", script: "@prisma/language-server/dist/bin.js", args: []string{"--stdio"}, fileName: "schema.prisma", content: realMCPPrismaNaturalFixture, line: 16, character: 13, sourceDir: "prisma", sourceFile: "orm/starter/prisma/schema.prisma", sourceSecondaryFile: "orm/starter/prisma/schema.prisma", sourceIdentifier: "User", sourceWorkspaceQuery: "User", sourceLine: 13, sourceCharacter: 6},
+		{name: "shellscript", languageID: "shellscript", packageName: "bash-language-server", script: "bash-language-server/out/cli.js", args: []string{"start"}, fileName: "fixture.sh", content: "#!/usr/bin/env bash\ngreet() { echo \"Hello $1\"; }\ngreet world\n", line: 2, character: 2, sourceDir: "shellscript", sourceFile: "test.sh", sourceSecondaryFile: "test.sh", sourceIdentifier: "assert_equals", sourceWorkspaceQuery: "assert_equals", sourceLine: 208, sourceCharacter: 0},
 	}
 }
 
@@ -1704,6 +1927,144 @@ func TestRealMCPDockerfileWindowsFixtureContainsFoldableInstruction(t *testing.T
 	}
 }
 
+// TestRealMCPBinSourceMappingsAreRealSemanticsE2E 是 Node17 fixture 映射的 RED/GREEN
+// 守卫：错误 query 或 position 必须先失败，17 个真实快照映射随后全部通过。
+func TestRealMCPBinSourceMappingsAreRealSemanticsE2E(t *testing.T) {
+	sourceRoot := filepath.Join(realNodeRepoRoot(t), "bin", "LSP", "test")
+	for _, server := range realNodeServerCases() {
+		server := server
+		t.Run(server.languageID, func(t *testing.T) {
+			if _, _, err := realMCPNodeSourceMapping(sourceRoot, server); err != nil {
+				t.Fatalf("real bin/LSP/test mapping rejected: %v", err)
+			}
+
+			badQuery := server
+			badQuery.sourceWorkspaceQuery = "__missing_real_node17_query__"
+			if _, _, err := realMCPNodeSourceMapping(sourceRoot, badQuery); err == nil {
+				t.Fatal("missing workspace query unexpectedly passed the RED guard")
+			}
+			badPosition := server
+			badPosition.sourceCharacter++
+			if _, _, err := realMCPNodeSourceMapping(sourceRoot, badPosition); err == nil {
+				t.Fatal("shifted semantic position unexpectedly passed the RED guard")
+			}
+		})
+	}
+}
+
+// TestRealMCPFixtureSourcesTraceToBinLSPTestE2E 保证 17 个真实 Node case
+// 的所有动作输入都能追溯到仓库内 bin/LSP/test 快照，并且复制后的编辑不会
+// 触碰上游快照。这个合同不启动语言服务器，也不下载运行时。
+func TestRealMCPFixtureSourcesTraceToBinLSPTestE2E(t *testing.T) {
+	repoRoot := realNodeRepoRoot(t)
+	sourceRoot := filepath.Join(repoRoot, "bin", "LSP", "test")
+	for _, server := range realNodeServerCases() {
+		server := server
+		t.Run(server.languageID, func(t *testing.T) {
+			if strings.TrimSpace(server.sourceDir) == "" || strings.TrimSpace(server.sourceFile) == "" || strings.TrimSpace(server.sourceSecondaryFile) == "" || strings.TrimSpace(server.sourceIdentifier) == "" || strings.TrimSpace(server.sourceWorkspaceQuery) == "" || server.sourceLine <= 0 || server.sourceCharacter < 0 {
+				t.Fatalf("%s source mapping is incomplete: dir=%q file=%q secondary=%q identifier=%q query=%q line=%d character=%d", server.languageID, server.sourceDir, server.sourceFile, server.sourceSecondaryFile, server.sourceIdentifier, server.sourceWorkspaceQuery, server.sourceLine, server.sourceCharacter)
+			}
+			sourceDir := filepath.Join(sourceRoot, filepath.FromSlash(server.sourceDir))
+			sourcePath := filepath.Join(sourceDir, filepath.FromSlash(server.sourceFile))
+			if !realMCPPathWithinRoot(sourceRoot, sourceDir) || !realMCPPathWithinRoot(sourceRoot, sourcePath) {
+				t.Fatalf("%s source mapping escapes bin/LSP/test: dir=%q file=%q", server.languageID, sourceDir, sourcePath)
+			}
+			fixture := writeRealMCPLanguageFixture(t, t.TempDir(), server)
+			if fixture.workspaceQuery != server.sourceWorkspaceQuery || fixture.readLine != server.sourceLine {
+				t.Fatalf("%s fixture semantic mapping changed: query=%q line=%d want_query=%q want_line=%d", server.languageID, fixture.workspaceQuery, fixture.readLine, server.sourceWorkspaceQuery, server.sourceLine)
+			}
+			if filepath.Clean(fixture.sourceRoot) != filepath.Clean(sourceRoot) {
+				t.Fatalf("%s fixture source root is not bin/LSP/test: %q", server.languageID, fixture.sourceRoot)
+			}
+			if !realMCPPathWithinRoot(sourceRoot, fixture.sourcePath) {
+				t.Fatalf("%s fixture source path is not under bin/LSP/test: %q", server.languageID, fixture.sourcePath)
+			}
+			if filepath.Clean(fixture.sourcePath) != filepath.Clean(sourcePath) {
+				t.Fatalf("%s fixture source path does not match case mapping: got=%q want=%q", server.languageID, fixture.sourcePath, sourcePath)
+			}
+			if !realMCPPathWithinRoot(sourceRoot, fixture.sourceSecondaryPath) {
+				t.Fatalf("%s secondary source path is not under bin/LSP/test: %q", server.languageID, fixture.sourceSecondaryPath)
+			}
+			if filepath.Clean(fixture.targetFile) == filepath.Clean(fixture.sourcePath) {
+				t.Fatalf("%s fixture target aliases the checked-in source: %q", server.languageID, fixture.targetFile)
+			}
+			files := []struct {
+				name        string
+				fixturePath string
+				sourcePath  string
+			}{
+				{name: "target", fixturePath: fixture.targetFile, sourcePath: fixture.sourcePath},
+				{name: "secondary", fixturePath: fixture.secondaryFile, sourcePath: fixture.sourceSecondaryPath},
+				{name: "replace", fixturePath: fixture.replaceFile, sourcePath: fixture.sourcePath},
+				{name: "rename", fixturePath: fixture.renameFile, sourcePath: fixture.sourcePath},
+				{name: "code_action", fixturePath: fixture.codeActionFile, sourcePath: fixture.sourcePath},
+				{name: "format", fixturePath: fixture.formatFile, sourcePath: fixture.sourcePath},
+				{name: "completion", fixturePath: fixture.completionFile, sourcePath: fixture.sourcePath},
+			}
+			for _, file := range files {
+				if !realMCPPathWithinRoot(fixture.workDir, file.fixturePath) {
+					t.Fatalf("%s %s fixture path escapes isolated workspace: %q", server.languageID, file.name, file.fixturePath)
+				}
+				if filepath.Clean(file.fixturePath) == filepath.Clean(file.sourcePath) {
+					t.Fatalf("%s %s fixture aliases its checked-in source: %q", server.languageID, file.name, file.fixturePath)
+				}
+				source, err := os.ReadFile(file.sourcePath)
+				if err != nil {
+					t.Fatalf("read %s %s checked-in source: %v", server.languageID, file.name, err)
+				}
+				fixtureBytes, err := os.ReadFile(file.fixturePath)
+				if err != nil {
+					t.Fatalf("read %s %s copied fixture: %v", server.languageID, file.name, err)
+				}
+				if !bytes.Equal(source, fixtureBytes) {
+					t.Fatalf("%s %s copied fixture differs from checked-in source", server.languageID, file.name)
+				}
+			}
+			astFile := filepath.Join(fixture.workDir, ".mcp-ast", "ast_fixture.js")
+			copyRealMCPBinSourceFileWithinRoot(t, sourceRoot, "javascript/module-examples/top-level-await/main.js", fixture.workDir, astFile)
+			actions := realMCPActionSpecs(server, fixture, astFile)
+			var astSearchPaths []string
+			var workspaceQueries []string
+			for _, action := range actions {
+				if action.tool == "grep" && action.name == "ast_search" {
+					astSearchPaths, _ = action.args["paths"].([]string)
+				}
+				if action.tool == "structure" && strings.HasPrefix(action.name, "workspace_symbol-") {
+					query, _ := action.args["query"].(string)
+					workspaceQueries = append(workspaceQueries, query)
+				}
+			}
+			if len(workspaceQueries) != 2 || workspaceQueries[0] != server.sourceWorkspaceQuery || workspaceQueries[1] != server.sourceWorkspaceQuery {
+				t.Fatalf("%s workspace_symbol actions do not use the mapped real query: %v", server.languageID, workspaceQueries)
+			}
+			if len(astSearchPaths) != 1 || filepath.Clean(astSearchPaths[0]) != filepath.Clean(astFile) || !realMCPPathWithinRoot(fixture.workDir, astSearchPaths[0]) {
+				t.Fatalf("%s ast_search must use an isolated bin/LSP/test copy: paths=%v", server.languageID, astSearchPaths)
+			}
+			astSourcePath := filepath.Join(sourceRoot, "javascript", "module-examples", "top-level-await", "main.js")
+			astSource := readRealMCPBinSourceFile(t, astSourcePath)
+			astFixture := readRealMCPBinSourceFile(t, astFile)
+			if !bytes.Equal(astSource, astFixture) {
+				t.Fatalf("%s ast_search fixture differs from bin/LSP/test source", server.languageID)
+			}
+		})
+	}
+}
+
+func TestRealMCPTypeScriptRenameFixtureIncludesExcludedTestConsumerE2E(t *testing.T) {
+	for _, languageID := range []string{"typescript"} {
+		t.Run(languageID, func(t *testing.T) {
+			server := realNodeServerCasesForLanguage(languageID)[0]
+			fixture := writeRealMCPLanguageFixture(t, t.TempDir(), server)
+			actionRoot := filepath.Dir(filepath.Dir(fixture.renameFile))
+			for _, relative := range []string{"package.json", "tsconfig.json", "src/index.ts", "src/mathematic.test.ts"} {
+				if _, err := os.Stat(filepath.Join(actionRoot, filepath.FromSlash(relative))); err != nil {
+					t.Fatalf("rename fixture missing project consumer %s: %v", relative, err)
+				}
+			}
+		})
+	}
+}
+
 func requireRealNodeServerCaseClosure(t *testing.T, servers []realNodeServerCase) {
 	t.Helper()
 	want := make(map[string]struct{})
@@ -1717,6 +2078,52 @@ func requireRealNodeServerCaseClosure(t *testing.T, servers []realNodeServerCase
 	got := requireRealNodeServerCaseIdentities(t, servers)
 	if !maps.Equal(got, want) {
 		t.Fatalf("real Node server language closure = %v, want every Windows npm-backed ID %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(want)))
+	}
+}
+
+// TestRealNodeReusableRawNPMInstallRootE2E 锁定 raw npm cohort 复用入口：显式根必须
+// 是已有绝对目录；未设置时返回冷安装模式，不能把缺失或相对路径静默变成新目录。
+func TestRealNodeReusableRawNPMInstallRootE2E(t *testing.T) {
+	t.Run("unset keeps cold-install mode", func(t *testing.T) {
+		t.Setenv(realNodeWindowsReuseRawNPMInstallRootEnv, "")
+		got, reused, err := realNodeReusableRawNPMInstallRoot()
+		if err != nil {
+			t.Fatalf("realNodeReusableRawNPMInstallRoot() error = %v", err)
+		}
+		if got != "" || reused {
+			t.Fatalf("realNodeReusableRawNPMInstallRoot() = (%q, %t), want (empty, false)", got, reused)
+		}
+	})
+
+	t.Run("existing absolute root is reused", func(t *testing.T) {
+		root := t.TempDir()
+		sentinel := filepath.Join(root, "raw-npm-reuse-sentinel")
+		if err := os.WriteFile(sentinel, []byte("must remain"), 0o600); err != nil {
+			t.Fatalf("write raw npm reuse sentinel: %v", err)
+		}
+		t.Setenv(realNodeWindowsReuseRawNPMInstallRootEnv, root)
+		got, reused, err := realNodeReusableRawNPMInstallRoot()
+		if err != nil {
+			t.Fatalf("realNodeReusableRawNPMInstallRoot() error = %v", err)
+		}
+		if filepath.Clean(got) != filepath.Clean(root) || !reused {
+			t.Fatalf("realNodeReusableRawNPMInstallRoot() = (%q, %t), want (%q, true)", got, reused, root)
+		}
+		if _, err := os.Stat(sentinel); err != nil {
+			t.Fatalf("raw npm reuse sentinel was changed: %v", err)
+		}
+	})
+
+	for name, configured := range map[string]string{
+		"relative root": "relative-raw-npm-root",
+		"missing root":  filepath.Join(t.TempDir(), "missing-raw-npm-root"),
+	} {
+		t.Run(name+" fails fast", func(t *testing.T) {
+			t.Setenv(realNodeWindowsReuseRawNPMInstallRootEnv, configured)
+			if got, _, err := realNodeReusableRawNPMInstallRoot(); err == nil {
+				t.Fatalf("realNodeReusableRawNPMInstallRoot() accepted %q and returned %q", configured, got)
+			}
+		})
 	}
 }
 
@@ -1738,21 +2145,16 @@ func requireRealNodeServerCaseIdentities(t *testing.T, servers []realNodeServerC
 func runRealNodeServer(t *testing.T, root, nodeDist, installDir string, server realNodeServerCase) {
 	t.Helper()
 	fixtureRoot := t.TempDir()
-	fixture := filepath.Join(fixtureRoot, server.fileName)
-	if err := os.WriteFile(fixture, []byte(server.content), 0o600); err != nil {
-		t.Fatalf("write %s fixture: %v", server.name, err)
-	}
+	// Raw Node17 probes must consume the same checked-in bin/LSP/test snapshot as
+	// the MCP matrix; server.content is only a contract-test fixture.
+	fixture := writeRealMCPBinSourceFixture(t, fixtureRoot, server)
+	fixturePath := fixture.targetFile
+	fixtureBytes := readRealMCPBinSourceFile(t, fixturePath)
+	fixtureContent := string(fixtureBytes)
+	fixtureRoot = fixture.workDir
 	if server.name == "vue" {
 		if err := os.WriteFile(filepath.Join(fixtureRoot, "tsconfig.json"), []byte(`{"compilerOptions":{"allowJs":true,"jsx":"preserve","module":"ESNext","moduleResolution":"Bundler","target":"ESNext","strict":true},"include":["*.vue"]}`), 0o600); err != nil {
 			t.Fatalf("write Vue tsconfig: %v", err)
-		}
-	}
-	if server.name == "graphql" {
-		if err := os.WriteFile(filepath.Join(fixtureRoot, "schema.graphql"), []byte("type User { id: ID! name: String }\ntype Query { user: User }\n"), 0o600); err != nil {
-			t.Fatalf("write GraphQL schema: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(fixtureRoot, ".graphqlrc.yml"), []byte("schema: schema.graphql\ndocuments: '*.graphql'\n"), 0o600); err != nil {
-			t.Fatalf("write GraphQL config: %v", err)
 		}
 	}
 	script := filepath.Join(installDir, "node_modules", filepath.FromSlash(server.script))
@@ -1784,7 +2186,7 @@ func runRealNodeServer(t *testing.T, root, nodeDist, installDir string, server r
 		stdin:     stdin,
 		stdout:    bufio.NewReader(stdout),
 		stderr:    &realNodeBuffer{},
-		documents: map[string]string{realFileURI(fixture): server.content},
+		documents: map[string]string{realFileURI(fixturePath): fixtureContent},
 	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start real %s server: %v", server.name, err)
@@ -1844,19 +2246,19 @@ func runRealNodeServer(t *testing.T, root, nodeDist, installDir string, server r
 		t.Logf("%s initialize capabilities=%d handshake_only=true semantic_probe=skipped", server.name, len(initializeResult.Capabilities))
 	} else {
 		if err := client.notify("textDocument/didOpen", map[string]any{
-			"textDocument": map[string]any{"uri": realFileURI(fixture), "languageId": server.languageID, "version": 1, "text": server.content},
+			"textDocument": map[string]any{"uri": realFileURI(fixturePath), "languageId": server.languageID, "version": 1, "text": fixtureContent},
 		}); err != nil {
 			t.Fatalf("%s didOpen notification: %v", server.name, err)
 		}
 		if server.name != "graphql" {
 			if err := client.notify("textDocument/didChange", map[string]any{
-				"textDocument":   map[string]any{"uri": realFileURI(fixture), "version": 2},
-				"contentChanges": []map[string]any{{"text": server.content}},
+				"textDocument":   map[string]any{"uri": realFileURI(fixturePath), "version": 2},
+				"contentChanges": []map[string]any{{"text": fixtureContent}},
 			}); err != nil {
 				t.Fatalf("%s didChange notification: %v", server.name, err)
 			}
 		}
-		method, err := realSemanticProbe(ctx, client, fixture, server)
+		method, err := realSemanticProbe(ctx, client, fixturePath, server)
 		if err != nil {
 			t.Fatalf("%s has no non-empty semantic result or diagnostics: %v; results=%v; errors=%v; serverMessages=%v; capabilities=%s; stderr=%s", server.name, err, client.semanticResults, client.semanticErrors, client.serverMessages, initialized, client.stderr.String())
 		}
@@ -1882,7 +2284,15 @@ func realInitializeParams(rootURI string) map[string]any {
 }
 
 func realSemanticProbe(ctx context.Context, client *realLSPClient, fixture string, server realNodeServerCase) (string, error) {
+	if strings.TrimSpace(server.sourceIdentifier) == "" || strings.TrimSpace(server.sourceWorkspaceQuery) == "" || server.sourceLine <= 0 || server.sourceCharacter < 0 {
+		return "", fmt.Errorf("%s real source semantic mapping is incomplete: identifier=%q query=%q line=%d character=%d", server.languageID, server.sourceIdentifier, server.sourceWorkspaceQuery, server.sourceLine, server.sourceCharacter)
+	}
 	uri := realFileURI(fixture)
+	position := map[string]any{"line": server.sourceLine - 1, "character": server.sourceCharacter}
+	workspaceQueries := []string{server.sourceWorkspaceQuery}
+	if server.sourceIdentifier != server.sourceWorkspaceQuery {
+		workspaceQueries = append(workspaceQueries, server.sourceIdentifier)
+	}
 	requests := []struct {
 		method string
 		params map[string]any
@@ -1890,13 +2300,25 @@ func realSemanticProbe(ctx context.Context, client *realLSPClient, fixture strin
 		{method: "textDocument/documentSymbol", params: map[string]any{"textDocument": map[string]any{"uri": uri}}},
 		{method: "textDocument/foldingRange", params: map[string]any{"textDocument": map[string]any{"uri": uri}}},
 		{method: "textDocument/documentLink", params: map[string]any{"textDocument": map[string]any{"uri": uri}}},
-		{method: "textDocument/selectionRange", params: map[string]any{"textDocument": map[string]any{"uri": uri}, "positions": []map[string]any{{"line": server.line - 1, "character": server.character}}}},
+		{method: "textDocument/selectionRange", params: map[string]any{"textDocument": map[string]any{"uri": uri}, "positions": []map[string]any{position}}},
 		{method: "textDocument/semanticTokens/full", params: map[string]any{"textDocument": map[string]any{"uri": uri}}},
-		{method: "workspace/symbol", params: map[string]any{"query": "Real"}},
-		{method: "workspace/symbol", params: map[string]any{"query": "User"}},
-		{method: "textDocument/hover", params: map[string]any{"textDocument": map[string]any{"uri": uri}, "position": map[string]any{"line": server.line - 1, "character": server.character}}},
-		{method: "textDocument/completion", params: map[string]any{"textDocument": map[string]any{"uri": uri}, "position": map[string]any{"line": server.line - 1, "character": server.character}, "context": map[string]any{"triggerKind": 1}}},
 	}
+	for _, query := range workspaceQueries {
+		requests = append(requests, struct {
+			method string
+			params map[string]any
+		}{method: "workspace/symbol", params: map[string]any{"query": query}})
+	}
+	requests = append(requests,
+		struct {
+			method string
+			params map[string]any
+		}{method: "textDocument/hover", params: map[string]any{"textDocument": map[string]any{"uri": uri}, "position": position}},
+		struct {
+			method string
+			params map[string]any
+		}{method: "textDocument/completion", params: map[string]any{"textDocument": map[string]any{"uri": uri}, "position": position, "context": map[string]any{"triggerKind": 1}}},
+	)
 	for _, request := range requests {
 		attempts := 1
 		if server.name == "graphql" && request.method == "textDocument/documentSymbol" {
@@ -2512,7 +2934,13 @@ func requireRealMCPFixturePositions(t *testing.T, fixture realMCPFixture, server
 }
 
 func realMCPContractTestFixture(server realNodeServerCase) realMCPFixture {
+	workspaceQuery := strings.TrimSpace(server.sourceWorkspaceQuery)
+	if workspaceQuery == "" {
+		workspaceQuery = realMCPWorkspaceQuery(server)
+	}
 	return realMCPFixture{
+		searchNeedle:           "realMCPNeedle",
+		replaceExpectation:     "REAL_MCP_REPLACED",
 		targetFile:             server.fileName,
 		secondaryFile:          "secondary." + server.fileName,
 		replaceFile:            "replace." + server.fileName,
@@ -2520,6 +2948,7 @@ func realMCPContractTestFixture(server realNodeServerCase) realMCPFixture {
 		codeActionFile:         "code_action." + server.fileName,
 		formatFile:             "format." + server.fileName,
 		completionFile:         "completion." + server.fileName,
+		workspaceQuery:         workspaceQuery,
 		semanticPosition:       server.fileName + ":1:1",
 		renamePosition:         server.fileName + ":1:1",
 		implementationPosition: server.fileName + ":1:1",
@@ -2548,9 +2977,62 @@ func realNodeEnvironment(base []string, nodeDist, installDir string) []string {
 	if existing := lookupEnv(base, "PATH"); existing != "" {
 		path += string(os.PathListSeparator) + existing
 	}
-	base = replaceEnv(base, "PATH", path)
+	// Windows cmd.exe resolves the conventional environment key as Path. Keep
+	// the key's platform spelling after case-insensitive replacement so npm
+	// lifecycle scripts can resolve `node` without creating duplicate PATH keys.
+	base = replaceEnv(base, "Path", path)
 	base = replaceEnv(base, "NODE_PATH", filepath.Join(installDir, "node_modules"))
 	return base
+}
+
+func TestRealNodeEnvironmentReplacesWindowsPathCaseInsensitively(t *testing.T) {
+	nodeDist := filepath.Join(t.TempDir(), "node")
+	installDir := filepath.Join(t.TempDir(), "packages")
+	env := realNodeEnvironment([]string{"Path=C:\\host-bin", "NODE_PATH=C:\\stale-modules"}, nodeDist, installDir)
+	pathCount := 0
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, "PATH") {
+			pathCount++
+		}
+	}
+	if pathCount != 1 {
+		t.Fatalf("real Node environment PATH key count = %d, want exactly one case-insensitive key: %q", pathCount, env)
+	}
+	if got := lookupEnv(env, "PATH"); !slices.Contains(strings.Split(got, string(os.PathListSeparator)), nodeDist) || !strings.Contains(got, "C:\\host-bin") {
+		t.Fatalf("real Node environment PATH = %q, want Node runtime and inherited mixed-case Path", got)
+	}
+}
+
+func TestRealNodeEnvironmentCmdLifecycleResolvesManagedNode(t *testing.T) {
+	nodeDist := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_NODE_DIST"))
+	if nodeDist == "" {
+		t.Skip("SUPER_DOLPHIN_NODE_DIST is required for the Windows cmd lifecycle probe")
+	}
+	nodePath := filepath.Join(nodeDist, "node.exe")
+	if !fileExists(nodePath) {
+		t.Fatalf("managed Node executable is missing: %s", nodePath)
+	}
+	env := realNodeEnvironment([]string{"Path=C:\\host-bin"}, nodeDist, t.TempDir())
+	pathCount := 0
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, "PATH") {
+			pathCount++
+		}
+	}
+	if pathCount != 1 {
+		t.Fatalf("managed Node environment has %d PATH keys: %q", pathCount, env)
+	}
+	cmd := exec.Command("cmd.exe", "/d", "/s", "/c", "node --version")
+	cmd.Env = env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cmd.exe could not resolve managed node: %v; output=%s; env=%q", err, output, env)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(output)), "v") {
+		t.Fatalf("cmd.exe node version output = %q", output)
+	}
 }
 
 func realNodeAstGrepRuntimePaths(installDir string) string {
@@ -2575,10 +3057,10 @@ func realNodeAstGrepRuntimePaths(installDir string) string {
 }
 
 func lookupEnv(env []string, key string) string {
-	prefix := key + "="
-	for _, value := range env {
-		if strings.HasPrefix(value, prefix) {
-			return strings.TrimPrefix(value, prefix)
+	for _, entry := range env {
+		entryKey, value, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(entryKey, key) {
+			return value
 		}
 	}
 	return ""
@@ -2588,7 +3070,8 @@ func replaceEnv(env []string, key, value string) []string {
 	prefix := key + "="
 	result := make([]string, 0, len(env)+1)
 	for _, entry := range env {
-		if !strings.HasPrefix(entry, prefix) {
+		entryKey, _, ok := strings.Cut(entry, "=")
+		if !ok || !strings.EqualFold(entryKey, key) {
 			result = append(result, entry)
 		}
 	}
@@ -2612,6 +3095,9 @@ func processExists(pid int) bool {
 func buildRealMcpLSPBinary(t *testing.T, root string) string {
 	t.Helper()
 	goBin := realBundledGo(t, root)
+	if managedRoot := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_GO_SDK_ROOT")); managedRoot != "" {
+		t.Setenv("GOROOT", managedRoot)
+	}
 	platformKey := realNodePlatformKey(t)
 	outputName := "mcp-lsp-" + platformKey + "-real-node-e2e"
 	if runtime.GOOS == "windows" {
@@ -2727,6 +3213,14 @@ func TestResolveRealBundledGoUsesExplicitOverrideAndEmptyFallbackE2E(t *testing.
 }
 
 type realMCPFixture struct {
+	workDir                string
+	sourceRoot             string
+	sourcePath             string
+	sourceSecondaryPath    string
+	searchNeedle           string
+	replaceExpectation     string
+	workspaceQuery         string
+	readLine               int
 	targetFile             string
 	secondaryFile          string
 	replaceFile            string
@@ -3191,15 +3685,28 @@ func runRealMCPToolCoverageForServers(t *testing.T, root, binary, nodeDist, inst
 			t.Fatalf("raw MCP coverage helper cannot run Vue; use product-owned production bridge entrypoint")
 		}
 	}
-	return runRealMCPToolCoverageForServersWithProductRoot(t, root, binary, nodeDist, installDir, servers, expectedLanguageCount, "")
+	productRoot := strings.TrimSpace(os.Getenv(realNodeWindowsReuseProductRootEnv))
+	if productRoot != "" {
+		productRoot = filepath.Clean(productRoot)
+		if !filepath.IsAbs(productRoot) {
+			t.Fatalf("%s must be an absolute Windows product root: %q", realNodeWindowsReuseProductRootEnv, productRoot)
+		}
+		info, err := os.Stat(productRoot)
+		if err != nil {
+			t.Fatalf("stat reusable Windows product root %q: %v", productRoot, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("reusable Windows product root %q is not a directory", productRoot)
+		}
+		t.Logf("reusing validated Windows product root for real MCP matrix: %s", productRoot)
+	}
+	return runRealMCPToolCoverageForServersWithProductRoot(t, root, binary, nodeDist, installDir, servers, expectedLanguageCount, productRoot)
 }
 
-func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary, nodeDist, installDir string, servers []realNodeServerCase, expectedLanguageCount int, productionProductRoot string) realMCPMatrixSummary {
+func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary, nodeDist, installDir string, servers []realNodeServerCase, expectedLanguageCount int, productionProductRoot string, focusedActions ...string) realMCPMatrixSummary {
 	t.Helper()
 	fixtureRoot := t.TempDir()
 	registerRealMCPTempRootCleanup(t, fixtureRoot)
-	astFile := filepath.Join(fixtureRoot, "ast_fixture.js")
-	writeRealFixture(t, astFile, "function realMCPAstFixture(name) { return name; }\nrealMCPAstFixture(\"world\");\n")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 	defer cancel()
@@ -3220,7 +3727,7 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 		if runtime.GOOS == "windows" {
 			treeCaptured = trackRealMCPProcessTree(t, mcpPID, "final-before-close", trackedProcesses)
 			if treeCaptured {
-				if strings.TrimSpace(productionProductRoot) != "" {
+				if strings.TrimSpace(productionProductRoot) != "" && len(servers) == 1 && servers[0].name == "vue" {
 					localAppData := filepath.Join(productionProductRoot, "runtime-state", "localappdata")
 					appData := filepath.Join(productionProductRoot, "runtime-state", "appdata")
 					for _, item := range []struct {
@@ -3237,7 +3744,9 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 					}
 					t.Logf("production Vue scoped user-data env LOCALAPPDATA=%s APPDATA=%s", localAppData, appData)
 				}
-				requireRealMCPTypeScriptUserDataWithinRoot(t, trackedProcesses, productionProductRoot)
+				if strings.TrimSpace(productionProductRoot) != "" && len(servers) == 1 && servers[0].name == "vue" {
+					requireRealMCPTypeScriptUserDataWithinRoot(t, trackedProcesses, productionProductRoot)
+				}
 				logRealMCPProcessIdentities(t, trackedProcesses)
 			}
 		}
@@ -3275,9 +3784,26 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 		var languageSummary realMCPMatrixSummary
 		t.Run(platform+"/"+server.languageID, func(t *testing.T) {
 			fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
+			// ast_search 也必须在当前语言的隔离 workspace 内读取快照副本，不能
+			// 通过根临时目录或 synthetic 内容绕过 work_dir 边界。
+			astFile := filepath.Join(fixture.workDir, ".mcp-ast", "ast_fixture.js")
+			copyRealMCPBinSourceFileWithinRoot(t, filepath.Join(root, "bin", "LSP", "test"), "javascript/module-examples/top-level-await/main.js", fixture.workDir, astFile)
 			actions := realMCPActionSpecs(server, fixture, astFile)
 			if err := validateRealMCPActionClosure(actions); err != nil {
 				t.Fatalf("%s action closure: %v", server.languageID, err)
+			}
+			if len(focusedActions) > 0 {
+				allowed := make(map[string]struct{}, len(focusedActions))
+				for _, action := range focusedActions {
+					allowed[action] = struct{}{}
+				}
+				filtered := actions[:0]
+				for _, action := range actions {
+					if _, ok := allowed[action.tool+"/"+action.name]; ok {
+						filtered = append(filtered, action)
+					}
+				}
+				actions = filtered
 			}
 			languageSummary.total = len(actions)
 			for _, action := range actions {
@@ -3292,10 +3818,10 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 						if path == "" {
 							t.Fatalf("patch_edit action %s has no file_path or position path", action.name)
 						}
-						opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
+						opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
 						requireRealMCPActionResult(t, opened, true, "", false, "", false, server.languageID+" file open "+action.name)
 					}
-					requestArgs := realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args)
+					requestArgs := realMCPWindowsToolArguments(server.languageID, fixture.workDir, action.tool, action.name, action.args)
 					if action.tool == "file" && action.name == "open_file" {
 						filePath, ok := requestArgs["file_path"].(string)
 						if !ok || strings.TrimSpace(filePath) == "" {
@@ -3306,7 +3832,13 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 					response := client.callTool(t, action.tool, requestArgs)
 					status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptionalForServer(server, action.tool, action.name), server.languageID+" "+action.tool+" "+action.name)
 					if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
-						assertRealFileContains(t, fixture.replaceFile, "REAL_MCP_REPLACED", server.languageID+" patch_edit replace_range")
+						assertRealFileContains(t, fixture.replaceFile, fixture.replaceExpectation, server.languageID+" patch_edit replace_range")
+					}
+					if server.name == "prisma" && action.tool == "patch_edit" && action.name == "rename" && status == realMCPActionSucceeded {
+						assertRealMCPPrismaRenamePreservesMapping(t, fixture.renameFile, "realMCPRenamed", server.sourceIdentifier)
+					}
+					if server.name == "php" && action.tool == "patch_edit" && action.name == "rename" && status == realMCPActionSucceeded {
+						assertRealMCPPHPSemanticRename(t, client, server, fixture)
 					}
 					switch status {
 					case realMCPActionSucceeded:
@@ -3334,8 +3866,12 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 		matrix.capabilityUnsupported += languageSummary.capabilityUnsupported
 		matrix.unsupportedActions = append(matrix.unsupportedActions, languageSummary.unsupportedActions...)
 	}
-	if matrix.total != expectedLanguageCount*realMCPExpectedActionCount {
-		t.Fatalf("real MCP matrix total=%d, want exact %d languages x %d actions", matrix.total, expectedLanguageCount, realMCPExpectedActionCount)
+	expectedActionCount := realMCPExpectedActionCount
+	if len(focusedActions) > 0 {
+		expectedActionCount = len(focusedActions)
+	}
+	if matrix.total != expectedLanguageCount*expectedActionCount {
+		t.Fatalf("real MCP matrix total=%d, want exact %d languages x %d actions", matrix.total, expectedLanguageCount, expectedActionCount)
 	}
 	t.Logf("real MCP action matrix summary platform=%s languages=%d actions=%d success=%d legal_empty=%d capability_unsupported=%d unsupported_actions=%v tracked_processes=%d mcp_pid=%d",
 		platform, len(servers), matrix.total, matrix.succeeded, matrix.legalEmpty, matrix.capabilityUnsupported, matrix.unsupportedActions, len(trackedProcesses), mcpPID)
@@ -3365,6 +3901,12 @@ func realMCPWindowsToolArguments(languageID, workDir, tool, actionName string, a
 // 这些文件只由真实 MCP stdio 工具打开，绝不注入 fake LSP server。
 func writeRealMCPLanguageFixture(t *testing.T, root string, server realNodeServerCase) realMCPFixture {
 	t.Helper()
+	if strings.TrimSpace(server.sourceDir) != "" {
+		return writeRealMCPBinSourceFixture(t, root, server)
+	}
+	if strings.TrimSpace(server.packageName) != "" {
+		t.Fatalf("%s real Node server is missing its bin/LSP/test source mapping", server.languageID)
+	}
 	if server.name == "prisma" {
 		return writeRealMCPPrismaLanguageFixture(t, root, server)
 	}
@@ -3469,6 +4011,133 @@ func writeRealMCPLanguageFixture(t *testing.T, root string, server realNodeServe
 		completionPosition:     completionPosition,
 		codeActionPosition:     codeActionPosition,
 		replacePatch:           "@@\n-REAL_MCP_REPLACE_ME\n+REAL_MCP_REPLACED\n",
+	}
+}
+
+// writeRealMCPBinSourceFixture 把 bin/LSP/test 的完整语言快照复制到临时
+// workspace，再为每个会修改文件的动作建立独立副本。所有初始文件内容均来自
+// 快照；动作只在临时副本上运行，避免 patch_edit 污染仓库样板。
+func writeRealMCPBinSourceFixture(t *testing.T, root string, server realNodeServerCase) realMCPFixture {
+	t.Helper()
+	repoRoot := realNodeRepoRoot(t)
+	sourceRoot := filepath.Join(repoRoot, "bin", "LSP", "test")
+	sourceDir := filepath.Clean(filepath.FromSlash(strings.TrimSpace(server.sourceDir)))
+	if sourceDir == "." || filepath.IsAbs(sourceDir) {
+		t.Fatalf("%s bin/LSP/test source directory must be relative: %q", server.languageID, server.sourceDir)
+	}
+	sourceProjectRoot := filepath.Join(sourceRoot, sourceDir)
+	workspaceRoot := filepath.Join(root, server.name)
+	// 必须先验证源目录和隔离目标的边界，再读取或复制任何文件；错误映射不能先
+	// 扫描 bin/LSP/test 外部内容，错误 server 名也不能写出本次临时根。
+	if !realMCPPathWithinRoot(sourceRoot, sourceProjectRoot) {
+		t.Fatalf("%s source project escaped bin/LSP/test: %q", server.languageID, sourceProjectRoot)
+	}
+	if !realMCPPathWithinRoot(root, workspaceRoot) {
+		t.Fatalf("%s isolated workspace escaped fixture root: %q", server.languageID, workspaceRoot)
+	}
+	sourcePath, _, err := realMCPNodeSourceMapping(sourceRoot, server)
+	if err != nil {
+		t.Fatalf("%s validate bin/LSP/test semantic mapping: %v", server.languageID, err)
+	}
+	copyRealMCPBinSourceTree(t, sourceProjectRoot, workspaceRoot)
+
+	target := filepath.Join(workspaceRoot, filepath.FromSlash(server.sourceFile))
+	if !realMCPPathWithinRoot(sourceRoot, sourcePath) || !realMCPPathWithinRoot(workspaceRoot, target) {
+		t.Fatalf("%s source/target path escaped its root: source=%q target=%q", server.languageID, sourcePath, target)
+	}
+	languageWorkspaceRoot := workspaceRoot
+	if server.name == "swift" {
+		// Swift resolves a file to the nearest Package.swift. Keep every action
+		// copy under the package containing the real target, so one MCP client
+		// is reused instead of creating a second workspace client.
+		languageWorkspaceRoot = filepath.Dir(filepath.Dir(filepath.Dir(target)))
+		if !realMCPPathWithinRoot(workspaceRoot, languageWorkspaceRoot) {
+			t.Fatalf("%s language workspace escaped isolated root: %q", server.languageID, languageWorkspaceRoot)
+		}
+	}
+	workspaceQuery := strings.TrimSpace(server.sourceWorkspaceQuery)
+
+	if strings.TrimSpace(server.sourceSecondaryFile) == "" {
+		t.Fatalf("%s secondary source mapping is empty", server.languageID)
+	}
+	secondarySourcePath := filepath.Join(sourceProjectRoot, filepath.FromSlash(server.sourceSecondaryFile))
+	if !realMCPPathWithinRoot(sourceProjectRoot, secondarySourcePath) {
+		t.Fatalf("%s secondary source path escaped language snapshot: %q", server.languageID, secondarySourcePath)
+	}
+	if _, err := os.Stat(secondarySourcePath); err != nil {
+		t.Fatalf("%s secondary source file %q is unavailable: %v", server.languageID, secondarySourcePath, err)
+	}
+	secondary := filepath.Join(languageWorkspaceRoot, ".mcp-secondary", filepath.Base(secondarySourcePath))
+	secondaryRelative, err := filepath.Rel(sourceProjectRoot, secondarySourcePath)
+	if err != nil {
+		t.Fatalf("resolve %s secondary source relative path: %v", server.languageID, err)
+	}
+	copyRealMCPBinSourceFileWithinRoot(t, sourceRoot, filepath.ToSlash(filepath.Join(server.sourceDir, secondaryRelative)), workspaceRoot, secondary)
+	secondaryBytes := readRealMCPBinSourceFile(t, secondarySourcePath)
+	searchNeedle := realMCPSourceNeedle(string(secondaryBytes))
+	if searchNeedle == "" {
+		t.Fatalf("%s secondary source fixture has no stable search token", server.languageID)
+	}
+
+	copyAction := func(name string) string {
+		if name == "rename" && (server.name == "javascript" || server.name == "javascriptreact" || server.name == "typescript" || server.name == "typescriptreact") {
+			// Keep the rename action in a complete isolated project. The real
+			// TypeScript fixture has consumers outside the declaration file,
+			// including mathematic.test.ts excluded by tsconfig; copying only the
+			// declaration would make a false single-file rename pass.
+			actionRoot := filepath.Join(workspaceRoot, ".mcp-actions", name)
+			copyRealMCPBinSourceTree(t, sourceProjectRoot, actionRoot)
+			return filepath.Join(actionRoot, filepath.FromSlash(server.sourceFile))
+		}
+		actionRoot := filepath.Join(workspaceRoot, ".mcp-actions", name)
+		if server.name == "swift" {
+			actionRoot = filepath.Join(languageWorkspaceRoot, ".mcp-actions", name)
+		}
+		destination := filepath.Join(actionRoot, filepath.Base(target))
+		copyRealMCPBinSourceFileWithinRoot(t, sourceRoot, filepath.ToSlash(filepath.Join(server.sourceDir, server.sourceFile)), workspaceRoot, destination)
+		return destination
+	}
+	replace := copyAction("replace")
+	replaceBytes := readRealMCPBinSourceFile(t, replace)
+	replaceLine, _ := realMCPSourcePosition(string(replaceBytes))
+	oldLine := strings.Split(strings.ReplaceAll(string(replaceBytes), "\r\n", "\n"), "\n")[replaceLine-1]
+	replaceExpectation := "REAL_MCP_REPLACED"
+	replacePatch := "@@\n-" + oldLine + "\n+" + replaceExpectation + "\n"
+	rename := copyAction("rename")
+	codeAction := copyAction("code_action")
+	format := copyAction("format")
+	completion := copyAction("completion")
+	semanticPosition := realMCPPositionFromLSP(target, server.sourceLine, server.sourceCharacter)
+	completionPosition := realMCPPositionFromLSP(completion, server.sourceLine, server.sourceCharacter)
+	if server.languageID == "json" {
+		completionPosition = realMCPPositionFromLSP(completion, 6, 5)
+	}
+	return realMCPFixture{
+		workDir:                workspaceRoot,
+		sourceRoot:             sourceRoot,
+		sourcePath:             sourcePath,
+		sourceSecondaryPath:    secondarySourcePath,
+		searchNeedle:           searchNeedle,
+		replaceExpectation:     replaceExpectation,
+		workspaceQuery:         workspaceQuery,
+		readLine:               server.sourceLine,
+		targetFile:             target,
+		secondaryFile:          secondary,
+		replaceFile:            replace,
+		renameFile:             rename,
+		codeActionFile:         codeAction,
+		formatFile:             format,
+		completionFile:         completion,
+		semanticPosition:       semanticPosition,
+		renamePosition:         realMCPPositionFromLSP(rename, server.sourceLine, server.sourceCharacter),
+		implementationPosition: semanticPosition,
+		typeDefinitionPosition: semanticPosition,
+		callHierarchyPosition:  semanticPosition,
+		typeHierarchyPosition:  semanticPosition,
+		signaturePosition:      semanticPosition,
+		completionPosition:     completionPosition,
+		codeActionPosition:     realMCPPosition(codeAction, 1, 1),
+		replacePatch:           replacePatch,
 	}
 }
 
@@ -3623,6 +4292,68 @@ func TestRealMCPPrismaWindowsSemanticPositionTargetsModelReference(t *testing.T)
 	}
 }
 
+// assertRealMCPPrismaRenamePreservesMapping 锁定 Prisma rename 的语义合同：模型名
+// 可以改变，但数据库映射必须保留。这里不要求 rename→原名的字节级 round-trip，
+// 因为上游为避免数据库 identity 改变而保留 @@map 是有意的语义编辑，MCP 不得删除它。
+func assertRealMCPPrismaRenamePreservesMapping(t *testing.T, path, renamedModel, mappedModel string) {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read Prisma rename result %s: %v", path, err)
+	}
+	content := strings.ReplaceAll(string(payload), "\r\n", "\n")
+	modelStart := strings.Index(content, "model "+renamedModel+" {")
+	if modelStart < 0 {
+		t.Fatalf("Prisma rename result missing renamed model %q: %s", renamedModel, path)
+	}
+	modelBody := content[modelStart:]
+	modelEnd := strings.Index(modelBody, "\n}")
+	if modelEnd < 0 {
+		t.Fatalf("Prisma rename result has unterminated model %q: %s", renamedModel, path)
+	}
+	modelBody = modelBody[:modelEnd]
+	wantMapping := `@@map("` + mappedModel + `")`
+	if !strings.Contains(modelBody, wantMapping) {
+		t.Fatalf("Prisma rename result for %q dropped database mapping %s", renamedModel, wantMapping)
+	}
+}
+
+func assertRealMCPPHPSemanticRename(t *testing.T, client *mcpLSPBinaryClient, server realNodeServerCase, fixture realMCPFixture) {
+	t.Helper()
+	declaration := fixture.renameFile
+	consumer := filepath.Join(filepath.Dir(fixture.renameFile), "Semver.php")
+	declarationContent, err := os.ReadFile(declaration)
+	if err != nil {
+		t.Fatalf("read PHP renamed declaration %s: %v", declaration, err)
+	}
+	if !bytes.Contains(declarationContent, []byte("class realMCPRenamed")) || bytes.Contains(declarationContent, []byte("class VersionParser")) {
+		t.Fatalf("PHP rename did not update declaration exactly: %s", declaration)
+	}
+	consumerContent, err := os.ReadFile(consumer)
+	if err != nil {
+		t.Fatalf("read PHP renamed consumer %s: %v", consumer, err)
+	}
+	if !bytes.Contains(consumerContent, []byte("new realMCPRenamed()")) {
+		t.Fatalf("PHP rename did not update constructor reference: %s", consumer)
+	}
+	if !bytes.Contains(consumerContent, []byte("@var VersionParser")) {
+		t.Fatalf("PHP rename changed same-name non-reference documentation text: %s", consumer)
+	}
+	for _, path := range []string{declaration, consumer} {
+		response := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "diagnostics", map[string]any{
+			"action": "diagnostics", "file_path": path,
+		}))
+		requireRealMCPActionResult(t, response, false, "PHP semantic rename must leave zero diagnostics", false, realMCPActionCapabilityKey("file", "diagnostics"), realMCPActionProtocolOptionalForServer(server, "file", "diagnostics"), "PHP rename diagnostics")
+		doc, err := lineprotocol.Parse(response.Result.ContentText())
+		if err != nil {
+			t.Fatalf("parse PHP post-rename diagnostics %s: %v; text=%q", path, err, response.Result.ContentText())
+		}
+		if doc.Error != nil || doc.Header.Total != 0 {
+			t.Fatalf("PHP post-rename diagnostics are not zero for %s: error=%v header=%+v text=%q", path, doc.Error, doc.Header, response.Result.ContentText())
+		}
+	}
+}
+
 func realMCPPrismaBlockBoundaryError(content string) error {
 	open := ""
 	for index, line := range strings.Split(content, "\n") {
@@ -3692,10 +4423,18 @@ func realMCPPositionPath(position string) string {
 	if last <= 0 {
 		return ""
 	}
+	if _, err := strconv.Atoi(position[last+1:]); err != nil {
+		return ""
+	}
 	beforeColumn := position[:last]
 	secondLast := strings.LastIndex(beforeColumn, ":")
 	if secondLast <= 0 {
-		return ""
+		return beforeColumn
+	}
+	if _, err := strconv.Atoi(beforeColumn[secondLast+1:]); err != nil {
+		// file(read_file) 的 lines/function scope 只携带 :line；Windows
+		// 盘符中的冒号不是第二个位置分隔符。
+		return beforeColumn
 	}
 	return beforeColumn[:secondLast]
 }
@@ -3782,9 +4521,124 @@ func realMCPFixturePath(root string, server realNodeServerCase, stem string) str
 }
 
 // realMCPActionSpecs 返回七个公开工具族的全部公开小动作；参数指向当前真实语言 fixture。
+// realMCPValidateUTF16Identifier 校验 1-based 行号与 0-based UTF-16 列确实落在
+// 指定 identifier 上；不能用 Go 字节下标冒充 LSP position。
+func realMCPValidateUTF16Identifier(content []byte, lineNumber, character int, identifier string) error {
+	if lineNumber <= 0 || character < 0 || strings.TrimSpace(identifier) == "" {
+		return fmt.Errorf("invalid semantic mapping line=%d character=%d identifier=%q", lineNumber, character, identifier)
+	}
+	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
+	if lineNumber > len(lines) {
+		return fmt.Errorf("semantic line=%d exceeds %d lines", lineNumber, len(lines))
+	}
+	lineUnits := utf16.Encode([]rune(lines[lineNumber-1]))
+	identifierUnits := utf16.Encode([]rune(identifier))
+	end := character + len(identifierUnits)
+	if end > len(lineUnits) || !slices.Equal(lineUnits[character:end], identifierUnits) {
+		return fmt.Errorf("semantic anchor does not target %q at %d:%d", identifier, lineNumber, character)
+	}
+	return nil
+}
+
+// realMCPNodeSourceMapping 在复制快照前收紧 source root、真实文件与语义映射；
+// 所有 Node17 real fixture 都必须先通过这一道 fail-fast 守卫。
+func realMCPNodeSourceMapping(sourceRoot string, server realNodeServerCase) (string, []byte, error) {
+	if strings.TrimSpace(server.sourceDir) == "" || strings.TrimSpace(server.sourceFile) == "" || strings.TrimSpace(server.sourceSecondaryFile) == "" || strings.TrimSpace(server.sourceIdentifier) == "" || strings.TrimSpace(server.sourceWorkspaceQuery) == "" {
+		return "", nil, fmt.Errorf("%s source mapping is incomplete: dir=%q file=%q secondary=%q identifier=%q query=%q", server.languageID, server.sourceDir, server.sourceFile, server.sourceSecondaryFile, server.sourceIdentifier, server.sourceWorkspaceQuery)
+	}
+	if server.sourceLine <= 0 || server.sourceCharacter < 0 {
+		return "", nil, fmt.Errorf("%s source mapping has invalid position line=%d character=%d", server.languageID, server.sourceLine, server.sourceCharacter)
+	}
+	absSourceRoot, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve source root: %w", err)
+	}
+	info, err := os.Stat(absSourceRoot)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat source root %s: %w", absSourceRoot, err)
+	}
+	if !info.IsDir() {
+		return "", nil, fmt.Errorf("source root is not a directory: %s", absSourceRoot)
+	}
+	sourceDir := filepath.Clean(filepath.FromSlash(strings.TrimSpace(server.sourceDir)))
+	if sourceDir == "." || filepath.IsAbs(sourceDir) {
+		return "", nil, fmt.Errorf("source directory must be relative: %q", server.sourceDir)
+	}
+	sourceProjectRoot := filepath.Join(absSourceRoot, sourceDir)
+	if !realMCPPathWithinRoot(absSourceRoot, sourceProjectRoot) {
+		return "", nil, fmt.Errorf("source project escapes source root: %q", sourceProjectRoot)
+	}
+	projectInfo, err := os.Stat(sourceProjectRoot)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat source project %s: %w", sourceProjectRoot, err)
+	}
+	if !projectInfo.IsDir() {
+		return "", nil, fmt.Errorf("source project is not a directory: %s", sourceProjectRoot)
+	}
+	sourceRelative := filepath.Clean(filepath.FromSlash(strings.TrimSpace(server.sourceFile)))
+	if sourceRelative == "." || filepath.IsAbs(sourceRelative) {
+		return "", nil, fmt.Errorf("source file must be relative: %q", server.sourceFile)
+	}
+	sourcePath := filepath.Join(sourceProjectRoot, sourceRelative)
+	if !realMCPPathWithinRoot(absSourceRoot, sourcePath) || !realMCPPathWithinRoot(sourceProjectRoot, sourcePath) {
+		return "", nil, fmt.Errorf("source file escapes source root: %q", sourcePath)
+	}
+	sourceInfo, err := os.Lstat(sourcePath)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat source file %s: %w", sourcePath, err)
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("source file is not a regular file: %s", sourcePath)
+	}
+	sourceBytes, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return "", nil, fmt.Errorf("read source file %s: %w", sourcePath, err)
+	}
+	if len(sourceBytes) == 0 {
+		return "", nil, fmt.Errorf("source file is empty: %s", sourcePath)
+	}
+	if err := realMCPValidateUTF16Identifier(sourceBytes, server.sourceLine, server.sourceCharacter, strings.TrimSpace(server.sourceIdentifier)); err != nil {
+		return "", nil, fmt.Errorf("%s: %w", server.languageID, err)
+	}
+	if !strings.Contains(string(sourceBytes), strings.TrimSpace(server.sourceWorkspaceQuery)) {
+		return "", nil, fmt.Errorf("workspace query %q is absent from source file %s", server.sourceWorkspaceQuery, sourcePath)
+	}
+	secondaryRelative := filepath.Clean(filepath.FromSlash(strings.TrimSpace(server.sourceSecondaryFile)))
+	if secondaryRelative == "." || filepath.IsAbs(secondaryRelative) {
+		return "", nil, fmt.Errorf("secondary source file must be relative: %q", server.sourceSecondaryFile)
+	}
+	secondaryPath := filepath.Join(sourceProjectRoot, secondaryRelative)
+	if !realMCPPathWithinRoot(absSourceRoot, secondaryPath) || !realMCPPathWithinRoot(sourceProjectRoot, secondaryPath) {
+		return "", nil, fmt.Errorf("secondary source file escapes source project: %q", secondaryPath)
+	}
+	secondaryInfo, err := os.Lstat(secondaryPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat secondary source file %s: %w", secondaryPath, err)
+	}
+	if secondaryInfo.Mode()&os.ModeSymlink != 0 || !secondaryInfo.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("secondary source file is not a regular file: %s", secondaryPath)
+	}
+	return sourcePath, sourceBytes, nil
+}
+
 func realMCPActionSpecs(server realNodeServerCase, fixture realMCPFixture, astFile string) []realMCPActionSpec {
 	semantic := fixture.semanticPosition
-	workspaceQuery := realMCPWorkspaceQuery(server)
+	workspaceQuery := strings.TrimSpace(fixture.workspaceQuery)
+	if fixture.sourceRoot != "" {
+		if workspaceQuery == "" || workspaceQuery != strings.TrimSpace(server.sourceWorkspaceQuery) {
+			panic(fmt.Sprintf("%s real fixture is missing its mapped workspace query: fixture=%q server=%q", server.languageID, fixture.workspaceQuery, server.sourceWorkspaceQuery))
+		}
+	} else if workspaceQuery == "" {
+		workspaceQuery = realMCPWorkspaceQuery(server)
+	}
+	readLine := fixture.readLine
+	if fixture.sourceRoot != "" {
+		if readLine <= 0 || readLine != server.sourceLine {
+			panic(fmt.Sprintf("%s real fixture is missing its mapped source line: fixture=%d server=%d", server.languageID, readLine, server.sourceLine))
+		}
+	} else if readLine <= 0 {
+		readLine = server.line
+	}
 	implementationResult, implementationEmpty := realMCPActionResultContract(server, "inspect", "implementation")
 	typeDefinitionResult, typeDefinitionEmpty := realMCPActionResultContract(server, "inspect", "type_definition")
 	definitionResult, definitionEmpty := realMCPActionResultContract(server, "inspect", "definition")
@@ -3799,8 +4653,8 @@ func realMCPActionSpecs(server realNodeServerCase, fixture realMCPFixture, astFi
 		{name: "read_file-single", tool: "file", args: map[string]any{"action": "read_file", "file_path": fixture.targetFile, "limit": 100}, requireResult: true},
 		{name: "read_file-full", tool: "file", args: map[string]any{"action": "read_file", "file_path": fixture.targetFile}, requireResult: true},
 		{name: "read_file-batch", tool: "file", args: map[string]any{"action": "read_file", "file_paths": []string{fixture.targetFile, fixture.secondaryFile}, "limit": 100}, requireResult: true},
-		{name: "read_file-lines", tool: "file", args: map[string]any{"action": "read_file", "pos": fixture.targetFile + ":" + strconv.Itoa(server.line), "scope": "lines", "limit": 1}, requireResult: true},
-		{name: "read_file-function", tool: "file", args: map[string]any{"action": "read_file", "pos": fixture.targetFile + ":" + strconv.Itoa(server.line), "limit": 50}, requireResult: true},
+		{name: "read_file-lines", tool: "file", args: map[string]any{"action": "read_file", "pos": fixture.targetFile + ":" + strconv.Itoa(readLine), "scope": "lines", "limit": 1}, requireResult: true},
+		{name: "read_file-function", tool: "file", args: map[string]any{"action": "read_file", "pos": fixture.targetFile + ":" + strconv.Itoa(readLine), "limit": 50}, requireResult: true},
 		{name: "diagnostics", tool: "file", args: map[string]any{"action": "diagnostics", "file_path": fixture.codeActionFile}, emptyResultReason: "真实诊断 fixture 已写入；语言服务器可以合法报告零条诊断"},
 		{name: "diagnostics-batch", tool: "file", args: map[string]any{"action": "diagnostics", "file_paths": []string{fixture.codeActionFile, fixture.targetFile}}, emptyResultReason: "批量诊断允许其中一个合法文件没有诊断"},
 
@@ -3818,11 +4672,11 @@ func realMCPActionSpecs(server realNodeServerCase, fixture realMCPFixture, astFi
 		{name: "type_hierarchy-supertypes", tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": fixture.typeHierarchyPosition, "direction": "supertypes"}, requireResult: typeHierarchyResult, emptyResultReason: typeHierarchyEmpty},
 		{name: "type_hierarchy-subtypes", tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": fixture.typeHierarchyPosition, "direction": "subtypes"}, requireResult: typeHierarchyResult, emptyResultReason: typeHierarchyEmpty},
 
-		{name: "text_search", tool: "grep", args: map[string]any{"action": "text_search", "query": "realMCPNeedle_" + server.languageID, "paths": []string{fixture.secondaryFile}, "max_results": 10}, requireResult: true},
-		{name: "text_search-regex", tool: "grep", args: map[string]any{"action": "text_search", "query": "realMCPNeedle_[a-z]+", "paths": []string{fixture.secondaryFile}, "regex": true, "case_sensitive": true, "max_results": 10}, requireResult: true},
-		{name: "text_search-paths", tool: "grep", args: map[string]any{"action": "text_search", "query": "realMCPNeedle_" + server.languageID, "paths": []string{filepath.Dir(fixture.secondaryFile)}, "max_results": 10}, requireResult: true},
-		{name: "text_search-file_paths", tool: "grep", args: map[string]any{"action": "text_search", "query": "realMCPNeedle_" + server.languageID, "paths": []string{fixture.secondaryFile}, "max_results": 10}, requireResult: true},
-		{name: "text_search-glob", tool: "grep", args: map[string]any{"action": "text_search", "query": "realMCPNeedle_" + server.languageID, "paths": []string{filepath.Dir(fixture.secondaryFile)}, "glob": filepath.Base(fixture.secondaryFile), "max_results": 10}, requireResult: true},
+		{name: "text_search", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{fixture.secondaryFile}, "max_results": 10}, requireResult: true},
+		{name: "text_search-regex", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{fixture.secondaryFile}, "regex": true, "case_sensitive": true, "max_results": 10}, requireResult: true},
+		{name: "text_search-paths", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{filepath.Dir(fixture.secondaryFile)}, "max_results": 10}, requireResult: true},
+		{name: "text_search-file_paths", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{fixture.secondaryFile}, "max_results": 10}, requireResult: true},
+		{name: "text_search-glob", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{filepath.Dir(fixture.secondaryFile)}, "glob": filepath.Base(fixture.secondaryFile), "max_results": 10}, requireResult: true},
 		{name: "ast_search", tool: "grep", args: map[string]any{"action": "ast_search", "query": "function $NAME($$$ARGS) { $$$BODY }", "paths": []string{astFile}, "ast_language": "javascript", "max_results": 10}, requireResult: true},
 
 		{name: "document_symbol", tool: "structure", args: map[string]any{"action": "document_symbol", "file_path": fixture.targetFile, "max_results": 20}, requireResult: true},
@@ -3924,7 +4778,7 @@ func realMCPActionResultContract(server realNodeServerCase, tool, action string)
 		return false, "fixture has no non-declaration cross-reference use; empty references(include_declaration=false) is expected"
 	}
 	if tool == "patch_edit" && action == "code_action" {
-		return false, "真实诊断 fixture 已写入；该语言服务器可能没有稳定的 quickfix action，空结果必须保留为成功而非 capability_unsupported"
+		return false, "真实诊断 fixture 已写入；无 quickfix 时空结果是成功；已知未提供 codeActionProvider 的服务端则按协议可选能力独立记账 capability_unsupported"
 	}
 	switch {
 	case tool == "inspect" && action == "implementation" && !realMCPFixtureHasInheritance(server):
@@ -4013,7 +4867,7 @@ func realMCPFixtureHasHover(server realNodeServerCase) bool {
 // realMCPFixtureHasCompletion 以 fixture 的 token/上下文是否能提供稳定候选来决定非空合同。
 func realMCPFixtureHasCompletion(server realNodeServerCase) bool {
 	switch server.name {
-	case "javascript", "javascriptreact", "typescript", "typescriptreact":
+	case "javascript", "javascriptreact", "typescript", "typescriptreact", "json", "php", "prisma":
 		return true
 	default:
 		return false
@@ -4063,7 +4917,7 @@ func realMCPFixtureHasRename(server realNodeServerCase) bool {
 // realMCPFixtureHasCodeAction 标记诊断 fixture 中有稳定 quickfix 能力的语言；空列表仍是合法成功。
 func realMCPFixtureHasCodeAction(server realNodeServerCase) bool {
 	switch server.name {
-	case "javascript", "javascriptreact", "typescript", "typescriptreact", "python":
+	case "javascript", "javascriptreact", "typescript", "typescriptreact", "python", "dockerfile":
 		return true
 	default:
 		return false
@@ -4211,6 +5065,166 @@ func writeRealFixture(t *testing.T, path, content string) {
 	}
 }
 
+// copyRealMCPBinSourceTree 复制受版本控制的语言快照，不跟随或重建符号链接。
+func copyRealMCPBinSourceTree(t *testing.T, sourceRoot, destinationRoot string) {
+	t.Helper()
+	var err error
+	sourceRoot, err = filepath.Abs(sourceRoot)
+	if err != nil {
+		t.Fatalf("resolve bin/LSP/test source root: %v", err)
+	}
+	destinationRoot, err = filepath.Abs(destinationRoot)
+	if err != nil {
+		t.Fatalf("resolve isolated source snapshot root: %v", err)
+	}
+	if filepath.Clean(sourceRoot) == filepath.Clean(destinationRoot) {
+		t.Fatalf("refuse to copy source snapshot onto itself: %s", sourceRoot)
+	}
+	info, err := os.Stat(sourceRoot)
+	if err != nil {
+		t.Fatalf("stat bin/LSP/test source directory %s: %v", sourceRoot, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("bin/LSP/test source path is not a directory: %s", sourceRoot)
+	}
+	if err := filepath.WalkDir(sourceRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("source snapshot contains unsupported symlink %s", path)
+		}
+		if !realMCPPathWithinRoot(sourceRoot, path) {
+			return fmt.Errorf("source snapshot path escaped source root: %s", path)
+		}
+		relative, err := filepath.Rel(sourceRoot, path)
+		if err != nil {
+			return fmt.Errorf("resolve source snapshot relative path %s: %w", path, err)
+		}
+		if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("source snapshot relative path escaped source root: %s", relative)
+		}
+		destination := filepath.Join(destinationRoot, relative)
+		if !realMCPPathWithinRoot(destinationRoot, destination) {
+			return fmt.Errorf("source snapshot destination escaped target root: %s", destination)
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(destination, 0o700)
+		}
+		payload, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read source snapshot %s: %w", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+			return fmt.Errorf("create source snapshot destination %s: %w", destination, err)
+		}
+		if err := os.WriteFile(destination, payload, 0o600); err != nil {
+			return fmt.Errorf("write isolated source snapshot %s: %w", destination, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("copy bin/LSP/test source snapshot %s: %v", sourceRoot, err)
+	}
+}
+
+// copyRealMCPBinSourceFile 将 bin/LSP/test 下的相对路径复制到隔离 workspace，
+// 不向调用方暴露或复用受版本控制的源文件路径。
+func copyRealMCPBinSourceFile(t *testing.T, sourceRoot, relativePath, destination string) {
+	t.Helper()
+	sourceRoot, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		t.Fatalf("resolve bin/LSP/test source root: %v", err)
+	}
+	relativePath = filepath.Clean(filepath.FromSlash(relativePath))
+	if relativePath == "." || filepath.IsAbs(relativePath) {
+		t.Fatalf("bin/LSP/test source file must be relative: %q", relativePath)
+	}
+	source := filepath.Join(sourceRoot, relativePath)
+	if !realMCPPathWithinRoot(sourceRoot, source) {
+		t.Fatalf("bin/LSP/test source file escapes source root: %q", source)
+	}
+	destination, err = filepath.Abs(destination)
+	if err != nil {
+		t.Fatalf("resolve isolated source file destination: %v", err)
+	}
+	if filepath.Clean(sourceRoot) == filepath.Clean(destination) {
+		t.Fatalf("refuse to copy source file onto source root: %s", destination)
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		t.Fatalf("stat bin/LSP/test source file %s: %v", source, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		t.Fatalf("bin/LSP/test source file is not a regular file: %s", source)
+	}
+	payload, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read bin/LSP/test source file %s: %v", source, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		t.Fatalf("create isolated source file parent %s: %v", destination, err)
+	}
+	if err := os.WriteFile(destination, payload, 0o600); err != nil {
+		t.Fatalf("write isolated source file %s: %v", destination, err)
+	}
+}
+
+// copyRealMCPBinSourceFileWithinRoot 在复制单文件前验证目标仍位于指定隔离根，
+// 防止错误映射把真实 bin/LSP/test 内容写到 workspace 外部。
+func copyRealMCPBinSourceFileWithinRoot(t *testing.T, sourceRoot, relativePath, targetRoot, destination string) {
+	t.Helper()
+	absoluteTargetRoot, err := filepath.Abs(targetRoot)
+	if err != nil {
+		t.Fatalf("resolve isolated target root: %v", err)
+	}
+	absoluteDestination, err := filepath.Abs(destination)
+	if err != nil {
+		t.Fatalf("resolve isolated target path: %v", err)
+	}
+	if !realMCPPathWithinRoot(absoluteTargetRoot, absoluteDestination) {
+		t.Fatalf("isolated source file destination escaped target root: root=%q destination=%q", absoluteTargetRoot, absoluteDestination)
+	}
+	copyRealMCPBinSourceFile(t, sourceRoot, relativePath, absoluteDestination)
+}
+
+func readRealMCPBinSourceFile(t *testing.T, path string) []byte {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("stat source fixture %s: %v", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		t.Fatalf("source fixture is not a regular file: %s", path)
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read source fixture %s: %v", path, err)
+	}
+	return payload
+}
+
+func realMCPSourcePosition(content string) (int, int) {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	for lineNumber, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		return lineNumber + 1, len(line) - len(strings.TrimLeft(line, " \t"))
+	}
+	return 1, 0
+}
+
+func realMCPSourceNeedle(content string) string {
+	for _, token := range strings.FieldsFunc(content, func(r rune) bool {
+		return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+	}) {
+		if len(token) >= 4 {
+			return token
+		}
+	}
+	return ""
+}
+
 // registerRealMCPTempRootCleanup 在进程退出后精确删除 fixture 根目录，并断言删除确实完成。
 // 这样临时目录残留不会被测试框架的宽泛清理静默掩盖。
 func registerRealMCPTempRootCleanup(t *testing.T, root string) {
@@ -4293,13 +5307,19 @@ func realMCPActionProtocolOptionalForServer(server realNodeServerCase, tool, act
 			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens")) ||
 			(tool == "patch_edit" && action == "rename")
 	case "prisma":
-		return tool == "structure" && (action == "workspace_symbol-file" || action == "workspace_symbol-language" || action == "folding_range" || action == "semantic_tokens")
+		// @prisma/language-server 的真实会话不提供 codeActionProvider；method-not-found
+		// 必须保留为 typed capability_unsupported，不能合成 Prisma 编辑。
+		return tool == "structure" && (action == "workspace_symbol-file" || action == "workspace_symbol-language" || action == "folding_range" || action == "semantic_tokens") ||
+			(tool == "patch_edit" && action == "code_action")
 	case "shellscript":
 		return (tool == "xref" && strings.HasPrefix(action, "call_hierarchy-")) ||
 			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens"))
-	case "css", "html", "json":
-		return (tool == "structure" && action == "semantic_tokens") ||
-			(tool == "patch_edit" && action == "format")
+	case "css", "html":
+		return (tool == "patch_edit" && action == "format") ||
+			(tool == "structure" && action == "semantic_tokens")
+	case "json":
+		return (tool == "xref" && (action == "references" || action == "references-no-declaration")) ||
+			(tool == "structure" && action == "semantic_tokens")
 	case "markdown":
 		return tool == "patch_edit" && action == "format"
 	case "python":
@@ -4310,10 +5330,12 @@ func realMCPActionProtocolOptionalForServer(server realNodeServerCase, tool, act
 		return (tool == "structure" && action == "semantic_tokens") ||
 			(tool == "patch_edit" && action == "format")
 	case "php":
+		// Intelephense 的真实会话同样没有 codeActionProvider；rename 缺失也继续按
+		// 上游可选能力记账，适配层不伪造 code action/rename 编辑。
 		return (tool == "inspect" && action == "implementation") ||
 			(tool == "xref" && strings.HasPrefix(action, "call_hierarchy-")) ||
 			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens")) ||
-			(tool == "patch_edit" && action == "rename")
+			(tool == "patch_edit" && (action == "rename" || action == "code_action"))
 	case "vue":
 		// Vue companion 当前明确不提供 workspace/symbol；两种公开入口均按能力缺失记账。
 		return tool == "structure" && (action == "workspace_symbol-file" || action == "workspace_symbol-language")
@@ -4326,6 +5348,48 @@ func TestRealMCPOptionalCapabilityContractsE2E(t *testing.T) {
 	servers := map[string]realNodeServerCase{}
 	for _, server := range realNodeServerCases() {
 		servers[server.name] = server
+	}
+	dockerfile, ok := servers["dockerfile"]
+	if !ok {
+		t.Fatal("dockerfile real server case is missing")
+	}
+	if !realMCPActionAllowsCapabilityUnsupported(dockerfile, "xref", "references") {
+		t.Fatal("dockerfile/xref/references must remain an explicit server capability boundary")
+	}
+	if realMCPActionAllowsCapabilityUnsupported(dockerfile, "patch_edit", "code_action") {
+		t.Fatal("dockerfile/patch_edit/code_action must not be classified as capability-optional")
+	}
+	jsonServer, ok := servers["json"]
+	if !ok {
+		t.Fatal("json real server case is missing")
+	}
+	if !realMCPFixtureHasCompletion(jsonServer) || realMCPActionAllowsCapabilityUnsupported(jsonServer, "completion", "completion") {
+		t.Fatal("json/completion must be a required real-server capability")
+	}
+	if realMCPActionProtocolOptionalForServer(jsonServer, "patch_edit", "format") {
+		t.Fatal("json/patch_edit/format must not be classified as an upstream capability boundary")
+	}
+	if !realMCPActionProtocolOptionalForServer(jsonServer, "xref", "references") || !realMCPActionProtocolOptionalForServer(jsonServer, "structure", "semantic_tokens") {
+		t.Fatal("json references and semantic_tokens must remain explicitly optional upstream capabilities")
+	}
+	for _, languageID := range []string{"php", "prisma"} {
+		server, ok := servers[languageID]
+		if !ok {
+			t.Fatalf("%s real server case is missing", languageID)
+		}
+		if !realMCPFixtureHasCompletion(server) {
+			t.Fatalf("%s completion must be a required non-empty real-server result", languageID)
+		}
+		requireResult, emptyReason := realMCPActionResultContract(server, "completion", "completion")
+		if !requireResult || emptyReason != "" {
+			t.Fatalf("%s/completion contract=(%t,%q), want required non-empty", languageID, requireResult, emptyReason)
+		}
+		if realMCPActionAllowsCapabilityUnsupported(server, "completion", "completion") {
+			t.Fatalf("%s/completion must not be classified as capability-optional", languageID)
+		}
+		if !realMCPActionProtocolOptionalForServer(server, "patch_edit", "code_action") {
+			t.Fatalf("%s/patch_edit/code_action must account the observed upstream capability boundary", languageID)
+		}
 	}
 	for _, test := range []struct {
 		server string
@@ -4345,7 +5409,6 @@ func TestRealMCPOptionalCapabilityContractsE2E(t *testing.T) {
 		{"html", "structure", "semantic_tokens"},
 		{"html", "patch_edit", "format"},
 		{"json", "structure", "semantic_tokens"},
-		{"json", "patch_edit", "format"},
 		{"markdown", "patch_edit", "format"},
 		{"python", "inspect", "implementation"},
 		{"python", "structure", "folding_range"},
@@ -4360,6 +5423,8 @@ func TestRealMCPOptionalCapabilityContractsE2E(t *testing.T) {
 		{"php", "structure", "folding_range"},
 		{"php", "structure", "semantic_tokens"},
 		{"php", "patch_edit", "rename"},
+		{"php", "patch_edit", "code_action"},
+		{"prisma", "patch_edit", "code_action"},
 		{"vue", "structure", "workspace_symbol-file"},
 		{"vue", "structure", "workspace_symbol-language"},
 	} {

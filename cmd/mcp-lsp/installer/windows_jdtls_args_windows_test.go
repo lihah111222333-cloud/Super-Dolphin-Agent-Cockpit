@@ -86,3 +86,59 @@ func TestWindowsJDTLSConfigDirectoryDoesNotCreateMissingPath(t *testing.T) {
 		t.Fatalf("validation created missing parent, stat error = %v", err)
 	}
 }
+
+// TestWindowsJDTLSLaunchArgumentsProvisionProductConfiguration 锁定启动层会把只读
+// asset config_win 自动复制到产品私有可写目录，而不是要求用户项目预建 config_win。
+func TestWindowsJDTLSLaunchArgumentsProvisionProductConfiguration(t *testing.T) {
+	root := t.TempDir()
+	assetRoot := filepath.Join(root, "cache", "runtime-dependencies", "jdk-jdtls", "arm64", "cohort")
+	javaExecutable := filepath.Join(assetRoot, "jdk-21.0.12+8", "bin", "java.exe")
+	entry, err := WindowsRuntimeDependencyCatalogEntryForProduct(WindowsRuntimeDependencyProductJDKJDTLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher := filepath.Join(assetRoot, filepath.FromSlash(entry.Install.ServerPath))
+	for path, contents := range map[string]string{
+		javaExecutable: "java",
+		launcher:       "launcher",
+		filepath.Join(assetRoot, "config_win", "config.ini"): "eclipse.application=org.eclipse.jdt.ls.core.id1",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	workspaceRoot := filepath.Join(root, "user-workspace")
+	if err := os.MkdirAll(workspaceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	args, err := WindowsJDTLSLaunchArguments(javaExecutable, workspaceRoot)
+	if err != nil {
+		t.Fatalf("WindowsJDTLSLaunchArguments() error = %v", err)
+	}
+	configurationPath := argumentValueAfter(t, args, "-configuration")
+	if relative, relErr := filepath.Rel(workspaceRoot, configurationPath); relErr == nil &&
+		(relative == "." || (!strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative))) {
+		t.Fatalf("JDTLS mutable configuration %q is inside user workspace %q", configurationPath, workspaceRoot)
+	}
+	if contents, readErr := os.ReadFile(filepath.Join(configurationPath, "config.ini")); readErr != nil || len(contents) == 0 {
+		t.Fatalf("product-owned JDTLS config.ini was not copied: contents=%q error=%v", contents, readErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(workspaceRoot, "config_win")); !os.IsNotExist(statErr) {
+		t.Fatalf("JDTLS launch wrote config_win into user workspace: %v", statErr)
+	}
+}
+
+func argumentValueAfter(t *testing.T, args []string, key string) string {
+	t.Helper()
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == key {
+			return args[index+1]
+		}
+	}
+	t.Fatalf("argument %q missing from %#v", key, args)
+	return ""
+}

@@ -27,6 +27,33 @@ func TestRunTypeScriptNavigationTreeUsesProjectTypeScript(t *testing.T) {
 	requireSymbolNamesContain(t, collectDocumentSymbolNames(symbols), []string{"FromFakeTypeScript"})
 }
 
+func TestRunTypeScriptNavigationTreeUsesExplicitProductTypeScript(t *testing.T) {
+	requireNodeForNavigationTest(t)
+	root := canonicalScopePath(t.TempDir(), "")
+	target := filepath.Join(root, "src", "app.ts")
+	writeGenericTestFile(t, target, "export function actualSymbol() { return 1; }\n")
+	writeFakeTypeScriptModule(t, root)
+
+	productRoot := canonicalScopePath(t.TempDir(), "")
+	writeFakeTypeScriptModule(t, productRoot)
+	productModuleRoot := filepath.Join(productRoot, "node_modules", "typescript")
+	productIndex := filepath.Join(productModuleRoot, "index.js")
+	productBody, err := os.ReadFile(productIndex)
+	if err != nil {
+		t.Fatalf("read product TypeScript fixture: %v", err)
+	}
+	productBody = []byte(strings.Replace(string(productBody), "FromFakeTypeScript", "FromProductTypeScript", 1))
+	if err := os.WriteFile(productIndex, productBody, 0o644); err != nil {
+		t.Fatalf("write product TypeScript fixture: %v", err)
+	}
+
+	tree, err := runTypeScriptNavigationTreeWithModuleRoot(context.Background(), root, target, productModuleRoot)
+	if err != nil {
+		t.Fatalf("runTypeScriptNavigationTreeWithModuleRoot: %v", err)
+	}
+	requireSymbolNamesContain(t, collectDocumentSymbolNames(documentSymbolsFromTypeScriptNavigationTree(tree, "export function actualSymbol() { return 1; }\n")), []string{"FromProductTypeScript"})
+}
+
 func TestRunTypeScriptNavigationTreeFailsWhenTypeScriptMissing(t *testing.T) {
 	requireNodeForNavigationTest(t)
 	root := canonicalScopePath(t.TempDir(), "")

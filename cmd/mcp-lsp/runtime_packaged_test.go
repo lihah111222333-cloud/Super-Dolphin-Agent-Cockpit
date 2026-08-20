@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
-func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
+func TestNewManagerPackagedPrefersBundledServersAndKeepsAutoInstallLanguages(t *testing.T) {
 	declareTestDependencyBootstrap(t)
 	root := t.TempDir()
 	bundle := t.TempDir()
@@ -51,8 +52,62 @@ func TestNewManagerPackagedRegistersOnlyBundledLanguageServers(t *testing.T) {
 		t.Fatalf("bundled javascript manager error = %v", err)
 	}
 	_, err = mgr.registry.GetManagerForLanguage(ctx, "python")
-	if !errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
-		t.Fatalf("python manager error = %v, want unsupported because python is not in bundled LSP manifest", err)
+	if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		t.Fatalf("python must remain registered for auto-install, got unsupported: %v", err)
+	}
+	if err == nil {
+		t.Fatal("python unexpectedly resolved with an empty PATH; want installer readiness error")
+	}
+}
+
+// TestNewManagerPackagedRegistersUnbundledLanguagesForAutoInstall 证明 bundle 只提供首选二进制，
+// 不能成为通用 LSP 的语言白名单；未捆绑语言必须保留注册并进入按需安装检查。
+func TestNewManagerPackagedRegistersUnbundledLanguagesForAutoInstall(t *testing.T) {
+	declareTestDependencyBootstrap(t)
+	root := t.TempDir()
+	bundle := t.TempDir()
+	writeMcpLSPBundleManifest(t, bundle, `{
+  "servers": {
+    "gopls": {"path": "bin/gopls", "languages": ["go", "gomod", "gosum", "gowork"]}
+  }
+}
+`)
+	writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), "gopls")
+	t.Setenv("GO_AGENT_LSP_ROOT", root)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", bundle)
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(bundle, "manifest.json"))
+	t.Setenv("PATH", t.TempDir())
+
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platform config: %v", err)
+	}
+	mgr, err := newManager(cfg)
+	if err != nil {
+		t.Fatalf("newManager() error = %v", err)
+	}
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ctx := installer.WithToolCallInstallCheckOnly(
+		common.WithToolScope(context.Background(), common.ToolScope{CWD: root, Family: "lsp"}),
+	)
+	for _, languageID := range []string{"typescript", "json", "mql"} {
+		_, err := mgr.registry.GetManagerForLanguage(ctx, languageID)
+		if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+			t.Fatalf("%s must remain registered for auto-install, got unsupported: %v", languageID, err)
+		}
+		var missing *installer.MissingBinaryError
+		if !errors.As(err, &missing) {
+			t.Fatalf("%s error = %T %v, want installer.MissingBinaryError", languageID, err, err)
+		}
+		gotLanguage, gotBinary := missing.MissingLSPBinary()
+		if gotLanguage != languageID || gotBinary == "" {
+			t.Fatalf("missing binary = (%q, %q), want language %q and non-empty binary", gotLanguage, gotBinary, languageID)
+		}
 	}
 }
 
@@ -90,6 +145,46 @@ func TestNewManagerPackagedRegistersMQLAliasesWithBundledClangd(t *testing.T) {
 	for _, languageID := range []string{"c", "cpp", "objective-c", "objective-cpp", "mql", "mql4", "mql5", "mq4", "mq5", "mqh"} {
 		if _, err := mgr.registry.GetManagerForLanguage(ctx, languageID); err != nil {
 			t.Fatalf("bundled %s manager error = %v", languageID, err)
+		}
+	}
+}
+
+// TestNewManagerPackagedBundleSelectsAdapterWithoutPruningAliases 证明 manifest 命中 adapter 后只选择首选二进制，
+// 不得把 manifest 的 languages 子集误作该 adapter 的语言别名白名单。
+func TestNewManagerPackagedBundleSelectsAdapterWithoutPruningAliases(t *testing.T) {
+	declareTestDependencyBootstrap(t)
+	root := t.TempDir()
+	bundle := t.TempDir()
+	writeMcpLSPBundleManifest(t, bundle, `{
+  "servers": {
+    "gopls": {"path": "bin/gopls", "languages": ["go"]}
+  }
+}
+`)
+	writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), "gopls")
+	t.Setenv("GO_AGENT_LSP_ROOT", root)
+	t.Setenv("SUPER_DOLPHIN_LSP_BUNDLE_DIR", bundle)
+	t.Setenv("SUPER_DOLPHIN_LSP_MANIFEST", filepath.Join(bundle, "manifest.json"))
+	t.Setenv("PATH", t.TempDir())
+
+	cfg, err := platformconfig.New()
+	if err != nil {
+		t.Fatalf("platform config: %v", err)
+	}
+	mgr, err := newManager(cfg)
+	if err != nil {
+		t.Fatalf("newManager() error = %v", err)
+	}
+	defer func() {
+		if err := mgr.Close(); err != nil {
+			t.Fatalf("close manager: %v", err)
+		}
+	}()
+
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, Family: "lsp"})
+	for _, languageID := range []string{"go", "gomod", "gosum", "gowork"} {
+		if _, err := mgr.registry.GetManagerForLanguage(ctx, languageID); err != nil {
+			t.Fatalf("bundled gopls adapter alias %s error = %v", languageID, err)
 		}
 	}
 }
@@ -155,7 +250,10 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 		}
 	}
 	_, err = mgr.registry.GetManagerForLanguage(ctx, "java")
-	if !errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
-		t.Fatalf("java manager error = %v, want unsupported because jdtls is not in standard bundle", err)
+	if errors.Is(err, lspmanager.ErrUnsupportedLanguage) {
+		t.Fatalf("java must remain registered for auto-install, got unsupported: %v", err)
+	}
+	if err == nil {
+		t.Fatal("java unexpectedly resolved with an empty PATH; want installer readiness error")
 	}
 }

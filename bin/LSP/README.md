@@ -68,7 +68,7 @@ Windows 原生版共享 gopls 时还必须显式提供受信 bundle：
 | `SUPER_DOLPHIN_LSP_BUNDLE_DIR` | `<项目根>/bin/LSP/lsp` 的绝对路径 |
 | `SUPER_DOLPHIN_LSP_MANIFEST` | `<项目根>/bin/LSP/lsp/lsp-manifest.json` 的绝对路径 |
 
-这两个字段只绑定包内 gopls 身份，不定义可信 workspace；workspace 仍只由外部 `GO_AGENT_LSP_ROOT(S)` 配置决定。缺少 bundle、manifest、摘要或原生 `gopls.exe` 时 Windows Go LSP 必须 fail-fast，不能退回 PATH gopls。
+这两个字段只绑定包内 gopls 身份，不定义可信 workspace；workspace 仍只由外部 `GO_AGENT_LSP_ROOT(S)` 配置决定。缺少 bundle、manifest、摘要或原生 `gopls.exe` 时 Windows Go LSP 必须 fail-fast，不能退回 PATH gopls。bundle 只为命中的 adapter 提供受信首选二进制，绝不能作为通用语言白名单；未写入 manifest 的其他已支持语言仍必须注册，并在首次语义调用时自动发现或安装自己的语言服务器。
 
 项目作用域还应显式提供 `GO_AGENT_LSP_ROOT` 和合法 JSON 数组形式的 `GO_AGENT_LSP_ROOTS`。Windows 配置优先使用正斜杠路径，避免在 JSON 字符串中手工转义反斜杠。
 

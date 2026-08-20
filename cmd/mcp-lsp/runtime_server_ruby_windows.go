@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -59,7 +60,13 @@ func runtimeServerWindowsRubyLSPEnvironment(serverBinary string, env []string) (
 	if !strings.EqualFold(filepath.Clean(resolved.ExecutablePath), filepath.Clean(serverBinary)) {
 		return nil, fmt.Errorf("product-owned Ruby runtime environment identity changed: resolved=%s actual=%s", resolved.ExecutablePath, serverBinary)
 	}
-	processEnvironment, err := installer.WindowsRubyLSPProcessEnvironment(resolved.RootPath)
+	stateRoot := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_SIDECAR_RUNTIME_DIR"))
+	var processEnvironment []string
+	if stateRoot != "" {
+		processEnvironment, err = installer.WindowsRubyLSPProcessEnvironmentWithState(resolved.RootPath, filepath.Join(stateRoot, "ruby-lsp"))
+	} else {
+		processEnvironment, err = installer.WindowsRubyLSPProcessEnvironment(resolved.RootPath)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve short product-owned Ruby LSP environment: %w", err)
 	}

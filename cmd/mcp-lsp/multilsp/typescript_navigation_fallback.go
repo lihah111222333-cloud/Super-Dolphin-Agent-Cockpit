@@ -58,14 +58,23 @@ try {
   }
   const filePath = path.resolve(input.filePath);
   const projectRoot = path.resolve(input.projectRoot || path.dirname(filePath));
-  const bundleDir = process.env.SUPER_DOLPHIN_LSP_BUNDLE_DIR || "";
-  const requirePaths = [
-    projectRoot,
-    path.dirname(filePath),
-    bundleDir,
-    ...(Array.isArray(input.moduleSearchPaths) ? input.moduleSearchPaths : [])
-  ].filter(Boolean);
-  const tsPath = require.resolve("typescript", { paths: requirePaths });
+  const typeScriptModuleRoot = String(input.typeScriptModuleRoot || "").trim();
+  let tsPath;
+  if (typeScriptModuleRoot) {
+    if (!path.isAbsolute(typeScriptModuleRoot)) {
+      throw new Error("typeScriptModuleRoot must be absolute");
+    }
+    tsPath = require.resolve(typeScriptModuleRoot);
+  } else {
+    const bundleDir = process.env.SUPER_DOLPHIN_LSP_BUNDLE_DIR || "";
+    const requirePaths = [
+      projectRoot,
+      path.dirname(filePath),
+      bundleDir,
+      ...(Array.isArray(input.moduleSearchPaths) ? input.moduleSearchPaths : [])
+    ].filter(Boolean);
+    tsPath = require.resolve("typescript", { paths: requirePaths });
+  }
   const ts = require(tsPath);
 
   let options = {
@@ -124,9 +133,10 @@ try {
 `
 
 type typeScriptNavigationInput struct {
-	ProjectRoot       string   `json:"projectRoot"`
-	FilePath          string   `json:"filePath"`
-	ModuleSearchPaths []string `json:"moduleSearchPaths,omitempty"`
+	ProjectRoot          string   `json:"projectRoot"`
+	FilePath             string   `json:"filePath"`
+	TypeScriptModuleRoot string   `json:"typeScriptModuleRoot,omitempty"`
+	ModuleSearchPaths    []string `json:"moduleSearchPaths,omitempty"`
 }
 
 type typeScriptNavigationTree struct {
@@ -158,7 +168,20 @@ func (m *manager) typeScriptNavigationDocumentSymbols(ctx context.Context, ref d
 	if projectRoot == "" {
 		return nil, fmt.Errorf("typescript navigation fallback workspace root is empty for %s", ref.raw)
 	}
-	tree, err := runTypeScriptNavigationTree(ctx, projectRoot, ref.absPath)
+	var tree typeScriptNavigationTree
+	if m.typeScriptNavigationModuleRoot != nil {
+		moduleRoot, err := m.typeScriptNavigationModuleRoot()
+		if err != nil {
+			return nil, fmt.Errorf("resolve typescript navigation module root: %w", err)
+		}
+		moduleRoot = strings.TrimSpace(moduleRoot)
+		if moduleRoot == "" {
+			return nil, fmt.Errorf("resolve typescript navigation module root: empty module root")
+		}
+		tree, err = runTypeScriptNavigationTreeWithModuleRoot(ctx, projectRoot, ref.absPath, moduleRoot)
+	} else {
+		tree, err = runTypeScriptNavigationTree(ctx, projectRoot, ref.absPath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -168,14 +191,27 @@ func (m *manager) typeScriptNavigationDocumentSymbols(ctx context.Context, ref d
 // runTypeScriptNavigationTree 启动 node 并让项目本地 TypeScript 解析文件导航树。
 // stdout 只接收 JSON 结果；stderr 仅在失败时附带短摘要，避免污染 MCP stdio。
 func runTypeScriptNavigationTree(ctx context.Context, projectRoot, filePath string) (typeScriptNavigationTree, error) {
-	moduleSearchPaths, err := platformTypeScriptNavigationModuleSearchPaths()
-	if err != nil {
-		return typeScriptNavigationTree{}, fmt.Errorf("resolve typescript navigation module search paths: %w", err)
+	return runTypeScriptNavigationTreeWithModuleRoot(ctx, projectRoot, filePath, "")
+}
+
+// runTypeScriptNavigationTreeWithModuleRoot uses an explicit product TypeScript package root.
+// A non-empty moduleRoot prevents workspace and NODE_PATH resolution.
+// moduleRoot 非空时，Node 不再从 workspace、NODE_PATH 或其他隐式位置解析 TypeScript。
+func runTypeScriptNavigationTreeWithModuleRoot(ctx context.Context, projectRoot, filePath, moduleRoot string) (typeScriptNavigationTree, error) {
+	moduleRoot = strings.TrimSpace(moduleRoot)
+	var moduleSearchPaths []string
+	if moduleRoot == "" {
+		var err error
+		moduleSearchPaths, err = platformTypeScriptNavigationModuleSearchPaths()
+		if err != nil {
+			return typeScriptNavigationTree{}, fmt.Errorf("resolve typescript navigation module search paths: %w", err)
+		}
 	}
 	input, err := json.Marshal(typeScriptNavigationInput{
-		ProjectRoot:       projectRoot,
-		FilePath:          filePath,
-		ModuleSearchPaths: moduleSearchPaths,
+		ProjectRoot:          projectRoot,
+		FilePath:             filePath,
+		TypeScriptModuleRoot: moduleRoot,
+		ModuleSearchPaths:    moduleSearchPaths,
 	})
 	if err != nil {
 		return typeScriptNavigationTree{}, fmt.Errorf("marshal typescript navigation input: %w", err)

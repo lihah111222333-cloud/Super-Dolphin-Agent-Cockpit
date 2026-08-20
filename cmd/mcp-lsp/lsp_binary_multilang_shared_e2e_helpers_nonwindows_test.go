@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,4 +23,11 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 		}
 	}
 	return dir
+}
+
+// startFakeMultilangDiagnosticsClientForTest 在非 Windows 上保持 PATH fake
+// server 装配；Windows 的 package trust 只在对应平台 helper 中处理。
+func startFakeMultilangDiagnosticsClientForTest(t *testing.T, ctx context.Context, binary, root, fakeServersBinDir string, extraEnv []string, _ string) *mcpLSPBinaryClient {
+	t.Helper()
+	return startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeServersBinDir, extraEnv)
 }

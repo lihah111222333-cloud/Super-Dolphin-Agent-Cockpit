@@ -288,14 +288,23 @@ def _normalize_mcp_url(url: str) -> str:
 
 def _terminate_process_group(proc):
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
+        if os.name == "nt":
+            proc.terminate()
+            return
+        kill_process_group = getattr(os, "killpg")
+        kill_process_group(proc.pid, signal.SIGTERM)
     except ProcessLookupError:
         return
 
 
 def _kill_process_group(proc):
     try:
-        os.killpg(proc.pid, signal.SIGKILL)
+        if os.name == "nt":
+            proc.kill()
+            return
+        kill_process_group = getattr(os, "killpg")
+        kill_signal = getattr(signal, "SIGKILL")
+        kill_process_group(proc.pid, kill_signal)
     except ProcessLookupError:
         return
 

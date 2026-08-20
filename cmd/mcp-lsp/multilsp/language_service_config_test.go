@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -38,6 +39,13 @@ func TestLanguageAdapterRegistryUsesConfiguredRootMarkers(t *testing.T) {
 	}
 	if resolved.WorkspaceRoot != root {
 		t.Fatalf("configured typescript workspace root = %q, want %q", resolved.WorkspaceRoot, root)
+	}
+}
+
+func TestJSONAdapterEnablesFormatterDuringInitialize(t *testing.T) {
+	options := jsonAdapterDefaults().InitOptions(ResolvedLanguageScope{})
+	if enabled, ok := options["provideFormatter"].(bool); !ok || !enabled {
+		t.Fatalf("JSON adapter provideFormatter = %#v, want true", options["provideFormatter"])
 	}
 }
 
@@ -234,6 +242,65 @@ func TestLanguageAdapterRegistryFromConfigRegistersProtoBufAdapter(t *testing.T)
 	assertProtoAdapterServerCommand(t, adapter)
 	resolved := resolveProtoAdapterScope(t, adapter, root, target)
 	assertProtoAdapterScope(t, adapter, resolved, root)
+}
+
+func TestProtoAdapterUsesBufWorkspaceRootForCrossModuleImports(t *testing.T) {
+	workspace := canonicalScopePath(t.TempDir(), "")
+	target := filepath.Join(workspace, "api", "v1", "service.proto")
+	imported := filepath.Join(workspace, "shared", "common.proto")
+	writeGenericTestFile(t, filepath.Join(workspace, "buf.work.yaml"), "directories:\n  - api\n  - shared\n")
+	writeGenericTestFile(t, filepath.Join(workspace, "api", "buf.yaml"), "version: v2\n")
+	writeGenericTestFile(t, filepath.Join(workspace, "shared", "buf.yaml"), "version: v2\n")
+	writeGenericTestFile(t, target, "syntax = \"proto3\";\nimport \"shared/common.proto\";\nmessage Service {}\n")
+	writeGenericTestFile(t, imported, "syntax = \"proto3\";\nmessage Common {}\n")
+
+	adapter := requireProtoAdapter(t)
+	resolved, err := adapter.ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        workspace,
+		LanguageID: "proto",
+		TargetPath: target,
+	}, target)
+	if err != nil {
+		t.Fatalf("proto ResolveRoot: %v", err)
+	}
+	if resolved.WorkspaceRoot != workspace || resolved.ProjectRoot != workspace {
+		t.Fatalf("proto workspace scope = %#v, want buf workspace root %q", resolved, workspace)
+	}
+}
+
+func TestProtoAdapterKeepsExplicitFixtureWorkDirWithoutBufMarker(t *testing.T) {
+	repository := canonicalScopePath(t.TempDir(), "")
+	workspace := filepath.Join(repository, "bin", "LSP", "test", "proto")
+	target := filepath.Join(workspace, "grpc", "testing", "control.proto")
+	imported := filepath.Join(workspace, "grpc", "testing", "payloads.proto")
+	writeGenericTestFile(t, filepath.Join(repository, ".git"), "gitdir\n")
+	writeGenericTestFile(t, target, "syntax = \"proto3\";\nimport \"grpc/testing/payloads.proto\";\nmessage Control {}\n")
+	writeGenericTestFile(t, imported, "syntax = \"proto3\";\nmessage Payloads {}\n")
+
+	resolved, err := requireProtoAdapter(t).ResolveRoot(context.Background(), LSPToolScope{
+		Family:     defaultLSPToolFamily,
+		CWD:        workspace,
+		LanguageID: "proto",
+		TargetPath: target,
+	}, target)
+	if err != nil {
+		t.Fatalf("proto ResolveRoot: %v", err)
+	}
+	if resolved.WorkspaceRoot != workspace || resolved.ProjectRoot != workspace {
+		t.Fatalf("proto fixture scope = %#v, want explicit work_dir %q", resolved, workspace)
+	}
+}
+
+func TestProtoFixtureDeclaresBufModuleRoot(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixtureRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "bin", "LSP", "test", "proto"))
+	if _, err := os.Stat(filepath.Join(fixtureRoot, "buf.yaml")); err != nil {
+		t.Fatalf("proto fixture missing buf module root %q: %v", filepath.Join(fixtureRoot, "buf.yaml"), err)
+	}
 }
 
 func writeProtoAdapterTestFixture(t *testing.T) (string, string) {

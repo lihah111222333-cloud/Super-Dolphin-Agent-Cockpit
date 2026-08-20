@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,69 @@ const (
 type LogMessageParams struct {
 	Type    LogMessageType `json:"type"`
 	Message string         `json:"message"`
+}
+
+// ShowMessageParams is the non-fatal window/showMessage notification shape.
+// Message follows the same compatibility rule as LogMessageParams.
+type ShowMessageParams struct {
+	Type    LogMessageType `json:"type"`
+	Message string         `json:"message"`
+}
+
+func (p *LogMessageParams) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Type    LogMessageType  `json:"type"`
+		Message json.RawMessage `json:"message"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var m messageValue
+	if err := m.UnmarshalJSON(raw.Message); err != nil {
+		return err
+	}
+	p.Type, p.Message = raw.Type, string(m)
+	return nil
+}
+
+func (p *ShowMessageParams) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Type    LogMessageType  `json:"type"`
+		Message json.RawMessage `json:"message"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var m messageValue
+	if err := m.UnmarshalJSON(raw.Message); err != nil {
+		return err
+	}
+	p.Type, p.Message = raw.Type, string(m)
+	return nil
+}
+
+type messageValue string
+
+func (m *messageValue) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		*m = ""
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var value string
+		if err := json.Unmarshal(trimmed, &value); err != nil {
+			return err
+		}
+		*m = messageValue(value)
+		return nil
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, trimmed); err != nil {
+		return err
+	}
+	*m = messageValue(compact.String())
+	return nil
 }
 
 // NotificationHandler 接收语言服务器主动推送的诊断和日志通知。
@@ -72,6 +136,13 @@ func DispatchNotification(payload []byte, handler NotificationHandler) error {
 			return err
 		}
 		return handler.LogMessage(params)
+	case MethodShowMessage:
+		// showMessage is informational; validate its payload so malformed JSON
+		// remains visible, but never make an unsupported UI surface fatal.
+		if _, err := decodeNotificationParams[ShowMessageParams](notification.Params); err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: %s", ErrUnsupportedNotification, notification.Method)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupportedNotification, notification.Method)
 	}

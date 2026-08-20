@@ -27,6 +27,9 @@ func TestDetectLanguageIDMQLUsesClangdCpp(t *testing.T) {
 		"Experts/legacy.mq4": "cpp",
 		"Experts/robot.mq5":  "cpp",
 		"Include/common.MQH": "cpp",
+		"Experts/legacy.mql": "cpp",
+		"Experts/robot.mql4": "cpp",
+		"Experts/robot.mql5": "cpp",
 	}
 	for file, want := range cases {
 		if got := DetectLanguageID(file); got != want {
@@ -95,6 +98,9 @@ func TestLanguageIDForExtensionResolvesAllCategoriesWithoutRegistryState(t *test
 		".mq4":       "cpp",
 		".mq5":       "cpp",
 		".mqh":       "cpp",
+		".mql":       "cpp",
+		".mql4":      "cpp",
+		".mql5":      "cpp",
 		".swift":     "swift",
 		".py":        "python",
 		".php":       "php",

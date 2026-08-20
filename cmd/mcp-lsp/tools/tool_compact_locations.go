@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
@@ -209,7 +210,7 @@ func relativeToScope(root string, file string) string {
 
 func canonicalClean(path string) string {
 	cleaned := filepath.Clean(path)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+	if resolved, err := lspplatform.CanonicalExistingPath(cleaned); err == nil {
 		return resolved
 	}
 	return cleaned

@@ -10,6 +10,7 @@ import (
 
 	editpkg "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/edit"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -87,7 +88,7 @@ func hasFileURIScheme(path string) bool {
 }
 
 // resolveWorkspacePathInRoots 在允许的工作区根中解析 direct 写入目标。
-// EvalSymlinks 后仍要重新做根目录校验，避免符号链接逃逸。
+// 平台规范化后仍要重新做根目录校验，避免符号链接逃逸。
 func resolveWorkspacePathInRoots(root string, roots []string, uri string) (string, error) {
 	filePath, err := normalizeFilePathTarget(uri)
 	if err != nil {
@@ -98,7 +99,7 @@ func resolveWorkspacePathInRoots(root string, roots []string, uri string) (strin
 		return "", err
 	}
 	resolved := pathInfo.AbsPath
-	if evaluated, err := filepath.EvalSymlinks(resolved); err == nil {
+	if evaluated, err := lspplatform.CanonicalExistingPath(resolved); err == nil {
 		resolved = filepath.Clean(evaluated)
 	}
 	allowedRoots, err := search.NormalizeRootSet(root, roots)
@@ -192,7 +193,7 @@ func validateWorkspaceEditURI(roots []string, uri string) error {
 		return fmt.Errorf("stat %s: %w", path, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		resolved, err := filepath.EvalSymlinks(path)
+		resolved, err := lspplatform.CanonicalExistingPath(path)
 		if err != nil {
 			return fmt.Errorf("resolve symlink %s: %w", path, err)
 		}

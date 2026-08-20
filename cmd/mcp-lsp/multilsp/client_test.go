@@ -269,6 +269,49 @@ func TestClientSupportsCompletionPreservesTrueAndUnknown(t *testing.T) {
 	}
 }
 
+func TestClientCapabilitiesAdvertiseWorkspaceApplyEdit(t *testing.T) {
+	caps := clientCapabilities()
+	if caps.Workspace == nil || !caps.Workspace.ApplyEdit {
+		t.Fatalf("client capabilities must advertise workspace applyEdit for code actions: %#v", caps.Workspace)
+	}
+	raw, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatalf("marshal client capabilities: %v", err)
+	}
+	var payload struct {
+		Workspace struct {
+			ApplyEdit bool `json:"applyEdit"`
+		} `json:"workspace"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode marshaled client capabilities: %v", err)
+	}
+	if !payload.Workspace.ApplyEdit {
+		t.Fatalf("serialized client capabilities omitted workspace.applyEdit: %s", raw)
+	}
+	var textDocument struct {
+		Completion struct {
+			CompletionItem struct {
+				SnippetSupport bool `json:"snippetSupport"`
+			} `json:"completionItem"`
+		} `json:"completion"`
+	}
+	var full struct {
+		TextDocument struct {
+			Completion json.RawMessage `json:"completion"`
+		} `json:"textDocument"`
+	}
+	if err := json.Unmarshal(raw, &full); err != nil {
+		t.Fatalf("decode textDocument capabilities: %v", err)
+	}
+	if err := json.Unmarshal(full.TextDocument.Completion, &textDocument.Completion); err != nil {
+		t.Fatalf("decode completion capabilities: %v", err)
+	}
+	if !textDocument.Completion.CompletionItem.SnippetSupport {
+		t.Fatalf("serialized client capabilities omitted completionItem.snippetSupport: %s", raw)
+	}
+}
+
 func TestClientSupportsMethodUsesAdvertisedCapabilities(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -308,6 +351,60 @@ func TestClientSupportsMethodUsesAdvertisedCapabilities(t *testing.T) {
 	}
 	if !clientSupportsMethod(&staticCapabilitiesClient{}, "textDocument/futureMethod") {
 		t.Fatal("clientSupportsMethod() rejected an unknown future method")
+	}
+}
+
+func TestConcreteClientAllowsDynamicallyRegisterableDocumentSymbolsBeforeRegistration(t *testing.T) {
+	client := &client{
+		capabilities:         protocol.ServerCapabilities{},
+		dynamicRegistrations: newDynamicRegistrationTracker(),
+	}
+	if !clientSupportsMethod(client, protocol.MethodDocumentSymbol) {
+		t.Fatal("concrete client rejected document_symbol before JDTLS dynamic registration")
+	}
+	handler := dynamicRegistrationRequestHandler(client.dynamicRegistrations, nil)
+	if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(`{
+		"registrations":[{"id":"jdtls-symbols","method":"textDocument/documentSymbol"}]
+	}`)); err != nil {
+		t.Fatalf("register dynamic document_symbol capability: %v", err)
+	}
+	if !clientSupportsMethod(client, protocol.MethodDocumentSymbol) {
+		t.Fatal("concrete client rejected document_symbol after dynamic registration")
+	}
+	if _, err := handler(context.Background(), LSPCompatMethodClientUnregisterCapability, json.RawMessage(`{
+		"unregisterations":[{"id":"jdtls-symbols","method":"textDocument/documentSymbol"}]
+	}`)); err != nil {
+		t.Fatalf("unregister dynamic document_symbol capability: %v", err)
+	}
+	if clientSupportsMethod(client, protocol.MethodDocumentSymbol) {
+		t.Fatal("concrete client kept document_symbol enabled after dynamic unregister")
+	}
+}
+
+func TestConcreteClientAllowsDynamicallyRegisterableCompletionBeforeRegistration(t *testing.T) {
+	client := &client{
+		capabilities:         protocol.ServerCapabilities{},
+		dynamicRegistrations: newDynamicRegistrationTracker(),
+	}
+	if !clientSupportsMethod(client, protocol.MethodCompletion) {
+		t.Fatal("concrete client rejected completion before dynamic registration")
+	}
+	handler := dynamicRegistrationRequestHandler(client.dynamicRegistrations, nil)
+	if _, err := handler(context.Background(), LSPCompatMethodClientRegisterCapability, json.RawMessage(`{
+		"registrations":[{"id":"css-html-completion","method":"textDocument/completion"}]
+	}`)); err != nil {
+		t.Fatalf("register dynamic completion capability: %v", err)
+	}
+	if !clientSupportsMethod(client, protocol.MethodCompletion) {
+		t.Fatal("concrete client rejected completion after dynamic registration")
+	}
+	if _, err := handler(context.Background(), LSPCompatMethodClientUnregisterCapability, json.RawMessage(`{
+		"unregisterations":[{"id":"css-html-completion","method":"textDocument/completion"}]
+	}`)); err != nil {
+		t.Fatalf("unregister dynamic completion capability: %v", err)
+	}
+	if clientSupportsMethod(client, protocol.MethodCompletion) {
+		t.Fatal("concrete client kept completion enabled after dynamic unregister")
 	}
 }
 

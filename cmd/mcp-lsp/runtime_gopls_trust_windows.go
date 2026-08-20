@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 )
 
 const runtimeServerWindowsGoplsManifestMaxSize = 1 << 20
@@ -283,7 +285,7 @@ func runtimeServerCanonicalWindowsFile(path string) (string, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return "", errors.New("path must name a regular non-link file")
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := lspplatform.CanonicalExistingPath(path)
 	if err != nil {
 		return "", err
 	}
@@ -296,7 +298,7 @@ func runtimeServerCanonicalWindowsDirectory(path string) (string, error) {
 	if path == "" || !filepath.IsAbs(path) {
 		return "", errors.New("path must be absolute")
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := lspplatform.CanonicalDirectoryPath(path)
 	if err != nil {
 		return "", err
 	}

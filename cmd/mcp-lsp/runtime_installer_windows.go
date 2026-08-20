@@ -33,10 +33,9 @@ func registerNPMInstallers(inst *installer.Provider) {
 	registerInstallerSpecs(inst, runtimeNPMInstallerSpecsForPlatform("windows"))
 }
 
-// registerShellAndSQLInstallers 只保留 SQL 的公共初始注册；Windows shell 在后续
-// registerWindowsShellRuntimeInstaller 中绑定 NativeArch、锁定 cohort 和生命周期钩子。
-func registerShellAndSQLInstallers(inst *installer.Provider) {
-	registerSQLInstaller(inst)
+// registerShellAndSQLInstallers 保留 Windows 生产注册顺序；SQL 必须等待产品根目录
+// 解析完成后由 registerWindowsSQLInstaller 注册，禁止进入公共宿主 Cargo 命令路径。
+func registerShellAndSQLInstallers(_ *installer.Provider) {
 }
 
 // runtimeShellNPMInstallerConfigForProduction 是 Windows 专用生产 selector：它读取
@@ -79,6 +78,7 @@ func registerPlatformProductionInstallers(inst *installer.Provider) {
 	registerWindowsRuntimeDependencyInstallers(inst, productRoot, productRootErr)
 	registerWindowsShellRuntimeInstaller(inst, productRoot, productRootErr)
 	registerWindowsASTGrepRuntimeInstaller(inst, productRoot, productRootErr)
+	registerWindowsSQLInstaller(inst, productRoot, productRootErr)
 }
 
 const runtimeASTGrepLanguageID = "__mcp_lsp_ast_grep__"
@@ -422,6 +422,9 @@ func windowsNativeCatalogInstallerConfig(productRoot string, productRootErr erro
 			if _, err := installer.ResolveWindowsRustfmtPath(productRoot); err != nil {
 				return fmt.Errorf("validate product-owned Rustfmt companion: %w", err)
 			}
+			if _, err := installer.ResolveWindowsRustToolchain(productRoot); err != nil {
+				return fmt.Errorf("validate product-owned Rust toolchain companion: %w", err)
+			}
 			return nil
 		}
 	}
@@ -460,6 +463,9 @@ func windowsNativeInstallAction(productRoot string, productRootErr error, produc
 			if _, err := installer.EnsureWindowsRustfmt(ctx, productRoot, nil); err != nil {
 				return installer.InstallResult{}, fmt.Errorf("ensure product-owned Rustfmt companion: %w", err)
 			}
+			if _, err := installer.EnsureWindowsRustToolchain(ctx, productRoot, nil); err != nil {
+				return installer.InstallResult{}, fmt.Errorf("ensure product-owned Rust toolchain companion: %w", err)
+			}
 		}
 		return installer.InstallResult{Path: result.Executable}, nil
 	}
@@ -488,6 +494,9 @@ func windowsNativeBinaryPathResolver(productRoot string, productRootErr error, p
 		if product == installer.WindowsLSPProductRustAnalyzer {
 			if _, err := installer.ResolveWindowsRustfmtPath(productRoot); err != nil {
 				return "", fmt.Errorf("resolve product-owned Rustfmt companion: %w", err)
+			}
+			if _, err := installer.ResolveWindowsRustToolchain(productRoot); err != nil {
+				return "", fmt.Errorf("resolve product-owned Rust toolchain companion: %w", err)
 			}
 		}
 		return path, nil
@@ -561,6 +570,11 @@ func windowsRuntimeDependencyInstallAction(productRoot string, productRootErr er
 	return func(ctx context.Context) (installer.InstallResult, error) {
 		if productRootErr != nil {
 			return installer.InstallResult{}, productRootErr
+		}
+		if product == installer.WindowsRuntimeDependencyProductSwiftSourceKitLS {
+			if err := installer.EnsureWindowsSwiftProductRootOwnerOnly(productRoot); err != nil {
+				return installer.InstallResult{}, fmt.Errorf("prepare Swift product root ACL: %w", err)
+			}
 		}
 		if err := ensureWindowsVCLibsForInstall(ctx, productRoot); err != nil {
 			return installer.InstallResult{}, err

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 )
@@ -75,9 +76,20 @@ func installWindowsNodeRuntimePackages(ctx context.Context, npmPath, prefix stri
 	if err != nil {
 		return err
 	}
-	args := []string{"install", "--prefix", processPrefix, "--save-exact"}
+	// 锁定语言服务包必须是可直接运行的发布产物；禁止 npm 执行任意依赖包的
+	// install/postinstall 脚本，既避免旧 core-js 等脚本依赖宿主 PATH，也把
+	// InstallAction 的执行边界限制在 npm 解包与链接阶段。
+	args := []string{"install", "--prefix", processPrefix, "--save-exact", "--ignore-scripts"}
 	args = append(args, packages...)
 	command := hiddenexec.CommandContext(ctx, processNPMPath, args...)
+	// npm.cmd 通过绝对 Node 路径启动 npm 自身，但依赖包 lifecycle script 仍只会
+	// 以命令名调用 node。把同一份 8.3 runtime 目录显式置于该子进程 PATH 首位，
+	// 避免 Windows 深路径或宿主 PATH 隔离导致 postinstall 在下载完成后失败。
+	processPath := filepath.Dir(processNPMPath)
+	if inheritedPath := strings.TrimSpace(os.Getenv("PATH")); inheritedPath != "" {
+		processPath += string(os.PathListSeparator) + inheritedPath
+	}
+	command.Env = runtimeDependencyCommandEnvironment([]string{"PATH=" + processPath})
 	output, err := command.CombinedOutput()
 	if err == nil {
 		return nil

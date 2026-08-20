@@ -232,8 +232,13 @@ func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 	lines := strings.Split(normalized, "\n")
 	normalizedEdits := make([]protocol.TextEdit, len(edits))
 	for i, e := range edits {
+		rng := e.Range
+		if lineEnding == lineEndingCRLF {
+			rng.Start = normalizeCRLFTextEditPosition(lines, rng.Start)
+			rng.End = normalizeCRLFTextEditPosition(lines, rng.End)
+		}
 		normalizedEdits[i] = protocol.TextEdit{
-			Range:   e.Range,
+			Range:   rng,
 			NewText: normalizeLineEndings(e.NewText),
 		}
 	}
@@ -256,6 +261,18 @@ func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 	}
 	joined := strings.Join(lines, "\n")
 	return restoreLineEndings(joined, lineEnding), nil
+}
+
+// normalizeCRLFTextEditPosition 把部分 formatter 按原始 CRLF 文本返回的行尾列映射到
+// LSP 规范使用的无换行 UTF-16 行长度。只接受精确多出的一个 CR 单元，其他越界仍失败。
+func normalizeCRLFTextEditPosition(lines []string, position protocol.Position) protocol.Position {
+	if position.Line < 0 || position.Line >= len(lines) {
+		return position
+	}
+	if position.Line < len(lines)-1 && position.Character == utf16LineLength(lines[position.Line])+1 {
+		position.Character--
+	}
+	return position
 }
 
 // buildTextEditApplications 校验并转换全部 TextEdit，再按安全应用顺序排序。
@@ -301,8 +318,7 @@ func validateTextEditRange(lines []string, rng protocol.Range) error {
 	return err
 }
 
-// normalizeTextEditRange 将合法的文件末尾边界归一到最后一行，避免把 LSP 的
-// “无末尾换行文件的下一行第 0 列”误判为越界；其他非法位置仍然明确拒绝。
+// normalizeTextEditRange 统一校验并归一化 TextEdit 的两个 LSP 位置。
 func normalizeTextEditRange(lines []string, rng protocol.Range) (protocol.Range, error) {
 	if rng.Start.Line < 0 || rng.End.Line < 0 {
 		return protocol.Range{}, fmt.Errorf("edit range line must be non-negative: L%d-L%d", rng.Start.Line, rng.End.Line)
@@ -310,19 +326,15 @@ func normalizeTextEditRange(lines []string, rng protocol.Range) (protocol.Range,
 	if rng.Start.Character < 0 || rng.End.Character < 0 {
 		return protocol.Range{}, fmt.Errorf("edit range character must be non-negative: C%d-C%d", rng.Start.Character, rng.End.Character)
 	}
-	if len(lines) == 0 || rng.Start.Line > len(lines) || rng.End.Line > len(lines) ||
-		(rng.Start.Line == len(lines) && (rng.Start.Character != 0 || lines[len(lines)-1] == "")) ||
-		(rng.End.Line == len(lines) && (rng.End.Character != 0 || lines[len(lines)-1] == "")) {
-		return protocol.Range{}, fmt.Errorf("edit range out of bounds: L%d-L%d (file has %d lines)", rng.Start.Line, rng.End.Line, len(lines))
+	var err error
+	rng.Start, err = normalizeTextEditPosition(lines, rng.Start)
+	if err != nil {
+		return protocol.Range{}, fmt.Errorf("edit start: %w", err)
 	}
-	if rng.Start.Line == len(lines) {
-		rng.Start = protocol.Position{Line: len(lines) - 1, Character: utf16LineLength(lines[len(lines)-1])}
+	rng.End, err = normalizeTextEditPosition(lines, rng.End)
+	if err != nil {
+		return protocol.Range{}, fmt.Errorf("edit end: %w", err)
 	}
-	if rng.End.Line == len(lines) {
-		rng.End = protocol.Position{Line: len(lines) - 1, Character: utf16LineLength(lines[len(lines)-1])}
-	}
-	rng.Start.Character = normalizeLSPTextEditCharacter(lines[rng.Start.Line], rng.Start.Character)
-	rng.End.Character = normalizeLSPTextEditCharacter(lines[rng.End.Line], rng.End.Character)
 	if textEditRangeReversed(rng) {
 		return protocol.Range{}, fmt.Errorf("edit range start after end: L%d:C%d-L%d:C%d", rng.Start.Line, rng.Start.Character, rng.End.Line, rng.End.Character)
 	}
@@ -337,6 +349,25 @@ func normalizeLSPTextEditCharacter(line string, character int) int {
 		return utf16LineLength(line)
 	}
 	return character
+}
+
+// normalizeTextEditPosition 校验单个 LSP 位置并把文件末尾边界映射到可切片的最后一行。
+func normalizeTextEditPosition(lines []string, position protocol.Position) (protocol.Position, error) {
+	if len(lines) == 0 || position.Line > len(lines) {
+		return protocol.Position{}, fmt.Errorf("edit range out of bounds: L%d (file has %d lines)", position.Line, len(lines))
+	}
+	if position.Line == len(lines) {
+		if position.Character != 0 && position.Character != lspEndOfLineCharacter {
+			return protocol.Position{}, fmt.Errorf("edit range out of bounds: L%d:C%d (file has %d lines)", position.Line, position.Character, len(lines))
+		}
+		return protocol.Position{Line: len(lines) - 1, Character: utf16LineLength(lines[len(lines)-1])}, nil
+	}
+
+	position.Character = normalizeLSPTextEditCharacter(lines[position.Line], position.Character)
+	if _, err := utf16CharacterToByteOffset(lines[position.Line], position.Character); err != nil {
+		return protocol.Position{}, err
+	}
+	return position, nil
 }
 
 // textEditRangeReversed 判断 LSP range 是否起点晚于终点。

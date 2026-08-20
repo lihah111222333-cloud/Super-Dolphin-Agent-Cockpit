@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
@@ -85,18 +87,15 @@ func newManager(cfg *platformconfig.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	inst, err := runtimeInstaller(packagedLSP)
+	inst, err := runtimeInstaller()
 	if err != nil {
 		return nil, err
 	}
-	astGrepEnsurer, err := runtimeASTGrepEnsurer(inst, packagedLSP)
+	astGrepEnsurer, err := runtimeASTGrepEnsurer(inst, lspBundle, packagedLSP)
 	if err != nil {
 		return nil, err
 	}
-	languageIDs, err := runtimePrimaryLanguageIDsForBundle(adapters, lspBundle, packagedLSP)
-	if err != nil {
-		return nil, err
-	}
+	languageIDs := runtimePrimaryLanguageIDs()
 
 	registry := manager.NewRegistry(inst)
 	backgroundRunners, releaseScopes, err := registerRuntimeLanguages(
@@ -138,10 +137,9 @@ func requireResolvedLSPConfig(cfg contract.LSPConfig) (contract.LSPConfig, error
 	return cfg, nil
 }
 
-func runtimeInstaller(packagedLSP bool) (*installer.Provider, error) {
-	if packagedLSP {
-		return nil, nil
-	}
+// runtimeInstaller 始终装配全部受支持语言的按需安装器。
+// bundle 只覆盖其中已有的服务二进制，不能关闭其他语言的自动发现与安装能力。
+func runtimeInstaller() (*installer.Provider, error) {
 	return setupInstallerWithError()
 }
 
@@ -251,37 +249,6 @@ func runtimePrimaryLanguageIDs() []string {
 	}
 }
 
-// runtimePrimaryLanguageIDsForBundle 计算当前适配器与可选打包清单共同允许注册的主语言集合。
-func runtimePrimaryLanguageIDsForBundle(adapters *multilsp.LanguageAdapterRegistry, bundle runtimeenv.LSPBundle, packaged bool) ([]string, error) {
-	if !packaged {
-		return runtimePrimaryLanguageIDs(), nil
-	}
-	ids := make([]string, 0, len(runtimePrimaryLanguageIDs()))
-	for _, primaryLanguageID := range runtimePrimaryLanguageIDs() {
-		adapter, ok := adapters.AdapterForLanguage(primaryLanguageID)
-		if !ok {
-			return nil, errors.New("missing LSP language adapter: " + primaryLanguageID)
-		}
-		if !adapter.CapabilityPolicy().RequiresLSPClient || bundledAdapterLanguageIDs(adapter, bundle) != nil {
-			ids = append(ids, primaryLanguageID)
-		}
-	}
-	return ids, nil
-}
-
-func bundledAdapterLanguageIDs(adapter multilsp.LanguageAdapter, bundle runtimeenv.LSPBundle) []string {
-	if adapter == nil {
-		return nil
-	}
-	var ids []string
-	for _, languageID := range adapter.LanguageIDs() {
-		if _, ok := bundle.ServerForLanguage(languageID); ok {
-			ids = append(ids, strings.ToLower(strings.TrimSpace(languageID)))
-		}
-	}
-	return ids
-}
-
 func appendBackgroundRunner(runners []platformrunner.Runner, runner platformrunner.Runner) []platformrunner.Runner {
 	if runner == nil {
 		return runners
@@ -311,29 +278,35 @@ func registerRuntimeAdapter(
 		registerAdapterLanguagesNoInstall(registry, adapter, mgr)
 		return nil, scopeReleaserFromManager(mgr), nil
 	}
-	languageIDs := bundledAdapterLanguageIDs(adapter, lspBundle)
 	binaryOverride := ""
+	useBundledServer := false
 	if packagedLSP {
-		server, err := bundledAdapterServer(adapter, lspBundle)
+		server, found, err := bundledAdapterServer(adapter, lspBundle)
 		if err != nil {
 			return nil, nil, err
 		}
-		binaryOverride = server.Path
+		if found {
+			binaryOverride = server.Path
+			useBundledServer = true
+		}
 	}
 	mgr, err := createGenericManagerWithBinary(adapter, adapters, root, log, idleTimeout, binaryOverride, packagedLSP)
 	if err != nil {
 		return nil, nil, err
 	}
-	if packagedLSP {
-		registerAdapterLanguagesNoInstall(registry, adapter, mgr, languageIDs...)
+	if useBundledServer {
+		// 同一 adapter 的语言别名共享一种服务实现；manifest 命中该 adapter 后，
+		// bundle 只提供首选二进制路径，不裁剪 adapter 对外支持的语言集合。
+		registerAdapterLanguagesNoInstall(registry, adapter, mgr)
 		return mgr.BackgroundRunner(), scopeReleaserFromManager(mgr), nil
 	}
 	registerAdapterLanguages(registry, adapter, mgr)
 	return mgr.BackgroundRunner(), scopeReleaserFromManager(mgr), nil
 }
 
-// bundledAdapterServer 从已校验的打包清单解析适配器对应的唯一语言服务，不允许猜测或 PATH 回退。
-func bundledAdapterServer(adapter multilsp.LanguageAdapter, bundle runtimeenv.LSPBundle) (runtimeenv.LSPServer, error) {
+// bundledAdapterServer 从已校验的打包清单解析适配器对应的唯一首选服务。
+// 未命中表示该 adapter 应继续走通用自动发现与安装链路，不是“不支持该语言”。
+func bundledAdapterServer(adapter multilsp.LanguageAdapter, bundle runtimeenv.LSPBundle) (runtimeenv.LSPServer, bool, error) {
 	var selected runtimeenv.LSPServer
 	for _, languageID := range adapter.LanguageIDs() {
 		server, ok := bundle.ServerForLanguage(languageID)
@@ -345,13 +318,13 @@ func bundledAdapterServer(adapter multilsp.LanguageAdapter, bundle runtimeenv.LS
 			continue
 		}
 		if selected.Path != server.Path {
-			return runtimeenv.LSPServer{}, errors.New("bundled LSP adapter maps to multiple server binaries")
+			return runtimeenv.LSPServer{}, false, errors.New("bundled LSP adapter maps to multiple server binaries")
 		}
 	}
 	if selected.Path == "" {
-		return runtimeenv.LSPServer{}, errors.New("missing bundled LSP server for adapter")
+		return runtimeenv.LSPServer{}, false, nil
 	}
-	return selected, nil
+	return selected, true, nil
 }
 
 func appendReleaseScopeReleaser(releasers []multilsp.ScopeReleaser, releaser multilsp.ScopeReleaser) []multilsp.ScopeReleaser {
@@ -773,6 +746,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 	mgr, err := multilsp.NewManagerWithError(multilsp.Config{
 		WorkspaceRoot:                    root,
 		LanguageAdapters:                 adapters,
+		TypeScriptNavigationModuleRoot:   runtimeTypeScriptNavigationModuleRootResolver(adapter, binary),
 		IdleTimeout:                      idleTimeout,
 		DiagnosticsMaxWait:               runtimeAdapterDiagnosticsMaxWait(adapter),
 		DisableInitialWorkspaceBootstrap: true,
@@ -910,7 +884,7 @@ func runtimeTypeScriptModuleRoot(serverBinary string) string {
 		if binaryPath == "" {
 			continue
 		}
-		resolved, err := filepath.EvalSymlinks(binaryPath)
+		resolved, err := lspplatform.CanonicalExistingPath(binaryPath)
 		if err != nil {
 			resolved = binaryPath
 		}
@@ -924,7 +898,45 @@ func runtimeTypeScriptModuleRoot(serverBinary string) string {
 	return ""
 }
 
-// typeScriptModuleRootFromBinary 只接受 node_modules/.bin 内的显式 shim，并返回同一安装前缀下的 TypeScript 包目录。
+// runtimeTypeScriptNavigationModuleRootResolver returns the product TypeScript package root
+// derived only from the runtime binary selected for this manager.
+func runtimeTypeScriptNavigationModuleRootResolver(adapter multilsp.LanguageAdapter, binary *runtimeBinaryOverride) func() (string, error) {
+	if !runtimeAdapterUsesJSTS(adapter) {
+		return nil
+	}
+	return func() (string, error) {
+		if binary == nil {
+			return "", errors.New("typescript navigation runtime binary is nil")
+		}
+		serverBinary := strings.TrimSpace(binary.Get())
+		if serverBinary == "" {
+			return "", errors.New("typescript navigation runtime binary is empty")
+		}
+		moduleRoot := runtimeTypeScriptModuleRootFromBinaryPath(serverBinary)
+		if moduleRoot == "" {
+			return "", fmt.Errorf("resolve TypeScript module root from runtime binary %q", serverBinary)
+		}
+		return moduleRoot, nil
+	}
+}
+
+func runtimeTypeScriptModuleRootFromBinaryPath(binaryPath string) string {
+	binaryPath = strings.TrimSpace(binaryPath)
+	if binaryPath == "" {
+		return ""
+	}
+	resolved, err := lspplatform.CanonicalExistingPath(binaryPath)
+	if err != nil {
+		resolved = binaryPath
+	}
+	if target, ok := installer.CommandShimTarget(resolved); ok {
+		resolved = target
+	}
+	return typeScriptModuleRootFromBinary(resolved)
+}
+
+// typeScriptModuleRootFromBinary resolves the TypeScript package under an explicit
+// npm installation prefix or command shim target.
 func typeScriptModuleRootFromBinary(binaryPath string) string {
 	prefix := filepath.Dir(filepath.Dir(filepath.Clean(binaryPath)))
 	for _, candidate := range []string{

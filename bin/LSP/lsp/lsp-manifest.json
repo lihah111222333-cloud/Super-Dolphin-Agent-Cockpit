@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "bundle_path": "lsp",
+  "profile": "standard",
+  "servers": {
+    "gopls": {
+      "path": "bin/gopls.exe",
+      "version": "v0.23.0",
+      "sha256": "e208d80db8721f5b1761f7c8f705b4c2389d7c1ef5d30fb681133d9383293697",
+      "languages": [
+        "go",
+        "gomod",
+        "gosum",
+        "gowork"
+      ]
+    }
+  }
+}

@@ -564,6 +564,12 @@ func (a projectLanguageAdapter) shouldSearchNestedProjectRoot(root, target strin
 	if target == "" {
 		return true
 	}
+	// A workspace-language request resolves its target to the workspace
+	// directory. Do not descend from an explicit directory target and bind the
+	// client to an unrelated nested project discovered by walk order.
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		return false
+	}
 	if root != "" {
 		if rel, err := filepath.Rel(root, target); err == nil && rel != "." && !isParentRelativePath(rel) {
 			if info, statErr := os.Stat(target); statErr == nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -60,24 +61,30 @@ func powershellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
-// makeUnreadableForTest 使用 Windows ACL 构造不可读 fixture；权限不足时测试明确
-// 记录宿主限制，不修改生产 ACL。
+var windowsTokenSIDPattern = regexp.MustCompile(`S-[0-9]+(-[0-9]+)+`)
+
+// makeUnreadableForTest 使用当前 Windows token 的 SID 构造不可读 fixture，避免环境变量
+// 用户名与实际执行 token 不一致；测试结束后恢复 fixture ACL。
 func makeUnreadableForTest(t *testing.T, path string) {
 	t.Helper()
-	principal := os.Getenv("USERNAME")
-	if domain := os.Getenv("USERDOMAIN"); domain != "" && principal != "" {
-		principal = domain + `\` + principal
+	output, err := exec.Command("whoami.exe", "/user", "/fo", "csv", "/nh").CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolve current Windows token SID: %v; output=%s", err, output)
 	}
-	if strings.TrimSpace(principal) == "" {
-		t.Skip("USERNAME is required to make the test file unreadable on Windows")
+	sid := windowsTokenSIDPattern.FindString(string(output))
+	if sid == "" {
+		t.Fatalf("resolve current Windows token SID: output=%s", output)
 	}
-	deny := principal + ":(R)"
-	cmd := exec.Command("icacls", path, "/deny", deny)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Skipf("icacls deny read unavailable: %v; output=%s", err, output)
+	deny := "*" + sid + ":(R)"
+	if output, err := exec.Command("icacls.exe", path, "/deny", deny).CombinedOutput(); err != nil {
+		t.Fatalf("icacls deny read for token SID %s: %v; output=%s", sid, err, output)
 	}
 	t.Cleanup(func() {
-		_ = exec.Command("icacls", path, "/remove:d", principal).Run()
-		_ = os.Chmod(path, 0o600)
+		if output, err := exec.Command("icacls.exe", path, "/remove:d", "*"+sid).CombinedOutput(); err != nil {
+			t.Errorf("restore ACL for token SID %s: %v; output=%s", sid, err, output)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			t.Errorf("restore fixture mode: %v", err)
+		}
 	})
 }

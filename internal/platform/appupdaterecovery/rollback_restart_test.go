@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -194,6 +195,9 @@ func TestRollbackRestartActivationResponseLossThenDeathLaunchesReplacement(t *te
 }
 
 func TestRollbackRestartDeadACKReplacementWriteFailureCleansNewHelper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod-based rollback restart write failure is unsupported on windows")
+	}
 	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
@@ -298,6 +302,9 @@ func TestRollbackRestartDeadACKReplacementValidationFailureCleansLaunch(t *testi
 }
 
 func TestRollbackRestartACKWriteFailureCleansParkedHelper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod-based rollback restart write failure is unsupported on windows")
+	}
 	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)

@@ -9,8 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-)
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
+)
 
 func TestRegistryRegisterAndPersist(t *testing.T) {
 	r := &Registry{
@@ -58,8 +59,8 @@ func TestRegistryPersistWritesPrivateProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat registry file: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("registry file mode = %03o, want 600", got)
+	if !trustedRegistryFileInfo(r.path, info) {
+		t.Fatal("registry file permissions are not private to the current user")
 	}
 
 	var raw map[string]any
@@ -170,7 +171,6 @@ func TestHelperSleepProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-
 func TestRegistryNilSafe(t *testing.T) {
 	var r *Registry
 	// None of these should panic.
@@ -235,9 +235,7 @@ func TestFindStaleRegistryFiles(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(rf)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write stale file: %v", err)
-	}
+	writePrivateRegistryFixture(t, path, data)
 	defer os.Remove(path)
 
 	stale := findStaleRegistryFiles()
@@ -264,9 +262,7 @@ func TestFindStaleSkipsLivePID(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(rf)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
+	writePrivateRegistryFixture(t, path, data)
 	defer os.Remove(path)
 
 	stale := findStaleRegistryFiles()
@@ -301,5 +297,15 @@ func TestCollectStaleOrphansSkipsProtectedPIDs(t *testing.T) {
 		if orphan.child.PID == myPID {
 			t.Fatalf("collectStaleOrphans() included protected current PID: %#v", got)
 		}
+	}
+}
+
+func writePrivateRegistryFixture(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, registryFilePerm); err != nil {
+		t.Fatalf("write private registry fixture: %v", err)
+	}
+	if err := securefs.RestrictPrivateOwnerOnly(path, registryFilePerm); err != nil {
+		t.Fatalf("restrict private registry fixture: %v", err)
 	}
 }

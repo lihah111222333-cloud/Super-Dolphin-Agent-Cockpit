@@ -1,12 +1,15 @@
 package multilsp
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
+	"io/fs"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -313,32 +316,35 @@ func absoluteWorkspaceTargetPath(target string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return canonicalAbsoluteTargetPath(path), nil
+		return canonicalAbsoluteTargetPath(path)
 	}
 	if !filepath.IsAbs(trimmed) {
 		return "", nil
 	}
-	return canonicalAbsoluteTargetPath(trimmed), nil
+	return canonicalAbsoluteTargetPath(trimmed)
 }
 
 // canonicalAbsoluteTargetPath 规范化绝对目标路径。
 // 文件不存在时仍尝试解析父目录符号链接，保证新文件路径也能接受 containment 校验。
-func canonicalAbsoluteTargetPath(path string) string {
+func canonicalAbsoluteTargetPath(path string) (string, error) {
 	cleaned := filepath.Clean(strings.TrimSpace(path))
 	if cleaned == "" {
-		return ""
+		return "", nil
 	}
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		return filepath.Clean(resolved)
+	if resolved, err := lspplatform.CanonicalExistingPath(cleaned); err == nil {
+		return filepath.Clean(resolved), nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("canonicalize existing target path %q: %w", cleaned, err)
 	}
+
 	parent := filepath.Dir(cleaned)
-	if resolvedParent, err := filepath.EvalSymlinks(parent); err == nil {
-		return filepath.Join(filepath.Clean(resolvedParent), filepath.Base(cleaned))
+	if resolvedParent, err := lspplatform.CanonicalDirectoryPath(parent); err == nil {
+		return filepath.Join(filepath.Clean(resolvedParent), filepath.Base(cleaned)), nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("canonicalize target parent path %q: %w", parent, err)
 	}
-	if normalized, err := platformshared.NormalizeAbsolutePath(cleaned); err == nil && normalized != "" {
-		return normalized
-	}
-	return cleaned
+	// 父目录本身尚不存在时无法解析符号链接；保留缺失目标的词法绝对路径语义。
+	return cleaned, nil
 }
 
 func copyLanguageSpecific(input map[string]string) map[string]string {

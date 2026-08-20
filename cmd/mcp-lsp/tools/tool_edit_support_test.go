@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
@@ -815,7 +816,7 @@ func TestEditHandlerResolvesDotDotBeforeCanonicalLock(t *testing.T) {
 		root:         resolveRoot(root),
 		lockRegistry: owner,
 	}
-	canonicalPath, err := filepath.EvalSymlinks(path)
+	canonicalPath, err := lspplatform.CanonicalExistingPath(path)
 	if err != nil {
 		t.Fatalf("resolve canonical fixture path: %v", err)
 	}

@@ -217,6 +217,9 @@ func resolveWindowsInstallProductRoot(raw string) (string, error) {
 	if raw == "" {
 		return "", errors.New("Windows install product root is required")
 	}
+	if !filepath.IsAbs(raw) {
+		return "", errors.New("Windows install product root must be absolute")
+	}
 	root, err := filepath.Abs(raw)
 	if err != nil {
 		return "", fmt.Errorf("resolve Windows install product root: %w", err)

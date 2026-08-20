@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
@@ -565,7 +566,7 @@ func lspBinaryRepoRoot(t *testing.T) string {
 	if filepath.Base(wd) != "mcp-lsp" {
 		root = wd
 	}
-	root, err = filepath.EvalSymlinks(root)
+	root, err = lspplatform.CanonicalDirectoryPath(root)
 	if err != nil {
 		t.Fatalf("resolve repo root %s: %v", root, err)
 	}

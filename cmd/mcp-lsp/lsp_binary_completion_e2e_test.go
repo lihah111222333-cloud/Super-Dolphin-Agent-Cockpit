@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
@@ -177,7 +178,11 @@ func repoRootForMcpLSPBinaryTest(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	return filepath.Clean(filepath.Join(wd, "..", ".."))
+	root, err := lspplatform.CanonicalDirectoryPath(filepath.Clean(filepath.Join(wd, "..", "..")))
+	if err != nil {
+		t.Fatalf("canonicalize repository root: %v", err)
+	}
+	return root
 }
 
 func (c *mcpLSPBinaryClient) callTool(t *testing.T, name string, args map[string]any) mcpLSPBinaryResponse {

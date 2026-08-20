@@ -5,12 +5,30 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
+
+func TestDecodeDocumentSymbolUnionFlatSymbolInformationPreservesRange(t *testing.T) {
+	raw := json.RawMessage(`{"name":"loadlib","kind":12,"location":{"uri":"file:///tmp/sourcing.sh","range":{"start":{"line":20,"character":0},"end":{"line":22,"character":1}}}}`)
+
+	got, ok, err := decodeDocumentSymbolUnion(raw)
+	if err != nil || !ok {
+		t.Fatalf("decodeDocumentSymbolUnion() = %#v, %v, want successful flat SymbolInformation decode", got, err)
+	}
+	if got.Name != "loadlib" ||
+		got.Range.Start.Line != 20 ||
+		got.Range.Start.Character != 0 ||
+		got.Range.End.Line != 22 ||
+		got.Range.End.Character != 1 ||
+		got.SelectionRange != got.Range {
+		t.Fatalf("decoded symbol = %#v, want range 20:0-22:1", got)
+	}
+}
 
 func TestReferencesRetriesFrontendColdStartUntilNonEmpty(t *testing.T) {
 	for _, tc := range []struct {
@@ -200,6 +218,92 @@ func (c *coldStartReferencesClient) referenceRequestCount() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.requests
+}
+
+func TestSwiftSemanticRequestsSynchronizeWorkspaceBeforeCompletionAndReferences(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+	}{
+		{name: "completion", method: protocol.MethodCompletion},
+		{name: "references", method: protocol.MethodReferences},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeGenericTestFile(t, filepath.Join(root, "Package.swift"), "// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: \"LSPFixture\", targets: [.executableTarget(name: \"LSPFixture\")])\n")
+			target := filepath.Join(root, "Sources", "LSPFixture", "Greeting.swift")
+			writeGenericTestFile(t, target, "struct Greeting { let name: String }\n")
+			client := &swiftWorkspaceSynchronizationClient{}
+			mgr := NewManager(Config{
+				WorkspaceRoot: root,
+				ClientFactory: ClientFactoryFunc(func(string, protocol.NotificationHandler) (Client, error) {
+					return client, nil
+				}),
+			})
+			t.Cleanup(func() {
+				if err := mgr.Close(); err != nil {
+					t.Errorf("close manager: %v", err)
+				}
+			})
+
+			ctx, cancel := context.WithTimeout(ctxWithCWD(root, "agent-swift-semantic", "thread-swift"), 2*time.Second)
+			defer cancel()
+			var err error
+			switch tc.method {
+			case protocol.MethodCompletion:
+				_, err = mgr.Completion(ctx, target, protocol.Position{Line: 0, Character: 8})
+			case protocol.MethodReferences:
+				_, err = mgr.References(ctx, target, protocol.Position{Line: 0, Character: 8}, false)
+			}
+			if err != nil {
+				t.Fatalf("%s error = %v, want synchronized semantic request", tc.method, err)
+			}
+			if got, want := client.requestMethods(), []string{"workspace/synchronize", tc.method}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("request methods = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+type swiftWorkspaceSynchronizationClient struct {
+	noopClient
+
+	mu           sync.Mutex
+	synchronized bool
+	requests     []string
+}
+
+func (c *swiftWorkspaceSynchronizationClient) Request(_ context.Context, method string, params any) (json.RawMessage, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.requests = append(c.requests, method)
+	switch method {
+	case "workspace/synchronize":
+		payload, ok := params.(map[string]any)
+		if !ok || payload["index"] != true {
+			return nil, errors.New("workspace/synchronize must request index=true")
+		}
+		c.synchronized = true
+		return json.RawMessage("null"), nil
+	case protocol.MethodCompletion:
+		if !c.synchronized {
+			return nil, context.DeadlineExceeded
+		}
+		return json.RawMessage(`{"isIncomplete":false,"items":[]}`), nil
+	case protocol.MethodReferences:
+		if !c.synchronized {
+			return nil, context.DeadlineExceeded
+		}
+		return json.RawMessage("[]"), nil
+	default:
+		return json.RawMessage("null"), nil
+	}
+}
+
+func (c *swiftWorkspaceSynchronizationClient) requestMethods() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.requests...)
 }
 
 func (c *coldStartReferencesClient) documentSymbolRequestCount() int {

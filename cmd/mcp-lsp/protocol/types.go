@@ -1,5 +1,11 @@
 package protocol
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
+
 // Position 表示 LSP 文档内的零基行列位置。
 type Position struct {
 	Line      int `json:"line"`
@@ -384,6 +390,36 @@ type ParameterInformationResult struct {
 	Label         string `json:"label,omitempty"`
 	LabelOffsets  []int  `json:"labelOffsets,omitempty"`
 	Documentation any    `json:"documentation,omitempty"`
+}
+
+// UnmarshalJSON 解码 LSP ParameterInformation.label 的 string | [start,end] 联合类型。
+func (result *ParameterInformationResult) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Label         json.RawMessage `json:"label"`
+		LabelOffsets  []int           `json:"labelOffsets,omitempty"`
+		Documentation any             `json:"documentation,omitempty"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if len(wire.Label) == 0 || bytes.Equal(bytes.TrimSpace(wire.Label), []byte("null")) {
+		return fmt.Errorf("parameter label is required")
+	}
+	result.Label = ""
+	result.LabelOffsets = wire.LabelOffsets
+	result.Documentation = wire.Documentation
+	if err := json.Unmarshal(wire.Label, &result.Label); err == nil {
+		return nil
+	}
+	var offsets []int
+	if err := json.Unmarshal(wire.Label, &offsets); err != nil {
+		return fmt.Errorf("decode parameter label: %w", err)
+	}
+	if len(offsets) != 2 || offsets[0] < 0 || offsets[1] < offsets[0] {
+		return fmt.Errorf("parameter label offsets must be a non-negative [start,end] pair")
+	}
+	result.LabelOffsets = offsets
+	return nil
 }
 
 // SignatureHelpResult 表示 signatureHelp 返回的签名集合和当前选中项。

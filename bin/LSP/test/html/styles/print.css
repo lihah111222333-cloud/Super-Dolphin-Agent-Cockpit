@@ -1,0 +1,11 @@
+@media print {
+  nav,
+  footer {
+    display: none;
+  }
+
+  main {
+    color: #000;
+    font-size: 12pt;
+  }
+}
