@@ -54,6 +54,7 @@ func TestArtifactBuilderClientAcceptsProviderOmittedSnapshotAndEphemeral(t *test
 	live := artifactBuilderLiveGroup(t, request, tags, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)
 	live.EphemeralStorageGiB = 0
 	live.ImageSnapshotID = ""
+	live.Containers[0].Command = nil
 	payload, err := json.Marshal(struct {
 		ContainerGroups []ContainerGroup `json:"ContainerGroups"`
 	}{[]ContainerGroup{live}})

@@ -173,7 +173,7 @@ func validateArtifactBuilderLiveShape(live ContainerGroup) error {
 		return fmt.Errorf("%w: builder group must contain exactly one main container and no init container", ErrArtifactBuilderIdentityDrift)
 	}
 	container := live.Containers[0]
-	if strings.TrimSpace(container.Name) == "" || strings.TrimSpace(container.Image) == "" || len(container.Command) == 0 || len(container.Args) == 0 {
+	if strings.TrimSpace(container.Name) == "" || strings.TrimSpace(container.Image) == "" || len(container.Args) == 0 {
 		return fmt.Errorf("%w: DescribeContainerGroups omitted builder container command identity", ErrArtifactBuilderIdentityDrift)
 	}
 	return nil
@@ -220,8 +220,9 @@ func parseArtifactBuilderContainerCommand(command, args []string) (artifactBuild
 	return artifactBuilderParsedCommand{provider: values["--execution-provider"], compilerPath: values["--compiler-path"], input: input, bucket: values["--oss-bucket"], endpoint: values["--oss-endpoint"], role: values["--ram-role-name"]}, nil
 }
 
+// validateArtifactBuilderContainerCommandShape 校验 provider 可选 command 与必需完整 args 的实时形状。
 func validateArtifactBuilderContainerCommandShape(command, args []string) error {
-	if len(command) != 1 || command[0] != ArtifactBuilderCommand {
+	if len(command) > 0 && (len(command) != 1 || command[0] != ArtifactBuilderCommand) {
 		return fmt.Errorf("%w: live builder command is missing or drifted", ErrArtifactBuilderIdentityDrift)
 	}
 	if len(args) < 2 || args[0] != ArtifactBuilderSubcommand {
@@ -340,9 +341,6 @@ func validateArtifactBuilderLiveStrings(request ArtifactBuilderRequest, group Ar
 
 // validateArtifactBuilderLiveCommand 严格核对 group 或容器回读的固定 builder 命令。
 func validateArtifactBuilderLiveCommand(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
-	if len(group.Command) == 0 && len(group.Container.Command) == 0 {
-		return fmt.Errorf("%w: artifact builder live command is missing", ErrArtifactBuilderIdentityDrift)
-	}
 	if len(group.Command) > 0 && !artifactBuilderCommandPartsMatch(request.Command, group.Command, nil) {
 		return fmt.Errorf("%w: artifact builder live group command does not match the bound request", ErrArtifactBuilderIdentityDrift)
 	}
