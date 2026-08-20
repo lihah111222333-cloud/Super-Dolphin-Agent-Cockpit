@@ -124,8 +124,8 @@ internal/devtools/cicontract/contract_timing.go	internal	remote-ci	go-source	371
 internal/devtools/cicontract/generation_one.go	internal	remote-ci	go-source	30738	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/generation_one_tables.go	internal	remote-ci	go-source	623	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,tables,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/generation_one_test.go	internal	remote-ci	go-test	14553	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
-internal/devtools/cicontract/imagecache_refresh_receipt.go	internal	remote-ci	go-source	5914	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,imagecache,refresh,receipt,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
-internal/devtools/cicontract/imagecache_refresh_receipt_test.go	internal	remote-ci	go-test	3500	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,imagecache,refresh,receipt,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
+internal/devtools/cicontract/imagecache_refresh_receipt.go	internal	remote-ci	go-source	10371	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,imagecache,refresh,receipt,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
+internal/devtools/cicontract/imagecache_refresh_receipt_test.go	internal	remote-ci	go-test	5015	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,imagecache,refresh,receipt,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/local_pass_contract.go	internal	remote-ci	go-source	1949	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,local,pass,contract,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/planner_ssot_consumers.go	internal	remote-ci	go-source	3412	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,planner,ssot,consumers,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/planner_ssot_mapper_test.go	internal	remote-ci	go-test	2382	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,planner,ssot,mapper,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
@@ -313,6 +313,6 @@ scripts/ci_truth_image_gate.sh	scripts	remote-ci	script	4627	远程 CI release/f
 scripts/git_with_remote_ci_credentials.sh	scripts	remote-ci	script	5618	远程 CI 短期凭据与 agent token Git 启动器	scripts,git,with,remote,ci,credentials,远程,CI,短期凭据与,agent,token,Git,启动器
 scripts/init_remote_ci_local.sh	scripts	remote-ci	script	1667	远程 CI 本地配置、SQLite 与 Git alias 初始化脚本	scripts,init,remote,ci,local,远程,CI,本地配置,SQLite,与,Git,alias,初始化脚本
 scripts/remote_ci_git_credentials_test.go	scripts	remote-ci	go-test	11711	远程 CI 脚本守卫与凭据回归测试	scripts,remote,ci,git,credentials,test,远程,CI,脚本守卫与凭据回归测试
-scripts/remote_ci_imagecache_refresh_dispatch_test.go	scripts	remote-ci	go-test	7582	远程 CI 脚本守卫与凭据回归测试	scripts,remote,ci,imagecache,refresh,dispatch,test,远程,CI,脚本守卫与凭据回归测试
+scripts/remote_ci_imagecache_refresh_dispatch_test.go	scripts	remote-ci	go-test	7727	远程 CI 脚本守卫与凭据回归测试	scripts,remote,ci,imagecache,refresh,dispatch,test,远程,CI,脚本守卫与凭据回归测试
 scripts/tests/test_gate_hook_entrypoints.sh	scripts	remote-ci	script	35577	远程 CI Git hook 入口与生产 E2E shell 回归	scripts,tests,test,gate,hook,entrypoints,远程,CI,Git,入口与生产,E2E,shell,回归
 scripts/tests/test_gate_hook_production_e2e.sh	scripts	remote-ci	script	4741	远程 CI Git hook 入口与生产 E2E shell 回归	scripts,tests,test,gate,hook,production,e2e,远程,CI,Git,入口与生产,E2E,shell,回归

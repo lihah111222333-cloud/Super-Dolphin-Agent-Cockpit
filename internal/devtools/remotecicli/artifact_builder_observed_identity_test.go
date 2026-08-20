@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 func TestArtifactBuilderObservedIdentityMeasuresInjectedExecutableAndCompiler(t *testing.T) {
@@ -56,9 +58,11 @@ func TestArtifactBuilderObservedIdentityCanonicalJSONAndDynamicFieldGuard(t *tes
 	t.Parallel()
 
 	identity := ArtifactBuilderObservedIdentity{
-		SchemaVersion:   ArtifactBuilderObservedIdentitySchema,
-		BuilderSHA256:   "sha256:" + strings.Repeat("a", 64),
-		ToolchainDigest: "sha256:" + strings.Repeat("b", 64),
+		SchemaVersion:             ArtifactBuilderObservedIdentitySchema,
+		BuilderSHA256:             "sha256:" + strings.Repeat("a", 64),
+		ToolchainDigest:           "sha256:" + strings.Repeat("b", 64),
+		ProtocolABIDigest:         "sha256:" + strings.Repeat("c", 64),
+		WorkloadManifestABIDigest: "sha256:" + strings.Repeat("d", 64),
 	}
 	encoded, err := identity.CanonicalEncode()
 	if err != nil {
@@ -84,9 +88,8 @@ func assertArtifactBuilderObservedIdentityJSONFields(t *testing.T, encoded []byt
 	if typeOfIdentity.NumField() != len(fields) {
 		t.Fatalf("production fields = %d, JSON fields = %d", typeOfIdentity.NumField(), len(fields))
 	}
-	for index := 0; index < typeOfIdentity.NumField(); index++ {
-		field := typeOfIdentity.Field(index)
-		name := strings.Split(field.Tag.Get("json"), ",")[0]
+	for field := range typeOfIdentity.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "" || name == "-" {
 			t.Fatalf("field %q has no JSON contract", field.Name)
 		}
@@ -103,7 +106,7 @@ func TestArtifactBuilderObservedIdentityRejectsUnknownArgsAndJSON(t *testing.T) 
 	if code == 0 || stdout != "" || stderr == "" {
 		t.Fatalf("unknown artifact identity args = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
-	input := []byte(`{"schema_version":"artifact-builder-observed-identity/v1","builder_sha256":"sha256:` + strings.Repeat("a", 64) + `","toolchain_digest":"sha256:` + strings.Repeat("b", 64) + `","unknown":"field"}`)
+	input := []byte(`{"schema_version":"artifact-builder-observed-identity/v1","builder_sha256":"sha256:` + strings.Repeat("a", 64) + `","toolchain_digest":"sha256:` + strings.Repeat("b", 64) + `","protocol_abi_digest":"sha256:` + strings.Repeat("c", 64) + `","workload_manifest_abi_digest":"sha256:` + strings.Repeat("d", 64) + `","unknown":"field"}`)
 	if _, err := DecodeArtifactBuilderObservedIdentity(input); err == nil {
 		t.Fatal("DecodeArtifactBuilderObservedIdentity accepted an unknown field")
 	}
@@ -117,14 +120,45 @@ func TestArtifactBuilderObservedIdentityCLIUsesLinuxAuthorityOnly(t *testing.T) 
 	if code != 0 || stderr != "" {
 		t.Fatalf("artifact identity CLI = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
+	assertLinuxArtifactBuilderIdentityOutput(t, stdout)
+}
+
+func assertLinuxArtifactBuilderIdentityOutput(t *testing.T, stdout string) {
+	t.Helper()
 	identity, err := DecodeArtifactBuilderObservedIdentity([]byte(strings.TrimSuffix(stdout, "\n")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if identity.SchemaVersion != ArtifactBuilderObservedIdentitySchema || !isDigest(identity.BuilderSHA256) || !isDigest(identity.ToolchainDigest) {
+	if identity.SchemaVersion != ArtifactBuilderObservedIdentitySchema {
 		t.Fatalf("CLI identity = %#v", identity)
+	}
+	for _, digest := range []string{identity.BuilderSHA256, identity.ToolchainDigest, identity.ProtocolABIDigest, identity.WorkloadManifestABIDigest} {
+		if !isDigest(digest) {
+			t.Fatalf("CLI identity digest = %q", digest)
+		}
 	}
 	if strings.Count(stdout, "\n") != 1 {
 		t.Fatalf("CLI wrote more than one JSON line: %q", stdout)
+	}
+}
+
+func TestArtifactBuilderObservedIdentityProductionReadUsesCommittedABIs(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("current executable authority is Linux /proc/self/exe only")
+	}
+	identity, err := ReadArtifactBuilderObservedIdentity(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocol, err := remoteci.BuilderSimulationProtocolABIDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workload, err := remoteci.RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.ProtocolABIDigest != protocol || identity.WorkloadManifestABIDigest != workload {
+		t.Fatalf("production ABI identity = %#v, want protocol=%q workload=%q", identity, protocol, workload)
 	}
 }

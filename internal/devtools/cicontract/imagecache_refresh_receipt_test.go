@@ -14,12 +14,27 @@ func TestDecodeImageCacheRefreshReceiptStrictLifecycle(t *testing.T) {
 	if _, err := DecodeImageCacheRefreshReceipt(payload, now); err != nil {
 		t.Fatalf("DecodeImageCacheRefreshReceipt() error = %v", err)
 	}
+	if _, err := DecodeImageCacheRefreshReceipt(append(payload, '\n'), now); err != nil {
+		t.Fatalf("DecodeImageCacheRefreshReceipt() newline error = %v", err)
+	}
 	oldReceipt := receipt
 	oldReceipt.SchemaVersion = "remote-ci-imagecache-refresh-receipt/v2"
 	assertRefreshReceiptRejected(t, now, "v2 refresh receipt", oldReceipt)
+	v3Receipt := receipt
+	v3Receipt.SchemaVersion = "remote-ci-imagecache-refresh-receipt/v3"
+	assertRefreshReceiptRejected(t, now, "v3 refresh receipt", v3Receipt)
 	missingBinary := receipt
 	missingBinary.RemoteCIBinarySHA256 = ""
 	assertRefreshReceiptRejected(t, now, "missing remote CI binary digest", missingBinary)
+	missingToolchain := receipt
+	missingToolchain.RemoteCIToolchainDigest = ""
+	assertRefreshReceiptRejected(t, now, "missing remote CI toolchain digest", missingToolchain)
+	missingProtocolABI := receipt
+	missingProtocolABI.ProtocolABIDigest = ""
+	assertRefreshReceiptRejected(t, now, "missing protocol ABI digest", missingProtocolABI)
+	missingWorkloadABI := receipt
+	missingWorkloadABI.WorkloadManifestABIDigest = ""
+	assertRefreshReceiptRejected(t, now, "missing workload manifest ABI digest", missingWorkloadABI)
 
 	for name, mutate := range map[string]func(*ImageCacheRefreshReceipt){
 		"authoritative": func(value *ImageCacheRefreshReceipt) { value.Authoritative = true },
@@ -32,6 +47,9 @@ func TestDecodeImageCacheRefreshReceiptStrictLifecycle(t *testing.T) {
 		"remote binary digest drift": func(value *ImageCacheRefreshReceipt) {
 			value.RemoteCIBinarySHA256 = "sha256:" + strings.Repeat("1", 63)
 		},
+		"toolchain digest drift": func(value *ImageCacheRefreshReceipt) {
+			value.RemoteCIToolchainDigest = "sha256:" + strings.Repeat("1", 63)
+		},
 	} {
 		changed := receipt
 		mutate(&changed)
@@ -40,6 +58,10 @@ func TestDecodeImageCacheRefreshReceiptStrictLifecycle(t *testing.T) {
 	assertRefreshPayloadRejected(t, now, "trailing JSON", append(payload, []byte(` {}`)...))
 	unknown := append(payload[:len(payload)-1], []byte(`,"unknown":true}`)...)
 	assertRefreshPayloadRejected(t, now, "unknown field", unknown)
+	duplicate := append(payload[:len(payload)-1], []byte(`,"schema_version":"`+receipt.SchemaVersion+`"}`)...)
+	assertRefreshPayloadRejected(t, now, "duplicate field", duplicate)
+	reordered := []byte(`{"mutates_sqlite":false,"schema_version":"` + receipt.SchemaVersion + `"}`)
+	assertRefreshPayloadRejected(t, now, "missing canonical fields", reordered)
 }
 
 func marshalRefreshReceipt(t *testing.T, receipt ImageCacheRefreshReceipt) []byte {
@@ -72,6 +94,7 @@ func validImageCacheRefreshReceipt(now time.Time) ImageCacheRefreshReceipt {
 		OCIBaseImage: "ghcr.io/example/base@sha256:" + strings.Repeat("d", 64), Image: image,
 		ImageDigest: "sha256:" + strings.Repeat("a", 64), ImageCacheID: "imc-refresh", ImageCacheName: "sdci-refresh",
 		ImageCacheSnapshotID: "s-refresh", ImageCacheStatus: "Ready", GateBinarySHA256: "sha256:" + strings.Repeat("e", 64), RemoteCIBinarySHA256: "sha256:" + strings.Repeat("f", 64),
+		RemoteCIToolchainDigest: "sha256:" + strings.Repeat("1", 64), ProtocolABIDigest: "sha256:" + strings.Repeat("2", 64), WorkloadManifestABIDigest: "sha256:" + strings.Repeat("3", 64),
 		BuilderCompileSeconds: 4, VerificationCompileSeconds: 1, RetentionDays: 7,
 		RefreshedAtUnixSec: now.Unix(), RefreshedAtUTC: now.Format(time.RFC3339),
 	}

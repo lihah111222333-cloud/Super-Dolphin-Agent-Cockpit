@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/toolchainidentity"
 )
 
@@ -26,18 +27,22 @@ const (
 // ArtifactBuilderObservedIdentity is the non-secret identity measured by the
 // builder worker from its actual executable and compiler closure.
 type ArtifactBuilderObservedIdentity struct {
-	SchemaVersion   string `json:"schema_version"`
-	BuilderSHA256   string `json:"builder_sha256"`
-	ToolchainDigest string `json:"toolchain_digest"`
+	SchemaVersion             string `json:"schema_version"`
+	BuilderSHA256             string `json:"builder_sha256"`
+	ToolchainDigest           string `json:"toolchain_digest"`
+	ProtocolABIDigest         string `json:"protocol_abi_digest"`
+	WorkloadManifestABIDigest string `json:"workload_manifest_abi_digest"`
 }
 
-// Validate 严格校验三字段身份 schema 与 canonical digest wire shape。
+// Validate 严格校验五字段身份 schema 与 canonical digest wire shape。
 func (identity ArtifactBuilderObservedIdentity) Validate() error {
 	if identity.SchemaVersion != ArtifactBuilderObservedIdentitySchema {
 		return errors.New("artifact builder observed identity schema is invalid")
 	}
-	if !canonicalObservedDigest(identity.BuilderSHA256) || !canonicalObservedDigest(identity.ToolchainDigest) {
-		return errors.New("artifact builder observed identity digest is invalid")
+	for _, digest := range []string{identity.BuilderSHA256, identity.ToolchainDigest, identity.ProtocolABIDigest, identity.WorkloadManifestABIDigest} {
+		if !canonicalObservedDigest(digest) {
+			return errors.New("artifact builder observed identity digest is invalid")
+		}
 	}
 	return nil
 }
@@ -136,7 +141,21 @@ func measureArtifactBuilderObservedIdentity(ctx context.Context, deps artifactBu
 	if err != nil {
 		return ArtifactBuilderObservedIdentity{}, err
 	}
-	identity := ArtifactBuilderObservedIdentity{SchemaVersion: ArtifactBuilderObservedIdentitySchema, BuilderSHA256: builderDigest, ToolchainDigest: toolchainDigest}
+	protocolABIDigest, err := remoteci.BuilderSimulationProtocolABIDigest()
+	if err != nil || !canonicalObservedDigest(protocolABIDigest) {
+		return ArtifactBuilderObservedIdentity{}, errors.New("measure protocol ABI digest failed")
+	}
+	workloadManifestABIDigest, err := remoteci.RepositoryWorkloadManifestABIDigest()
+	if err != nil || !canonicalObservedDigest(workloadManifestABIDigest) {
+		return ArtifactBuilderObservedIdentity{}, errors.New("measure workload manifest ABI digest failed")
+	}
+	identity := ArtifactBuilderObservedIdentity{
+		SchemaVersion:             ArtifactBuilderObservedIdentitySchema,
+		BuilderSHA256:             builderDigest,
+		ToolchainDigest:           toolchainDigest,
+		ProtocolABIDigest:         protocolABIDigest,
+		WorkloadManifestABIDigest: workloadManifestABIDigest,
+	}
 	if err := identity.Validate(); err != nil {
 		return ArtifactBuilderObservedIdentity{}, err
 	}
