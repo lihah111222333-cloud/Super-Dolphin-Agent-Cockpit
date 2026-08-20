@@ -112,8 +112,8 @@ internal/devtools/alicloud/oss/client.go	internal	remote-ci	go-source	20817	远�
 internal/devtools/alicloud/oss/client_cleanup_absence_test.go	internal	remote-ci	go-test	1721	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,client,cleanup,absence,test,远程,CI,OSS,内容寻址传输客户端
 internal/devtools/alicloud/oss/client_test.go	internal	remote-ci	go-test	16567	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,client,test,远程,CI,OSS,内容寻址传输客户端
 internal/devtools/alicloud/oss/client_waitdelay_unix_test.go	internal	remote-ci	go-test	1101	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,client,waitdelay,unix,test,远程,CI,OSS,内容寻址传输客户端
-internal/devtools/alicloud/oss/portable_artifact.go	internal	remote-ci	go-source	28752	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,portable,artifact,远程,CI,OSS,内容寻址传输客户端
-internal/devtools/alicloud/oss/portable_artifact_test.go	internal	remote-ci	go-test	15062	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,portable,artifact,test,远程,CI,OSS,内容寻址传输客户端
+internal/devtools/alicloud/oss/portable_artifact.go	internal	remote-ci	go-source	31864	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,portable,artifact,远程,CI,OSS,内容寻址传输客户端
+internal/devtools/alicloud/oss/portable_artifact_test.go	internal	remote-ci	go-test	19558	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,portable,artifact,test,远程,CI,OSS,内容寻址传输客户端
 internal/devtools/cicontract/agent_token.go	internal	remote-ci	go-source	7851	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,agent,token,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/agent_token_test.go	internal	remote-ci	go-test	6083	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,agent,token,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/contract.go	internal	remote-ci	go-source	62827	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner

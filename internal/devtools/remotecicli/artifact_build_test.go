@@ -40,7 +40,8 @@ func TestArtifactBuildUsesRAMRoleOSSAndPublishesArtifactBeforeReceipt(t *testing
 		t.Fatalf("artifact build error = %v; stderr=%q", err, stderr.String())
 	}
 	var output artifactBuildOutput
-	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+	resultBytes := bytes.TrimPrefix(bytes.TrimSpace(stdout.Bytes()), []byte(artifactBuildRuntimePrefix))
+	if err := json.Unmarshal(resultBytes, &output); err != nil {
 		t.Fatalf("decode artifact build output: %v; stdout=%q", err, stdout.String())
 	}
 	if output.Status != "NOT_VERIFIED" || output.ExecutionProvider != remoteci.PortableExecutionProvider {

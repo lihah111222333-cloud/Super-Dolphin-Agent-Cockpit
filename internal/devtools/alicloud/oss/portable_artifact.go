@@ -22,6 +22,7 @@ const (
 	PortableArtifactKind        = "source-baseline-git-bundle/v1"
 	PortableReceiptKind         = "portable-builder-receipt/v1"
 	portableObjectReadLimit     = 1 << 30
+	portableReceiptReadLimit    = 1 << 20
 )
 
 var (
@@ -237,6 +238,82 @@ func (s *PortableArtifactStore) Resolve(ctx context.Context, kind, key string) (
 		return nil, 0, PortableArtifactMetadata{}, errors.New("portable resolver accepts only final artifacts")
 	}
 	return s.getBounded(ctx, key)
+}
+
+// ReadReceipt 严格读取 canonical receipt，并在返回前验证完整正文及其对象身份。
+func (s *PortableArtifactStore) ReadReceipt(ctx context.Context, key string, maxBytes int64) ([]byte, PortableArtifactMetadata, error) {
+	if err := s.validateReceiptReadRequest(ctx, key, maxBytes); err != nil {
+		return nil, PortableArtifactMetadata{}, err
+	}
+	stat, err := s.readReceiptStat(ctx, key, maxBytes)
+	if err != nil {
+		return nil, PortableArtifactMetadata{}, err
+	}
+	payload, size, metadata, err := s.readReceiptBody(ctx, key, maxBytes, stat)
+	if err != nil {
+		return nil, PortableArtifactMetadata{}, err
+	}
+	actual, err := validateReceiptReadback(size, maxBytes, stat, metadata, payload)
+	if err != nil {
+		return nil, PortableArtifactMetadata{}, err
+	}
+	return payload, actual, nil
+}
+
+func (s *PortableArtifactStore) validateReceiptReadRequest(ctx context.Context, key string, maxBytes int64) error {
+	if err := s.validateContext(ctx); err != nil {
+		return err
+	}
+	if !s.isReceiptKey(key) {
+		return errors.New("portable receipt key is invalid")
+	}
+	if maxBytes <= 0 || maxBytes > portableReceiptReadLimit {
+		return fmt.Errorf("portable receipt read bound must be between 1 and %d bytes", portableReceiptReadLimit)
+	}
+	return nil
+}
+
+func (s *PortableArtifactStore) readReceiptStat(ctx context.Context, key string, maxBytes int64) (PortableArtifactMetadata, error) {
+	stat, err := s.readBoundedStat(ctx, key)
+	if err != nil {
+		return PortableArtifactMetadata{}, err
+	}
+	if stat.SizeBytes > maxBytes {
+		return PortableArtifactMetadata{}, ErrPortableArtifactBodyTooLong
+	}
+	return stat, nil
+}
+
+func (s *PortableArtifactStore) readReceiptBody(ctx context.Context, key string, maxBytes int64, stat PortableArtifactMetadata) ([]byte, int64, PortableArtifactMetadata, error) {
+	body, size, metadata, err := s.client.Get(ctx, key, maxBytes)
+	if err != nil {
+		return nil, 0, PortableArtifactMetadata{}, fmt.Errorf("get portable receipt: %w", closePortableBody(body, err))
+	}
+	if body == nil {
+		return nil, 0, PortableArtifactMetadata{}, errors.New("portable receipt get returned a nil body")
+	}
+	reader := newBoundedPortableReadCloser(body, stat)
+	payload, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil {
+		return nil, 0, PortableArtifactMetadata{}, errors.Join(readErr, closeErr)
+	}
+	return payload, size, metadata, nil
+}
+
+// validateReceiptReadback 校验 receipt 的 Stat、Get metadata 与实际正文身份一致。
+func validateReceiptReadback(size, maxBytes int64, stat, metadata PortableArtifactMetadata, payload []byte) (PortableArtifactMetadata, error) {
+	if err := validatePortableMetadata(metadata); err != nil {
+		return PortableArtifactMetadata{}, err
+	}
+	if size <= 0 || size > maxBytes || metadata.SizeBytes > maxBytes {
+		return PortableArtifactMetadata{}, ErrPortableArtifactBodyTooLong
+	}
+	actual := portableBytesMetadata(payload)
+	if !portableReadbackMatches(size, stat, metadata, actual, stat) {
+		return PortableArtifactMetadata{}, ErrPortableArtifactConflict
+	}
+	return actual, nil
 }
 
 // getBounded 从注入端口取得受有界大小约束的对象流。

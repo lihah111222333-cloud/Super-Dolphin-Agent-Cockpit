@@ -400,13 +400,105 @@ func TestPortableArtifactResolveClosesBodyWhenGetFails(t *testing.T) {
 	}
 }
 
+func TestPortableArtifactReadReceiptVerifiesBoundedBodyIdentity(t *testing.T) {
+	data := []byte(`{"schema":"portable-builder-receipt/v1"}`)
+	want := portableBytesMetadata(data)
+	key, err := CanonicalPortableReceiptKey("portable/", want.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxBytes := int64(len(data) + 1)
+	client := &portableResolveClient{
+		stat:     want,
+		body:     &portableFailingReadCloser{reader: bytes.NewReader(data)},
+		size:     want.SizeBytes,
+		metadata: want,
+	}
+	store, err := NewPortableArtifactStore(client, "portable/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, got, err := store.ReadReceipt(context.Background(), key, maxBytes)
+	if err != nil {
+		t.Fatalf("ReadReceipt = %v", err)
+	}
+	if !bytes.Equal(payload, data) || got != want {
+		t.Fatalf("ReadReceipt = %q, %#v; want %q, %#v", payload, got, data, want)
+	}
+	if client.getMaxBytes != maxBytes {
+		t.Fatalf("Get maxBytes = %d, want %d", client.getMaxBytes, maxBytes)
+	}
+}
+
+type portableReceiptReadCase struct {
+	name     string
+	key      string
+	stat     PortableArtifactMetadata
+	body     []byte
+	size     int64
+	metadata PortableArtifactMetadata
+	closeErr error
+	maxBytes int64
+	wantErr  func(error) bool
+}
+
+func portableReceiptReadCases(receiptKey string, want PortableArtifactMetadata, data, oversizeData []byte, oversizeKey string, oversizeMetadata PortableArtifactMetadata, closeErr error) []portableReceiptReadCase {
+	wrongBody := append([]byte(nil), data...)
+	wrongBody[0] ^= 1
+	return []portableReceiptReadCase{
+		{name: "wrong key", key: "portable/artifacts/" + strings.Repeat("a", 64) + ".bundle", maxBytes: portableReceiptReadLimit, wantErr: func(err error) bool { return err != nil }},
+		{name: "wrong body", key: receiptKey, stat: want, body: wrongBody, size: want.SizeBytes, metadata: want, maxBytes: portableReceiptReadLimit, wantErr: func(err error) bool { return errors.Is(err, ErrPortableArtifactBodyMismatch) }},
+		{name: "wrong metadata", key: receiptKey, stat: want, body: data, size: want.SizeBytes, metadata: portableBytesMetadata([]byte("metadata lie")), maxBytes: portableReceiptReadLimit, wantErr: func(err error) bool { return errors.Is(err, ErrPortableArtifactConflict) }},
+		{name: "early EOF", key: receiptKey, stat: want, body: data[:len(data)-1], size: want.SizeBytes, metadata: want, maxBytes: portableReceiptReadLimit, wantErr: func(err error) bool { return errors.Is(err, io.ErrUnexpectedEOF) }},
+		{name: "close failure", key: receiptKey, stat: want, body: data, size: want.SizeBytes, metadata: want, closeErr: closeErr, maxBytes: portableReceiptReadLimit, wantErr: func(err error) bool { return errors.Is(err, closeErr) }},
+		{name: "oversize", key: oversizeKey, stat: oversizeMetadata, body: oversizeData, size: oversizeMetadata.SizeBytes, metadata: oversizeMetadata, maxBytes: portableReceiptReadLimit, wantErr: func(err error) bool { return errors.Is(err, ErrPortableArtifactBodyTooLong) }},
+	}
+}
+
+func TestPortableArtifactReadReceiptRejectsWrongBodyMetadataEarlyEOFCloseAndOversize(t *testing.T) {
+	data := []byte("expected receipt")
+	want := portableBytesMetadata(data)
+	receiptKey, err := CanonicalPortableReceiptKey("portable/", want.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversizeData := bytes.Repeat([]byte{'x'}, portableReceiptReadLimit+1)
+	oversizeMetadata := portableBytesMetadata(oversizeData)
+	oversizeKey, err := CanonicalPortableReceiptKey("portable/", oversizeMetadata.SHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeErr := errors.New("receipt close failed")
+	for _, test := range portableReceiptReadCases(receiptKey, want, data, oversizeData, oversizeKey, oversizeMetadata, closeErr) {
+		t.Run(test.name, func(t *testing.T) {
+			client := &portableResolveClient{stat: test.stat, body: &portableFailingReadCloser{reader: bytes.NewReader(test.body), closeErr: test.closeErr}, size: test.size, metadata: test.metadata}
+			store, err := NewPortableArtifactStore(client, "portable/")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = store.ReadReceipt(context.Background(), test.key, test.maxBytes)
+			if !test.wantErr(err) {
+				t.Fatalf("ReadReceipt error = %v", err)
+			}
+		})
+	}
+	boundStore, err := NewPortableArtifactStore(&portableResolveClient{}, "portable/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := boundStore.ReadReceipt(context.Background(), receiptKey, portableReceiptReadLimit+1); err == nil {
+		t.Fatal("ReadReceipt accepted maxBytes above 1 MiB")
+	}
+}
+
 type portableResolveClient struct {
-	stat      PortableArtifactMetadata
-	body      io.ReadCloser
-	size      int64
-	metadata  PortableArtifactMetadata
-	getErr    error
-	createErr error
+	stat        PortableArtifactMetadata
+	body        io.ReadCloser
+	size        int64
+	metadata    PortableArtifactMetadata
+	getErr      error
+	createErr   error
+	getMaxBytes int64
 }
 
 func (c *portableResolveClient) Create(context.Context, string, string) error {
@@ -420,7 +512,8 @@ func (c *portableResolveClient) Stat(context.Context, string) (PortableArtifactM
 	return c.stat, nil
 }
 
-func (c *portableResolveClient) Get(context.Context, string, int64) (io.ReadCloser, int64, PortableArtifactMetadata, error) {
+func (c *portableResolveClient) Get(_ context.Context, _ string, maxBytes int64) (io.ReadCloser, int64, PortableArtifactMetadata, error) {
+	c.getMaxBytes = maxBytes
 	return c.body, c.size, c.metadata, c.getErr
 }
 

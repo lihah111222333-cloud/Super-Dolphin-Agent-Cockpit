@@ -387,6 +387,7 @@ func boundedArtifactBuildJSON(result remoteci.SourceBaselineBuilderWorkerResult)
 	if err != nil {
 		return nil, errors.New("artifact build result exceeds bounded size")
 	}
+	data = append([]byte(artifactBuildRuntimePrefix), data...)
 	data = append(data, '\n')
 	if len(data) > outputMaxBytes {
 		return nil, errors.New("artifact build result exceeds bounded size")
