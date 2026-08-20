@@ -90,6 +90,24 @@ type portableSourceBaselineFixture struct {
 
 func buildPortableSourceBaselineFixture(t *testing.T) portableSourceBaselineFixture {
 	t.Helper()
+	bundle, tree, commit, artifactDigest := buildPortableSourceBaselineGitFixture(t)
+	receipt := buildPortableSourceBaselineReceiptFixture(t, bundle, tree, commit, artifactDigest)
+	expected := PortableSourceBaseline{
+		ObjectFormat:      receipt.ObjectFormat,
+		BaselineTreeSHA:   tree,
+		BaselineCommitSHA: commit,
+		BundleContractID:  PortableBundleContractID,
+		ArtifactKind:      PortableSourceBaselineArtifactKind,
+		ArtifactKey:       "baseline-key-1",
+		ArtifactSHA256:    artifactDigest,
+		ArtifactSizeBytes: int64(len(bundle)),
+	}
+	target := PortableRunTarget{RepositoryID: receipt.RepositoryID, ObjectFormat: receipt.ObjectFormat, SourceBaseline: expected}
+	return portableSourceBaselineFixture{bundle: bundle, target: target, receipt: receipt}
+}
+
+func buildPortableSourceBaselineGitFixture(t *testing.T) ([]byte, string, string, string) {
+	t.Helper()
 	ctx := context.Background()
 	root := t.TempDir()
 	repository := filepath.Join(root, "source.git")
@@ -104,8 +122,7 @@ func buildPortableSourceBaselineFixture(t *testing.T) portableSourceBaselineFixt
 	if err != nil {
 		t.Fatalf("tree identity: %v", err)
 	}
-	commitPayload := deterministicSourceBaselinePayload(tree)
-	commitOutput, err := runGitOutput(ctx, repository, bytes.NewReader(commitPayload), "hash-object", "-t", "commit", "-w", "--stdin")
+	commitOutput, err := runGitOutput(ctx, repository, bytes.NewReader(deterministicSourceBaselinePayload(tree)), "hash-object", "-t", "commit", "-w", "--stdin")
 	if err != nil {
 		t.Fatalf("write commit: %v", err)
 	}
@@ -126,29 +143,29 @@ func buildPortableSourceBaselineFixture(t *testing.T) portableSourceBaselineFixt
 		t.Fatalf("read bundle: %v", err)
 	}
 	digest := sha256.Sum256(bundle)
-	artifactDigest := "sha256:" + hex.EncodeToString(digest[:])
+	return bundle, tree, commit, "sha256:" + hex.EncodeToString(digest[:])
+}
+
+func buildPortableSourceBaselineReceiptFixture(t *testing.T, bundle []byte, tree, commit, artifactDigest string) SourceBaselineProducerReceipt {
+	t.Helper()
+	protocolABI, err := BuilderSimulationProtocolABIDigest()
+	if err != nil {
+		t.Fatalf("builder protocol ABI fixture: %v", err)
+	}
+	workloadABI, err := RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatalf("workload manifest ABI fixture: %v", err)
+	}
 	receipt := SourceBaselineProducerReceipt{
-		SchemaVersion:     SourceBaselineProducerReceiptSchema,
-		ExecutionProvider: PortableExecutionProvider,
-		BuilderDigest:     "sha256:" + strings.Repeat("a", 64),
-		ToolchainDigest:   "sha256:" + strings.Repeat("c", 64),
-		RepositoryID:      "repository-1",
-		ObjectFormat:      string(gate.GitObjectFormatSHA1),
-		BaselineCommitSHA: commit,
-		BaselineTreeSHA:   tree,
-		ArtifactSHA256:    artifactDigest,
-		ArtifactSizeBytes: int64(len(bundle)),
+		SchemaVersion: SourceBaselineProducerReceiptSchema, ExecutionProvider: PortableExecutionProvider,
+		ExpectedBuilderDigest: "sha256:" + strings.Repeat("a", 64), ExpectedToolchainDigest: "sha256:" + strings.Repeat("c", 64),
+		ObservedBuilderDigest: "sha256:" + strings.Repeat("a", 64), ObservedToolchainDigest: "sha256:" + strings.Repeat("c", 64),
+		ProtocolABIDigest: protocolABI, WorkloadManifestABIDigest: workloadABI, RepositoryID: "repository-1", ObjectFormat: string(gate.GitObjectFormatSHA1),
+		SourceCommitSHA: commit, SourceTreeSHA: tree, BaselineCommitSHA: commit, BaselineTreeSHA: tree, ArtifactSHA256: artifactDigest, ArtifactSizeBytes: int64(len(bundle)),
 	}
-	expected := PortableSourceBaseline{
-		ObjectFormat:      receipt.ObjectFormat,
-		BaselineTreeSHA:   tree,
-		BaselineCommitSHA: commit,
-		BundleContractID:  PortableBundleContractID,
-		ArtifactKind:      PortableSourceBaselineArtifactKind,
-		ArtifactKey:       "baseline-key-1",
-		ArtifactSHA256:    artifactDigest,
-		ArtifactSizeBytes: int64(len(bundle)),
+	receipt.ArtifactIdentityDigest, err = ArtifactIdentityDigest(receipt.RepositoryID, receipt.ObjectFormat, receipt.SourceCommitSHA, receipt.SourceTreeSHA, receipt.ArtifactSHA256, receipt.ArtifactSizeBytes, ObservedArtifactBuilderIdentity{BuilderDigest: receipt.ObservedBuilderDigest, ToolchainDigest: receipt.ObservedToolchainDigest}, receipt.ProtocolABIDigest, receipt.WorkloadManifestABIDigest)
+	if err != nil {
+		t.Fatalf("artifact identity digest: %v", err)
 	}
-	target := PortableRunTarget{RepositoryID: receipt.RepositoryID, ObjectFormat: receipt.ObjectFormat, SourceBaseline: expected}
-	return portableSourceBaselineFixture{bundle: bundle, target: target, receipt: receipt}
+	return receipt
 }

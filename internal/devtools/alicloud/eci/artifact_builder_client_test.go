@@ -56,7 +56,7 @@ func assertArtifactBuilderCreateArgv(t *testing.T, createCall []string, request 
 		{"--Container.1.Arg.1", ArtifactBuilderSubcommand},
 		{"--Container.1.Arg.3", ArtifactBuilderProvider},
 		{"--Container.1.Arg.5", ArtifactBuilderArtifactKind},
-		{"--Container.1.Arg.33", request.RAMRoleName},
+		{"--Container.1.Arg.37", request.RAMRoleName},
 		{"--Container.1.Arg.9", request.Input.ArtifactPrefix},
 		{"--Tag.1.Key", ArtifactBuilderInputDigestTag},
 		{"--Tag.2.Key", ArtifactBuilderRequestDigestTag},
@@ -65,12 +65,12 @@ func assertArtifactBuilderCreateArgv(t *testing.T, createCall []string, request 
 			t.Fatalf("Create argv missing %v: %#v", pair, createCall)
 		}
 	}
-	for _, flag := range []string{"--Container.1.Arg.2=--execution-provider", "--Container.1.Arg.4=--artifact-kind", "--Container.1.Arg.8=--artifact-prefix", "--Container.1.Arg.32=--ram-role-name"} {
+	for _, flag := range []string{"--Container.1.Arg.2=--execution-provider", "--Container.1.Arg.4=--artifact-kind", "--Container.1.Arg.8=--artifact-prefix", "--Container.1.Arg.36=--ram-role-name"} {
 		if !slices.Contains(createCall, flag) {
 			t.Fatalf("Create argv missing flag %q: %#v", flag, createCall)
 		}
 	}
-	for _, forbidden := range []string{"--InitContainer.1.Name", "--Volume.1.Name", "--Container.1.EnvironmentVar", "workload"} {
+	for _, forbidden := range []string{"--InitContainer.1.Name", "--Volume.1.Name", "--Container.1.EnvironmentVar", "workload", "--observed-builder-digest", "--observed-toolchain-digest"} {
 		if slices.Contains(createCall, forbidden) {
 			t.Fatalf("builder argv contains normal runtime field %q: %#v", forbidden, createCall)
 		}

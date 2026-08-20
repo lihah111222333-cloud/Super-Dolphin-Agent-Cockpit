@@ -202,7 +202,8 @@ func parseArtifactBuilderContainerCommand(command, args []string) (artifactBuild
 	if err != nil {
 		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live builder input size is invalid", ErrArtifactBuilderIdentityDrift)
 	}
-	input := ArtifactBuilderInput{ArtifactPrefix: values["--artifact-prefix"], Key: values["--input-key"], SHA256: values["--input-sha256"], SizeBytes: size, RepositoryID: values["--repository-id"], ObjectFormat: values["--object-format"], SourceCommitSHA: values["--source-commit-sha"], SourceTreeSHA: values["--source-tree-sha"], BuilderDigest: values["--builder-digest"], ToolchainDigest: values["--toolchain-digest"]}
+	// 从 live argv 逐字段重建 expected 与 ABI 输入，拒绝 caller 伪造 observed 身份。
+	input := ArtifactBuilderInput{ArtifactPrefix: values["--artifact-prefix"], Key: values["--input-key"], SHA256: values["--input-sha256"], SizeBytes: size, RepositoryID: values["--repository-id"], ObjectFormat: values["--object-format"], SourceCommitSHA: values["--source-commit-sha"], SourceTreeSHA: values["--source-tree-sha"], ExpectedBuilderDigest: values["--expected-builder-digest"], ExpectedToolchainDigest: values["--expected-toolchain-digest"], ProtocolABIDigest: values["--protocol-abi-digest"], WorkloadManifestABIDigest: values["--workload-manifest-abi-digest"]}
 	if err := input.Validate(); err != nil {
 		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live builder input is invalid: %v", ErrArtifactBuilderIdentityDrift, err)
 	}
@@ -225,7 +226,7 @@ func validateArtifactBuilderContainerCommandShape(command, args []string) error 
 // parseArtifactBuilderFlags 解析并拒绝未知、重复或不成对的 live argv。
 func parseArtifactBuilderFlags(args []string) (map[string]string, error) {
 	allowed := map[string]struct{}{}
-	for _, key := range []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"} {
+	for _, key := range []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"} {
 		allowed[key] = struct{}{}
 	}
 	values := make(map[string]string)
@@ -243,7 +244,7 @@ func parseArtifactBuilderFlags(args []string) (map[string]string, error) {
 
 // validateArtifactBuilderParsedFlags 校验 live argv 的固定协议字段集合。
 func validateArtifactBuilderParsedFlags(values map[string]string) error {
-	required := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
+	required := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
 	for _, key := range required {
 		if strings.TrimSpace(values[key]) == "" {
 			return fmt.Errorf("%w: live builder command omitted %s", ErrArtifactBuilderIdentityDrift, key)
@@ -360,7 +361,7 @@ func artifactBuilderInputGitIdentityMatches(want, got ArtifactBuilderInput) bool
 }
 
 func artifactBuilderInputDigestMatches(want, got ArtifactBuilderInput) bool {
-	return got.BuilderDigest == want.BuilderDigest && got.ToolchainDigest == want.ToolchainDigest
+	return got.ExpectedBuilderDigest == want.ExpectedBuilderDigest && got.ExpectedToolchainDigest == want.ExpectedToolchainDigest && got.ProtocolABIDigest == want.ProtocolABIDigest && got.WorkloadManifestABIDigest == want.WorkloadManifestABIDigest
 }
 
 func validateArtifactBuilderLiveTags(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {

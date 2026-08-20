@@ -167,26 +167,66 @@ type runtimeFixture struct {
 
 func newRuntimeFixture(t *testing.T) runtimeFixture {
 	t.Helper()
+	input, tree, commit := newRuntimeInput(t)
+	artifact := newRuntimeArtifact(t, input, tree, commit)
+	request := newRuntimeRequest(t, input)
+	pending := runtimeGroup(request, eci.ArtifactBuilderGroupPending, "", nil)
+	running := runtimeGroup(request, eci.ArtifactBuilderGroupRunning, eci.ArtifactBuilderContainerRunning, nil)
+	exit := int64(0)
+	succeeded := runtimeGroup(request, eci.ArtifactBuilderGroupSucceeded, eci.ArtifactBuilderContainerTerminated, &exit)
+	succeeded.Container.StartTime = time.Unix(1, 0)
+	succeeded.Container.FinishTime = time.Unix(2, 0)
+	outputData, err := json.Marshal(artifactBuildRuntimeOutput{Schema: artifactBuildRuntimeSchema, Status: "NOT_VERIFIED", ExecutionProvider: remoteci.PortableExecutionProvider,
+		InputDigest: artifact.inputDigest, ArtifactKey: artifact.artifactKey, ReceiptKey: artifact.receiptKey, ArtifactSHA256: artifact.artifactDigest, ArtifactSizeBytes: int64(len(artifact.bundle)), ArtifactIdentityDigest: artifact.receipt.ArtifactIdentityDigest,
+		ReceiptSHA256: runtimeDigestBytes(artifact.receiptBytes), ReceiptDigest: artifact.receiptDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runtimeFixture{input: input, request: request, requestInput: input, pending: pending, running: running, succeeded: succeeded, bundle: artifact.bundle, receiptBytes: artifact.receiptBytes, artifactKey: artifact.artifactKey, receiptKey: artifact.receiptKey, output: "progress: artifact build started\n" + artifactBuildRuntimePrefix + string(outputData) + "\nprogress: artifact build completed"}
+}
+
+type runtimeArtifactFixture struct {
+	bundle, receiptBytes                                                []byte
+	receipt                                                             remoteci.SourceBaselineProducerReceipt
+	artifactKey, receiptKey, artifactDigest, inputDigest, receiptDigest string
+}
+
+func newRuntimeInput(t *testing.T) (remoteci.SourceBaselineBuildInput, string, string) {
+	t.Helper()
 	tree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 	commit, err := remoteci.DeterministicSourceBaselineCommitSHA(tree, gate.GitObjectFormatSHA1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := remoteci.SourceBaselineBuildInput{
-		SchemaVersion: remoteci.SourceBaselineBuilderInputSchema, ArtifactPrefix: "runtime/", RepositoryID: "repository-1", ObjectFormat: "sha1",
-		CommitSHA: strings.Repeat("2", 40), TreeSHA: tree, InputObjectKey: "runtime/inputs/input-1", InputSHA256: "sha256:" + strings.Repeat("a", 64),
-		InputSizeBytes: 123, BuilderDigest: "sha256:" + strings.Repeat("b", 64), ToolchainDigest: "sha256:" + strings.Repeat("c", 64),
-	}
-	bundle := makeBaselineBundle(t, tree, commit)
-	bundleSum := sha256.Sum256(bundle)
-	artifactDigest := "sha256:" + hex.EncodeToString(bundleSum[:])
-	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, tree, artifactDigest)
+	protocolABI, err := remoteci.BuilderSimulationProtocolABIDigest()
 	if err != nil {
 		t.Fatal(err)
 	}
+	workloadABI, err := remoteci.RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return remoteci.SourceBaselineBuildInput{SchemaVersion: remoteci.SourceBaselineBuilderInputSchema, ArtifactPrefix: "runtime/", RepositoryID: "repository-1", ObjectFormat: "sha1", CommitSHA: strings.Repeat("2", 40), TreeSHA: tree, InputObjectKey: "runtime/inputs/input-1", InputSHA256: "sha256:" + strings.Repeat("a", 64), InputSizeBytes: 123, ExpectedBuilderDigest: "sha256:" + strings.Repeat("b", 64), ExpectedToolchainDigest: "sha256:" + strings.Repeat("c", 64), ProtocolABIDigest: protocolABI, WorkloadManifestABIDigest: workloadABI}, tree, commit
+}
+
+func newRuntimeArtifact(t *testing.T, input remoteci.SourceBaselineBuildInput, tree, commit string) runtimeArtifactFixture {
+	t.Helper()
+	bundle := makeBaselineBundle(t, tree, commit)
+	bundleSum := sha256.Sum256(bundle)
+	artifactDigest := "sha256:" + hex.EncodeToString(bundleSum[:])
 	receipt := remoteci.SourceBaselineProducerReceipt{SchemaVersion: remoteci.SourceBaselineProducerReceiptSchema, ExecutionProvider: remoteci.PortableExecutionProvider,
-		BuilderDigest: input.BuilderDigest, ToolchainDigest: input.ToolchainDigest, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat,
-		BaselineCommitSHA: commit, BaselineTreeSHA: tree, ArtifactSHA256: artifactDigest, ArtifactSizeBytes: int64(len(bundle))}
+		ExpectedBuilderDigest: input.ExpectedBuilderDigest, ExpectedToolchainDigest: input.ExpectedToolchainDigest, ObservedBuilderDigest: input.ExpectedBuilderDigest, ObservedToolchainDigest: input.ExpectedToolchainDigest,
+		ProtocolABIDigest: input.ProtocolABIDigest, WorkloadManifestABIDigest: input.WorkloadManifestABIDigest, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat,
+		SourceCommitSHA: input.CommitSHA, SourceTreeSHA: tree, BaselineCommitSHA: commit, BaselineTreeSHA: tree, ArtifactSHA256: artifactDigest, ArtifactSizeBytes: int64(len(bundle))}
+	var err error
+	receipt.ArtifactIdentityDigest, err = remoteci.ArtifactIdentityDigest(receipt.RepositoryID, receipt.ObjectFormat, receipt.SourceCommitSHA, receipt.SourceTreeSHA, receipt.ArtifactSHA256, receipt.ArtifactSizeBytes, remoteci.ObservedArtifactBuilderIdentity{BuilderDigest: receipt.ObservedBuilderDigest, ToolchainDigest: receipt.ObservedToolchainDigest}, receipt.ProtocolABIDigest, receipt.WorkloadManifestABIDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, tree, receipt.ArtifactIdentityDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	receiptBytes, err := receipt.CanonicalEncode()
 	if err != nil {
 		t.Fatal(err)
@@ -199,29 +239,19 @@ func newRuntimeFixture(t *testing.T) runtimeFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return runtimeArtifactFixture{bundle: bundle, receipt: receipt, receiptBytes: receiptBytes, artifactKey: artifactKey, receiptKey: receiptKey, artifactDigest: artifactDigest, inputDigest: inputDigest, receiptDigest: receiptDigest}
+}
+
+func newRuntimeRequest(t *testing.T, input remoteci.SourceBaselineBuildInput) eci.ArtifactBuilderRequest {
+	t.Helper()
 	request, err := eci.NewArtifactBuilderRequest(eci.ArtifactBuilderConfig{Provider: eci.ArtifactBuilderProvider, RegionID: "cn-hz", ContainerGroupName: "group-1", ContainerName: "worker-1",
-		Image: "registry.example/remote@sha256:" + strings.Repeat("d", 64), ImageSnapshotID: "snapshot-1", EphemeralStorageGiB: eci.ArtifactBuilderEphemeralStorageGiB,
-		CPU: eci.ArtifactBuilderCPU, MemoryGiB: eci.ArtifactBuilderMemoryGiB, VSwitches: []cicontract.ECIVSwitch{{ID: "vsw-zone-a", ZoneID: "cn-test-a"}, {ID: "vsw-zone-b", ZoneID: "cn-test-b"}},
-		SecurityGroupID: "sg-1", RAMRoleName: "role-1", OSSBucket: "bucket-name", OSSInternalEndpoint: "https://oss.example", Input: eci.ArtifactBuilderInput{
-			ArtifactPrefix: input.ArtifactPrefix, Key: input.InputObjectKey, SHA256: input.InputSHA256, SizeBytes: input.InputSizeBytes, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat,
-			SourceCommitSHA: input.CommitSHA, SourceTreeSHA: input.TreeSHA, BuilderDigest: input.BuilderDigest, ToolchainDigest: input.ToolchainDigest,
-		}})
+		Image: "registry.example/remote@sha256:" + strings.Repeat("d", 64), ImageSnapshotID: "snapshot-1", EphemeralStorageGiB: eci.ArtifactBuilderEphemeralStorageGiB, CPU: eci.ArtifactBuilderCPU, MemoryGiB: eci.ArtifactBuilderMemoryGiB,
+		VSwitches: []cicontract.ECIVSwitch{{ID: "vsw-zone-a", ZoneID: "cn-test-a"}, {ID: "vsw-zone-b", ZoneID: "cn-test-b"}}, SecurityGroupID: "sg-1", RAMRoleName: "role-1", OSSBucket: "bucket-name", OSSInternalEndpoint: "https://oss.example",
+		Input: eci.ArtifactBuilderInput{ArtifactPrefix: input.ArtifactPrefix, Key: input.InputObjectKey, SHA256: input.InputSHA256, SizeBytes: input.InputSizeBytes, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat, SourceCommitSHA: input.CommitSHA, SourceTreeSHA: input.TreeSHA, ExpectedBuilderDigest: input.ExpectedBuilderDigest, ExpectedToolchainDigest: input.ExpectedToolchainDigest, ProtocolABIDigest: input.ProtocolABIDigest, WorkloadManifestABIDigest: input.WorkloadManifestABIDigest}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending := runtimeGroup(request, eci.ArtifactBuilderGroupPending, "", nil)
-	running := runtimeGroup(request, eci.ArtifactBuilderGroupRunning, eci.ArtifactBuilderContainerRunning, nil)
-	exit := int64(0)
-	succeeded := runtimeGroup(request, eci.ArtifactBuilderGroupSucceeded, eci.ArtifactBuilderContainerTerminated, &exit)
-	succeeded.Container.StartTime = time.Unix(1, 0)
-	succeeded.Container.FinishTime = time.Unix(2, 0)
-	outputData, err := json.Marshal(artifactBuildRuntimeOutput{Schema: artifactBuildRuntimeSchema, Status: "NOT_VERIFIED", ExecutionProvider: remoteci.PortableExecutionProvider,
-		InputDigest: inputDigest, ArtifactKey: artifactKey, ReceiptKey: receiptKey, ArtifactSHA256: artifactDigest, ArtifactSizeBytes: int64(len(bundle)),
-		ReceiptSHA256: runtimeDigestBytes(receiptBytes), ReceiptDigest: receiptDigest})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return runtimeFixture{input: input, request: request, requestInput: input, pending: pending, running: running, succeeded: succeeded, bundle: bundle, receiptBytes: receiptBytes, artifactKey: artifactKey, receiptKey: receiptKey, output: "progress: artifact build started\n" + artifactBuildRuntimePrefix + string(outputData) + "\nprogress: artifact build completed"}
+	return request
 }
 
 func runtimeGroup(request eci.ArtifactBuilderRequest, status, containerState string, exitCode *int64) eci.ArtifactBuilderGroup {
@@ -233,17 +263,19 @@ func runtimeGroup(request eci.ArtifactBuilderRequest, status, containerState str
 
 func runtimeExpectedTags(request eci.ArtifactBuilderRequest) map[string]string {
 	inputDigest := runtimeECIDigest("artifact-builder-input/v1", struct {
-		ArtifactPrefix  string `json:"artifact_prefix"`
-		Key             string `json:"input_key"`
-		SHA256          string `json:"input_sha256"`
-		SizeBytes       int64  `json:"input_size_bytes"`
-		RepositoryID    string `json:"repository_id"`
-		ObjectFormat    string `json:"object_format"`
-		SourceCommitSHA string `json:"source_commit_sha"`
-		SourceTreeSHA   string `json:"source_tree_sha"`
-		BuilderDigest   string `json:"builder_digest"`
-		ToolchainDigest string `json:"toolchain_digest"`
-	}{request.Input.ArtifactPrefix, request.Input.Key, request.Input.SHA256, request.Input.SizeBytes, request.Input.RepositoryID, request.Input.ObjectFormat, request.Input.SourceCommitSHA, request.Input.SourceTreeSHA, request.Input.BuilderDigest, request.Input.ToolchainDigest})
+		ArtifactPrefix            string `json:"artifact_prefix"`
+		Key                       string `json:"input_key"`
+		SHA256                    string `json:"input_sha256"`
+		SizeBytes                 int64  `json:"input_size_bytes"`
+		RepositoryID              string `json:"repository_id"`
+		ObjectFormat              string `json:"object_format"`
+		SourceCommitSHA           string `json:"source_commit_sha"`
+		SourceTreeSHA             string `json:"source_tree_sha"`
+		ExpectedBuilderDigest     string `json:"expected_builder_digest"`
+		ExpectedToolchainDigest   string `json:"expected_toolchain_digest"`
+		ProtocolABIDigest         string `json:"protocol_abi_digest"`
+		WorkloadManifestABIDigest string `json:"workload_manifest_abi_digest"`
+	}{request.Input.ArtifactPrefix, request.Input.Key, request.Input.SHA256, request.Input.SizeBytes, request.Input.RepositoryID, request.Input.ObjectFormat, request.Input.SourceCommitSHA, request.Input.SourceTreeSHA, request.Input.ExpectedBuilderDigest, request.Input.ExpectedToolchainDigest, request.Input.ProtocolABIDigest, request.Input.WorkloadManifestABIDigest})
 	requestDigest := runtimeECIDigest("artifact-builder-request/v1", struct {
 		Provider            string
 		RegionID            string

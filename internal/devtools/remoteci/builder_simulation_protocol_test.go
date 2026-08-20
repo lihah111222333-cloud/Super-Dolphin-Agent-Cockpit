@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,6 +118,18 @@ func TestBuilderSimulationProtocolABIRejectsAmbiguousOrUnsupportedWireTypes(t *t
 		var material bytes.Buffer
 		if err := appendBuilderSimulationABIType(&material, value); err == nil {
 			t.Fatalf("ABI accepted unsupported type %s", value)
+		}
+	}
+}
+
+func TestBuilderSimulationProtocolABIIncludesBuilderInputAndReceipt(t *testing.T) {
+	roots := builderSimulationProtocolABIRootTypes()
+	for _, required := range []reflect.Type{
+		reflect.TypeFor[SourceBaselineBuildInput](),
+		reflect.TypeFor[SourceBaselineProducerReceipt](),
+	} {
+		if !slices.Contains(roots, required) {
+			t.Fatalf("protocol ABI roots omit %s", required)
 		}
 	}
 }

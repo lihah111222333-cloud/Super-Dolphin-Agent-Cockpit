@@ -224,8 +224,9 @@ func (runtime *ArtifactBuilderRuntime) validateRequestBinding(input remoteci.Sou
 		RepositoryID:   input.RepositoryID, ObjectFormat: input.ObjectFormat,
 		CommitSHA: input.CommitSHA, TreeSHA: input.TreeSHA,
 		InputObjectKey: request.Input.Key, InputSHA256: request.Input.SHA256,
-		InputSizeBytes: request.Input.SizeBytes, BuilderDigest: request.Input.BuilderDigest,
-		ToolchainDigest: request.Input.ToolchainDigest,
+		InputSizeBytes: request.Input.SizeBytes, ExpectedBuilderDigest: request.Input.ExpectedBuilderDigest,
+		ExpectedToolchainDigest: request.Input.ExpectedToolchainDigest, ProtocolABIDigest: request.Input.ProtocolABIDigest,
+		WorkloadManifestABIDigest: request.Input.WorkloadManifestABIDigest,
 	}
 	requestDigest, err := remoteci.SourceBaselineBuilderInputDigest(requestInput)
 	if err != nil {
@@ -239,11 +240,22 @@ func (runtime *ArtifactBuilderRuntime) validateRequestBinding(input remoteci.Sou
 
 // artifactBuilderInputsEqual 逐字段核对请求是否仍指向已 staging 的输入。
 func artifactBuilderInputsEqual(input remoteci.SourceBaselineBuildInput, request eci.ArtifactBuilderInput) bool {
-	return request.Key == input.InputObjectKey && request.SHA256 == input.InputSHA256 && request.SizeBytes == input.InputSizeBytes &&
-		request.ArtifactPrefix == input.ArtifactPrefix &&
-		request.RepositoryID == input.RepositoryID && request.ObjectFormat == input.ObjectFormat &&
-		request.SourceCommitSHA == input.CommitSHA && request.SourceTreeSHA == input.TreeSHA &&
-		request.BuilderDigest == input.BuilderDigest && request.ToolchainDigest == input.ToolchainDigest
+	return artifactBuilderInputMaterialEqual(input, request) && artifactBuilderInputSourceEqual(input, request) && artifactBuilderInputABIEqual(input, request)
+}
+
+// artifactBuilderInputMaterialEqual 核对 staging object 的 raw key、摘要和大小。
+func artifactBuilderInputMaterialEqual(input remoteci.SourceBaselineBuildInput, request eci.ArtifactBuilderInput) bool {
+	return request.ArtifactPrefix == input.ArtifactPrefix && request.Key == input.InputObjectKey && request.SHA256 == input.InputSHA256 && request.SizeBytes == input.InputSizeBytes
+}
+
+// artifactBuilderInputSourceEqual 核对 repository、object format 与 exact source identity。
+func artifactBuilderInputSourceEqual(input remoteci.SourceBaselineBuildInput, request eci.ArtifactBuilderInput) bool {
+	return request.RepositoryID == input.RepositoryID && request.ObjectFormat == input.ObjectFormat && request.SourceCommitSHA == input.CommitSHA && request.SourceTreeSHA == input.TreeSHA
+}
+
+// artifactBuilderInputABIEqual 核对 expected builder/toolchain 与 protocol ABI。
+func artifactBuilderInputABIEqual(input remoteci.SourceBaselineBuildInput, request eci.ArtifactBuilderInput) bool {
+	return request.ExpectedBuilderDigest == input.ExpectedBuilderDigest && request.ExpectedToolchainDigest == input.ExpectedToolchainDigest && request.ProtocolABIDigest == input.ProtocolABIDigest && request.WorkloadManifestABIDigest == input.WorkloadManifestABIDigest
 }
 
 // poll 沿同一 group 的 lifecycle 有界等待终态，禁止重建或创建第二 group。
@@ -503,16 +515,17 @@ func isNilRuntimeDependency(value any) bool {
 }
 
 type artifactBuildRuntimeOutput struct {
-	Schema            string `json:"schema"`
-	Status            string `json:"status"`
-	ExecutionProvider string `json:"execution_provider"`
-	InputDigest       string `json:"input_digest"`
-	ArtifactKey       string `json:"artifact_key"`
-	ReceiptKey        string `json:"receipt_key"`
-	ArtifactSHA256    string `json:"artifact_sha256"`
-	ArtifactSizeBytes int64  `json:"artifact_size_bytes"`
-	ReceiptSHA256     string `json:"receipt_sha256"`
-	ReceiptDigest     string `json:"receipt_digest"`
+	Schema                 string `json:"schema"`
+	Status                 string `json:"status"`
+	ExecutionProvider      string `json:"execution_provider"`
+	InputDigest            string `json:"input_digest"`
+	ArtifactKey            string `json:"artifact_key"`
+	ReceiptKey             string `json:"receipt_key"`
+	ArtifactSHA256         string `json:"artifact_sha256"`
+	ArtifactSizeBytes      int64  `json:"artifact_size_bytes"`
+	ArtifactIdentityDigest string `json:"artifact_identity_digest"`
+	ReceiptSHA256          string `json:"receipt_sha256"`
+	ReceiptDigest          string `json:"receipt_digest"`
 }
 
 func decodeArtifactBuildRuntimeOutput(data string) (artifactBuildRuntimeOutput, error) {
@@ -674,7 +687,7 @@ func validateArtifactBuildRuntimeOutputProtocol(output artifactBuildRuntimeOutpu
 
 // validateArtifactBuildRuntimeOutputIdentity 校验结果中所有内容寻址字段。
 func validateArtifactBuildRuntimeOutputIdentity(output artifactBuildRuntimeOutput) error {
-	if output.ArtifactKey == "" || output.ReceiptKey == "" || !runtimeDigest(output.ArtifactSHA256) || !runtimeDigest(output.ReceiptSHA256) || !runtimeDigest(output.ReceiptDigest) || output.ArtifactSizeBytes <= 0 {
+	if output.ArtifactKey == "" || output.ReceiptKey == "" || !runtimeDigest(output.ArtifactSHA256) || !runtimeDigest(output.ArtifactIdentityDigest) || !runtimeDigest(output.ReceiptSHA256) || !runtimeDigest(output.ReceiptDigest) || output.ArtifactSizeBytes <= 0 {
 		return errors.New("artifact build output content identity is incomplete")
 	}
 	return nil
@@ -694,14 +707,14 @@ func validateArtifactBuildRuntimeReceipt(output artifactBuildRuntimeOutput, raw 
 
 // validateArtifactBuildRuntimeReceiptMaterial 核对 receipt 正文、对象元数据和 artifact 绑定。
 func validateArtifactBuildRuntimeReceiptMaterial(output artifactBuildRuntimeOutput, raw []byte, metadata oss.PortableArtifactMetadata, rawDigest, receiptDigest string, receipt remoteci.SourceBaselineProducerReceipt) error {
-	if output.ReceiptSHA256 != rawDigest || metadata.SHA256 != rawDigest || metadata.SizeBytes != int64(len(raw)) || output.ReceiptDigest != receiptDigest || receipt.ArtifactSHA256 != output.ArtifactSHA256 || receipt.ArtifactSizeBytes != output.ArtifactSizeBytes {
+	if output.ReceiptSHA256 != rawDigest || metadata.SHA256 != rawDigest || metadata.SizeBytes != int64(len(raw)) || output.ReceiptDigest != receiptDigest || receipt.ArtifactSHA256 != output.ArtifactSHA256 || receipt.ArtifactSizeBytes != output.ArtifactSizeBytes || receipt.ArtifactIdentityDigest != output.ArtifactIdentityDigest {
 		return errors.New("artifact build receipt identity does not match output")
 	}
 	return nil
 }
 
 func validateArtifactBuildRuntimeReceiptKeys(output artifactBuildRuntimeOutput, receipt remoteci.SourceBaselineProducerReceipt, artifactPrefix string) error {
-	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(artifactPrefix, receipt.RepositoryID, receipt.ObjectFormat, receipt.BaselineTreeSHA, receipt.ArtifactSHA256)
+	artifactKey, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(artifactPrefix, receipt.RepositoryID, receipt.ObjectFormat, receipt.SourceTreeSHA, receipt.ArtifactIdentityDigest)
 	if err != nil || output.ArtifactKey != artifactKey || output.ReceiptKey != receiptKey {
 		return errors.New("artifact build receipt keys are not canonical")
 	}

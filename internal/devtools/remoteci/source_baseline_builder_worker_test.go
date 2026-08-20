@@ -39,7 +39,7 @@ func TestSourceBaselineBuilderWorkerBuildsAndPublishesInOrder(t *testing.T) {
 			calls = append(calls, "receipt")
 			return assertSourceBaselineWorkerUpload(t, path, key, metadata)
 		},
-	})
+	}, sourceBaselineBuilderWorkerObserver(fixture.input))
 	if err != nil {
 		t.Fatalf("NewSourceBaselineBuilderWorker() error = %v", err)
 	}
@@ -59,7 +59,7 @@ func TestSourceBaselineBuilderWorkerRejectsWrongInputTree(t *testing.T) {
 	fixture := newSourceBaselineBuilderWorkerFixture(t)
 	input := fixture.input
 	input.TreeSHA = strings.Repeat("f", 40)
-	worker, err := NewSourceBaselineBuilderWorker(sourceBaselineBuilderWorkerIO(fixture, nil))
+	worker, err := NewSourceBaselineBuilderWorker(sourceBaselineBuilderWorkerIO(fixture, nil), sourceBaselineBuilderWorkerObserver(input))
 	if err != nil {
 		t.Fatalf("NewSourceBaselineBuilderWorker() error = %v", err)
 	}
@@ -87,7 +87,7 @@ func TestSourceBaselineBuilderWorkerRejectsWrongRefAndPrerequisite(t *testing.T)
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
 			variant := rewriteSourceBaselineBuilderWorkerInput(t, fixture, mutate)
-			worker, err := NewSourceBaselineBuilderWorker(sourceBaselineBuilderWorkerIO(variant, nil))
+			worker, err := NewSourceBaselineBuilderWorker(sourceBaselineBuilderWorkerIO(variant, nil), sourceBaselineBuilderWorkerObserver(variant.input))
 			if err != nil {
 				t.Fatalf("NewSourceBaselineBuilderWorker() error = %v", err)
 			}
@@ -123,7 +123,7 @@ func TestSourceBaselineBuilderWorkerRejectsUnreachableExtraObject(t *testing.T) 
 	malformed := append([]byte(nil), original[:separator+2]...)
 	malformed = append(malformed, pack...)
 	variant := rewriteSourceBaselineBuilderWorkerInput(t, fixture, func([]byte) []byte { return malformed })
-	worker, err := NewSourceBaselineBuilderWorker(sourceBaselineBuilderWorkerIO(variant, nil))
+	worker, err := NewSourceBaselineBuilderWorker(sourceBaselineBuilderWorkerIO(variant, nil), sourceBaselineBuilderWorkerObserver(variant.input))
 	if err != nil {
 		t.Fatalf("NewSourceBaselineBuilderWorker() error = %v", err)
 	}
@@ -149,7 +149,7 @@ func TestSourceBaselineBuilderWorkerUploadsReceiptOnlyAfterArtifact(t *testing.T
 			calls = append(calls, "receipt")
 			return nil
 		},
-	})
+	}, sourceBaselineBuilderWorkerObserver(fixture.input))
 	if err != nil {
 		t.Fatalf("NewSourceBaselineBuilderWorker() error = %v", err)
 	}
@@ -175,6 +175,27 @@ type sourceBaselineBuilderWorkerFixture struct {
 }
 
 func newSourceBaselineBuilderWorkerFixture(t *testing.T) sourceBaselineBuilderWorkerFixture {
+	t.Helper()
+	_, repository, bundlePath, tree, commit := buildSourceBaselineWorkerBundle(t)
+	bundle, err := os.ReadFile(bundlePath)
+	if err != nil {
+		t.Fatalf("read source input bundle: %v", err)
+	}
+	digest := sha256.Sum256(bundle)
+	protocolABI, err := BuilderSimulationProtocolABIDigest()
+	if err != nil {
+		t.Fatalf("builder protocol ABI fixture: %v", err)
+	}
+	workloadABI, err := RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatalf("workload manifest ABI fixture: %v", err)
+	}
+	input := SourceBaselineBuildInput{SchemaVersion: SourceBaselineBuilderInputSchema, ArtifactPrefix: "worker/", RepositoryID: "repository-1", ObjectFormat: string(gate.GitObjectFormatSHA1), CommitSHA: commit, TreeSHA: tree,
+		InputObjectKey: "worker/inputs/input-1", InputSHA256: "sha256:" + hex.EncodeToString(digest[:]), InputSizeBytes: int64(len(bundle)), ExpectedBuilderDigest: "sha256:" + strings.Repeat("b", 64), ExpectedToolchainDigest: "sha256:" + strings.Repeat("c", 64), ProtocolABIDigest: protocolABI, WorkloadManifestABIDigest: workloadABI}
+	return sourceBaselineBuilderWorkerFixture{input: input, inputPath: bundlePath, repository: repository}
+}
+
+func buildSourceBaselineWorkerBundle(t *testing.T) (string, string, string, string, string) {
 	t.Helper()
 	root := t.TempDir()
 	repository := filepath.Join(root, "source.git")
@@ -204,25 +225,13 @@ func newSourceBaselineBuilderWorkerFixture(t *testing.T) sourceBaselineBuilderWo
 	if err := runGit(context.Background(), repository, nil, io.Discard, "bundle", "create", bundlePath, "--end-of-options", sourceBaselineBuilderInputRef); err != nil {
 		t.Fatalf("create source input bundle: %v", err)
 	}
-	bundle, err := os.ReadFile(bundlePath)
-	if err != nil {
-		t.Fatalf("read source input bundle: %v", err)
+	return root, repository, bundlePath, tree, commit
+}
+
+func sourceBaselineBuilderWorkerObserver(input SourceBaselineBuildInput) ArtifactBuilderIdentityObserver {
+	return func(context.Context) (ObservedArtifactBuilderIdentity, error) {
+		return ObservedArtifactBuilderIdentity{BuilderDigest: input.ExpectedBuilderDigest, ToolchainDigest: input.ExpectedToolchainDigest}, nil
 	}
-	digest := sha256.Sum256(bundle)
-	input := SourceBaselineBuildInput{
-		SchemaVersion:   SourceBaselineBuilderInputSchema,
-		ArtifactPrefix:  "worker/",
-		RepositoryID:    "repository-1",
-		ObjectFormat:    string(gate.GitObjectFormatSHA1),
-		CommitSHA:       commit,
-		TreeSHA:         tree,
-		InputObjectKey:  "worker/inputs/input-1",
-		InputSHA256:     "sha256:" + hex.EncodeToString(digest[:]),
-		InputSizeBytes:  int64(len(bundle)),
-		BuilderDigest:   "sha256:" + strings.Repeat("b", 64),
-		ToolchainDigest: "sha256:" + strings.Repeat("c", 64),
-	}
-	return sourceBaselineBuilderWorkerFixture{input: input, inputPath: bundlePath, repository: repository}
 }
 
 func rewriteSourceBaselineBuilderWorkerInput(t *testing.T, fixture sourceBaselineBuilderWorkerFixture, mutate func([]byte) []byte) sourceBaselineBuilderWorkerFixture {

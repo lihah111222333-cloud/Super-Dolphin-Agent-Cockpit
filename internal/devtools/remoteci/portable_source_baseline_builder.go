@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,46 +19,67 @@ import (
 
 const (
 	// SourceBaselineBuilderInputSchema identifies the builder input protocol.
-	SourceBaselineBuilderInputSchema = "source-baseline-builder-input/v1"
+	SourceBaselineBuilderInputSchema = "source-baseline-builder-input/v2"
 	// SourceBaselineProducerReceiptSchema identifies the producer receipt protocol.
-	SourceBaselineProducerReceiptSchema = "source-baseline-git-bundle-producer-receipt/v1"
+	SourceBaselineProducerReceiptSchema = "source-baseline-git-bundle-producer-receipt/v2"
 	// SourceBaselineBuilderInputDigestDomain prevents input digests from crossing protocols.
-	SourceBaselineBuilderInputDigestDomain = "source-baseline-builder-input-digest/v1"
+	SourceBaselineBuilderInputDigestDomain = "source-baseline-builder-input-digest/v2"
 	// SourceBaselineProducerReceiptDigestDomain prevents receipt digests from crossing protocols.
-	SourceBaselineProducerReceiptDigestDomain = "source-baseline-git-bundle-producer-receipt-digest/v1"
+	SourceBaselineProducerReceiptDigestDomain = "source-baseline-git-bundle-producer-receipt-digest/v2"
 	// SourceBaselineBuilderProtocolMaxBytes bounds every JSON protocol document.
 	SourceBaselineBuilderProtocolMaxBytes = 1 << 20
 	// SourceBaselineBuilderArtifactMaxBytes bounds content-addressed Git bundle materials.
 	SourceBaselineBuilderArtifactMaxBytes = 1 << 30
+	// ArtifactIdentityDigestDomain identifies the canonical artifact identity material.
+	ArtifactIdentityDigestDomain = "remote-ci-artifact-identity/v1"
 )
 
 // SourceBaselineBuildInput 是一次 source baseline 制品构建的完整显式输入。
 type SourceBaselineBuildInput struct {
-	SchemaVersion   string `json:"schema_version"`
-	ArtifactPrefix  string `json:"artifact_prefix"`
-	RepositoryID    string `json:"repository_id"`
-	ObjectFormat    string `json:"object_format"`
-	CommitSHA       string `json:"commit_sha"`
-	TreeSHA         string `json:"tree_sha"`
-	InputObjectKey  string `json:"input_object_key"`
-	InputSHA256     string `json:"input_sha256"`
-	InputSizeBytes  int64  `json:"input_size_bytes"`
-	BuilderDigest   string `json:"builder_digest"`
-	ToolchainDigest string `json:"toolchain_digest"`
+	SchemaVersion             string `json:"schema_version"`
+	ArtifactPrefix            string `json:"artifact_prefix"`
+	RepositoryID              string `json:"repository_id"`
+	ObjectFormat              string `json:"object_format"`
+	CommitSHA                 string `json:"commit_sha"`
+	TreeSHA                   string `json:"tree_sha"`
+	InputObjectKey            string `json:"input_object_key"`
+	InputSHA256               string `json:"input_sha256"`
+	InputSizeBytes            int64  `json:"input_size_bytes"`
+	ExpectedBuilderDigest     string `json:"expected_builder_digest"`
+	ExpectedToolchainDigest   string `json:"expected_toolchain_digest"`
+	ProtocolABIDigest         string `json:"protocol_abi_digest"`
+	WorkloadManifestABIDigest string `json:"workload_manifest_abi_digest"`
 }
+
+// ObservedArtifactBuilderIdentity is the narrow, non-secret identity measured
+// by the actual builder process immediately before publication.
+type ObservedArtifactBuilderIdentity struct {
+	BuilderDigest   string
+	ToolchainDigest string
+}
+
+// ArtifactBuilderIdentityObserver is the sole observation port for builder identity.
+type ArtifactBuilderIdentityObserver func(context.Context) (ObservedArtifactBuilderIdentity, error)
 
 // SourceBaselineProducerReceipt 是构建证据携带的 typed source-baseline producer receipt。
 type SourceBaselineProducerReceipt struct {
-	SchemaVersion     string `json:"schema_version"`
-	ExecutionProvider string `json:"execution_provider"`
-	BuilderDigest     string `json:"builder_digest"`
-	ToolchainDigest   string `json:"toolchain_digest"`
-	RepositoryID      string `json:"repository_id"`
-	ObjectFormat      string `json:"object_format"`
-	BaselineCommitSHA string `json:"baseline_commit_sha"`
-	BaselineTreeSHA   string `json:"baseline_tree_sha"`
-	ArtifactSHA256    string `json:"artifact_sha256"`
-	ArtifactSizeBytes int64  `json:"artifact_size_bytes"`
+	SchemaVersion             string `json:"schema_version"`
+	ExecutionProvider         string `json:"execution_provider"`
+	ExpectedBuilderDigest     string `json:"expected_builder_digest"`
+	ExpectedToolchainDigest   string `json:"expected_toolchain_digest"`
+	ObservedBuilderDigest     string `json:"observed_builder_digest"`
+	ObservedToolchainDigest   string `json:"observed_toolchain_digest"`
+	ProtocolABIDigest         string `json:"protocol_abi_digest"`
+	WorkloadManifestABIDigest string `json:"workload_manifest_abi_digest"`
+	RepositoryID              string `json:"repository_id"`
+	ObjectFormat              string `json:"object_format"`
+	SourceCommitSHA           string `json:"source_commit_sha"`
+	SourceTreeSHA             string `json:"source_tree_sha"`
+	BaselineCommitSHA         string `json:"baseline_commit_sha"`
+	BaselineTreeSHA           string `json:"baseline_tree_sha"`
+	ArtifactSHA256            string `json:"artifact_sha256"`
+	ArtifactSizeBytes         int64  `json:"artifact_size_bytes"`
+	ArtifactIdentityDigest    string `json:"artifact_identity_digest"`
 }
 
 // SourceBaselineBuildEvidence 是制品 builder 返回的有界编排证据。
@@ -72,8 +94,8 @@ type SourceBaselineBuildEvidence struct {
 }
 
 // CanonicalSourceBaselineBuilderKeys 是 artifact 与 receipt 的唯一对象键构造器。
-// 两个键共享 repository/object/tree/artifact identity，但保留不同对象类型后缀。
-func CanonicalSourceBaselineBuilderKeys(artifactPrefix, repositoryID, objectFormat, treeSHA, artifactSHA string) (string, string, error) {
+// 两个键绑定同一 domain-separated artifact identity digest，raw artifact SHA 只保留在 receipt。
+func CanonicalSourceBaselineBuilderKeys(artifactPrefix, repositoryID, objectFormat, treeSHA, artifactIdentityDigest string) (string, string, error) {
 	if err := validateBuilderArtifactPrefix(artifactPrefix); err != nil {
 		return "", "", err
 	}
@@ -87,10 +109,10 @@ func CanonicalSourceBaselineBuilderKeys(artifactPrefix, repositoryID, objectForm
 	if !validOID(treeSHA, format) {
 		return "", "", errors.New("source baseline builder key tree identity is invalid")
 	}
-	if !validPortableDigest(artifactSHA) {
-		return "", "", errors.New("source baseline builder key artifact SHA-256 is invalid")
+	if !validPortableDigest(artifactIdentityDigest) {
+		return "", "", errors.New("source baseline builder key artifact identity digest is invalid")
 	}
-	digest := strings.TrimPrefix(artifactSHA, "sha256:")
+	digest := strings.TrimPrefix(artifactIdentityDigest, "sha256:")
 	identity := strings.Join([]string{repositoryID, string(format), treeSHA, digest}, "/")
 	artifactKey := artifactPrefix + "artifacts/" + identity + ".bundle"
 	receiptKey := artifactPrefix + "receipts/" + identity + ".json"
@@ -156,7 +178,7 @@ func validateBuilderCommitTree(commitSHA, treeSHA string, format gate.GitObjectF
 	return nil
 }
 
-// validateBuilderInputMaterial 校验输入对象材料和两个编译身份摘要。
+// validateBuilderInputMaterial 校验输入对象材料、expected 身份和两个 ABI 摘要。
 func validateBuilderInputMaterial(input SourceBaselineBuildInput) error {
 	if !validPortableDigest(input.InputSHA256) {
 		return errors.New("source baseline builder input SHA-256 is invalid")
@@ -164,7 +186,28 @@ func validateBuilderInputMaterial(input SourceBaselineBuildInput) error {
 	if input.InputSizeBytes <= 0 || input.InputSizeBytes > SourceBaselineBuilderArtifactMaxBytes {
 		return errors.New("source baseline builder input size is invalid")
 	}
-	return validateBuilderDigests(input.BuilderDigest, input.ToolchainDigest, "source baseline builder")
+	if err := validateBuilderDigests(input.ExpectedBuilderDigest, input.ExpectedToolchainDigest, "source baseline builder expected"); err != nil {
+		return err
+	}
+	if !validPortableDigest(input.ProtocolABIDigest) || !validPortableDigest(input.WorkloadManifestABIDigest) {
+		return errors.New("source baseline builder protocol/workload ABI digest is invalid")
+	}
+	return validateBuilderABIDigests(input.ProtocolABIDigest, input.WorkloadManifestABIDigest)
+}
+
+func validateBuilderABIDigests(protocolABIDigest, workloadManifestABIDigest string) error {
+	expectedProtocol, err := BuilderSimulationProtocolABIDigest()
+	if err != nil {
+		return fmt.Errorf("derive builder protocol ABI digest: %w", err)
+	}
+	expectedWorkload, err := RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		return fmt.Errorf("derive workload manifest ABI digest: %w", err)
+	}
+	if protocolABIDigest != expectedProtocol || workloadManifestABIDigest != expectedWorkload {
+		return errors.New("source baseline builder protocol/workload ABI digest does not match repository contract")
+	}
+	return nil
 }
 
 // validateBuilderDigests 校验 builder 和 toolchain 的内容身份摘要。
@@ -186,20 +229,115 @@ func validateBuilderArtifact(digest string, size int64) error {
 	return nil
 }
 
+// ArtifactIdentityDigest 计算绑定 source、raw artifact、observed builder 与 ABI 的域分离长度帧身份。
+func ArtifactIdentityDigest(repositoryID, objectFormat, commitSHA, treeSHA, artifactSHA string, artifactSize int64, observed ObservedArtifactBuilderIdentity, protocolABIDigest, workloadManifestABIDigest string) (string, error) {
+	if err := validateBuilderIdentifier("repository_id", repositoryID); err != nil {
+		return "", err
+	}
+	format, err := validateBuilderObjectFormat(objectFormat)
+	if err != nil {
+		return "", err
+	}
+	if err := validateBuilderCommitTree(commitSHA, treeSHA, format, "artifact identity"); err != nil {
+		return "", err
+	}
+	if err := validateBuilderArtifact(artifactSHA, artifactSize); err != nil {
+		return "", err
+	}
+	if err := validateBuilderDigests(observed.BuilderDigest, observed.ToolchainDigest, "artifact identity observed"); err != nil {
+		return "", err
+	}
+	if !validPortableDigest(protocolABIDigest) || !validPortableDigest(workloadManifestABIDigest) {
+		return "", errors.New("artifact identity protocol/workload ABI digest is invalid")
+	}
+	hash := sha256.New()
+	writeArtifactIdentityFrame(hash, ArtifactIdentityDigestDomain)
+	for _, value := range []string{repositoryID, string(format), commitSHA, treeSHA, artifactSHA} {
+		writeArtifactIdentityFrame(hash, value)
+	}
+	writeArtifactIdentityFrame(hash, fmt.Sprintf("%d", artifactSize))
+	for _, value := range []string{observed.BuilderDigest, observed.ToolchainDigest, protocolABIDigest, workloadManifestABIDigest} {
+		writeArtifactIdentityFrame(hash, value)
+	}
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func writeArtifactIdentityFrame(hash io.Writer, value string) {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+	_, _ = hash.Write(length[:])
+	_, _ = io.WriteString(hash, value)
+}
+
+func validateArtifactIdentityDigest(receipt SourceBaselineProducerReceipt) error {
+	identity, err := ArtifactIdentityDigest(receipt.RepositoryID, receipt.ObjectFormat, receipt.SourceCommitSHA, receipt.SourceTreeSHA, receipt.ArtifactSHA256, receipt.ArtifactSizeBytes, ObservedArtifactBuilderIdentity{BuilderDigest: receipt.ObservedBuilderDigest, ToolchainDigest: receipt.ObservedToolchainDigest}, receipt.ProtocolABIDigest, receipt.WorkloadManifestABIDigest)
+	if err != nil {
+		return err
+	}
+	if receipt.ArtifactIdentityDigest != identity {
+		return errors.New("source baseline producer receipt artifact identity digest drifted")
+	}
+	return nil
+}
+
 // Validate 拒绝不完整或可变的 producer receipt 字段。
 func (receipt SourceBaselineProducerReceipt) Validate() error {
+	checks := []func() error{receipt.validateProtocol, receipt.validateObservedIdentity, receipt.validateABIs, receipt.validateSource, receipt.validateBaseline, func() error { return validateArtifactIdentityDigest(receipt) }}
+	for _, check := range checks {
+		if err := check(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateProtocol 校验 receipt 的 schema 与唯一 provider。
+func (receipt SourceBaselineProducerReceipt) validateProtocol() error {
 	if receipt.SchemaVersion != SourceBaselineProducerReceiptSchema {
 		return errors.New("source baseline producer receipt schema is invalid")
 	}
 	if receipt.ExecutionProvider != PortableExecutionProvider {
 		return errors.New("source baseline producer receipt provider is invalid")
 	}
-	if err := validateBuilderDigests(receipt.BuilderDigest, receipt.ToolchainDigest, "source baseline producer receipt"); err != nil {
+	return nil
+}
+
+// validateObservedIdentity 校验 expected 与实际观测身份的一致性。
+func (receipt SourceBaselineProducerReceipt) validateObservedIdentity() error {
+	if err := validateBuilderDigests(receipt.ExpectedBuilderDigest, receipt.ExpectedToolchainDigest, "source baseline producer receipt expected"); err != nil {
 		return err
 	}
+	if err := validateBuilderDigests(receipt.ObservedBuilderDigest, receipt.ObservedToolchainDigest, "source baseline producer receipt observed"); err != nil {
+		return err
+	}
+	if receipt.ExpectedBuilderDigest != receipt.ObservedBuilderDigest || receipt.ExpectedToolchainDigest != receipt.ObservedToolchainDigest {
+		return errors.New("source baseline producer receipt observed identity does not match expected identity")
+	}
+	return nil
+}
+
+// validateABIs 校验协议与 workload manifest ABI 的 repository truth。
+func (receipt SourceBaselineProducerReceipt) validateABIs() error {
+	if !validPortableDigest(receipt.ProtocolABIDigest) || !validPortableDigest(receipt.WorkloadManifestABIDigest) {
+		return errors.New("source baseline producer receipt protocol/workload ABI digest is invalid")
+	}
+	return validateBuilderABIDigests(receipt.ProtocolABIDigest, receipt.WorkloadManifestABIDigest)
+}
+
+// validateSource 校验 receipt 绑定的 exact source commit/tree。
+func (receipt SourceBaselineProducerReceipt) validateSource() error {
 	if err := validateBuilderIdentifier("repository_id", receipt.RepositoryID); err != nil {
 		return err
 	}
+	format, err := validateBuilderObjectFormat(receipt.ObjectFormat)
+	if err != nil {
+		return err
+	}
+	return validateBuilderCommitTree(receipt.SourceCommitSHA, receipt.SourceTreeSHA, format, "source baseline producer receipt source")
+}
+
+// validateBaseline 校验 portable baseline 的 deterministic commit/tree 与 raw artifact。
+func (receipt SourceBaselineProducerReceipt) validateBaseline() error {
 	format, err := validateBuilderObjectFormat(receipt.ObjectFormat)
 	if err != nil {
 		return err
@@ -282,8 +420,8 @@ func (evidence SourceBaselineBuildEvidence) validateObjectKeys() error {
 		evidence.Request.ArtifactPrefix,
 		evidence.Receipt.RepositoryID,
 		evidence.Receipt.ObjectFormat,
-		evidence.Receipt.BaselineTreeSHA,
-		evidence.Receipt.ArtifactSHA256,
+		evidence.Receipt.SourceTreeSHA,
+		evidence.Receipt.ArtifactIdentityDigest,
 	)
 	if err != nil {
 		return fmt.Errorf("derive source baseline builder evidence object keys: %w", err)
@@ -333,8 +471,10 @@ func validateSourceBaselineBuilderInputBinding(request, input SourceBaselineBuil
 		{"tree_sha", request.TreeSHA, input.TreeSHA},
 		{"input_object_key", request.InputObjectKey, input.InputObjectKey},
 		{"input_sha256", request.InputSHA256, input.InputSHA256},
-		{"builder_digest", request.BuilderDigest, input.BuilderDigest},
-		{"toolchain_digest", request.ToolchainDigest, input.ToolchainDigest},
+		{"expected_builder_digest", request.ExpectedBuilderDigest, input.ExpectedBuilderDigest},
+		{"expected_toolchain_digest", request.ExpectedToolchainDigest, input.ExpectedToolchainDigest},
+		{"protocol_abi_digest", request.ProtocolABIDigest, input.ProtocolABIDigest},
+		{"workload_manifest_abi_digest", request.WorkloadManifestABIDigest, input.WorkloadManifestABIDigest},
 	}
 	for _, field := range fields {
 		if field.got != field.want {
@@ -347,16 +487,21 @@ func validateSourceBaselineBuilderInputBinding(request, input SourceBaselineBuil
 	return nil
 }
 
+// validateSourceBaselineBuilderReceiptBinding 逐字段核对 receipt 与 exact source input。
 func validateSourceBaselineBuilderReceiptBinding(receipt SourceBaselineProducerReceipt, input SourceBaselineBuildInput) error {
 	fields := []struct {
 		name string
 		got  string
 		want string
 	}{
-		{"builder_digest", receipt.BuilderDigest, input.BuilderDigest},
-		{"toolchain_digest", receipt.ToolchainDigest, input.ToolchainDigest},
+		{"expected_builder_digest", receipt.ExpectedBuilderDigest, input.ExpectedBuilderDigest},
+		{"expected_toolchain_digest", receipt.ExpectedToolchainDigest, input.ExpectedToolchainDigest},
+		{"protocol_abi_digest", receipt.ProtocolABIDigest, input.ProtocolABIDigest},
+		{"workload_manifest_abi_digest", receipt.WorkloadManifestABIDigest, input.WorkloadManifestABIDigest},
 		{"repository_id", receipt.RepositoryID, input.RepositoryID},
 		{"object_format", receipt.ObjectFormat, input.ObjectFormat},
+		{"source_commit_sha", receipt.SourceCommitSHA, input.CommitSHA},
+		{"source_tree_sha", receipt.SourceTreeSHA, input.TreeSHA},
 		{"baseline_tree_sha", receipt.BaselineTreeSHA, input.TreeSHA},
 	}
 	for _, field := range fields {

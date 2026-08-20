@@ -255,20 +255,13 @@ func BuilderSimulationProtocolABIDigest() (string, error) {
 
 // builderSimulationProtocolABIMaterial 收集 Result/Event 及其 nested wire ABI 与枚举材料。
 func builderSimulationProtocolABIMaterial() ([]byte, error) {
-	rootTypes := []reflect.Type{
-		reflect.TypeFor[BuilderSimulationRequest](), reflect.TypeFor[BuilderSimulationEngine](),
-		reflect.TypeFor[BuilderSimulationTarget](), reflect.TypeFor[BuilderSimulationArtifact](),
-		reflect.TypeFor[BuilderSimulationECI](), reflect.TypeFor[BuilderSimulationOSS](),
-		reflect.TypeFor[PortableWorkloadManifest](), reflect.TypeFor[cicontract.ECIVSwitch](),
-		reflect.TypeFor[BuilderSimulationResult](), reflect.TypeFor[BuilderSimulationResultArtifact](),
-		reflect.TypeFor[BuilderSimulationResultCloud](), reflect.TypeFor[BuilderSimulationResultCleanup](),
-		reflect.TypeFor[BuilderSimulationResultError](),
-		reflect.TypeFor[BuilderSimulationEvent](),
-	}
+	rootTypes := builderSimulationProtocolABIRootTypes()
 	var material bytes.Buffer
 	for _, value := range []string{
 		BuilderSimulationContractID, BuilderSimulationRequestSchema, cicontract.ExecutionProviderID,
 		PortableWorkloadManifestSchemaVersion, cicontract.ECIMultiZoneScheduleStrategy, "sha1", "sha256",
+		SourceBaselineBuilderInputSchema, SourceBaselineProducerReceiptSchema,
+		SourceBaselineBuilderInputDigestDomain, SourceBaselineProducerReceiptDigestDomain, ArtifactIdentityDigestDomain,
 		BuilderSimulationResultSchema, BuilderSimulationEventSchema,
 		BuilderSimulationResultStatusNotVerified, BuilderSimulationOutcomeSucceeded, BuilderSimulationOutcomeFailed,
 		fmt.Sprintf("%d", BuilderSimulationExitCodeSuccess), fmt.Sprintf("%d", BuilderSimulationExitCodeBuildFailure),
@@ -298,13 +291,28 @@ func builderSimulationProtocolABIMaterial() ([]byte, error) {
 	return material.Bytes(), nil
 }
 
+// builderSimulationProtocolABIRootTypes 登记所有参与独立 builder wire 的 public DTO owner。
+func builderSimulationProtocolABIRootTypes() []reflect.Type {
+	return []reflect.Type{
+		reflect.TypeFor[BuilderSimulationRequest](), reflect.TypeFor[BuilderSimulationEngine](),
+		reflect.TypeFor[BuilderSimulationTarget](), reflect.TypeFor[BuilderSimulationArtifact](),
+		reflect.TypeFor[BuilderSimulationECI](), reflect.TypeFor[BuilderSimulationOSS](),
+		reflect.TypeFor[PortableWorkloadManifest](), reflect.TypeFor[cicontract.ECIVSwitch](),
+		reflect.TypeFor[SourceBaselineBuildInput](), reflect.TypeFor[SourceBaselineProducerReceipt](),
+		reflect.TypeFor[BuilderSimulationResult](), reflect.TypeFor[BuilderSimulationResultArtifact](),
+		reflect.TypeFor[BuilderSimulationResultCloud](), reflect.TypeFor[BuilderSimulationResultCleanup](),
+		reflect.TypeFor[BuilderSimulationResultError](),
+		reflect.TypeFor[BuilderSimulationEvent](),
+	}
+}
+
 // appendBuilderSimulationABIType 动态登记一个 public wire struct 的字段顺序与类型。
 func appendBuilderSimulationABIType(material *bytes.Buffer, root reflect.Type) error {
 	if root.Kind() != reflect.Struct || root.NumField() == 0 {
 		return errors.New("builder simulation ABI root must be a non-empty struct")
 	}
 	writeRepositoryFrame(material, []byte(root.PkgPath()+"."+root.Name()))
-	writeRepositoryFrame(material, []byte(fmt.Sprintf("%d", root.NumField())))
+	writeRepositoryFrame(material, fmt.Appendf(nil, "%d", root.NumField()))
 	seenJSONNames := make(map[string]struct{}, root.NumField())
 	for field := range root.Fields() {
 		values, err := builderSimulationABIFieldValues(field, seenJSONNames)

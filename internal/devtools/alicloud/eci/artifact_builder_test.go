@@ -43,7 +43,7 @@ func assertArtifactBuilderCommand(t *testing.T, request ArtifactBuilderRequest) 
 	if slices.Contains(command, "go") || slices.Contains(command, "test") || slices.Contains(command, "workload") {
 		t.Fatalf("builder command unexpectedly contains workload execution: %#v", command)
 	}
-	for _, value := range []string{testArtifactBuilderConfig().Input.ArtifactPrefix, testArtifactBuilderConfig().Input.Key, testArtifactBuilderConfig().Input.SHA256, testArtifactBuilderConfig().Input.SourceCommitSHA, testArtifactBuilderConfig().Input.SourceTreeSHA, testArtifactBuilderConfig().Input.BuilderDigest, testArtifactBuilderConfig().Input.ToolchainDigest} {
+	for _, value := range []string{testArtifactBuilderConfig().Input.ArtifactPrefix, testArtifactBuilderConfig().Input.Key, testArtifactBuilderConfig().Input.SHA256, testArtifactBuilderConfig().Input.SourceCommitSHA, testArtifactBuilderConfig().Input.SourceTreeSHA, testArtifactBuilderConfig().Input.ExpectedBuilderDigest, testArtifactBuilderConfig().Input.ExpectedToolchainDigest, testArtifactBuilderConfig().Input.ProtocolABIDigest, testArtifactBuilderConfig().Input.WorkloadManifestABIDigest} {
 		if !slices.Contains(command, value) {
 			t.Errorf("builder command does not bind input value %q: %#v", value, command)
 		}
@@ -59,7 +59,7 @@ func TestArtifactBuilderCommandLineHasExactInputFieldSet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--builder-digest", "--toolchain-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
+	want := []string{"--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
 	if len(command[2:]) != len(want)*2 {
 		t.Fatalf("builder command field count = %d, want %d: %#v", len(command[2:])/2, len(want), command)
 	}
@@ -380,16 +380,18 @@ func testArtifactBuilderConfig() ArtifactBuilderConfig {
 		OSSBucket:           "builder-bucket",
 		OSSInternalEndpoint: "https://oss-cn-shenzhen-internal.aliyuncs.com",
 		Input: ArtifactBuilderInput{
-			ArtifactPrefix:  "builder/",
-			Key:             "builder/inputs/source-baseline.bundle",
-			SHA256:          "sha256:" + strings.Repeat("b", 64),
-			SizeBytes:       4096,
-			RepositoryID:    "repository-1",
-			ObjectFormat:    "sha1",
-			SourceCommitSHA: strings.Repeat("c", 40),
-			SourceTreeSHA:   strings.Repeat("d", 40),
-			BuilderDigest:   "sha256:" + strings.Repeat("e", 64),
-			ToolchainDigest: "sha256:" + strings.Repeat("f", 64),
+			ArtifactPrefix:            "builder/",
+			Key:                       "builder/inputs/source-baseline.bundle",
+			SHA256:                    "sha256:" + strings.Repeat("b", 64),
+			SizeBytes:                 4096,
+			RepositoryID:              "repository-1",
+			ObjectFormat:              "sha1",
+			SourceCommitSHA:           strings.Repeat("c", 40),
+			SourceTreeSHA:             strings.Repeat("d", 40),
+			ExpectedBuilderDigest:     "sha256:" + strings.Repeat("e", 64),
+			ExpectedToolchainDigest:   "sha256:" + strings.Repeat("f", 64),
+			ProtocolABIDigest:         "sha256:" + strings.Repeat("1", 64),
+			WorkloadManifestABIDigest: "sha256:" + strings.Repeat("2", 64),
 		},
 	}
 }

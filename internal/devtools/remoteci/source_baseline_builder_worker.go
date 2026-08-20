@@ -24,8 +24,9 @@ const (
 
 // SourceBaselineArtifactMetadata is the content identity passed to upload adapters.
 type SourceBaselineArtifactMetadata struct {
-	SHA256    string
-	SizeBytes int64
+	SHA256                 string
+	SizeBytes              int64
+	ArtifactIdentityDigest string
 }
 
 // ArtifactIO is the narrow, injected storage boundary used by the builder worker.
@@ -76,7 +77,7 @@ func (result SourceBaselineBuilderWorkerResult) validateInputDigest(input Source
 
 // validateObjectKeys 校验 artifact/receipt 键绑定到内容身份。
 func (result SourceBaselineBuilderWorkerResult) validateObjectKeys(input SourceBaselineBuildInput) error {
-	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, input.TreeSHA, result.Receipt.ArtifactSHA256)
+	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, input.TreeSHA, result.Receipt.ArtifactIdentityDigest)
 	if err != nil {
 		return err
 	}
@@ -88,22 +89,41 @@ func (result SourceBaselineBuilderWorkerResult) validateObjectKeys(input SourceB
 
 // validateReceiptBinding 校验 typed receipt 与显式输入字段一致。
 func (result SourceBaselineBuilderWorkerResult) validateReceiptBinding(input SourceBaselineBuildInput) error {
-	if result.Receipt.BuilderDigest != input.BuilderDigest || result.Receipt.ToolchainDigest != input.ToolchainDigest ||
-		result.Receipt.RepositoryID != input.RepositoryID || result.Receipt.ObjectFormat != input.ObjectFormat ||
-		result.Receipt.BaselineTreeSHA != input.TreeSHA {
-		return errors.New("source baseline builder worker receipt does not match input")
+	checks := []func() bool{
+		func() bool {
+			return result.Receipt.ExpectedBuilderDigest == input.ExpectedBuilderDigest && result.Receipt.ExpectedToolchainDigest == input.ExpectedToolchainDigest
+		},
+		func() bool {
+			return result.Receipt.ObservedBuilderDigest == input.ExpectedBuilderDigest && result.Receipt.ObservedToolchainDigest == input.ExpectedToolchainDigest
+		},
+		func() bool {
+			return result.Receipt.ProtocolABIDigest == input.ProtocolABIDigest && result.Receipt.WorkloadManifestABIDigest == input.WorkloadManifestABIDigest
+		},
+		func() bool {
+			return result.Receipt.RepositoryID == input.RepositoryID && result.Receipt.ObjectFormat == input.ObjectFormat
+		},
+		func() bool {
+			return result.Receipt.SourceCommitSHA == input.CommitSHA && result.Receipt.SourceTreeSHA == input.TreeSHA
+		},
+		func() bool { return result.Receipt.BaselineTreeSHA == input.TreeSHA },
+	}
+	for _, check := range checks {
+		if !check() {
+			return errors.New("source baseline builder worker receipt does not match input")
+		}
 	}
 	return nil
 }
 
 // SourceBaselineBuilderWorker builds and publishes one immutable source baseline.
 type SourceBaselineBuilderWorker struct {
-	IO ArtifactIO
+	IO       ArtifactIO
+	Observer ArtifactBuilderIdentityObserver
 }
 
 // NewSourceBaselineBuilderWorker 创建并校验注入的 artifact IO 边界。
-func NewSourceBaselineBuilderWorker(artifactIO ArtifactIO) (*SourceBaselineBuilderWorker, error) {
-	worker := &SourceBaselineBuilderWorker{IO: artifactIO}
+func NewSourceBaselineBuilderWorker(artifactIO ArtifactIO, observer ArtifactBuilderIdentityObserver) (*SourceBaselineBuilderWorker, error) {
+	worker := &SourceBaselineBuilderWorker{IO: artifactIO, Observer: observer}
 	if err := worker.validateIO(); err != nil {
 		return nil, err
 	}
@@ -145,24 +165,19 @@ func (worker *SourceBaselineBuilderWorker) buildWithinTemp(ctx context.Context, 
 	if err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
-
-	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, input.TreeSHA, artifactDigest)
+	observed, err := worker.observeIdentity(ctx, input)
 	if err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
-	receipt := SourceBaselineProducerReceipt{
-		SchemaVersion:     SourceBaselineProducerReceiptSchema,
-		ExecutionProvider: PortableExecutionProvider,
-		BuilderDigest:     input.BuilderDigest,
-		ToolchainDigest:   input.ToolchainDigest,
-		RepositoryID:      input.RepositoryID,
-		ObjectFormat:      input.ObjectFormat,
-		BaselineCommitSHA: baselineCommit,
-		BaselineTreeSHA:   input.TreeSHA,
-		ArtifactSHA256:    artifactDigest,
-		ArtifactSizeBytes: artifactSize,
+	artifactIdentityDigest, err := ArtifactIdentityDigest(input.RepositoryID, input.ObjectFormat, input.CommitSHA, input.TreeSHA, artifactDigest, artifactSize, observed, input.ProtocolABIDigest, input.WorkloadManifestABIDigest)
+	if err != nil {
+		return SourceBaselineBuilderWorkerResult{}, err
 	}
-	receiptBytes, err := receipt.CanonicalEncode()
+	artifactKey, receiptKey, err := CanonicalSourceBaselineBuilderKeys(input.ArtifactPrefix, input.RepositoryID, input.ObjectFormat, input.TreeSHA, artifactIdentityDigest)
+	if err != nil {
+		return SourceBaselineBuilderWorkerResult{}, err
+	}
+	receipt, receiptBytes, err := buildSourceBaselineBuilderReceipt(input, observed, baselineCommit, artifactDigest, artifactSize, artifactIdentityDigest)
 	if err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
@@ -170,38 +185,38 @@ func (worker *SourceBaselineBuilderWorker) buildWithinTemp(ctx context.Context, 
 	if err := writeSourceBaselineBuilderReceipt(receiptPath, receiptBytes); err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
-	if err := ValidatePortableSourceBaselineArtifact(ctx, sourceBaselineBuilderResolver{
-		path: artifactPath,
-		receipt: SourceBaselineProducerReceipt{
-			SchemaVersion:     SourceBaselineProducerReceiptSchema,
-			ExecutionProvider: PortableExecutionProvider,
-			BuilderDigest:     input.BuilderDigest,
-			ToolchainDigest:   input.ToolchainDigest,
-			RepositoryID:      input.RepositoryID,
-			ObjectFormat:      input.ObjectFormat,
-			BaselineCommitSHA: baselineCommit,
-			BaselineTreeSHA:   input.TreeSHA,
-			ArtifactSHA256:    artifactDigest,
-			ArtifactSizeBytes: artifactSize,
-		},
-	}, PortableRunTarget{
-		RepositoryID: input.RepositoryID,
-		ObjectFormat: input.ObjectFormat,
-		SourceBaseline: PortableSourceBaseline{
-			ObjectFormat:      input.ObjectFormat,
-			BaselineTreeSHA:   input.TreeSHA,
-			BaselineCommitSHA: baselineCommit,
-			BundleContractID:  PortableBundleContractID,
-			ArtifactKind:      PortableSourceBaselineArtifactKind,
-			ArtifactKey:       artifactKey,
-			ArtifactSHA256:    artifactDigest,
-			ArtifactSizeBytes: artifactSize,
-		},
-	}); err != nil {
+	if err := validateBuiltSourceBaselineArtifact(ctx, artifactPath, input, receipt, artifactKey, artifactDigest, artifactSize); err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
-
 	return worker.publishSourceBaselineBuilder(ctx, artifactPath, artifactKey, receiptPath, receiptKey, artifactDigest, artifactSize, receipt, receiptBytes, input)
+}
+
+// observeIdentity 在任何 artifact/receipt 上传前读取并核对实际 builder 身份。
+func (worker *SourceBaselineBuilderWorker) observeIdentity(ctx context.Context, input SourceBaselineBuildInput) (ObservedArtifactBuilderIdentity, error) {
+	observed, err := worker.Observer(ctx)
+	if err != nil {
+		return ObservedArtifactBuilderIdentity{}, fmt.Errorf("observe artifact builder identity: %w", err)
+	}
+	if err := validateObservedArtifactBuilderIdentity(observed, input); err != nil {
+		return ObservedArtifactBuilderIdentity{}, err
+	}
+	return observed, nil
+}
+
+// buildSourceBaselineBuilderReceipt 生成包含 expected/observed 与 artifact identity 的 receipt。
+func buildSourceBaselineBuilderReceipt(input SourceBaselineBuildInput, observed ObservedArtifactBuilderIdentity, baselineCommit, artifactDigest string, artifactSize int64, artifactIdentityDigest string) (SourceBaselineProducerReceipt, []byte, error) {
+	receipt := SourceBaselineProducerReceipt{SchemaVersion: SourceBaselineProducerReceiptSchema, ExecutionProvider: PortableExecutionProvider,
+		ExpectedBuilderDigest: input.ExpectedBuilderDigest, ExpectedToolchainDigest: input.ExpectedToolchainDigest, ObservedBuilderDigest: observed.BuilderDigest, ObservedToolchainDigest: observed.ToolchainDigest,
+		ProtocolABIDigest: input.ProtocolABIDigest, WorkloadManifestABIDigest: input.WorkloadManifestABIDigest, RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat,
+		SourceCommitSHA: input.CommitSHA, SourceTreeSHA: input.TreeSHA, BaselineCommitSHA: baselineCommit, BaselineTreeSHA: input.TreeSHA,
+		ArtifactSHA256: artifactDigest, ArtifactSizeBytes: artifactSize, ArtifactIdentityDigest: artifactIdentityDigest}
+	data, err := receipt.CanonicalEncode()
+	return receipt, data, err
+}
+
+// validateBuiltSourceBaselineArtifact 用 receipt 与 exact target 复核生成的 bundle。
+func validateBuiltSourceBaselineArtifact(ctx context.Context, artifactPath string, input SourceBaselineBuildInput, receipt SourceBaselineProducerReceipt, artifactKey, artifactDigest string, artifactSize int64) error {
+	return ValidatePortableSourceBaselineArtifact(ctx, sourceBaselineBuilderResolver{path: artifactPath, receipt: receipt}, PortableRunTarget{RepositoryID: input.RepositoryID, ObjectFormat: input.ObjectFormat, SourceBaseline: PortableSourceBaseline{ObjectFormat: input.ObjectFormat, BaselineTreeSHA: input.TreeSHA, BaselineCommitSHA: receipt.BaselineCommitSHA, BundleContractID: PortableBundleContractID, ArtifactKind: PortableSourceBaselineArtifactKind, ArtifactKey: artifactKey, ArtifactSHA256: artifactDigest, ArtifactSizeBytes: artifactSize}})
 }
 
 func (worker *SourceBaselineBuilderWorker) buildSourceBaselineBuilderArtifact(ctx context.Context, input SourceBaselineBuildInput, temporaryRoot string) (string, string, string, int64, error) {
@@ -227,11 +242,11 @@ func (worker *SourceBaselineBuilderWorker) buildSourceBaselineBuilderArtifact(ct
 }
 
 func (worker *SourceBaselineBuilderWorker) publishSourceBaselineBuilder(ctx context.Context, artifactPath, artifactKey, receiptPath, receiptKey, artifactDigest string, artifactSize int64, receipt SourceBaselineProducerReceipt, receiptBytes []byte, input SourceBaselineBuildInput) (SourceBaselineBuilderWorkerResult, error) {
-	artifactMetadata := SourceBaselineArtifactMetadata{SHA256: artifactDigest, SizeBytes: artifactSize}
+	artifactMetadata := SourceBaselineArtifactMetadata{SHA256: artifactDigest, SizeBytes: artifactSize, ArtifactIdentityDigest: receipt.ArtifactIdentityDigest}
 	if err := worker.uploadArtifact(ctx, artifactPath, artifactKey, artifactMetadata); err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
-	receiptMetadata := SourceBaselineArtifactMetadata{SHA256: bytesDigest(receiptBytes), SizeBytes: int64(len(receiptBytes))}
+	receiptMetadata := SourceBaselineArtifactMetadata{SHA256: bytesDigest(receiptBytes), SizeBytes: int64(len(receiptBytes)), ArtifactIdentityDigest: receipt.ArtifactIdentityDigest}
 	if err := worker.uploadReceipt(ctx, receiptPath, receiptKey, receiptMetadata); err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
@@ -253,12 +268,22 @@ func (worker *SourceBaselineBuilderWorker) publishSourceBaselineBuilder(ctx cont
 }
 
 // BuildSourceBaselineArtifact 使用一次性注入端口构建 source baseline。
-func BuildSourceBaselineArtifact(ctx context.Context, artifactIO ArtifactIO, input SourceBaselineBuildInput) (SourceBaselineBuilderWorkerResult, error) {
-	worker, err := NewSourceBaselineBuilderWorker(artifactIO)
+func BuildSourceBaselineArtifact(ctx context.Context, artifactIO ArtifactIO, input SourceBaselineBuildInput, observer ArtifactBuilderIdentityObserver) (SourceBaselineBuilderWorkerResult, error) {
+	worker, err := NewSourceBaselineBuilderWorker(artifactIO, observer)
 	if err != nil {
 		return SourceBaselineBuilderWorkerResult{}, err
 	}
 	return worker.Build(ctx, input)
+}
+
+func validateObservedArtifactBuilderIdentity(observed ObservedArtifactBuilderIdentity, input SourceBaselineBuildInput) error {
+	if err := validateBuilderDigests(observed.BuilderDigest, observed.ToolchainDigest, "observed artifact builder"); err != nil {
+		return err
+	}
+	if observed.BuilderDigest != input.ExpectedBuilderDigest || observed.ToolchainDigest != input.ExpectedToolchainDigest {
+		return errors.New("observed artifact builder identity does not match expected identity")
+	}
+	return nil
 }
 
 // validateIO 在 Git 操作前拒绝不完整或不支持的注入端口。
@@ -268,6 +293,9 @@ func (worker *SourceBaselineBuilderWorker) validateIO() error {
 	}
 	if worker.IO.DownloadInput == nil || worker.IO.UploadArtifact == nil || worker.IO.UploadReceipt == nil {
 		return errors.New("source baseline builder artifact IO is incomplete")
+	}
+	if worker.Observer == nil {
+		return errors.New("source baseline builder observed identity observer is required")
 	}
 	return nil
 }

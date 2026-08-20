@@ -34,7 +34,7 @@ func TestArtifactBuildUsesRAMRoleOSSAndPublishesArtifactBeforeReceipt(t *testing
 		artifactBuildTestArgs(fixture, ossServer.URL),
 		&stdout,
 		&stderr,
-		artifactBuildDependencies{httpClient: ossServer.Client(), metadataBaseURL: imdsServer.URL},
+		artifactBuildDependencies{httpClient: ossServer.Client(), metadataBaseURL: imdsServer.URL, observedIdentity: artifactBuildTestObserver(fixture)},
 	)
 	if err != nil {
 		t.Fatalf("artifact build error = %v; stderr=%q", err, stderr.String())
@@ -67,7 +67,7 @@ func TestArtifactBuildRejectsWrongInputAndReceiptMetadata(t *testing.T) {
 		args := artifactBuildTestArgs(fixture, ossServer.URL)
 		replaceArtifactBuildArg(args, "input-sha256", "sha256:"+strings.Repeat("0", 64))
 		var stdout, stderr bytes.Buffer
-		if err := dispatchArtifactBuildWithDependencies(args, &stdout, &stderr, artifactBuildDependencies{httpClient: ossServer.Client(), metadataBaseURL: imdsServer.URL}); err == nil {
+		if err := dispatchArtifactBuildWithDependencies(args, &stdout, &stderr, artifactBuildDependencies{httpClient: ossServer.Client(), metadataBaseURL: imdsServer.URL, observedIdentity: artifactBuildTestObserver(fixture)}); err == nil {
 			t.Fatal("artifact build accepted wrong input digest")
 		}
 		if stdout.Len() != 0 || strings.Contains(stderr.String(), fixture.inputKey) {
@@ -81,7 +81,7 @@ func TestArtifactBuildRejectsWrongInputAndReceiptMetadata(t *testing.T) {
 		state.wrongArtifactMetadata = true
 		state.mu.Unlock()
 		var stdout, stderr bytes.Buffer
-		if err := dispatchArtifactBuildWithDependencies(artifactBuildTestArgs(fixture, ossServer.URL), &stdout, &stderr, artifactBuildDependencies{httpClient: ossServer.Client(), metadataBaseURL: imdsServer.URL}); err == nil {
+		if err := dispatchArtifactBuildWithDependencies(artifactBuildTestArgs(fixture, ossServer.URL), &stdout, &stderr, artifactBuildDependencies{httpClient: ossServer.Client(), metadataBaseURL: imdsServer.URL, observedIdentity: artifactBuildTestObserver(fixture)}); err == nil {
 			t.Fatal("artifact build accepted wrong artifact metadata")
 		}
 		if stdout.Len() != 0 || strings.Contains(stderr.String(), fixture.inputKey) {
@@ -102,7 +102,7 @@ func TestArtifactBuildRejectsUnknownMissingDuplicateAndIMDSFlags(t *testing.T) {
 		mutate func([]string) []string
 	}{
 		{name: "unknown", mutate: func(args []string) []string { return append(args, "--unknown", "value") }},
-		{name: "missing", mutate: func(args []string) []string { return removeArtifactBuildArg(args, "toolchain-digest") }},
+		{name: "missing", mutate: func(args []string) []string { return removeArtifactBuildArg(args, "expected-toolchain-digest") }},
 		{name: "duplicate", mutate: func(args []string) []string { return append(args, "--input-key", fixture.inputKey) }},
 		{name: "metadata endpoint injection", mutate: func(args []string) []string { return append(args, "--metadata-base-url", "http://attacker.invalid") }},
 	}
@@ -121,17 +121,19 @@ func TestArtifactBuildRejectsUnknownMissingDuplicateAndIMDSFlags(t *testing.T) {
 }
 
 type artifactBuildTestFixture struct {
-	bundle          []byte
-	inputKey        string
-	artifactPrefix  string
-	inputSHA256     string
-	inputSizeBytes  int64
-	repositoryID    string
-	objectFormat    string
-	commitSHA       string
-	treeSHA         string
-	builderDigest   string
-	toolchainDigest string
+	bundle                    []byte
+	inputKey                  string
+	artifactPrefix            string
+	inputSHA256               string
+	inputSizeBytes            int64
+	repositoryID              string
+	objectFormat              string
+	commitSHA                 string
+	treeSHA                   string
+	expectedBuilderDigest     string
+	expectedToolchainDigest   string
+	protocolABIDigest         string
+	workloadManifestABIDigest string
 }
 
 func newArtifactBuildTestFixture(t *testing.T) artifactBuildTestFixture {
@@ -153,10 +155,19 @@ func newArtifactBuildTestFixture(t *testing.T) artifactBuildTestFixture {
 		t.Fatalf("read input bundle: %v", err)
 	}
 	digest := sha256.Sum256(bundle)
+	protocolABI, err := remoteci.BuilderSimulationProtocolABIDigest()
+	if err != nil {
+		t.Fatalf("builder protocol ABI fixture: %v", err)
+	}
+	workloadABI, err := remoteci.RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatalf("workload manifest ABI fixture: %v", err)
+	}
 	return artifactBuildTestFixture{
 		bundle: bundle, artifactPrefix: "cli/", inputKey: "cli/inputs/source.bundle", inputSHA256: "sha256:" + hex.EncodeToString(digest[:]), inputSizeBytes: int64(len(bundle)),
 		repositoryID: "repository-1", objectFormat: "sha1", commitSHA: commit, treeSHA: tree,
-		builderDigest: "sha256:" + strings.Repeat("b", 64), toolchainDigest: "sha256:" + strings.Repeat("c", 64),
+		expectedBuilderDigest: "sha256:" + strings.Repeat("b", 64), expectedToolchainDigest: "sha256:" + strings.Repeat("c", 64),
+		protocolABIDigest: protocolABI, workloadManifestABIDigest: workloadABI,
 	}
 }
 
@@ -168,7 +179,14 @@ func artifactBuildTestArgs(fixture artifactBuildTestFixture, ossEndpoint string)
 		"--artifact-prefix", fixture.artifactPrefix,
 		"--input-key", fixture.inputKey, "--input-sha256", fixture.inputSHA256, "--input-size-bytes", strconv.FormatInt(fixture.inputSizeBytes, 10),
 		"--repository-id", fixture.repositoryID, "--object-format", fixture.objectFormat, "--source-commit-sha", fixture.commitSHA, "--source-tree-sha", fixture.treeSHA,
-		"--builder-digest", fixture.builderDigest, "--toolchain-digest", fixture.toolchainDigest,
+		"--expected-builder-digest", fixture.expectedBuilderDigest, "--expected-toolchain-digest", fixture.expectedToolchainDigest,
+		"--protocol-abi-digest", fixture.protocolABIDigest, "--workload-manifest-abi-digest", fixture.workloadManifestABIDigest,
+	}
+}
+
+func artifactBuildTestObserver(fixture artifactBuildTestFixture) remoteci.ArtifactBuilderIdentityObserver {
+	return func(context.Context) (remoteci.ObservedArtifactBuilderIdentity, error) {
+		return remoteci.ObservedArtifactBuilderIdentity{BuilderDigest: fixture.expectedBuilderDigest, ToolchainDigest: fixture.expectedToolchainDigest}, nil
 	}
 }
 

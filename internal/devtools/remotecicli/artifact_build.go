@@ -23,27 +23,30 @@ const (
 
 // artifactBuildFlags 是 _artifact-build 的完整显式输入，不携带凭据或宿主路径。
 type artifactBuildFlags struct {
-	executionProvider string
-	ossEndpoint       string
-	ossBucket         string
-	ramRole           string
-	artifactKind      string
-	artifactRef       string
-	artifactPrefix    string
-	inputKey          string
-	inputSHA256       string
-	inputSizeBytes    int64
-	repositoryID      string
-	objectFormat      string
-	sourceCommitSHA   string
-	sourceTreeSHA     string
-	builderDigest     string
-	toolchainDigest   string
+	executionProvider         string
+	ossEndpoint               string
+	ossBucket                 string
+	ramRole                   string
+	artifactKind              string
+	artifactRef               string
+	artifactPrefix            string
+	inputKey                  string
+	inputSHA256               string
+	inputSizeBytes            int64
+	repositoryID              string
+	objectFormat              string
+	sourceCommitSHA           string
+	sourceTreeSHA             string
+	expectedBuilderDigest     string
+	expectedToolchainDigest   string
+	protocolABIDigest         string
+	workloadManifestABIDigest string
 }
 
 type artifactBuildDependencies struct {
-	httpClient      *http.Client
-	metadataBaseURL string
+	httpClient       *http.Client
+	metadataBaseURL  string
+	observedIdentity remoteci.ArtifactBuilderIdentityObserver
 }
 
 type strictStringFlag struct {
@@ -93,7 +96,15 @@ func (value *strictInt64Flag) String() string {
 
 // dispatchArtifactBuild 执行同一 binary 内部的 source baseline builder worker。
 func dispatchArtifactBuild(args []string, stdout, stderr io.Writer) error {
-	return dispatchArtifactBuildWithDependencies(args, stdout, stderr, artifactBuildDependencies{httpClient: http.DefaultClient})
+	return dispatchArtifactBuildWithDependencies(args, stdout, stderr, artifactBuildDependencies{httpClient: http.DefaultClient, observedIdentity: observeArtifactBuilderIdentity})
+}
+
+func observeArtifactBuilderIdentity(ctx context.Context) (remoteci.ObservedArtifactBuilderIdentity, error) {
+	identity, err := ReadArtifactBuilderObservedIdentity(ctx)
+	if err != nil {
+		return remoteci.ObservedArtifactBuilderIdentity{}, err
+	}
+	return remoteci.ObservedArtifactBuilderIdentity{BuilderDigest: identity.BuilderSHA256, ToolchainDigest: identity.ToolchainDigest}, nil
 }
 
 // dispatchArtifactBuildWithDependencies 使用显式传输依赖执行一次 worker 构建。
@@ -105,7 +116,10 @@ func dispatchArtifactBuildWithDependencies(args []string, stdout, stderr io.Writ
 	if err := writeProgress(stderr, "artifact build started"); err != nil {
 		return newCLIFailure("write progress", err)
 	}
-	result, err := remoteci.BuildSourceBaselineArtifact(context.Background(), artifactIO, input)
+	if dependencies.observedIdentity == nil {
+		return newCLIFailure("artifact builder observed identity observer is required", nil)
+	}
+	result, err := remoteci.BuildSourceBaselineArtifact(context.Background(), artifactIO, input, dependencies.observedIdentity)
 	if err != nil {
 		return newCLIFailure("artifact build failed", nil)
 	}
@@ -155,13 +169,28 @@ func prepareArtifactBuildWorker(args []string, stderr io.Writer, dependencies ar
 
 // parseArtifactBuildFlags 严格解析 _artifact-build 参数，拒绝未知、重复和缺失字段。
 func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
-	var values struct {
-		executionProvider, ossEndpoint, ossBucket, ramRole               strictStringFlag
-		artifactKind, artifactRef, artifactPrefix, inputKey, inputSHA256 strictStringFlag
-		repositoryID, objectFormat, sourceCommitSHA, sourceTreeSHA       strictStringFlag
-		builderDigest, toolchainDigest                                   strictStringFlag
-		inputSizeBytes                                                   strictInt64Flag
+	values, err := parseArtifactBuildFlagValues(args)
+	if err != nil {
+		return artifactBuildFlags{}, err
 	}
+	flags := artifactBuildFlagsFromValues(values)
+	if flags.executionProvider != remoteci.PortableExecutionProvider || flags.artifactKind != artifactBuildArtifactKind || flags.artifactRef != artifactBuildArtifactRef {
+		return artifactBuildFlags{}, newCLIFailure("artifact build protocol identity is invalid", nil)
+	}
+	return flags, nil
+}
+
+type artifactBuildFlagValues struct {
+	executionProvider, ossEndpoint, ossBucket, ramRole                                           strictStringFlag
+	artifactKind, artifactRef, artifactPrefix, inputKey, inputSHA256                             strictStringFlag
+	repositoryID, objectFormat, sourceCommitSHA, sourceTreeSHA                                   strictStringFlag
+	expectedBuilderDigest, expectedToolchainDigest, protocolABIDigest, workloadManifestABIDigest strictStringFlag
+	inputSizeBytes                                                                               strictInt64Flag
+}
+
+// parseArtifactBuildFlagValues 解析完整 expected identity 与 ABI 参数集合并拒绝尾随参数。
+func parseArtifactBuildFlagValues(args []string) (artifactBuildFlagValues, error) {
+	var values artifactBuildFlagValues
 	set := flag.NewFlagSet("_artifact-build", flag.ContinueOnError)
 	set.SetOutput(io.Discard)
 	set.Var(&values.executionProvider, "execution-provider", "")
@@ -178,74 +207,75 @@ func parseArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
 	set.Var(&values.objectFormat, "object-format", "")
 	set.Var(&values.sourceCommitSHA, "source-commit-sha", "")
 	set.Var(&values.sourceTreeSHA, "source-tree-sha", "")
-	set.Var(&values.builderDigest, "builder-digest", "")
-	set.Var(&values.toolchainDigest, "toolchain-digest", "")
+	set.Var(&values.expectedBuilderDigest, "expected-builder-digest", "")
+	set.Var(&values.expectedToolchainDigest, "expected-toolchain-digest", "")
+	set.Var(&values.protocolABIDigest, "protocol-abi-digest", "")
+	set.Var(&values.workloadManifestABIDigest, "workload-manifest-abi-digest", "")
 	if err := set.Parse(args); err != nil || len(set.Args()) != 0 {
-		return artifactBuildFlags{}, newCLIFailure("artifact build arguments are invalid", nil)
+		return artifactBuildFlagValues{}, newCLIFailure("artifact build arguments are invalid", nil)
 	}
-	required := []struct {
+	for _, field := range artifactBuildRequiredFlags(values) {
+		if !field.set {
+			return artifactBuildFlagValues{}, newCLIFailure("artifact build required flag is missing", nil)
+		}
+	}
+	return values, nil
+}
+
+func artifactBuildRequiredFlags(values artifactBuildFlagValues) []struct {
+	name string
+	set  bool
+} {
+	return []struct {
 		name string
 		set  bool
 	}{
-		{"execution-provider", values.executionProvider.set},
-		{"oss-endpoint", values.ossEndpoint.set},
-		{"oss-bucket", values.ossBucket.set},
-		{"ram-role-name", values.ramRole.set},
-		{"artifact-kind", values.artifactKind.set},
-		{"artifact-ref", values.artifactRef.set},
-		{"artifact-prefix", values.artifactPrefix.set},
-		{"input-key", values.inputKey.set},
-		{"input-sha256", values.inputSHA256.set},
-		{"input-size-bytes", values.inputSizeBytes.set},
-		{"repository-id", values.repositoryID.set},
-		{"object-format", values.objectFormat.set},
-		{"source-commit-sha", values.sourceCommitSHA.set},
-		{"source-tree-sha", values.sourceTreeSHA.set},
-		{"builder-digest", values.builderDigest.set},
-		{"toolchain-digest", values.toolchainDigest.set},
+		{"execution-provider", values.executionProvider.set}, {"oss-endpoint", values.ossEndpoint.set}, {"oss-bucket", values.ossBucket.set}, {"ram-role-name", values.ramRole.set},
+		{"artifact-kind", values.artifactKind.set}, {"artifact-ref", values.artifactRef.set}, {"artifact-prefix", values.artifactPrefix.set}, {"input-key", values.inputKey.set},
+		{"input-sha256", values.inputSHA256.set}, {"input-size-bytes", values.inputSizeBytes.set}, {"repository-id", values.repositoryID.set}, {"object-format", values.objectFormat.set},
+		{"source-commit-sha", values.sourceCommitSHA.set}, {"source-tree-sha", values.sourceTreeSHA.set}, {"expected-builder-digest", values.expectedBuilderDigest.set},
+		{"expected-toolchain-digest", values.expectedToolchainDigest.set}, {"protocol-abi-digest", values.protocolABIDigest.set}, {"workload-manifest-abi-digest", values.workloadManifestABIDigest.set},
 	}
-	for _, field := range required {
-		if !field.set {
-			return artifactBuildFlags{}, newCLIFailure("artifact build required flag is missing", nil)
-		}
+}
+
+func artifactBuildFlagsFromValues(values artifactBuildFlagValues) artifactBuildFlags {
+	return artifactBuildFlags{
+		executionProvider:         values.executionProvider.value,
+		ossEndpoint:               values.ossEndpoint.value,
+		ossBucket:                 values.ossBucket.value,
+		ramRole:                   values.ramRole.value,
+		artifactKind:              values.artifactKind.value,
+		artifactRef:               values.artifactRef.value,
+		artifactPrefix:            values.artifactPrefix.value,
+		inputKey:                  values.inputKey.value,
+		inputSHA256:               values.inputSHA256.value,
+		inputSizeBytes:            values.inputSizeBytes.value,
+		repositoryID:              values.repositoryID.value,
+		objectFormat:              values.objectFormat.value,
+		sourceCommitSHA:           values.sourceCommitSHA.value,
+		sourceTreeSHA:             values.sourceTreeSHA.value,
+		expectedBuilderDigest:     values.expectedBuilderDigest.value,
+		expectedToolchainDigest:   values.expectedToolchainDigest.value,
+		protocolABIDigest:         values.protocolABIDigest.value,
+		workloadManifestABIDigest: values.workloadManifestABIDigest.value,
 	}
-	flags := artifactBuildFlags{
-		executionProvider: values.executionProvider.value,
-		ossEndpoint:       values.ossEndpoint.value,
-		ossBucket:         values.ossBucket.value,
-		ramRole:           values.ramRole.value,
-		artifactKind:      values.artifactKind.value,
-		artifactRef:       values.artifactRef.value,
-		artifactPrefix:    values.artifactPrefix.value,
-		inputKey:          values.inputKey.value,
-		inputSHA256:       values.inputSHA256.value,
-		inputSizeBytes:    values.inputSizeBytes.value,
-		repositoryID:      values.repositoryID.value,
-		objectFormat:      values.objectFormat.value,
-		sourceCommitSHA:   values.sourceCommitSHA.value,
-		sourceTreeSHA:     values.sourceTreeSHA.value,
-		builderDigest:     values.builderDigest.value,
-		toolchainDigest:   values.toolchainDigest.value,
-	}
-	if flags.executionProvider != remoteci.PortableExecutionProvider || flags.artifactKind != artifactBuildArtifactKind || flags.artifactRef != artifactBuildArtifactRef {
-		return artifactBuildFlags{}, newCLIFailure("artifact build protocol identity is invalid", nil)
-	}
-	return flags, nil
 }
 
 func (flags artifactBuildFlags) sourceBaselineBuildInput() (remoteci.SourceBaselineBuildInput, error) {
 	input := remoteci.SourceBaselineBuildInput{
-		SchemaVersion:   remoteci.SourceBaselineBuilderInputSchema,
-		ArtifactPrefix:  flags.artifactPrefix,
-		RepositoryID:    flags.repositoryID,
-		ObjectFormat:    flags.objectFormat,
-		CommitSHA:       flags.sourceCommitSHA,
-		TreeSHA:         flags.sourceTreeSHA,
-		InputObjectKey:  flags.inputKey,
-		InputSHA256:     flags.inputSHA256,
-		InputSizeBytes:  flags.inputSizeBytes,
-		BuilderDigest:   flags.builderDigest,
-		ToolchainDigest: flags.toolchainDigest,
+		SchemaVersion:             remoteci.SourceBaselineBuilderInputSchema,
+		ArtifactPrefix:            flags.artifactPrefix,
+		RepositoryID:              flags.repositoryID,
+		ObjectFormat:              flags.objectFormat,
+		CommitSHA:                 flags.sourceCommitSHA,
+		TreeSHA:                   flags.sourceTreeSHA,
+		InputObjectKey:            flags.inputKey,
+		InputSHA256:               flags.inputSHA256,
+		InputSizeBytes:            flags.inputSizeBytes,
+		ExpectedBuilderDigest:     flags.expectedBuilderDigest,
+		ExpectedToolchainDigest:   flags.expectedToolchainDigest,
+		ProtocolABIDigest:         flags.protocolABIDigest,
+		WorkloadManifestABIDigest: flags.workloadManifestABIDigest,
 	}
 	if err := input.Validate(); err != nil {
 		return remoteci.SourceBaselineBuildInput{}, err
@@ -272,7 +302,8 @@ const (
 )
 
 type artifactBuildUploadState struct {
-	artifactSHA256 string
+	artifactSHA256         string
+	artifactIdentityDigest string
 }
 
 func newArtifactBuildUpload(flags artifactBuildFlags, dependencies artifactBuildDependencies, uploadKind int, state *artifactBuildUploadState) func(context.Context, string, string, remoteci.SourceBaselineArtifactMetadata) error {
@@ -285,6 +316,7 @@ func newArtifactBuildUpload(flags artifactBuildFlags, dependencies artifactBuild
 		}
 		if uploadKind == artifactBuildArtifactUpload {
 			state.artifactSHA256 = metadata.SHA256
+			state.artifactIdentityDigest = metadata.ArtifactIdentityDigest
 		}
 		return nil
 	}
@@ -292,21 +324,24 @@ func newArtifactBuildUpload(flags artifactBuildFlags, dependencies artifactBuild
 
 // validateArtifactBuildUpload 校验 worker 上传的内容身份与 canonical object key。
 func validateArtifactBuildUpload(flags artifactBuildFlags, uploadKind int, state *artifactBuildUploadState, key string, metadata remoteci.SourceBaselineArtifactMetadata) error {
-	if state == nil || metadata.SizeBytes <= 0 || !isDigest(metadata.SHA256) {
+	if state == nil || metadata.SizeBytes <= 0 || !isDigest(metadata.SHA256) || !isDigest(metadata.ArtifactIdentityDigest) {
 		return errors.New("artifact upload metadata is invalid")
 	}
 	switch uploadKind {
 	case artifactBuildArtifactUpload:
-		return validateArtifactBuildArtifactKey(flags, key, metadata.SHA256)
+		return validateArtifactBuildArtifactKey(flags, key, metadata.ArtifactIdentityDigest)
 	case artifactBuildReceiptUpload:
+		if metadata.ArtifactIdentityDigest != state.artifactIdentityDigest {
+			return errors.New("receipt upload artifact identity digest drifted")
+		}
 		return validateArtifactBuildReceiptKey(flags, state, key)
 	default:
 		return errors.New("artifact upload kind is invalid")
 	}
 }
 
-func validateArtifactBuildArtifactKey(flags artifactBuildFlags, key, artifactSHA256 string) error {
-	artifactKey, _, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.artifactPrefix, flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, artifactSHA256)
+func validateArtifactBuildArtifactKey(flags artifactBuildFlags, key, artifactIdentityDigest string) error {
+	artifactKey, _, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.artifactPrefix, flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, artifactIdentityDigest)
 	if err != nil {
 		return err
 	}
@@ -317,10 +352,10 @@ func validateArtifactBuildArtifactKey(flags artifactBuildFlags, key, artifactSHA
 }
 
 func validateArtifactBuildReceiptKey(flags artifactBuildFlags, state *artifactBuildUploadState, key string) error {
-	if state.artifactSHA256 == "" {
+	if state.artifactSHA256 == "" || state.artifactIdentityDigest == "" {
 		return errors.New("receipt upload was attempted before artifact upload")
 	}
-	_, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.artifactPrefix, flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, state.artifactSHA256)
+	_, receiptKey, err := remoteci.CanonicalSourceBaselineBuilderKeys(flags.artifactPrefix, flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, state.artifactIdentityDigest)
 	if err != nil || key != receiptKey {
 		return errors.New("receipt upload key is not canonical")
 	}
@@ -346,16 +381,17 @@ type readerWithoutCloser struct {
 }
 
 type artifactBuildOutput struct {
-	Schema            string `json:"schema"`
-	Status            string `json:"status"`
-	ExecutionProvider string `json:"execution_provider"`
-	InputDigest       string `json:"input_digest"`
-	ArtifactKey       string `json:"artifact_key"`
-	ReceiptKey        string `json:"receipt_key"`
-	ArtifactSHA256    string `json:"artifact_sha256"`
-	ArtifactSizeBytes int64  `json:"artifact_size_bytes"`
-	ReceiptSHA256     string `json:"receipt_sha256"`
-	ReceiptDigest     string `json:"receipt_digest"`
+	Schema                 string `json:"schema"`
+	Status                 string `json:"status"`
+	ExecutionProvider      string `json:"execution_provider"`
+	InputDigest            string `json:"input_digest"`
+	ArtifactKey            string `json:"artifact_key"`
+	ReceiptKey             string `json:"receipt_key"`
+	ArtifactSHA256         string `json:"artifact_sha256"`
+	ArtifactSizeBytes      int64  `json:"artifact_size_bytes"`
+	ArtifactIdentityDigest string `json:"artifact_identity_digest"`
+	ReceiptSHA256          string `json:"receipt_sha256"`
+	ReceiptDigest          string `json:"receipt_digest"`
 }
 
 // boundedArtifactBuildJSON 仅渲染 NOT_VERIFIED 与内容摘要，不渲染路径或凭据。
@@ -371,22 +407,23 @@ func boundedArtifactBuildJSON(result remoteci.SourceBaselineBuilderWorkerResult)
 	if err != nil {
 		return nil, err
 	}
-	for _, digest := range []string{result.InputDigest, result.Receipt.ArtifactSHA256, digestBytes(receiptBytes), receiptDigest} {
+	for _, digest := range []string{result.InputDigest, result.Receipt.ArtifactSHA256, result.Receipt.ArtifactIdentityDigest, digestBytes(receiptBytes), receiptDigest} {
 		if !isDigest(digest) {
 			return nil, errors.New("artifact build result digest is invalid")
 		}
 	}
 	output := artifactBuildOutput{
-		Schema:            artifactBuildSchema,
-		Status:            "NOT_VERIFIED",
-		ExecutionProvider: result.Receipt.ExecutionProvider,
-		InputDigest:       result.InputDigest,
-		ArtifactKey:       result.ArtifactKey,
-		ReceiptKey:        result.ReceiptKey,
-		ArtifactSHA256:    result.Receipt.ArtifactSHA256,
-		ArtifactSizeBytes: result.Receipt.ArtifactSizeBytes,
-		ReceiptSHA256:     digestBytes(receiptBytes),
-		ReceiptDigest:     receiptDigest,
+		Schema:                 artifactBuildSchema,
+		Status:                 "NOT_VERIFIED",
+		ExecutionProvider:      result.Receipt.ExecutionProvider,
+		InputDigest:            result.InputDigest,
+		ArtifactKey:            result.ArtifactKey,
+		ReceiptKey:             result.ReceiptKey,
+		ArtifactSHA256:         result.Receipt.ArtifactSHA256,
+		ArtifactSizeBytes:      result.Receipt.ArtifactSizeBytes,
+		ArtifactIdentityDigest: result.Receipt.ArtifactIdentityDigest,
+		ReceiptSHA256:          digestBytes(receiptBytes),
+		ReceiptDigest:          receiptDigest,
 	}
 	data, err := json.Marshal(output)
 	if err != nil {

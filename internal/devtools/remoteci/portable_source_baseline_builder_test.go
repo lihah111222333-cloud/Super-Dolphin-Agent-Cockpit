@@ -129,6 +129,38 @@ func TestSourceBaselineBuilderInputRejectsEveryZeroField(t *testing.T) {
 	}
 }
 
+func TestArtifactIdentityDigestBindsExactSourceCommitTreeAndObservedABI(t *testing.T) {
+	input := testSourceBaselineBuildInput(t)
+	observed := ObservedArtifactBuilderIdentity{BuilderDigest: input.ExpectedBuilderDigest, ToolchainDigest: input.ExpectedToolchainDigest}
+	first, err := ArtifactIdentityDigest(input.RepositoryID, input.ObjectFormat, input.CommitSHA, input.TreeSHA, "sha256:"+strings.Repeat("a", 64), 7, observed, input.ProtocolABIDigest, input.WorkloadManifestABIDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []func(SourceBaselineBuildInput) (string, error){
+		func(value SourceBaselineBuildInput) (string, error) {
+			value.CommitSHA = strings.Repeat("3", 40)
+			return ArtifactIdentityDigest(value.RepositoryID, value.ObjectFormat, value.CommitSHA, value.TreeSHA, "sha256:"+strings.Repeat("a", 64), 7, observed, value.ProtocolABIDigest, value.WorkloadManifestABIDigest)
+		},
+		func(value SourceBaselineBuildInput) (string, error) {
+			value.TreeSHA = strings.Repeat("4", 40)
+			return ArtifactIdentityDigest(value.RepositoryID, value.ObjectFormat, value.CommitSHA, value.TreeSHA, "sha256:"+strings.Repeat("a", 64), 7, observed, value.ProtocolABIDigest, value.WorkloadManifestABIDigest)
+		},
+		func(value SourceBaselineBuildInput) (string, error) {
+			value.ProtocolABIDigest = "sha256:" + strings.Repeat("5", 64)
+			return ArtifactIdentityDigest(value.RepositoryID, value.ObjectFormat, value.CommitSHA, value.TreeSHA, "sha256:"+strings.Repeat("a", 64), 7, observed, value.ProtocolABIDigest, value.WorkloadManifestABIDigest)
+		},
+	}
+	for index, mutate := range cases {
+		variant, err := mutate(input)
+		if err != nil {
+			t.Fatalf("variant %d: %v", index, err)
+		}
+		if variant == first {
+			t.Fatalf("variant %d did not change artifact identity", index)
+		}
+	}
+}
+
 func TestArtifactBuilderRuntimeIsOrchestrationOnly(t *testing.T) {
 	var runtime SourceBaselineArtifactBuilderRuntime = testArtifactBuilderRuntime{}
 	evidence, err := runtime.Build(context.Background(), testSourceBaselineBuildInput(t))
@@ -149,18 +181,28 @@ func (testArtifactBuilderRuntime) Build(context.Context, SourceBaselineBuildInpu
 func testSourceBaselineBuildInput(t *testing.T) SourceBaselineBuildInput {
 	t.Helper()
 	tree := strings.Repeat("1", 40)
+	protocolABI, err := BuilderSimulationProtocolABIDigest()
+	if err != nil {
+		t.Fatalf("builder protocol ABI fixture: %v", err)
+	}
+	workloadABI, err := RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatalf("workload manifest ABI fixture: %v", err)
+	}
 	return SourceBaselineBuildInput{
-		SchemaVersion:   SourceBaselineBuilderInputSchema,
-		ArtifactPrefix:  "builder/",
-		RepositoryID:    "repository-1",
-		ObjectFormat:    string(gate.GitObjectFormatSHA1),
-		CommitSHA:       strings.Repeat("2", 40),
-		TreeSHA:         tree,
-		InputObjectKey:  "builder/inputs/input-1",
-		InputSHA256:     "sha256:" + strings.Repeat("a", 64),
-		InputSizeBytes:  123,
-		BuilderDigest:   "sha256:" + strings.Repeat("b", 64),
-		ToolchainDigest: "sha256:" + strings.Repeat("c", 64),
+		SchemaVersion:             SourceBaselineBuilderInputSchema,
+		ArtifactPrefix:            "builder/",
+		RepositoryID:              "repository-1",
+		ObjectFormat:              string(gate.GitObjectFormatSHA1),
+		CommitSHA:                 strings.Repeat("2", 40),
+		TreeSHA:                   tree,
+		InputObjectKey:            "builder/inputs/input-1",
+		InputSHA256:               "sha256:" + strings.Repeat("a", 64),
+		InputSizeBytes:            123,
+		ExpectedBuilderDigest:     "sha256:" + strings.Repeat("b", 64),
+		ExpectedToolchainDigest:   "sha256:" + strings.Repeat("c", 64),
+		ProtocolABIDigest:         protocolABI,
+		WorkloadManifestABIDigest: workloadABI,
 	}
 }
 
@@ -172,7 +214,7 @@ func testSourceBaselineBuildEvidence(t *testing.T, input SourceBaselineBuildInpu
 		receipt.RepositoryID,
 		receipt.ObjectFormat,
 		receipt.BaselineTreeSHA,
-		receipt.ArtifactSHA256,
+		receipt.ArtifactIdentityDigest,
 	)
 	if err != nil {
 		t.Fatalf("canonical source baseline builder keys: %v", err)
@@ -199,16 +241,27 @@ func testSourceBaselineProducerReceipt(t *testing.T) SourceBaselineProducerRecei
 	if err != nil {
 		t.Fatalf("deterministic receipt commit fixture: %v", err)
 	}
-	return SourceBaselineProducerReceipt{
-		SchemaVersion:     SourceBaselineProducerReceiptSchema,
-		ExecutionProvider: PortableExecutionProvider,
-		BuilderDigest:     input.BuilderDigest,
-		ToolchainDigest:   input.ToolchainDigest,
-		RepositoryID:      input.RepositoryID,
-		ObjectFormat:      input.ObjectFormat,
-		BaselineCommitSHA: baselineCommit,
-		BaselineTreeSHA:   input.TreeSHA,
-		ArtifactSHA256:    "sha256:" + strings.Repeat("d", 64),
-		ArtifactSizeBytes: 456,
+	receipt := SourceBaselineProducerReceipt{
+		SchemaVersion:             SourceBaselineProducerReceiptSchema,
+		ExecutionProvider:         PortableExecutionProvider,
+		ExpectedBuilderDigest:     input.ExpectedBuilderDigest,
+		ExpectedToolchainDigest:   input.ExpectedToolchainDigest,
+		ObservedBuilderDigest:     input.ExpectedBuilderDigest,
+		ObservedToolchainDigest:   input.ExpectedToolchainDigest,
+		ProtocolABIDigest:         input.ProtocolABIDigest,
+		WorkloadManifestABIDigest: input.WorkloadManifestABIDigest,
+		RepositoryID:              input.RepositoryID,
+		ObjectFormat:              input.ObjectFormat,
+		SourceCommitSHA:           input.CommitSHA,
+		SourceTreeSHA:             input.TreeSHA,
+		BaselineCommitSHA:         baselineCommit,
+		BaselineTreeSHA:           input.TreeSHA,
+		ArtifactSHA256:            "sha256:" + strings.Repeat("d", 64),
+		ArtifactSizeBytes:         456,
 	}
+	receipt.ArtifactIdentityDigest, err = ArtifactIdentityDigest(receipt.RepositoryID, receipt.ObjectFormat, receipt.SourceCommitSHA, receipt.SourceTreeSHA, receipt.ArtifactSHA256, receipt.ArtifactSizeBytes, ObservedArtifactBuilderIdentity{BuilderDigest: receipt.ObservedBuilderDigest, ToolchainDigest: receipt.ObservedToolchainDigest}, receipt.ProtocolABIDigest, receipt.WorkloadManifestABIDigest)
+	if err != nil {
+		t.Fatalf("artifact identity digest fixture: %v", err)
+	}
+	return receipt
 }

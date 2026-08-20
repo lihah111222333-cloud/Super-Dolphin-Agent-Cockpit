@@ -66,16 +66,18 @@ var ErrArtifactBuilderCancelled = errors.New("artifact builder execution cancell
 
 // ArtifactBuilderInput 绑定输入对象及 portable baseline 的全部内容身份。
 type ArtifactBuilderInput struct {
-	ArtifactPrefix  string `json:"artifact_prefix"`
-	Key             string `json:"input_key"`
-	SHA256          string `json:"input_sha256"`
-	SizeBytes       int64  `json:"input_size_bytes"`
-	RepositoryID    string `json:"repository_id"`
-	ObjectFormat    string `json:"object_format"`
-	SourceCommitSHA string `json:"source_commit_sha"`
-	SourceTreeSHA   string `json:"source_tree_sha"`
-	BuilderDigest   string `json:"builder_digest"`
-	ToolchainDigest string `json:"toolchain_digest"`
+	ArtifactPrefix            string `json:"artifact_prefix"`
+	Key                       string `json:"input_key"`
+	SHA256                    string `json:"input_sha256"`
+	SizeBytes                 int64  `json:"input_size_bytes"`
+	RepositoryID              string `json:"repository_id"`
+	ObjectFormat              string `json:"object_format"`
+	SourceCommitSHA           string `json:"source_commit_sha"`
+	SourceTreeSHA             string `json:"source_tree_sha"`
+	ExpectedBuilderDigest     string `json:"expected_builder_digest"`
+	ExpectedToolchainDigest   string `json:"expected_toolchain_digest"`
+	ProtocolABIDigest         string `json:"protocol_abi_digest"`
+	WorkloadManifestABIDigest string `json:"workload_manifest_abi_digest"`
 }
 
 // ArtifactBuilderConfig 是构造请求所需的显式、非 secret ECI 绑定输入。
@@ -265,13 +267,31 @@ func (input ArtifactBuilderInput) Validate() error {
 	if !strings.HasPrefix(input.Key, input.ArtifactPrefix) {
 		return errors.New("artifact builder input key must use artifact prefix")
 	}
-	if !validArtifactBuilderDigest(input.SHA256) || !validArtifactBuilderDigest(input.BuilderDigest) || !validArtifactBuilderDigest(input.ToolchainDigest) {
-		return errors.New("artifact builder input, builder, and toolchain digests must be canonical sha256 values")
+	if err := validateArtifactBuilderInputDigests(input); err != nil {
+		return err
 	}
-	if input.SizeBytes <= 0 || input.SizeBytes > 1<<30 {
-		return errors.New("artifact builder input size must be between 1 byte and 1 GiB")
+	if err := validateArtifactBuilderInputSize(input.SizeBytes); err != nil {
+		return err
 	}
 	return input.validateGitIdentity()
+}
+
+// validateArtifactBuilderInputDigests 校验 raw、expected 与 ABI 内容身份摘要。
+func validateArtifactBuilderInputDigests(input ArtifactBuilderInput) error {
+	for _, digest := range []string{input.SHA256, input.ExpectedBuilderDigest, input.ExpectedToolchainDigest, input.ProtocolABIDigest, input.WorkloadManifestABIDigest} {
+		if !validArtifactBuilderDigest(digest) {
+			return errors.New("artifact builder input, expected builder/toolchain, and ABI digests must be canonical sha256 values")
+		}
+	}
+	return nil
+}
+
+// validateArtifactBuilderInputSize 校验输入 bundle 的有界字节数。
+func validateArtifactBuilderInputSize(size int64) error {
+	if size <= 0 || size > 1<<30 {
+		return errors.New("artifact builder input size must be between 1 byte and 1 GiB")
+	}
+	return nil
 }
 
 // validateGitIdentity 校验 caller exact source commit/tree 与 object format。
@@ -313,8 +333,10 @@ func (request ArtifactBuilderRequest) CommandLine() ([]string, error) {
 		"--object-format", input.ObjectFormat,
 		"--source-commit-sha", input.SourceCommitSHA,
 		"--source-tree-sha", input.SourceTreeSHA,
-		"--builder-digest", input.BuilderDigest,
-		"--toolchain-digest", input.ToolchainDigest,
+		"--expected-builder-digest", input.ExpectedBuilderDigest,
+		"--expected-toolchain-digest", input.ExpectedToolchainDigest,
+		"--protocol-abi-digest", input.ProtocolABIDigest,
+		"--workload-manifest-abi-digest", input.WorkloadManifestABIDigest,
 		"--oss-bucket", request.OSSBucket,
 		"--oss-endpoint", request.OSSInternalEndpoint,
 		"--ram-role-name", request.RAMRoleName,
