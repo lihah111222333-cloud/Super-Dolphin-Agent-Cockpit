@@ -141,6 +141,13 @@ func TestBuilderSimulationFailureCloudPreservesObservedTerminalEvidence(t *testi
 	}
 }
 
+// TestBuilderSimulationFailureStageReportsCreateWithoutGroupID 锁定 create 错误不会伪装成 OSS staging 失败。
+func TestBuilderSimulationFailureStageReportsCreateWithoutGroupID(t *testing.T) {
+	if got := builderSimulationFailureStage(&builderSimulationRecorder{createAttempted: true}); got != remoteci.BuilderSimulationEventStageECICreateRequested {
+		t.Fatalf("failure stage = %q, want ECI create", got)
+	}
+}
+
 // TestBuilderSimulationOutputChannelsAreStrict verifies canonical stdout and JSONL stderr.
 func TestBuilderSimulationOutputChannelsAreStrict(t *testing.T) {
 	t.Parallel()

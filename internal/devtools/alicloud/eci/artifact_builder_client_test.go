@@ -41,6 +41,32 @@ func TestArtifactBuilderClientCreateUsesDedicatedArgvAndLiveDescribe(t *testing.
 	assertArtifactBuilderCreateArgv(t, runner.calls[0], request)
 }
 
+// TestArtifactBuilderClientAcceptsProviderOmittedSnapshotAndEphemeral 验证 Describe 未回显 create-only 字段时仍核对其余 live 身份。
+func TestArtifactBuilderClientAcceptsProviderOmittedSnapshotAndEphemeral(t *testing.T) {
+	request, err := NewArtifactBuilderRequest(testArtifactBuilderConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags, err := artifactBuilderExpectedTags(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := artifactBuilderLiveGroup(t, request, tags, ArtifactBuilderGroupRunning, ArtifactBuilderContainerRunning, nil)
+	live.EphemeralStorageGiB = 0
+	live.ImageSnapshotID = ""
+	payload, err := json.Marshal(struct {
+		ContainerGroups []ContainerGroup `json:"ContainerGroups"`
+	}{[]ContainerGroup{live}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeCommandRunner{responses: [][]byte{[]byte(`{"ContainerGroupId":"eci-builder-1"}`), payload}}
+	actor := NewArtifactBuilderActor(newTestClient(t, runner))
+	if _, err := actor.Create(context.Background(), request); err != nil {
+		t.Fatalf("Create() rejected provider-omitted create-only fields: %v", err)
+	}
+}
+
 func assertArtifactBuilderCreateArgv(t *testing.T, createCall []string, request ArtifactBuilderRequest) {
 	t.Helper()
 	for _, pair := range [][]string{

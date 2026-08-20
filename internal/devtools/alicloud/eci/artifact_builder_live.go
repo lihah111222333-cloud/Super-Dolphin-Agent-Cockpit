@@ -69,8 +69,11 @@ func artifactBuilderCommandPartsMatch(want, command, args []string) bool {
 
 // validateArtifactBuilderLiveResources 校验真实资源与已请求资源及选中 vSwitch 的绑定。
 func validateArtifactBuilderLiveResources(request ArtifactBuilderRequest, group ArtifactBuilderGroup) error {
-	if group.EphemeralStorageGiB != request.EphemeralStorageGiB || group.CPU != request.CPU || group.MemoryGiB != request.MemoryGiB {
+	if group.CPU != request.CPU || group.MemoryGiB != request.MemoryGiB {
 		return fmt.Errorf("%w: artifact builder live resources do not match the bound request", ErrArtifactBuilderIdentityDrift)
+	}
+	if group.EphemeralStorageGiB != 0 && group.EphemeralStorageGiB != request.EphemeralStorageGiB {
+		return fmt.Errorf("%w: artifact builder live ephemeral storage does not match the bound request", ErrArtifactBuilderIdentityDrift)
 	}
 	if len(group.VSwitches) == 0 {
 		return fmt.Errorf("%w: artifact builder live vSwitch bindings are missing", ErrArtifactBuilderIdentityDrift)
@@ -181,7 +184,7 @@ func validateArtifactBuilderLiveGroupFields(live ContainerGroup) error {
 	if strings.TrimSpace(live.ID) == "" || strings.TrimSpace(live.Name) == "" || strings.TrimSpace(live.RegionID) == "" || strings.TrimSpace(live.Status) == "" {
 		return fmt.Errorf("%w: DescribeContainerGroups omitted builder group identity fields", ErrArtifactBuilderIdentityDrift)
 	}
-	if strings.TrimSpace(live.VSwitchID) == "" || strings.TrimSpace(live.SecurityGroupID) == "" || strings.TrimSpace(live.RAMRoleName) == "" || live.EphemeralStorageGiB <= 0 || strings.TrimSpace(live.ImageSnapshotID) == "" {
+	if strings.TrimSpace(live.VSwitchID) == "" || strings.TrimSpace(live.SecurityGroupID) == "" || strings.TrimSpace(live.RAMRoleName) == "" {
 		return fmt.Errorf("%w: DescribeContainerGroups omitted builder infrastructure fields", ErrArtifactBuilderIdentityDrift)
 	}
 	return nil
@@ -320,7 +323,6 @@ func validateArtifactBuilderLiveStrings(request ArtifactBuilderRequest, group Ar
 		{"provider", group.Provider, request.Provider},
 		{"region", group.RegionID, request.RegionID},
 		{"image", group.Image, request.Image},
-		{"image snapshot", group.ImageSnapshotID, request.ImageSnapshotID},
 		{"compiler path", group.CompilerPath, request.CompilerPath},
 		{"container name", group.Container.Name, request.ContainerName},
 		{"container image", group.Container.Image, request.Image},
@@ -329,6 +331,9 @@ func validateArtifactBuilderLiveStrings(request ArtifactBuilderRequest, group Ar
 		if field.got != field.want {
 			return fmt.Errorf("%w: artifact builder live %s identity does not match the bound request", ErrArtifactBuilderIdentityDrift, field.name)
 		}
+	}
+	if group.ImageSnapshotID != "" && group.ImageSnapshotID != request.ImageSnapshotID {
+		return fmt.Errorf("%w: artifact builder live image snapshot identity does not match the bound request", ErrArtifactBuilderIdentityDrift)
 	}
 	return nil
 }

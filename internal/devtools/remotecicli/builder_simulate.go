@@ -551,7 +551,7 @@ func finishPreparedBuilderSimulation(bound remoteci.BoundBuilderSimulationReques
 	groupAbsent, inputAbsent := prepared.recorder.groupAbsenceProof(), prepared.observingStore.inputAbsent
 	if buildErr != nil {
 		code := builderSimulationFailureExitCode(groupAbsent, inputAbsent)
-		stage := builderSimulationFailureStage(prepared.recorder, buildErr)
+		stage := builderSimulationFailureStage(prepared.recorder)
 		return finishBuilderSimulationFailure(stdout, writer, request.OperationID, bound, prepared.recorder, code, builderSimulationFailureCode(stage), stage, groupAbsent, inputAbsent, remoteci.BuilderSimulationPublicationStatePartial)
 	}
 	if !groupAbsent || !inputAbsent {
@@ -647,11 +647,11 @@ func builderSimulationFailureExitCode(groupAbsent, inputAbsent bool) int {
 }
 
 // builderSimulationFailureStage 将内部失败映射为稳定公开阶段。
-func builderSimulationFailureStage(recorder *builderSimulationRecorder, err error) string {
+func builderSimulationFailureStage(recorder *builderSimulationRecorder) string {
 	if recorder != nil && recorder.groupID != "" {
 		return remoteci.BuilderSimulationEventStageECIGroupObserved
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if recorder != nil && recorder.createAttempted {
 		return remoteci.BuilderSimulationEventStageECICreateRequested
 	}
 	return remoteci.BuilderSimulationEventStageInputStaged
