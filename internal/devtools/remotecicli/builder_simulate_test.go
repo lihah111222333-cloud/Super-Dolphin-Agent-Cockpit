@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,10 +208,10 @@ func TestBuilderSimulationLocalCleanupFailurePrecedesTerminal(t *testing.T) {
 	}
 }
 
-// TestBuilderSimulationRuntimeStoreReadsNestedBuilderReceipt 锁定 production adapter 接受唯一 builder nested receipt key。
-func TestBuilderSimulationRuntimeStoreReadsNestedBuilderReceipt(t *testing.T) {
+// TestBuilderSimulationRuntimeStoreReadsNestedBuilderObjects 锁定 production adapter 接受唯一 builder nested artifact/receipt key。
+func TestBuilderSimulationRuntimeStoreReadsNestedBuilderObjects(t *testing.T) {
 	prefix := "baseline-artifacts/builder-simulation/test/"
-	_, key, err := remoteci.CanonicalSourceBaselineBuilderKeys(prefix, "repository-1", "sha1", strings.Repeat("1", 40), builderSimulationResultDigest("2"))
+	artifactKey, key, err := remoteci.CanonicalSourceBaselineBuilderKeys(prefix, "repository-1", "sha1", strings.Repeat("1", 40), builderSimulationResultDigest("2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,6 +224,21 @@ func TestBuilderSimulationRuntimeStoreReadsNestedBuilderReceipt(t *testing.T) {
 	}
 	if !bytes.Equal(got, payload) || metadata.SHA256 != runtimeDigestBytes(payload) || metadata.SizeBytes != int64(len(payload)) {
 		t.Fatalf("ReadReceipt() = %q, %+v", got, metadata)
+	}
+	assertBuilderSimulationRuntimeArtifact(t, store, artifactKey, payload)
+}
+
+// assertBuilderSimulationRuntimeArtifact 校验 nested artifact 的实际字节、长度与摘要。
+func assertBuilderSimulationRuntimeArtifact(t *testing.T, store *builderSimulationRuntimeStore, artifactKey string, payload []byte) {
+	t.Helper()
+	body, size, metadata, err := store.Resolve(context.Background(), remoteci.PortableSourceBaselineArtifactKind, artifactKey)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	artifactBytes, readErr := io.ReadAll(body)
+	closeErr := body.Close()
+	if readErr != nil || closeErr != nil || !bytes.Equal(artifactBytes, payload) || size != int64(len(payload)) || metadata.SHA256 != runtimeDigestBytes(payload) {
+		t.Fatalf("Resolve() = %q, %d, %+v, read=%v close=%v", artifactBytes, size, metadata, readErr, closeErr)
 	}
 }
 

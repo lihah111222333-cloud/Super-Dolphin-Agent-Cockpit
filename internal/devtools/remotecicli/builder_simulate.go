@@ -1,6 +1,7 @@
 package remotecicli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -298,9 +299,20 @@ func (store *builderSimulationRuntimeStore) ReadReceipt(ctx context.Context, key
 	return payload, oss.PortableArtifactMetadata{SHA256: runtimeDigestBytes(payload), SizeBytes: int64(len(payload))}, nil
 }
 
-// Resolve 委托 final artifact 的严格解析。
+// Resolve 校验 nested artifact key 并从 bounded 实际字节构造严格只读流。
 func (store *builderSimulationRuntimeStore) Resolve(ctx context.Context, kind, key string) (io.ReadCloser, int64, oss.PortableArtifactMetadata, error) {
-	return store.portable.Resolve(ctx, kind, key)
+	if store == nil || store.portable == nil || store.objects == nil || kind != remoteci.PortableSourceBaselineArtifactKind {
+		return nil, 0, oss.PortableArtifactMetadata{}, errors.New("builder simulation artifact resolve request is invalid")
+	}
+	if err := remoteci.ValidateSourceBaselineBuilderArtifactKey(key, store.prefix); err != nil {
+		return nil, 0, oss.PortableArtifactMetadata{}, err
+	}
+	payload, err := store.objects.Read(ctx, key, remoteci.SourceBaselineBuilderArtifactMaxBytes)
+	if err != nil {
+		return nil, 0, oss.PortableArtifactMetadata{}, err
+	}
+	metadata := oss.PortableArtifactMetadata{SHA256: runtimeDigestBytes(payload), SizeBytes: int64(len(payload))}
+	return io.NopCloser(bytes.NewReader(payload)), metadata.SizeBytes, metadata, nil
 }
 
 // Delete 委托 input staging 清理。

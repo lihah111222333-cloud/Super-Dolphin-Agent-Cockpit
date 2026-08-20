@@ -132,27 +132,37 @@ func CanonicalSourceBaselineBuilderKeys(artifactPrefix, repositoryID, objectForm
 
 // ValidateSourceBaselineBuilderReceiptKey 校验 builder receipt 的 repository、object format、tree 与 artifact identity 路径。
 func ValidateSourceBaselineBuilderReceiptKey(key, artifactPrefix string) error {
+	return validateSourceBaselineBuilderNestedKey(key, artifactPrefix, "receipts", ".json")
+}
+
+// ValidateSourceBaselineBuilderArtifactKey 校验 builder artifact 的 repository、object format、tree 与 artifact identity 路径。
+func ValidateSourceBaselineBuilderArtifactKey(key, artifactPrefix string) error {
+	return validateSourceBaselineBuilderNestedKey(key, artifactPrefix, "artifacts", ".bundle")
+}
+
+// validateSourceBaselineBuilderNestedKey 以唯一组件顺序校验 builder artifact/receipt key。
+func validateSourceBaselineBuilderNestedKey(key, artifactPrefix, collection, suffix string) error {
 	if err := validateBuilderArtifactPrefix(artifactPrefix); err != nil {
 		return err
 	}
-	if err := validateBuilderObjectKey("receipt_key", key); err != nil {
+	if err := validateBuilderObjectKey(collection+"_key", key); err != nil {
 		return err
 	}
-	relative, found := strings.CutPrefix(key, artifactPrefix+"receipts/")
+	relative, found := strings.CutPrefix(key, artifactPrefix+collection+"/")
 	if !found {
-		return errors.New("source baseline builder receipt key prefix is invalid")
+		return errors.New("source baseline builder nested key prefix is invalid")
 	}
 	parts := strings.Split(relative, "/")
 	if len(parts) != 4 || validateBuilderIdentifier("repository_id", parts[0]) != nil {
-		return errors.New("source baseline builder receipt key identity is invalid")
+		return errors.New("source baseline builder nested key identity is invalid")
 	}
 	format, err := validateBuilderObjectFormat(parts[1])
 	if err != nil || !validOID(parts[2], format) {
-		return errors.New("source baseline builder receipt key Git identity is invalid")
+		return errors.New("source baseline builder nested key Git identity is invalid")
 	}
-	digest, found := strings.CutSuffix(parts[3], ".json")
+	digest, found := strings.CutSuffix(parts[3], suffix)
 	if !found || !validPortableDigest("sha256:"+digest) {
-		return errors.New("source baseline builder receipt key digest is invalid")
+		return errors.New("source baseline builder nested key digest is invalid")
 	}
 	return nil
 }
