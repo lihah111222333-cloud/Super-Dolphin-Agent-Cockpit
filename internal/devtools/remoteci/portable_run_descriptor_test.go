@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -54,13 +55,9 @@ func (fixture portableRunFileIdentityFixture) ReadFileSHA256(_ context.Context, 
 	return digest, nil
 }
 
-func portableRunInputFixture(t *testing.T) (PortableRunInput, *portableRunGitResolverFixture, portableRunFileIdentityFixture) {
+func portableRunManifestFixture(t *testing.T) []byte {
 	t.Helper()
-	engineRoot := filepath.Join(t.TempDir(), "engine")
-	targetRoot := filepath.Join(t.TempDir(), "target")
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	ledgerPath := filepath.Join(t.TempDir(), "ledger.sqlite")
-	manifest, err := RepositoryWorkloadManifest{
+	manifest := RepositoryWorkloadManifest{
 		SchemaVersion:         PortableWorkloadManifestSchemaVersion,
 		RepositoryID:          "repo-1",
 		Modules:               []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/repo-1"}},
@@ -70,10 +67,25 @@ func portableRunInputFixture(t *testing.T) (PortableRunInput, *portableRunGitRes
 			Package: "./example", Name: "TestExample", Platform: RepositoryWorkloadPlatformLinuxAMD64,
 			ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal,
 		}},
-	}.CanonicalEncode()
+	}
+	encoded, err := manifest.CanonicalEncode()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return encoded
+}
+
+func portableRunInputFixture(t *testing.T) (PortableRunInput, *portableRunGitResolverFixture, portableRunFileIdentityFixture) {
+	t.Helper()
+	engineRoot := filepath.Join(t.TempDir(), "engine")
+	targetRoot := filepath.Join(t.TempDir(), "target")
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	ledgerPath := filepath.Join(t.TempDir(), "ledger.sqlite")
+	abiDigest, err := RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := portableRunManifestFixture(t)
 	engineCommit := "1111111111111111111111111111111111111111"
 	engineTree := "2222222222222222222222222222222222222222"
 	targetCommit := "3333333333333333333333333333333333333333"
@@ -111,6 +123,7 @@ func portableRunInputFixture(t *testing.T) (PortableRunInput, *portableRunGitRes
 		WorkloadManifest: PortableWorkloadManifest{
 			RepoRelativePath: "ci/workload-manifest.json",
 			SHA256:           bytesDigest(manifest),
+			ABIDigest:        abiDigest,
 			SchemaVersion:    "portable-workload-manifest/v1",
 			RepositoryID:     "repo-1",
 		},
@@ -144,6 +157,9 @@ func TestBindPortableRunBindsValidatedDescriptor(t *testing.T) {
 	if bound.Mode != PortableRunModeValidateOnly || bound.ContractID != PortableRunContractID {
 		t.Fatalf("bound protocol identity = %#v", bound)
 	}
+	if bound.WorkloadManifest.ABIDigest != input.WorkloadManifest.ABIDigest {
+		t.Fatalf("bound workload manifest ABI digest = %q, want %q", bound.WorkloadManifest.ABIDigest, input.WorkloadManifest.ABIDigest)
+	}
 	if resolver.readRepo != input.Target.RepositoryRoot || resolver.readTree != input.Target.TreeSHA || resolver.readPath != input.WorkloadManifest.RepoRelativePath {
 		t.Fatalf("manifest read was not target-tree scoped: repo=%q tree=%q path=%q", resolver.readRepo, resolver.readTree, resolver.readPath)
 	}
@@ -166,6 +182,8 @@ func TestBindPortableRunRejectsInvalidShape(t *testing.T) {
 		{name: "target repository identity is empty", mutate: func(input *PortableRunInput) { input.Target.RepositoryID = "" }},
 		{name: "baseline artifact key is empty", mutate: func(input *PortableRunInput) { input.Target.SourceBaseline.ArtifactKey = "" }},
 		{name: "baseline artifact size is zero", mutate: func(input *PortableRunInput) { input.Target.SourceBaseline.ArtifactSizeBytes = 0 }},
+		{name: "manifest ABI digest is caller-reported", mutate: func(input *PortableRunInput) { input.WorkloadManifest.ABIDigest = "sha256:" + strings.Repeat("f", 64) }},
+		{name: "manifest ABI digest is missing", mutate: func(input *PortableRunInput) { input.WorkloadManifest.ABIDigest = "" }},
 		{name: "provider is default", mutate: func(input *PortableRunInput) { input.ExecutionProvider = "default" }},
 		{name: "mode is not validate only", mutate: func(input *PortableRunInput) { input.Mode = "execute" }},
 	}
@@ -251,6 +269,45 @@ func TestDecodePortableRunDescriptorIsStrict(t *testing.T) {
 	} {
 		if _, err := DecodePortableRunDescriptor(malformed); err == nil {
 			t.Fatalf("DecodePortableRunDescriptor() accepted %q", malformed)
+		}
+	}
+}
+
+func TestPortableWorkloadManifestABIDigestFieldGuardRoundTrips(t *testing.T) {
+	input, _, _ := portableRunInputFixture(t)
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	assertPortableWorkloadManifestDescriptorFields(t, root["workload_manifest"])
+	decoded, err := DecodePortableRunDescriptor(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.WorkloadManifest != input.WorkloadManifest {
+		t.Fatalf("descriptor round trip changed workload manifest: got %#v want %#v", decoded.WorkloadManifest, input.WorkloadManifest)
+	}
+}
+
+func assertPortableWorkloadManifestDescriptorFields(t *testing.T, data []byte) {
+	t.Helper()
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil {
+		t.Fatal(err)
+	}
+	typ := reflect.TypeFor[PortableWorkloadManifest]()
+	for index := 0; index < typ.NumField(); index++ {
+		field := typ.Field(index)
+		name, options, hasOptions := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" || hasOptions || options != "" {
+			t.Fatalf("%s.%s has an invalid JSON field tag", typ, field.Name)
+		}
+		if _, ok := object[name]; !ok {
+			t.Fatalf("descriptor producer field %q has no JSON consumer coverage", name)
 		}
 	}
 }

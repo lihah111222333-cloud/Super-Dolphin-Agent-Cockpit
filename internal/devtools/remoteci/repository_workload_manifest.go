@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"io"
 	"path"
+	"reflect"
 	"slices"
 	"strings"
 	"unicode"
@@ -24,6 +25,7 @@ const (
 	// RepositoryWorkloadManifestEntryDigestDomain 与 manifest digest 使用不同密码学域。
 	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v1"
 	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v1"
+	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v1"
 	RepositoryWorkloadKindGoTest                = "go_test"
 	RepositoryWorkloadPlatformLinuxAMD64        = "linux/amd64"
 )
@@ -415,6 +417,132 @@ func validateRepositoryIdentifier(value, label string) error {
 func validExecutionPolicy(policy RepositoryWorkloadExecutionPolicy) bool {
 	switch policy {
 	case RepositoryWorkloadExecutionPolicyNormal, RepositoryWorkloadExecutionPolicyRace:
+		return true
+	default:
+		return false
+	}
+}
+
+type repositoryWorkloadManifestABIField struct {
+	goName          string
+	jsonName        string
+	goType          string
+	wireKind        string
+	elementRelation string
+}
+
+// RepositoryWorkloadManifestABIDigest 返回由 manifest wire 类型动态派生的 ABI 摘要。
+// ABI 摘要与 manifest 内容摘要使用独立密码学域，且所有材料均以长度框定编码。
+func RepositoryWorkloadManifestABIDigest() (string, error) {
+	material, err := repositoryWorkloadManifestABIMaterial()
+	if err != nil {
+		return "", err
+	}
+	return repositoryFramedDigest(RepositoryWorkloadManifestABIDigestDomain, material), nil
+}
+
+func repositoryWorkloadManifestABIMaterial() ([]byte, error) {
+	types := []reflect.Type{
+		reflect.TypeFor[RepositoryWorkloadManifest](),
+		reflect.TypeFor[RepositoryWorkloadModule](),
+		reflect.TypeFor[RepositoryWorkload](),
+	}
+	var material bytes.Buffer
+	writeRepositoryFrame(&material, []byte(PortableWorkloadManifestSchemaVersion))
+	for _, typ := range types {
+		fields, err := repositoryWorkloadManifestABIFields(typ)
+		if err != nil {
+			return nil, err
+		}
+		writeRepositoryFrame(&material, []byte(typ.Name()))
+		writeRepositoryFrame(&material, []byte(fmt.Sprintf("%d", len(fields))))
+		for _, field := range fields {
+			writeRepositoryFrame(&material, []byte(field.goName))
+			writeRepositoryFrame(&material, []byte(field.jsonName))
+			writeRepositoryFrame(&material, []byte(field.goType))
+			writeRepositoryFrame(&material, []byte(field.wireKind))
+			writeRepositoryFrame(&material, []byte(field.elementRelation))
+		}
+	}
+	return material.Bytes(), nil
+}
+
+// repositoryWorkloadManifestABIFields 动态枚举导出字段并校验 wire 元数据。
+func repositoryWorkloadManifestABIFields(typ reflect.Type) ([]repositoryWorkloadManifestABIField, error) {
+	if typ.Kind() != reflect.Struct || typ.NumField() == 0 {
+		return nil, fmt.Errorf("ABI root %s must be a non-empty struct", typ)
+	}
+	fields := make([]repositoryWorkloadManifestABIField, 0, typ.NumField())
+	seenJSONNames := make(map[string]struct{}, typ.NumField())
+	for index := 0; index < typ.NumField(); index++ {
+		field := typ.Field(index)
+		abiField, err := repositoryWorkloadManifestABIFieldFor(typ, field, seenJSONNames)
+		if err != nil {
+			return nil, err
+		}
+		fields = append(fields, abiField)
+	}
+	return fields, nil
+}
+
+// repositoryWorkloadManifestABIFieldFor 校验单个导出字段并生成其 ABI 元数据。
+func repositoryWorkloadManifestABIFieldFor(typ reflect.Type, field reflect.StructField, seenJSONNames map[string]struct{}) (repositoryWorkloadManifestABIField, error) {
+	if field.PkgPath != "" {
+		return repositoryWorkloadManifestABIField{}, fmt.Errorf("ABI root %s has unexported field %s", typ.Name(), field.Name)
+	}
+	if field.Anonymous {
+		return repositoryWorkloadManifestABIField{}, fmt.Errorf("ABI root %s has unsupported anonymous field %s", typ.Name(), field.Name)
+	}
+	tag, ok := field.Tag.Lookup("json")
+	if !ok {
+		return repositoryWorkloadManifestABIField{}, fmt.Errorf("ABI root %s field %s is missing a JSON tag", typ.Name(), field.Name)
+	}
+	jsonName, _, hasOptions := strings.Cut(tag, ",")
+	if jsonName == "" || jsonName == "-" || hasOptions {
+		return repositoryWorkloadManifestABIField{}, fmt.Errorf("ABI root %s field %s has an unsupported JSON tag", typ.Name(), field.Name)
+	}
+	if _, duplicate := seenJSONNames[jsonName]; duplicate {
+		return repositoryWorkloadManifestABIField{}, fmt.Errorf("ABI root %s has duplicate JSON field %q", typ.Name(), jsonName)
+	}
+	seenJSONNames[jsonName] = struct{}{}
+	wireKind, elementRelation, err := repositoryWorkloadManifestABIWireShape(field.Type)
+	if err != nil {
+		return repositoryWorkloadManifestABIField{}, fmt.Errorf("ABI root %s field %s: %w", typ.Name(), field.Name, err)
+	}
+	return repositoryWorkloadManifestABIField{
+		goName:          field.Name,
+		jsonName:        jsonName,
+		goType:          field.Type.String(),
+		wireKind:        wireKind,
+		elementRelation: elementRelation,
+	}, nil
+}
+
+// repositoryWorkloadManifestABIWireShape 返回 Go kind 及 slice element 关系。
+func repositoryWorkloadManifestABIWireShape(typ reflect.Type) (string, string, error) {
+	switch typ.Kind() {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64, reflect.String:
+		return typ.Kind().String(), "scalar", nil
+	case reflect.Slice:
+		return repositoryWorkloadManifestABISliceWireShape(typ)
+	default:
+		return "", "", fmt.Errorf("unsupported Go wire type %s", typ)
+	}
+}
+
+func repositoryWorkloadManifestABISliceWireShape(typ reflect.Type) (string, string, error) {
+	element := typ.Elem()
+	if element.Kind() != reflect.String && (element.Kind() != reflect.Struct || !repositoryWorkloadManifestABIKnownStruct(element)) {
+		return "", "", fmt.Errorf("unsupported slice element type %s", element)
+	}
+	return typ.Kind().String(), "element:" + element.Kind().String() + ":" + element.String(), nil
+}
+
+func repositoryWorkloadManifestABIKnownStruct(typ reflect.Type) bool {
+	switch typ {
+	case reflect.TypeFor[RepositoryWorkloadManifest](), reflect.TypeFor[RepositoryWorkloadModule](), reflect.TypeFor[RepositoryWorkload]():
 		return true
 	default:
 		return false

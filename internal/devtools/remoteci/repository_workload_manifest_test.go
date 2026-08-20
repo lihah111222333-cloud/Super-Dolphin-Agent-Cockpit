@@ -155,37 +155,98 @@ func TestRepositoryWorkloadManifestRecomputesCallerDigests(t *testing.T) {
 }
 
 func TestRepositoryWorkloadManifestJSONFieldGuard(t *testing.T) {
-	typeFields := func(typ reflect.Type) map[string]struct{} {
-		fields := make(map[string]struct{}, typ.NumField())
-		for field := range typ.Fields() {
-			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
-			if name == "" || name == "-" {
-				t.Fatalf("%s.%s has no JSON field tag", typ, field.Name)
-			}
-			fields[name] = struct{}{}
-		}
-		return fields
+	manifest := repositoryWorkloadManifestFixture()
+	encoded := mustCanonicalRepositoryWorkloadManifest(t, manifest)
+	var manifestObject map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &manifestObject); err != nil {
+		t.Fatalf("unmarshal manifest object: %v", err)
 	}
-	manifestFields := typeFields(reflect.TypeFor[RepositoryWorkloadManifest]())
-	if _, ok := manifestFields["manifest_digest"]; !ok {
-		t.Fatal("manifest_digest is not a dynamically enumerated JSON field")
+	var moduleObjects []map[string]json.RawMessage
+	if err := json.Unmarshal(manifestObject["modules"], &moduleObjects); err != nil {
+		t.Fatalf("unmarshal module objects: %v", err)
 	}
-	workloadFields := typeFields(reflect.TypeFor[RepositoryWorkload]())
-	for _, required := range []string{"id", "kind", "module_root", "package", "name", "platform", "execution_policy", "execution_digest"} {
-		if _, ok := workloadFields[required]; !ok {
-			t.Fatalf("workload field %q is missing", required)
-		}
+	var workloadObjects []map[string]json.RawMessage
+	if err := json.Unmarshal(manifestObject["workloads"], &workloadObjects); err != nil {
+		t.Fatalf("unmarshal workload objects: %v", err)
 	}
+	objectsByType := map[reflect.Type]map[string]json.RawMessage{
+		reflect.TypeFor[RepositoryWorkloadManifest](): manifestObject,
+		reflect.TypeFor[RepositoryWorkloadModule]():   moduleObjects[0],
+		reflect.TypeFor[RepositoryWorkload]():         workloadObjects[0],
+	}
+	for typ, object := range objectsByType {
+		assertRepositoryManifestJSONFieldCoverage(t, typ, object)
+	}
+}
 
-	zero := repositoryWorkloadManifestFixture()
-	zero.ManifestDigest = ""
-	zero.Workloads[0].ExecutionDigest = ""
-	if _, err := json.Marshal(zero); err != nil {
-		t.Fatalf("marshal zeroed digest material: %v", err)
+func assertRepositoryManifestJSONFieldCoverage(t *testing.T, typ reflect.Type, object map[string]json.RawMessage) {
+	t.Helper()
+	for index := 0; index < typ.NumField(); index++ {
+		field := typ.Field(index)
+		name, options, hasOptions := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" || hasOptions || options != "" {
+			t.Fatalf("%s.%s has an invalid JSON field tag", typ, field.Name)
+		}
+		if _, ok := object[name]; !ok {
+			t.Fatalf("producer field %s.%s has no JSON consumer coverage", typ, field.Name)
+		}
 	}
 }
 
 func appendJSONBeforeObjectEnd(data []byte, suffix string) []byte {
 	trimmed := bytes.TrimSpace(data)
 	return append(append([]byte(nil), trimmed[:len(trimmed)-1]...), []byte(suffix+"}")...)
+}
+
+func TestRepositoryWorkloadManifestABIDigestIsStableAndRoundTrips(t *testing.T) {
+	digest := mustRepositoryWorkloadManifestABIDigest(t)
+	if digest == "" || !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("ABI digest = %q, want canonical sha256 digest", digest)
+	}
+	if digest != "sha256:855d0f384f3108f89efa5c3752b27cd341425a226db2cd34233c6395675b9ba1" {
+		t.Fatalf("ABI digest drifted: %s", digest)
+	}
+	manifest := repositoryWorkloadManifestFixture()
+	encoded := mustCanonicalRepositoryWorkloadManifest(t, manifest)
+	if _, err := DecodeRepositoryWorkloadManifest(encoded); err != nil {
+		t.Fatalf("DecodeRepositoryWorkloadManifest() with ABI digest error = %v", err)
+	}
+	if second := mustRepositoryWorkloadManifestABIDigest(t); second != digest {
+		t.Fatalf("ABI digest is not stable: first=%q second=%q", digest, second)
+	}
+}
+
+func mustRepositoryWorkloadManifestABIDigest(t *testing.T) string {
+	t.Helper()
+	digest, err := RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		t.Fatalf("RepositoryWorkloadManifestABIDigest() error = %v", err)
+	}
+	return digest
+}
+
+func mustCanonicalRepositoryWorkloadManifest(t *testing.T, manifest RepositoryWorkloadManifest) []byte {
+	t.Helper()
+	encoded, err := manifest.CanonicalEncode()
+	if err != nil {
+		t.Fatalf("CanonicalEncode() error = %v", err)
+	}
+	return encoded
+}
+
+func TestRepositoryWorkloadManifestABIDigestRejectsSchemaDrift(t *testing.T) {
+	for _, typ := range []reflect.Type{
+		reflect.StructOf([]reflect.StructField{{Name: "Value", Type: reflect.TypeFor[string]()}}),
+		reflect.StructOf([]reflect.StructField{
+			{Name: "First", Type: reflect.TypeFor[string](), Tag: `json:"same"`},
+			{Name: "Second", Type: reflect.TypeFor[string](), Tag: `json:"same"`},
+		}),
+		reflect.StructOf([]reflect.StructField{{Name: "Value", Type: reflect.TypeFor[string](), Tag: `json:"value,omitempty"`}}),
+		reflect.StructOf([]reflect.StructField{{Name: "value", PkgPath: "test", Type: reflect.TypeFor[string](), Tag: `json:"value"`}}),
+		reflect.StructOf([]reflect.StructField{{Name: "Value", Type: reflect.PointerTo(reflect.TypeFor[string]()), Tag: `json:"value"`}}),
+	} {
+		if _, err := repositoryWorkloadManifestABIFields(typ); err == nil {
+			t.Fatalf("ABI schema drift type %s was accepted", typ)
+		}
+	}
 }

@@ -95,6 +95,7 @@ type PortableSourceBaseline struct {
 type PortableWorkloadManifest struct {
 	RepoRelativePath string `json:"repo_relative_path"`
 	SHA256           string `json:"sha256"`
+	ABIDigest        string `json:"abi_digest"`
 	SchemaVersion    string `json:"schema_version"`
 	RepositoryID     string `json:"repository_id"`
 }
@@ -137,6 +138,13 @@ func DecodePortableRunDescriptor(data []byte) (PortableRunInput, error) {
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return PortableRunInput{}, errors.New("portable run descriptor has trailing JSON")
+	}
+	canonical, err := json.Marshal(input)
+	if err != nil {
+		return PortableRunInput{}, fmt.Errorf("marshal portable run descriptor: %w", err)
+	}
+	if !bytes.Equal(canonical, data) {
+		return PortableRunInput{}, errors.New("portable run descriptor is not canonical")
 	}
 	return input, nil
 }
@@ -273,11 +281,16 @@ func validPortableSourceArtifact(repositoryID string, baseline PortableSourceBas
 		baseline.ArtifactSizeBytes > 0
 }
 
+// validatePortableWorkloadManifestShape 校验 descriptor 的路径、摘要、ABI 与仓库身份。
 func validatePortableWorkloadManifestShape(manifest PortableWorkloadManifest) error {
 	if !validPortableRepoRelativePath(manifest.RepoRelativePath) {
 		return errors.New("workload_manifest.repo_relative_path must be a clean repository-relative path")
 	}
-	if !validPortableDigest(manifest.SHA256) || manifest.SchemaVersion != PortableWorkloadManifestSchemaVersion || !validPortableToken(manifest.RepositoryID) {
+	abiDigest, err := RepositoryWorkloadManifestABIDigest()
+	if err != nil {
+		return fmt.Errorf("derive workload manifest ABI digest: %w", err)
+	}
+	if !validPortableDigest(manifest.SHA256) || manifest.ABIDigest != abiDigest || manifest.SchemaVersion != PortableWorkloadManifestSchemaVersion || !validPortableToken(manifest.RepositoryID) {
 		return errors.New("workload manifest identity is invalid")
 	}
 	return nil
