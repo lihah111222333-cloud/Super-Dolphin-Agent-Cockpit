@@ -24,6 +24,17 @@ const (
 	artifactBuilderObservedIdentityMaxBytes = ArtifactBuilderObservedIdentityMaxBytes
 )
 
+type artifactBuilderIdentityStageError struct{ stage string }
+
+// Error 只返回稳定阶段码，不暴露底层路径或 provider 错误。
+func (failure *artifactBuilderIdentityStageError) Error() string {
+	return "artifact builder observed identity stage failed: " + failure.stage
+}
+
+func observedIdentityStageError(stage string) error {
+	return &artifactBuilderIdentityStageError{stage: stage}
+}
+
 // ArtifactBuilderObservedIdentity is the non-secret identity measured by the
 // builder worker from its actual executable and compiler closure.
 type ArtifactBuilderObservedIdentity struct {
@@ -95,19 +106,19 @@ type artifactBuilderObservedIdentityDependencies struct {
 // Linux 只使用 /proc/self/exe 作为 process authority，不接受 caller path、environment 或 cwd fallback。
 func ReadArtifactBuilderObservedIdentity(ctx context.Context) (identity ArtifactBuilderObservedIdentity, resultErr error) {
 	if ctx == nil {
-		return identity, errors.New("artifact builder observed identity context is required")
+		return identity, observedIdentityStageError("preflight")
 	}
 	if runtime.GOOS != "linux" {
-		return identity, errors.New("artifact builder observed identity authority is unsupported on this platform")
+		return identity, observedIdentityStageError("platform")
 	}
 	file, err := os.Open("/proc/self/exe")
 	if err != nil {
-		return identity, errors.New("open current executable authority failed")
+		return identity, observedIdentityStageError("executable_open")
 	}
 	info, statErr := file.Stat()
 	if statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		_ = file.Close()
-		return identity, errors.New("current executable authority is not a regular file")
+		return identity, observedIdentityStageError("executable_stat")
 	}
 	deps := artifactBuilderObservedIdentityDependencies{
 		OpenExecutable:        func() (io.ReadSeeker, error) { return file, nil },
@@ -116,7 +127,7 @@ func ReadArtifactBuilderObservedIdentity(ctx context.Context) (identity Artifact
 	}
 	identity, resultErr = measureArtifactBuilderObservedIdentity(ctx, deps)
 	if closeErr := file.Close(); closeErr != nil {
-		resultErr = errors.Join(resultErr, errors.New("close current executable authority failed"))
+		resultErr = errors.Join(resultErr, observedIdentityStageError("executable_close"))
 	}
 	if resultErr != nil {
 		return ArtifactBuilderObservedIdentity{}, resultErr
@@ -127,27 +138,27 @@ func ReadArtifactBuilderObservedIdentity(ctx context.Context) (identity Artifact
 // measureArtifactBuilderObservedIdentity 通过注入 seam 测量已打开 executable 与显式 compiler closure。
 func measureArtifactBuilderObservedIdentity(ctx context.Context, deps artifactBuilderObservedIdentityDependencies) (ArtifactBuilderObservedIdentity, error) {
 	if err := validateObservedIdentityMeasurement(ctx, deps); err != nil {
-		return ArtifactBuilderObservedIdentity{}, err
+		return ArtifactBuilderObservedIdentity{}, observedIdentityStageError("preflight")
 	}
 	executable, err := openObservedExecutable(deps)
 	if err != nil {
-		return ArtifactBuilderObservedIdentity{}, err
+		return ArtifactBuilderObservedIdentity{}, observedIdentityStageError("executable_open")
 	}
 	builderDigest, err := measureObservedBuilderDigest(executable)
 	if err != nil {
-		return ArtifactBuilderObservedIdentity{}, err
+		return ArtifactBuilderObservedIdentity{}, observedIdentityStageError("executable_digest")
 	}
 	toolchainDigest, err := measureObservedToolchainDigest(ctx, deps)
 	if err != nil {
-		return ArtifactBuilderObservedIdentity{}, err
+		return ArtifactBuilderObservedIdentity{}, observedIdentityStageError("toolchain_closure")
 	}
 	protocolABIDigest, err := remoteci.BuilderSimulationProtocolABIDigest()
 	if err != nil || !canonicalObservedDigest(protocolABIDigest) {
-		return ArtifactBuilderObservedIdentity{}, errors.New("measure protocol ABI digest failed")
+		return ArtifactBuilderObservedIdentity{}, observedIdentityStageError("protocol_abi")
 	}
 	workloadManifestABIDigest, err := remoteci.RepositoryWorkloadManifestABIDigest()
 	if err != nil || !canonicalObservedDigest(workloadManifestABIDigest) {
-		return ArtifactBuilderObservedIdentity{}, errors.New("measure workload manifest ABI digest failed")
+		return ArtifactBuilderObservedIdentity{}, observedIdentityStageError("workload_manifest_abi")
 	}
 	identity := ArtifactBuilderObservedIdentity{
 		SchemaVersion:             ArtifactBuilderObservedIdentitySchema,
@@ -227,6 +238,14 @@ func isNilObservedReader(reader io.ReadSeeker) bool {
 	}
 }
 
+func observedIdentityFailureStage(err error) string {
+	var failure *artifactBuilderIdentityStageError
+	if errors.As(err, &failure) && failure.stage != "" {
+		return failure.stage
+	}
+	return "unknown"
+}
+
 // dispatchArtifactIdentity 输出一个 bounded canonical identity object，不写 progress text。
 // 所有失败都留在既有 CLI-safe error boundary 内。
 func dispatchArtifactIdentity(args []string, stdout, _ io.Writer) error {
@@ -235,7 +254,7 @@ func dispatchArtifactIdentity(args []string, stdout, _ io.Writer) error {
 	}
 	identity, err := ReadArtifactBuilderObservedIdentity(context.Background())
 	if err != nil {
-		return newCLIFailure("measure artifact builder identity", nil)
+		return newCLIFailure("measure artifact builder identity: "+observedIdentityFailureStage(err), nil)
 	}
 	data, err := identity.CanonicalEncode()
 	if err != nil || len(data)+1 > outputMaxBytes {

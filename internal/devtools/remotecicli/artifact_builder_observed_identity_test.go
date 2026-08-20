@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"reflect"
 	"runtime"
@@ -51,6 +52,22 @@ func TestArtifactBuilderObservedIdentityRejectsIncompleteDependencies(t *testing
 	var nilContext context.Context
 	if _, err := measureArtifactBuilderObservedIdentity(nilContext, artifactBuilderObservedIdentityDependencies{}); err == nil {
 		t.Fatal("measurement accepted nil context")
+	}
+}
+
+func TestArtifactBuilderObservedIdentityFailureStageDoesNotLeakCause(t *testing.T) {
+	_, err := measureArtifactBuilderObservedIdentity(context.Background(), artifactBuilderObservedIdentityDependencies{
+		OpenExecutable: func() (io.ReadSeeker, error) { return bytes.NewReader([]byte("executable")), nil },
+		CompilerPath:   func() (string, error) { return "/locked/go", nil },
+		CompilerClosureDigest: func(context.Context, string) (string, error) {
+			return "", errors.New("/secret/goroot/private")
+		},
+	})
+	if err == nil || observedIdentityFailureStage(err) != "toolchain_closure" {
+		t.Fatalf("failure stage = %q, error=%v", observedIdentityFailureStage(err), err)
+	}
+	if strings.Contains(err.Error(), "/secret/") {
+		t.Fatalf("failure leaked raw cause: %v", err)
 	}
 }
 
