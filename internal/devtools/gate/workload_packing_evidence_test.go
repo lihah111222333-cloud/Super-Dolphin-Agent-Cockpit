@@ -140,6 +140,116 @@ func TestBuildWorkloadExecutionPlanReportsLargeHeuristicGap(t *testing.T) {
 	}
 }
 
+func TestBuildWorkloadExecutionPlanReportsExactOversizeMeasuredPacking(t *testing.T) {
+	plan, gatePlan, snapshot, selected, durationByID, target := exactOversizeMeasuredPlanFixture(t)
+	heuristicItems := make([]dcpapItem, 0, len(selected))
+	for _, id := range selected {
+		heuristicItems = append(heuristicItems, dcpapItem{id: string(id), durationMS: durationByID[id]})
+	}
+	heuristic, err := dcpapHeuristicPack(heuristicItems, target)
+	if err != nil {
+		t.Fatalf("dcpapHeuristicPack() error = %v", err)
+	}
+	if len(heuristic.bins) != 6 {
+		t.Fatalf("13-unit heuristic counterexample shards = %d, want six (exact isolation must save one shard)", len(heuristic.bins))
+	}
+	if len(plan.Shards) != 5 || len(plan.Shards) >= len(selected) {
+		t.Fatalf("planned shards = %d, want five exact shards (one oversize plus four regular shards)", len(plan.Shards))
+	}
+	wantLayout := exactOversizeCanonicalLayout(selected)
+	if got := dcpapShardLayout(plan.Shards); got != wantLayout {
+		t.Fatalf("canonical exact oversize layout = %q, want %q", got, wantLayout)
+	}
+	want := WorkloadPackingEvidence{
+		ResourceTier:       cicontract.WorkloadResourceTierMedium,
+		Resolution:         cicontract.WorkloadResourceTierReserveResolutionMeasured,
+		SolverMode:         cicontract.WorkloadPlanningExactSolverModeID,
+		PackableUnitCount:  12,
+		IsolatedUnitCount:  1,
+		LowerBoundShards:   5,
+		PlannedShards:      5,
+		HeuristicGapShards: 0,
+	}
+	if len(plan.PackingEvidence) != 1 || plan.PackingEvidence[0] != want {
+		t.Fatalf("packing evidence = %#v, want exact oversize evidence %#v", plan.PackingEvidence, want)
+	}
+	if err := plan.Validate(gatePlan, snapshot); err != nil {
+		t.Fatalf("Validate() after exact assertions = %v", err)
+	}
+}
+
+func exactOversizeMeasuredPlanFixture(t *testing.T) (WorkloadExecutionPlan, GatePlan, DurationLedgerSnapshot, []GateID, map[GateID]int64, int64) {
+	t.Helper()
+	gatePlan := mustBuildPlan(t, ProfileRelease)
+	packages := make([]string, 13)
+	for index := range packages {
+		packages[index] = fmt.Sprintf("./internal/dcpap-oversize-evidence%02d", index)
+	}
+	catalog, err := BuildExpandedWorkloadCatalog(gatePlan, DefaultWorkloadBootstrapPolicy(), WorkloadInventory{GoPackages: packages})
+	if err != nil {
+		t.Fatalf("BuildExpandedWorkloadCatalog() error = %v", err)
+	}
+	context := testLinuxPlanningContext()
+	context.ResourceTierReserves[1].Measurement.P95MS = 35_000
+	selected := packageEvidenceIDs(t, catalog, len(packages))
+	durationByID := make(map[GateID]int64, len(selected))
+	regularDurations := []int64{39_000, 32_500, 19_500, 13_000, 13_000, 13_000, 39_000, 32_500, 19_500, 13_000, 13_000, 13_000}
+	for index, id := range selected {
+		if index == 0 {
+			durationByID[id] = 65_001
+			continue
+		}
+		durationByID[id] = regularDurations[index-1]
+	}
+	ledger := DurationLedger{Version: durationLedgerVersion, ShardOverhead: testPlanningOverhead(context)}
+	for _, workload := range catalog.Workloads {
+		duration, ok := durationByID[GateID(workload.ID)]
+		if !ok {
+			continue
+		}
+		for _, resource := range []struct {
+			classID string
+			cpu     float64
+			memory  float64
+		}{{"small", 2, 4}, {"maximum", 8, 16}} {
+			ledger.Samples = append(ledger.Samples, DurationSample{
+				Bucket: DurationBucket{
+					WorkloadID: workload.ID, CommandDigest: workload.CommandDigest,
+					InputDigest: "sha256:" + strings.Repeat("0", 64),
+					Platform:    context.Platform, Runner: context.Runner, Toolchain: context.Toolchain,
+					ExecutionMode: DurationExecutionModeNormal, ResourceClassID: resource.classID,
+					ResourceCPU: resource.cpu, ResourceMemoryGiB: resource.memory,
+				},
+				Succeeded: true, DurationMS: duration,
+			})
+		}
+	}
+	snapshot := DurationLedgerSnapshot{Generation: 11, Ledger: ledger}
+	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, selected)
+	if err != nil {
+		t.Fatalf("BuildWorkloadExecutionPlanForWorkloads() error = %v", err)
+	}
+	target, err := context.EffectiveTargetDurationForResourceTier(cicontract.WorkloadResourceTierMedium)
+	if err != nil {
+		t.Fatalf("EffectiveTargetDurationForResourceTier() error = %v", err)
+	}
+	return plan, gatePlan, snapshot, selected, durationByID, target
+}
+
+func exactOversizeCanonicalLayout(selected []GateID) string {
+	canonicalGroup := func(indices ...int) string {
+		ids := make([]string, len(indices))
+		for index, selectedIndex := range indices {
+			ids[index] = string(selected[selectedIndex])
+		}
+		slices.Sort(ids)
+		return strings.Join(ids, ",")
+	}
+	return strings.Join([]string{
+		canonicalGroup(4, 5, 7), canonicalGroup(6, 8, 9), canonicalGroup(0), canonicalGroup(1, 10, 11), canonicalGroup(2, 3, 12),
+	}, "|")
+}
+
 func TestValidateStoredRejectsTamperedLargeDCPAPLayout(t *testing.T) {
 	gatePlan, catalog, snapshot, context, selected := largeHeuristicPlanFixture(t)
 	plan, err := BuildWorkloadExecutionPlanForWorkloads(gatePlan, catalog, snapshot, context, selected)

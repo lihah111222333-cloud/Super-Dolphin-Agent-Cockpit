@@ -280,11 +280,28 @@ func distributeDCPAP(planned []PlannedWorkload, targetDurationMS int64) ([]Shard
 		}
 		items[index] = dcpapItem{id: workload.Workload.ID, durationMS: workload.EstimatedDurationMS}
 	}
-	bins, err := dcpapProvenPack(items, targetDurationMS)
-	if err != nil {
+	// 先验证完整 canonical planning unit 集合，再把超过目标的不可共箱单元
+	// 隔离出 exact/heuristic 搜索；其超目标状态继续由上层以 warning 记录并继续执行。
+	if err := validateDCPAPDurationArithmetic(items, targetDurationMS); err != nil {
 		return nil, fmt.Errorf("D-CPAP packing proof: %w", err)
 	}
-	return dcpapBinsToShardPlans(bins, planned), nil
+	packable := make([]dcpapItem, 0, len(items))
+	bins := make([]dcpapBin, 0, len(items))
+	for _, item := range items {
+		if item.durationMS > targetDurationMS {
+			bins = append(bins, dcpapBin{items: []dcpapItem{item}, bodyMS: item.durationMS})
+			continue
+		}
+		packable = append(packable, item)
+	}
+	if len(packable) != 0 {
+		packed, err := dcpapProvenPack(packable, targetDurationMS)
+		if err != nil {
+			return nil, fmt.Errorf("D-CPAP packing proof: %w", err)
+		}
+		bins = append(bins, packed...)
+	}
+	return dcpapBinsToShardPlans(dcpapCanonicalBins(bins), planned), nil
 }
 
 func dcpapBinsToShardPlans(bins []dcpapBin, planned []PlannedWorkload) []ShardPlan {

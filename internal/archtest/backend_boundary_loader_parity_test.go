@@ -136,8 +136,8 @@ func assertWideOrchestrationLoaderCandidates(
 	paths := make([]string, len(pkgs))
 	copy(paths, pkgs)
 	sort.Strings(paths)
-	const wantCount = 265
-	const wantDigest = "ee7d5c374fba64e8fb4dad393ca9b9eb1c40f4c90a667bfca38e3ae265bc1350"
+	const wantCount = 267
+	const wantDigest = "ee7a9a46062488860e28fc725d888702295605d40e465d4af053416b1e1b5350"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}

@@ -1,0 +1,236 @@
+package heterociworkflow
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"reflect"
+	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
+)
+
+// ManifestLoader 是 workflow 使用方提供的严格清单加载端口。
+type ManifestLoader func(path string) (heteroci.Manifest, error)
+
+const (
+	// ResultStatusNotVerified 表示本地观察尚未取得远程权威资格。
+	ResultStatusNotVerified = "NOT_VERIFIED"
+)
+
+// SnapshotAcquirer 是 workflow 使用方提供的实时节点快照端口。
+type SnapshotAcquirer func(
+	ctx context.Context,
+	manifest heteroci.Manifest,
+	ownerEpoch heteroci.RoutingOwnerEpoch,
+	transport heteroci.ProbeTransport,
+	now time.Time,
+	heartbeatTTL time.Duration,
+) (heteroci.SnapshotSet, error)
+
+// DurableOwner 是 workflow 对 durable owner 的最小 mutation/read 端口。
+type DurableOwner interface {
+	Acquire(ctx context.Context) (heteroci.OwnerFence, error)
+	LocateRun(ctx context.Context, runID string) ([]heterociowner.DurableRunState, error)
+	PlanAndReserve(
+		ctx context.Context,
+		fence heteroci.OwnerFence,
+		operationID heteroci.OperationID,
+		runID string,
+		manifest heteroci.Manifest,
+		sourceSnapshot heteroci.SnapshotSet,
+		units []heteroci.ExecutionUnit,
+		heartbeatTTL time.Duration,
+	) (heterociowner.DurableReservedRoutingPlan, error)
+	Start(
+		ctx context.Context,
+		fence heteroci.OwnerFence,
+		operationID heteroci.OperationID,
+		runID string,
+		unitID string,
+		currentSnapshot heteroci.SnapshotSet,
+	) (heteroci.StartedRoutingLease, error)
+	Finish(
+		ctx context.Context,
+		fence heteroci.OwnerFence,
+		operationID heteroci.OperationID,
+		runID string,
+		unitID string,
+		terminal heteroci.RoutingLeaseState,
+	) (heterociowner.DurableLeaseTransition, error)
+	CancelPlanned(
+		ctx context.Context,
+		fence heteroci.OwnerFence,
+		operationID heteroci.OperationID,
+		runID string,
+		unitID string,
+	) (heterociowner.DurableLeaseTransition, error)
+	ReadRun(ctx context.Context, runID string) (heterociowner.DurableRunState, error)
+}
+
+// BatchExecutor 是单个已绑定执行端的批次执行占位接口。
+// 返回值仅是本地非权威的 canonical per-unit outcome，不得写入 remote PASS authority。
+type BatchExecutor interface {
+	ExecuteBatch(ctx context.Context, batch ExecutionBatch) (BatchResult, error)
+}
+
+// BatchReceiptReader 读取 executor 已持久化的单次 batch receipt。
+// ExecuteBatch 返回错误时，workflow 只能依赖该 receipt 决定终态，不能猜测失败或重执行。
+type BatchReceiptReader interface {
+	ReadBatchReceipt(ctx context.Context, batch ExecutionBatch) (BatchResult, bool, error)
+}
+
+// ExecutorBinder 在所有 Start 发生前为一个 executor key 绑定唯一执行端。
+type ExecutorBinder interface {
+	Bind(key ExecutorKey) (BatchExecutor, error)
+}
+
+// ExecutorKey 标识一个不可替换的 local node 或 ECI execution lane。
+type ExecutorKey struct {
+	Kind    heteroci.ExecutorKind
+	NodeID  string
+	ECITier heteroci.ECIResourceTier
+}
+
+// ExecutionBatch 是一次恰好一次的节点波次或单 unit ECI 批次。
+type ExecutionBatch struct {
+	BatchID     BatchID
+	RunID       string
+	Key         ExecutorKey
+	Wave        int
+	Units       []heteroci.ExecutionUnit
+	Assignments []heteroci.RouteAssignment
+	Started     []heteroci.StartedRoutingLease
+	// MaterialDigest 绑定本批次完整执行材料；由 Start 后的 workflow 生成。
+	MaterialDigest string
+}
+
+// BatchOutcome 是 executor 对单个 unit 的 canonical 非权威终态观察。
+type BatchOutcome struct {
+	UnitID string
+	State  heteroci.RoutingLeaseState
+}
+
+// BatchResult 是一次 batch 的完整 per-unit 非权威结果集合。
+type BatchResult struct {
+	// BatchID 必须与本次 ExecutionBatch 的稳定 identity 完全一致。
+	BatchID BatchID `json:"batch_id"`
+	// RunID 必须与本次 ExecutionBatch 的 durable run 完全一致。
+	RunID string `json:"run_id"`
+	// Executor 必须与本次已绑定 executor lane 完全一致。
+	Executor ExecutorKey `json:"executor"`
+	// MaterialDigest 必须与本次完整 ExecutionBatch 材料摘要完全一致。
+	MaterialDigest string `json:"material_digest"`
+	// CommandDigest 必须是 executor 对 canonical command 的稳定摘要。
+	CommandDigest string `json:"command_digest"`
+	// Authority 必须明确为 LOCAL_NON_AUTHORITATIVE，不能被解释为 remote PASS。
+	Authority string `json:"authority"`
+	// Status 固定为 NOT_VERIFIED，表示本地执行观察尚未取得远程权威资格。
+	Status   string         `json:"status"`
+	Outcomes []BatchOutcome `json:"outcomes"`
+}
+
+// Dependencies 是 workflow 的显式运行时依赖集合。
+type Dependencies struct {
+	Owner           DurableOwner
+	ProbeTransport  heteroci.ProbeTransport
+	Executors       ExecutorBinder
+	LoadManifest    ManifestLoader
+	AcquireSnapshot SnapshotAcquirer
+	Now             func() time.Time
+	CleanupTimeout  time.Duration
+}
+
+// RunRequest 是一次异构 workflow 执行请求。
+type RunRequest struct {
+	ManifestPath string
+	RunID        string
+	Units        []heteroci.ExecutionUnit
+	HeartbeatTTL time.Duration
+}
+
+// RunResult 是 workflow 完成后的本地非权威投影。
+type RunResult struct {
+	Authority string
+	Status    string
+	Fence     heteroci.OwnerFence
+	Manifest  heteroci.Manifest
+	Plan      heteroci.PackingPlan
+	Decision  heteroci.RoutingDecision
+	Leases    []heteroci.RoutingLease
+	Units     []UnitResult
+}
+
+// UnitResult 记录一个 unit 的 durable terminal lease 状态和执行 batch。
+type UnitResult struct {
+	Authority string
+	Status    string
+	UnitID    string
+	BatchID   BatchID
+	State     heteroci.RoutingLeaseState
+}
+
+// BatchOutcomeError 表示 executor 明确报告某个 unit 未成功。
+// 该错误只表达本地非权威观察，不代表 remote PASS/FAIL authority。
+type BatchOutcomeError struct {
+	BatchID BatchID
+	UnitID  string
+}
+
+// Error 返回不泄露 endpoint 或探针载荷的稳定失败描述。
+func (err *BatchOutcomeError) Error() string {
+	return fmt.Sprintf("heteroci workflow batch %q reported failed unit %q", err.BatchID, err.UnitID)
+}
+
+// Unwrap 允许调用方用 errors.Is 识别 batch failure 类别。
+func (*BatchOutcomeError) Unwrap() error {
+	return ErrBatchFailed
+}
+
+// Workflow 持有一次运行所需的已校验依赖。
+type Workflow struct {
+	deps Dependencies
+}
+
+// Sentinel errors classify fail-fast workflow boundaries without exposing endpoint data.
+var (
+	ErrInvalidDependencies  = errors.New("heteroci workflow dependencies are invalid")
+	ErrInvalidRequest       = errors.New("heteroci workflow request is invalid")
+	ErrExecutionState       = errors.New("heteroci workflow execution state is unknown")
+	ErrBatchResult          = errors.New("heteroci workflow batch result is invalid")
+	ErrExecutorBinding      = errors.New("heteroci workflow executor binding failed")
+	ErrCleanupIncomplete    = errors.New("heteroci workflow cleanup is incomplete")
+	ErrBatchReceiptRequired = errors.New("heteroci workflow durable batch receipt is required")
+	ErrBatchFailed          = errors.New("heteroci workflow batch reported failed unit")
+)
+
+// New 校验 workflow 依赖；所有生产端口必须由调用方显式绑定，不使用隐式 fallback。
+func New(deps Dependencies) (*Workflow, error) {
+	if isNilWorkflowValue(deps.Owner) || isNilWorkflowValue(deps.ProbeTransport) || isNilWorkflowValue(deps.Executors) {
+		return nil, ErrInvalidDependencies
+	}
+	if _, ok := deps.Owner.(interface {
+		LocateRun(context.Context, string) ([]heterociowner.DurableRunState, error)
+	}); !ok {
+		return nil, fmt.Errorf("%w: durable run locator is required", ErrInvalidDependencies)
+	}
+	if deps.LoadManifest == nil || deps.AcquireSnapshot == nil || deps.Now == nil || deps.CleanupTimeout <= 0 {
+		return nil, fmt.Errorf("%w: explicit loader, snapshot acquirer, clock, and cleanup timeout are required", ErrInvalidDependencies)
+	}
+	return &Workflow{deps: deps}, nil
+}
+
+// isNilWorkflowValue 识别 typed nil dependency，避免把 nil executor 当作已绑定。
+func isNilWorkflowValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
+}

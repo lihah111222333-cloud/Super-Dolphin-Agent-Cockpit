@@ -111,6 +111,7 @@ func loadPrioritySSAPackages(repoRoot string) ([]*prioritySSAPackage, error) {
 	return loadPrioritySSAPackagesWithDiscovery(repoRoot, discoverPrioritySSACandidatePaths)
 }
 
+// loadPrioritySSAPackagesWithDiscovery 以调用方提供的 discovery 冻结 priority SSA 候选集。
 func loadPrioritySSAPackagesWithDiscovery(
 	repoRoot string,
 	discover func(string) ([]string, error),

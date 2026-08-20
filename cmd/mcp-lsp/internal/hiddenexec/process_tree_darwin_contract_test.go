@@ -5,8 +5,11 @@ package hiddenexec
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -41,6 +44,108 @@ func TestDarwinIdentityUsesHighResolutionNativeStartToken(t *testing.T) {
 	}
 	if err := tree.Wait(ctx); err != nil {
 		t.Fatalf("Wait() after test fixture cleanup: %v", err)
+	}
+}
+
+func TestDarwinProcessTreeRSSUsesPsClosure(t *testing.T) {
+	cmd := Command("/bin/sleep", "30")
+	tree := startDarwinRSSProcessTree(t, cmd)
+	t.Cleanup(func() {
+		cleanupDarwinRSSProcessTree(t, tree, cmd)
+	})
+	identity := requireDarwinRSSProcessIdentity(t, tree)
+	requireDarwinProcessTreeRSS(t, identity.PID)
+}
+
+func startDarwinRSSProcessTree(t *testing.T, cmd *exec.Cmd) *ProcessTree {
+	t.Helper()
+	tree, err := StartProcessTree(cmd)
+	if err != nil {
+		cleanupDarwinRSSCommand(t, cmd, "startup failure fixture")
+		t.Fatalf("StartProcessTree() error = %v", err)
+	}
+	return tree
+}
+
+func cleanupDarwinRSSProcessTree(t *testing.T, tree *ProcessTree, cmd *exec.Cmd) {
+	t.Helper()
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := tree.Force(cleanupCtx); err != nil && !errors.Is(err, ErrProcessTreeCleanupPending) {
+		t.Errorf("cleanup Force() error = %v", err)
+	}
+	cleanupDarwinRSSCommand(t, cmd, "cleanup fixture")
+	if err := tree.Wait(cleanupCtx); err != nil {
+		reportDarwinRSSCleanupWait(t, err)
+	}
+}
+
+func cleanupDarwinRSSCommand(t *testing.T, cmd *exec.Cmd, label string) {
+	t.Helper()
+	// Darwin production Force is intentionally zero-signal; this kills only the exact fixture root.
+	if cmd.Process != nil {
+		if killErr := cmd.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+			t.Errorf("%s kill: %v", label, killErr)
+		}
+	}
+	waitDarwinRSSCommand(t, cmd, label)
+}
+
+func waitDarwinRSSCommand(t *testing.T, cmd *exec.Cmd, label string) {
+	t.Helper()
+	waitDone := make(chan error, 1)
+	var waitGroup sync.WaitGroup
+	waitGroup.Go(func() {
+		waitDone <- cmd.Wait()
+	})
+	select {
+	case waitErr := <-waitDone:
+		waitGroup.Wait()
+		var exitErr *exec.ExitError
+		if waitErr != nil && !errors.As(waitErr, &exitErr) {
+			t.Errorf("%s reap error: %v", label, waitErr)
+		}
+	case <-time.After(3 * time.Second):
+		t.Errorf("%s reap timed out", label)
+	}
+}
+
+func reportDarwinRSSCleanupWait(t *testing.T, err error) {
+	t.Helper()
+	if errors.Is(err, syscall.EPERM) {
+		t.Logf("cleanup tree.Wait() could not re-probe Darwin process closure: %v", err)
+		return
+	}
+	t.Errorf("cleanup tree.Wait() error = %v", err)
+}
+
+func requireDarwinRSSProcessIdentity(t *testing.T, tree *ProcessTree) ProcessIdentity {
+	t.Helper()
+	identity, err := tree.Identity()
+	if err != nil {
+		t.Fatalf("Identity() error = %v", err)
+	}
+	if identity.PID <= 1 || identity.SessionID != identity.PID || identity.ProcessGroupID != identity.PID {
+		t.Fatalf("Identity() = %+v, want an independently owned Darwin process tree root", identity)
+	}
+	current, err := captureProcessIdentity(identity.PID)
+	if err != nil {
+		t.Fatalf("captureProcessIdentity() error = %v", err)
+	}
+	if !current.Equal(identity) {
+		t.Fatalf("current process identity = %+v, want startup identity %+v", current, identity)
+	}
+	return identity
+}
+
+func requireDarwinProcessTreeRSS(t *testing.T, pid int) {
+	t.Helper()
+	rssBytes, err := ProcessTreeRSSBytes(pid)
+	if err != nil {
+		t.Fatalf("ProcessTreeRSSBytes(%d) error = %v", pid, err)
+	}
+	if rssBytes == 0 {
+		t.Fatalf("ProcessTreeRSSBytes(%d) = 0, want positive RSS", pid)
 	}
 }
 

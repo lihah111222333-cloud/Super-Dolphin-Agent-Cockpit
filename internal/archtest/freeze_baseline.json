@@ -3351,21 +3351,6 @@
         "empty_funcs": 0,
         "todo_count": 0
       },
-      "internal/archtest/provider_recovery_field_guard_test.go": {
-        "lines": 646,
-        "max_func_len": 110,
-        "max_nesting": 6,
-        "max_complexity": 33,
-        "max_params": 4,
-        "max_returns": 3,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 3
-      },
       "internal/archtest/provider_recovery_migration_guard_test.go": {
         "lines": 760,
         "max_func_len": 45,
@@ -3380,20 +3365,6 @@
         "empty_funcs": 0,
         "todo_count": 0,
         "max_struct_fields": 8
-      },
-      "internal/archtest/provider_resume_owner_field_guard_test.go": {
-        "lines": 168,
-        "max_func_len": 53,
-        "max_nesting": 4,
-        "max_complexity": 14,
-        "max_params": 2,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
       },
       "internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go": {
         "lines": 127,

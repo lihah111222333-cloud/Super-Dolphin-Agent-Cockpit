@@ -192,6 +192,8 @@ func validateWorkloadResourceTierReserve(index int, reserve WorkloadResourceTier
 	return validateWorkloadResourceTierReserveResolution(reserve, targetDurationMS)
 }
 
+// validateWorkloadResourceTierReserveResolution 校验 reserve 的 resolution 与测量事实边界。
+// measured 必须保留可用的规划预算和来源摘要，bootstrap 不得携带测量值。
 func validateWorkloadResourceTierReserveResolution(reserve WorkloadResourceTierReserve, targetDurationMS int64) error {
 	switch reserve.Resolution {
 	case WorkloadResourceTierReserveResolutionMeasured:
@@ -239,6 +241,8 @@ func ValidateWorkloadEstimationPolicyDigest(material WorkloadEstimationPolicyMat
 // 阈值、修复边界和 solver mode 进入计划摘要，禁止 planner 私自漂移。
 type WorkloadPlanningPolicyMaterial struct {
 	PlanningRiskPolicy                string `json:"planning_risk_policy"`
+	CompileGroupSerialPackingPolicyID string `json:"compile_group_serial_packing_policy_id"`
+	CriticalPathCostPolicyID          string `json:"critical_path_cost_policy_id"`
 	ExactPackableUnitThreshold        int    `json:"exact_packable_unit_threshold"`
 	ExactSearchNodeBudget             int    `json:"exact_search_node_budget"`
 	ExactSolverModeID                 string `json:"exact_solver_mode_id"`
@@ -256,6 +260,8 @@ type WorkloadPlanningPolicyMaterial struct {
 func CanonicalWorkloadPlanningPolicyMaterial() WorkloadPlanningPolicyMaterial {
 	return WorkloadPlanningPolicyMaterial{
 		PlanningRiskPolicy:                WorkloadPlanningRiskPolicyID,
+		CompileGroupSerialPackingPolicyID: CompileGroupSerialPackingPolicyID,
+		CriticalPathCostPolicyID:          CriticalPathCostPolicyID,
 		ExactPackableUnitThreshold:        WorkloadPlanningExactPackableUnitThreshold,
 		ExactSearchNodeBudget:             WorkloadPlanningSearchNodeBudget,
 		ExactSolverModeID:                 WorkloadPlanningExactSolverModeID,
@@ -274,6 +280,9 @@ func CanonicalWorkloadPlanningPolicyMaterial() WorkloadPlanningPolicyMaterial {
 func (material WorkloadPlanningPolicyMaterial) Validate() error {
 	if material.PlanningRiskPolicy != WorkloadPlanningRiskPolicyID {
 		return errors.New("remote workload planning reserve policy identity is not accepted")
+	}
+	if material.CompileGroupSerialPackingPolicyID != CompileGroupSerialPackingPolicyID || material.CriticalPathCostPolicyID != CriticalPathCostPolicyID {
+		return errors.New("remote workload planning compile-group and critical-path policy identity is not accepted")
 	}
 	if err := validateWorkloadPlanningThresholds(material); err != nil {
 		return err
@@ -675,9 +684,11 @@ func CanonicalSchedulingMarkdown() string {
 
 // CanonicalTimingMarkdown 返回 accepted 文档必须逐字嵌入的精确耗时语义。
 func CanonicalTimingMarkdown() string {
-	return `<!-- cicontract:timing:begin -->
+	return fmt.Sprintf(`<!-- cicontract:timing:begin -->
 每条 measured observation 必须在同一 SQLite authority 保存真实 started_at、completed_at 与 duration_ms；统一账本分辨率是 1ms，实际为正但不足 1ms 的 worker startup/test_body 阶段必须在唯一计时生产者处量化为 1ms，禁止向下截断成表示缺失的 0ms；仅当量化后的两个串行阶段超出真实 workload total 时，生产者才可将 workload completed_at 向上规范化到恰好覆盖二者，禁止改写 started_at 或扩大到额外整数毫秒。并发 selector 的 test_body 必须以 top-level run→pause→cont→terminal 事件中的 cont 时间为起点，run→pause 排队等待不得计入 workload test_body；测试进程仍保持并发，shard/run wall time 继续保留真实起止与关键路径。raw 和 critical_path 的 duration_ms 必须严格等于按该分辨率规范化后的区间长度。interval_union 的 duration_ms 必须是全部原始 workload 子区间的精确并集：重叠只计一次、空隙不计入，禁止用最早开始到最晚结束的 envelope 冒充活跃耗时。
 
-workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_body 是 workload raw 区间的 interval_union，shard/run total 是 critical_path。每个 compile group 另以 test_binary_compile raw observation 记录一次，scope=compile_group，包含 group/artifact identity、真实起止、Go cache hit/miss/put、artifact digest/size/status；该时间不得写入 workload startup/test_body/total，也不得与 candidate Gate CLI 的 candidate_compile 合并或重复计数。每个 normal resource tier 的 orchestration reserve 必须按 v2 accounted-interval-union 计算：从 shard total interval 中扣除 workload total、shard eci_wait/source_materialize/candidate_compile 以及 compile-group test_binary_compile 的全部 measured 区间精确并集，重叠只扣一次、间隙保留为真实编排开销；有同 identity 可靠样本时，该 union 的 nearest-rank P95 作为 measured resolution 的 100 秒预算 reserve；缺少该档样本时显式生成 bootstrap resolution，不得写入伪造 0ms、100s、默认值或 sentinel。损坏、unknown 或来源不完整的 measured 状态必须 fail-fast。禁止用最早 workload 到最晚 workload 的 envelope 把上述已单独计量阶段重新算作 overhead。calibration 仍按相同 interval-union 计量，但保持独立固定 4C/8GiB 规格，不携带 normal reserve。aggregate 使用 nearest-rank P95，并把 accounted duration/count、workload envelope、完整样本事实、accepted generation、snapshot 与资源身份写入同一 SQLite authority；缺少任一必需 shard 阶段、区间越过 shard total、重复 workload/compile-group 身份或旧 v1 policy 必须 fail-fast。eci_wait 只能使用 ECI provider 返回的 CreationTime 到 materializer CurrentState.StartTime；shard total 终点必须取同一终态响应中 container-group SucceededTime/FailedTime 与唯一 worker CurrentState.FinishTime 的较晚者，两者都属于 provider lifecycle evidence。阿里云 ECI 已返回终态但 CreationTime、materializer CurrentState.StartTime、SucceededTime/FailedTime 或唯一 worker CurrentState.FinishTime 尚未同步时，只允许沿同一 Describe 路径按 PollInterval 对该分片有界重读最多 3 次；重读期间不得伪造时间、消费报告、移出 pending、取消兄弟分片或跳过清理，窗口耗尽后缺失任一项必须 fail-fast。禁止用 worker 日志、report 端点、本地请求或轮询时间替换 provider 终态；任一真实子阶段仍越过该 provider envelope 时保持 provisional NOT_VERIFIED。本地请求、轮询或日志时间不得写成权威耗时。所有 cache evidence 与阶段观测绑定，人类账本只能读取同一事务已提交的 SQLite observations。compile timing history 只能按 PackageTarget、SemanticKey、Platform、RunnerIdentityDigest、ToolchainDigest、ExecutionMode 与 ResourceClassID/CPU/Memory 完整 identity 查询；只允许最近三个 accepted generation 中 authoritative、passed、cleanup-complete、measured/raw 的真实 compile-group observation，source tree、shared input 与 artifact digest 不得跨 identity 混用。normal 无历史固定 2C/4GiB，owner fixed-point 发生在 PlannedWorkload 创建前，shared compile cost 每组只计一次且不写入 selector body；calibration 固定 4C/8GiB。
-<!-- cicontract:timing:end -->`
+ workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_body 是 workload raw 区间的 interval_union，shard/run total 是 critical_path。每个 compile group 另以 test_binary_compile raw observation 记录一次，scope=compile_group，包含 group/artifact identity、真实起止、Go cache hit/miss/put、artifact digest/size/status；该时间不得写入 workload startup/test_body/total，也不得与 candidate Gate CLI 的 candidate_compile 合并或重复计数。每个 normal resource tier 的 fixed-front reserve 必须按 v2 interval-union 计算：固定组件集合为 shard-scope %[1]seci_wait%[1]s、%[1]ssource_materialize%[1]s、%[1]scandidate_compile%[1]s 与这些阶段之间及其前后的真实 orchestration 区间；其 duration 必须等于 shard total 区间扣除 workload total 与 compile-group %[1]stest_binary_compile%[1]s 区间精确并集后的剩余 interval union。重叠只计一次，空隙仅在确属 orchestration 时保留；workload 与 test-binary compile 继续进入 packable cost，禁止在 fixed-front reserve 中重复计费。有同 identity 可靠样本时，该 fixed-front duration 的 nearest-rank P95 是 measured resolution 从 100 秒扣除的唯一 reserve；缺少该档样本时显式生成 bootstrap resolution，不得写入伪造 0ms、100s、约 64.8s、默认值或 sentinel。损坏、unknown 或来源不完整的 measured 状态必须 fail-fast。禁止用最早 workload 到最晚 workload 的 envelope、仅 residual orchestration，或 %[1]seci_wait/source_materialize/candidate_compile%[1]s 的简单求和替代精确 union。calibration 仍按相同 interval-union 计量，但保持独立固定 4C/8GiB 规格，不携带 normal reserve。aggregate 使用 nearest-rank P95，并把 fixed-front duration/count、workload/compile 区间、完整样本事实、accepted generation、snapshot 与资源身份写入同一 SQLite authority；缺少任一必需 shard 阶段、区间越过 shard total、重复 workload/compile-group 身份或旧 policy 必须 fail-fast。eci_wait 只能使用 ECI provider 返回的 CreationTime 到 materializer CurrentState.StartTime；shard total 终点必须取同一终态响应中 container-group SucceededTime/FailedTime 与唯一 worker CurrentState.FinishTime 的较晚者，两者都属于 provider lifecycle evidence。阿里云 ECI 已返回终态但 CreationTime、materializer CurrentState.StartTime、SucceededTime/FailedTime 或唯一 worker CurrentState.FinishTime 尚未同步时，只允许沿同一 Describe 路径按 PollInterval 对该分片有界重读最多 3 次；重读期间不得伪造时间、消费报告、移出 pending、取消兄弟分片或跳过清理，窗口耗尽后缺失任一项必须 fail-fast。禁止用 worker 日志、report 端点、本地请求或轮询时间替换 provider 终态；任一真实子阶段仍越过该 provider envelope 时保持 provisional NOT_VERIFIED。本地请求、轮询或日志时间不得写成权威耗时。所有 cache evidence 与阶段观测绑定，人类账本只能读取同一事务已提交的 SQLite observations。compile timing history 只能按 PackageTarget、SemanticKey、Platform、RunnerIdentityDigest、ToolchainDigest、ExecutionMode 与 ResourceClassID/CPU/Memory 完整 identity 查询；只允许最近三个 accepted generation 中 authoritative、passed、cleanup-complete、measured/raw 的真实 compile-group observation，source tree、shared input 与 artifact digest 不得跨 identity 混用。normal 无历史固定 2C/4GiB，owner fixed-point 发生在 PlannedWorkload 创建前，shared compile cost 每组只计一次且不写入 selector body；calibration 固定 4C/8GiB。
+每个共享 test-binary batch 还必须从 worker 实际子进程账本采集 %[1]scpu_time_ns%[1]s、%[1]swall_duration_ms%[1]s、向上取整的 %[1]saverage_cpu_millicores%[1]s 与 %[1]speak_rss_bytes%[1]s，并绑定 canonical batch ID。Linux 远程 worker 使用进程 rusage，RSS 统一换算为 bytes；其他平台必须通过编译标签提供明确实现或 fail-fast，禁止把缺失值写成 0。一个 batch 投影到多个 selector 时资源画像只能按 batch 去重使用，禁止重复累加。规划只可读取同 platform、runner、toolchain、execution mode、资源规格和最近三代 authoritative/passed/cleanup-complete run 的完整画像；历史存在时必须使用历史，历史为空时才可使用显式 bootstrap 画像。后续多维装箱必须同时证明 wall critical path、并发 CPU 和并发 RSS 不越过分片资源预算，使低 CPU/RSS 的硬性长测可以与资源互补 workload 同箱；高 CPU 的软性长测不得因 wall time 相近而被错误共箱。
+
+<!-- cicontract:timing:end -->`, "`")
 }

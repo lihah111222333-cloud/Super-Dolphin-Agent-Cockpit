@@ -124,45 +124,73 @@ func discoverTypedResumeSessionConstructions(root string, overlay map[string][]b
 	}
 	inventory := map[string]providerRecoveryConstruction{}
 	for _, pkg := range loaded {
-		if len(pkg.Errors) > 0 {
-			return nil, fmt.Errorf("type-check final resume owner guard package %s: %s", pkg.PkgPath, pkg.Errors[0])
-		}
-		for index, file := range pkg.Syntax {
-			relative, err := filepath.Rel(root, pkg.CompiledGoFiles[index])
-			if err != nil {
-				return nil, fmt.Errorf("rel final resume owner source: %w", err)
-			}
-			for _, declaration := range file.Decls {
-				function, ok := declaration.(*ast.FuncDecl)
-				if !ok || function.Body == nil {
-					continue
-				}
-				var fields map[string]string
-				var discoveryErr error
-				ast.Inspect(function.Body, func(node ast.Node) bool {
-					literal, ok := node.(*ast.CompositeLit)
-					if !ok || !isResumeSessionRequestType(pkg.TypesInfo.TypeOf(literal)) {
-						return true
-					}
-					if fields != nil {
-						discoveryErr = fmt.Errorf("%s contains multiple ResumeSessionRequest constructions", function.Name.Name)
-						return false
-					}
-					fields, discoveryErr = providerRecoveryLiteralFields(pkg.Fset, literal)
-					return discoveryErr == nil
-				})
-				if discoveryErr != nil {
-					return nil, discoveryErr
-				}
-				if fields == nil {
-					continue
-				}
-				id := filepath.ToSlash(relative) + ":" + function.Name.Name
-				inventory[id] = providerRecoveryConstruction{fields: fields}
-			}
+		if err := collectTypedResumeSessionPackage(root, pkg, inventory); err != nil {
+			return nil, err
 		}
 	}
 	return inventory, nil
+}
+
+func collectTypedResumeSessionPackage(
+	root string,
+	pkg *packages.Package,
+	inventory map[string]providerRecoveryConstruction,
+) error {
+	if len(pkg.Errors) > 0 {
+		return fmt.Errorf("type-check final resume owner guard package %s: %s", pkg.PkgPath, pkg.Errors[0])
+	}
+	for index, file := range pkg.Syntax {
+		relative, err := filepath.Rel(root, pkg.CompiledGoFiles[index])
+		if err != nil {
+			return fmt.Errorf("rel final resume owner source: %w", err)
+		}
+		if err := collectTypedResumeSessionFile(pkg, relative, file, inventory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func collectTypedResumeSessionFile(
+	pkg *packages.Package,
+	relative string,
+	file *ast.File,
+	inventory map[string]providerRecoveryConstruction,
+) error {
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil {
+			continue
+		}
+		fields, err := typedResumeSessionFields(pkg, function)
+		if err != nil {
+			return err
+		}
+		if fields == nil {
+			continue
+		}
+		id := filepath.ToSlash(relative) + ":" + function.Name.Name
+		inventory[id] = providerRecoveryConstruction{fields: fields}
+	}
+	return nil
+}
+
+func typedResumeSessionFields(pkg *packages.Package, function *ast.FuncDecl) (map[string]string, error) {
+	var fields map[string]string
+	var discoveryErr error
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		literal, ok := node.(*ast.CompositeLit)
+		if !ok || !isResumeSessionRequestType(pkg.TypesInfo.TypeOf(literal)) {
+			return true
+		}
+		if fields != nil {
+			discoveryErr = fmt.Errorf("%s contains multiple ResumeSessionRequest constructions", function.Name.Name)
+			return false
+		}
+		fields, discoveryErr = providerRecoveryLiteralFields(pkg.Fset, literal)
+		return discoveryErr == nil
+	})
+	return fields, discoveryErr
 }
 
 func isResumeSessionRequestType(typ types.Type) bool {

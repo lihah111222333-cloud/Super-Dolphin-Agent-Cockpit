@@ -1,6 +1,9 @@
 package cicontract
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -734,4 +737,65 @@ func TestCompileGroupPackingAndCriticalPathPoliciesAreFrozen(t *testing.T) {
 			t.Fatalf("frozen requirement %s is missing", requirementID)
 		}
 	}
+}
+
+func TestPlanningPolicyMaterialDigestBindsCompileAndCriticalPathPolicies(t *testing.T) {
+	material := CanonicalWorkloadPlanningPolicyMaterial()
+	if err := material.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if material.CompileGroupSerialPackingPolicyID != CompileGroupSerialPackingPolicyID {
+		t.Fatalf("canonical serial packing policy = %q, want %q", material.CompileGroupSerialPackingPolicyID, CompileGroupSerialPackingPolicyID)
+	}
+	if material.CriticalPathCostPolicyID != CriticalPathCostPolicyID {
+		t.Fatalf("canonical critical path policy = %q, want %q", material.CriticalPathCostPolicyID, CriticalPathCostPolicyID)
+	}
+	canonicalDigest, err := WorkloadPlanningPolicyDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := planningPolicyMaterialDigestForTest(t, material); got != canonicalDigest {
+		t.Fatalf("canonical planning policy material digest = %q, want %q", got, canonicalDigest)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*WorkloadPlanningPolicyMaterial)
+	}{
+		{name: "compile group serial packing", mutate: func(material *WorkloadPlanningPolicyMaterial) {
+			material.CompileGroupSerialPackingPolicyID = "same-resource-side-effect-safe-serial-packing/v2"
+		}},
+		{name: "critical path cost", mutate: func(material *WorkloadPlanningPolicyMaterial) {
+			material.CriticalPathCostPolicyID = "compile-once+sum-wave-max-body/v2"
+		}},
+	} {
+		t.Run(test.name+" digest", func(t *testing.T) {
+			mutated := material
+			test.mutate(&mutated)
+			if got := planningPolicyMaterialDigestForTest(t, mutated); got == canonicalDigest {
+				t.Fatalf("planning policy digest did not change after %s policy mutation", test.name)
+			}
+		})
+		t.Run(test.name+" empty validation", func(t *testing.T) {
+			mutated := material
+			test.mutate(&mutated)
+			if test.name == "compile group serial packing" {
+				mutated.CompileGroupSerialPackingPolicyID = ""
+			} else {
+				mutated.CriticalPathCostPolicyID = ""
+			}
+			if err := mutated.Validate(); err == nil {
+				t.Fatalf("empty %s policy was accepted", test.name)
+			}
+		})
+	}
+}
+
+func planningPolicyMaterialDigestForTest(t *testing.T, material WorkloadPlanningPolicyMaterial) string {
+	t.Helper()
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		t.Fatalf("marshal planning policy material: %v", err)
+	}
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(encoded))
 }

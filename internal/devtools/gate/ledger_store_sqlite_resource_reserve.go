@@ -28,13 +28,13 @@ func loadSQLiteNormalResourceTierReserves(transaction *sql.Tx, generation uint64
 	if overhead == nil {
 		return nil, errors.New("normal resource-tier reserve requires accepted shard overhead identity")
 	}
-	observations, shards, err := loadSQLiteNormalReserveEvidence(
+	observations, shardResources, err := loadSQLiteNormalReserveEvidence(
 		transaction, generation, planning, overhead.CalibrationResourceClassID,
 	)
 	if err != nil {
 		return nil, err
 	}
-	reserves, err := DeriveNormalResourceTierReserves(observations, shards, overhead.CalibrationResourceClassID)
+	reserves, err := deriveNormalResourceTierReservesKeyed(observations, shardResources, overhead.CalibrationResourceClassID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ const sqliteNormalReserveEvidenceQuery = `
 			OR (timing.scope = 'compile_group' AND timing.phase = 'test_binary_compile'))`
 
 // loadSQLiteNormalReserveEvidence 以单次集合查询读取当前规划身份的 normal reserve 证据。
-func loadSQLiteNormalReserveEvidence(database sqliteRowQueryer, generation uint64, planning PlanningContext, calibrationClassID string) ([]TimingObservation, []RemoteCIShardRecord, error) {
+func loadSQLiteNormalReserveEvidence(database sqliteRowQueryer, generation uint64, planning PlanningContext, calibrationClassID string) ([]TimingObservation, []normalReserveShardResource, error) {
 	if generation == 0 || planning.Calibration || planning.AcceptedSnapshotID == "" || calibrationClassID == "" {
 		return nil, nil, errors.New("normal resource-tier reserve query identity is incomplete")
 	}
@@ -91,9 +91,9 @@ func loadSQLiteNormalReserveEvidence(database sqliteRowQueryer, generation uint6
 }
 
 // scanSQLiteNormalReserveEvidence 严格解码集合查询返回的 timing 与资源身份。
-func scanSQLiteNormalReserveEvidence(rows *sql.Rows) ([]TimingObservation, []RemoteCIShardRecord, error) {
+func scanSQLiteNormalReserveEvidence(rows *sql.Rows) ([]TimingObservation, []normalReserveShardResource, error) {
 	observations := make([]TimingObservation, 0)
-	shards := make([]RemoteCIShardRecord, 0)
+	shardResources := make([]normalReserveShardResource, 0)
 	resourcesByShard := make(map[shardOverheadObservationKey]RemoteCIShardResources)
 	for rows.Next() {
 		row := normalReserveEvidenceRow{rows: rows}
@@ -102,20 +102,23 @@ func scanSQLiteNormalReserveEvidence(rows *sql.Rows) ([]TimingObservation, []Rem
 			return nil, nil, err
 		}
 		key := shardOverheadObservationKey{jobID: observation.JobID, shard: observation.ShardIdentity}
+		if err := validateNormalReserveObservationKey(key); err != nil {
+			return nil, nil, err
+		}
 		prior, exists := resourcesByShard[key]
 		if exists && prior != resources {
 			return nil, nil, fmt.Errorf("normal reserve shard %s/%s has conflicting resources", key.jobID, key.shard)
 		}
 		if !exists {
 			resourcesByShard[key] = resources
-			shards = append(shards, RemoteCIShardRecord{ShardIdentity: key.shard, Resources: resources})
+			shardResources = append(shardResources, normalReserveShardResource{key: key, resources: resources})
 		}
 		observations = append(observations, observation)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, mapDurationLedgerSQLiteError("iterate normal resource-tier reserve evidence", err)
 	}
-	return observations, shards, nil
+	return observations, shardResources, nil
 }
 
 // normalReserveEvidenceRow 把 join 前缀列适配到共享 timing scanner。

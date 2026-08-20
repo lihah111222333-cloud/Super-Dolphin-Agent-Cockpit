@@ -52,7 +52,7 @@ cmd/mcp-lsp/internal/hiddenexec/process_supervisor_windows_e2e_test.go	cmd	platf
 cmd/mcp-lsp/internal/hiddenexec/process_tree_api_extra.go	cmd	platform-provider	go-source	1744	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,api,extra,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_tree_contract_test.go	cmd	platform-provider	go-test	2219	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,contract,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_tree_darwin.go	cmd	platform-provider	go-source	5650	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,darwin,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/internal/hiddenexec/process_tree_darwin_contract_test.go	cmd	platform-provider	go-test	3833	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,darwin,contract,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/internal/hiddenexec/process_tree_darwin_contract_test.go	cmd	platform-provider	go-test	6995	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,darwin,contract,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_tree_error.go	cmd	platform-provider	go-source	466	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,error,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_tree_error_test.go	cmd	platform-provider	go-test	854	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,error,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_tree_linux.go	cmd	platform-provider	go-source	4610	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,tree,linux,代码智能,LSP,MCP,peer

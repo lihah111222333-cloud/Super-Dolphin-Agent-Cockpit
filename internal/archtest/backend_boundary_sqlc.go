@@ -16,6 +16,7 @@ type configuredSQLCRuleState struct {
 	root, orchestrator, store bool
 }
 
+// bindConfiguredSQLCBoundary 只将当前仓库的 sqlc 配置输出绑定到已登记的边界规则上。
 func bindConfiguredSQLCBoundary(root string, registry BackendBoundaryRegistry) (BackendBoundaryRegistry, error) {
 	rootOutput, orchestratorOutput, err := configuredSQLCOutputs(root)
 	if err != nil {

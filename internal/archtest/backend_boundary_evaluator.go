@@ -595,6 +595,7 @@ func bindBackendBoundaryFile(root, filePath, rel string) (string, string, string
 	return canonicalRoot, canonicalPath, canonicalRel, nil
 }
 
+// canonicalBoundaryPath 将候选路径规整为无符号链接的绝对路径，并按期望的目录/文件类型 fail-fast。
 func canonicalBoundaryPath(candidate string, wantDirectory bool) (string, error) {
 	absolute, err := filepath.Abs(candidate)
 	if err != nil {

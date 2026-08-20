@@ -19,12 +19,17 @@ type resourceTierReserveSample struct {
 	ReserveMS    int64                           `json:"reserve_ms"`
 }
 
+type normalReserveShardResource struct {
+	key       shardOverheadObservationKey
+	resources RemoteCIShardResources
+}
+
 func planningContextsEqual(left, right PlanningContext) bool {
 	return reflect.DeepEqual(left, right)
 }
 
-// EffectiveTargetDurationForResourceTier returns the 100-second budget after
-// deducting that tier's authoritative external/orchestration reserve.
+// EffectiveTargetDurationForResourceTier 计算指定资源档位的有效规划目标时长。
+// 校准模式沿用固定目标；normal 模式扣除该档位经实测的外部/编排 reserve，并拒绝无正向预算的输入。
 func (context PlanningContext) EffectiveTargetDurationForResourceTier(tier cicontract.WorkloadResourceTier) (int64, error) {
 	if err := validatePlanningContext(context); err != nil {
 		return 0, err
@@ -62,6 +67,8 @@ func resourceTierReserve(reserves []cicontract.WorkloadResourceTierReserve, tier
 	return reserve, nil
 }
 
+// canonicalizeNormalResourceTierReserves 将 normal reserve 规范化为 Fast→Slow 的固定序列。
+// 输入必须按资源档位严格递增且处于允许范围内，缺失档位保留 bootstrap 默认值。
 func canonicalizeNormalResourceTierReserves(reserves []cicontract.WorkloadResourceTierReserve) ([]cicontract.WorkloadResourceTierReserve, error) {
 	canonical := make([]cicontract.WorkloadResourceTierReserve, int(cicontract.WorkloadResourceTierSlow))
 	for tier := cicontract.WorkloadResourceTierFast; tier <= cicontract.WorkloadResourceTierSlow; tier++ {
@@ -92,13 +99,104 @@ func isolateBootstrapCompileUnits(units []compilePlanningUnit) ([]ShardPlan, err
 	return shards, nil
 }
 
-// DeriveNormalResourceTierReserves derives tier-isolated P95 reserves from
-// existing authoritative timing observations. Workload totals and test-binary
-// compile intervals are excluded exactly once; all remaining shard time is the
-// measured eci/source/candidate/orchestration union that planning must reserve.
+// DeriveNormalResourceTierReserves 从权威 timing observations 推导按资源档位隔离的 P95 reserve。
+// 仅排除一次 workload 总时长和 test-binary 编译区间，其余 shard 时间形成 planning 必须预留的 eci/source/candidate/orchestration 并集。
 func DeriveNormalResourceTierReserves(observations []TimingObservation, shards []RemoteCIShardRecord, calibrationClassID string) ([]cicontract.WorkloadResourceTierReserve, error) {
+	if err := validateNormalReserveCalibrationClass(calibrationClassID); err != nil {
+		return nil, err
+	}
+	if len(observations) == 0 {
+		return nil, nil
+	}
+	jobsByShard, err := normalReserveObservationJobsByShard(observations)
+	if err != nil {
+		return nil, err
+	}
+	keyedResources := make([]normalReserveShardResource, 0, len(shards))
+	for _, shard := range shards {
+		if err := validateNormalReserveShardIdentity(shard.ShardIdentity); err != nil {
+			return nil, err
+		}
+		jobID, exists := jobsByShard[shard.ShardIdentity]
+		if !exists {
+			continue
+		}
+		keyedResources = append(keyedResources, normalReserveShardResource{
+			key:       shardOverheadObservationKey{jobID: jobID, shard: shard.ShardIdentity},
+			resources: shard.Resources,
+		})
+	}
+	return deriveNormalResourceTierReservesKeyed(observations, keyedResources, calibrationClassID)
+}
+
+func validateNormalReserveCalibrationClass(calibrationClassID string) error {
 	if strings.TrimSpace(calibrationClassID) == "" || strings.TrimSpace(calibrationClassID) != calibrationClassID {
-		return nil, errors.New("normal resource-tier reserve requires canonical calibration class identity")
+		return errors.New("normal resource-tier reserve requires canonical calibration class identity")
+	}
+	return nil
+}
+
+func validateNormalReserveShardIdentity(identity string) error {
+	if strings.TrimSpace(identity) == "" || strings.TrimSpace(identity) != identity {
+		return fmt.Errorf("validate reserve shard %q identity: identity must be non-empty and canonical", identity)
+	}
+	return nil
+}
+
+func validateNormalReserveObservationKey(key shardOverheadObservationKey) error {
+	if strings.TrimSpace(key.jobID) == "" || strings.TrimSpace(key.jobID) != key.jobID {
+		return fmt.Errorf("normal resource-tier reserve timing group %q/%q has invalid canonical job identity", key.jobID, key.shard)
+	}
+	if err := validateNormalReserveShardIdentity(key.shard); err != nil {
+		return fmt.Errorf("normal resource-tier reserve timing group %s/%q has invalid shard identity: %w", key.jobID, key.shard, err)
+	}
+	return nil
+}
+
+// normalReserveObservationJobsByShard 从 timing 记录建立分片到 canonical job 的唯一映射。
+func normalReserveObservationJobsByShard(observations []TimingObservation) (map[string]string, error) {
+	jobsByShard := make(map[string]string)
+	for index, observation := range observations {
+		if strings.TrimSpace(observation.JobID) == "" || strings.TrimSpace(observation.JobID) != observation.JobID {
+			return nil, fmt.Errorf("normal resource-tier reserve observation %d has invalid canonical job identity", index)
+		}
+		if observation.ShardIdentity == "" {
+			continue
+		}
+		if err := validateNormalReserveShardIdentity(observation.ShardIdentity); err != nil {
+			return nil, fmt.Errorf("normal resource-tier reserve observation %d: %w", index, err)
+		}
+		prior, exists := jobsByShard[observation.ShardIdentity]
+		if exists && prior != observation.JobID {
+			return nil, fmt.Errorf("normal resource-tier reserve shard %q maps to multiple jobs %q and %q; keyed SQLite path is required", observation.ShardIdentity, prior, observation.JobID)
+		}
+		jobsByShard[observation.ShardIdentity] = observation.JobID
+	}
+	return jobsByShard, nil
+}
+
+// validateNormalReserveObservationIdentities 拒绝 reserve 输入中的非 canonical job 或 shard 身份。
+func validateNormalReserveObservationIdentities(observations []TimingObservation) error {
+	for index, observation := range observations {
+		if strings.TrimSpace(observation.JobID) == "" || strings.TrimSpace(observation.JobID) != observation.JobID {
+			return fmt.Errorf("normal resource-tier reserve observation %d has invalid canonical job identity", index)
+		}
+		if observation.ShardIdentity != "" {
+			if err := validateNormalReserveShardIdentity(observation.ShardIdentity); err != nil {
+				return fmt.Errorf("normal resource-tier reserve observation %d: %w", index, err)
+			}
+		}
+	}
+	return nil
+}
+
+// deriveNormalResourceTierReservesKeyed 按 job/shard 资源身份聚合 fixed-front P95 reserve。
+func deriveNormalResourceTierReservesKeyed(observations []TimingObservation, resources []normalReserveShardResource, calibrationClassID string) ([]cicontract.WorkloadResourceTierReserve, error) {
+	if err := validateNormalReserveCalibrationClass(calibrationClassID); err != nil {
+		return nil, err
+	}
+	if err := validateNormalReserveObservationIdentities(observations); err != nil {
+		return nil, err
 	}
 	groups, err := collectShardOverheadObservationGroups(observations)
 	if err != nil {
@@ -107,7 +205,7 @@ func DeriveNormalResourceTierReserves(observations []TimingObservation, shards [
 	if len(groups) == 0 {
 		return nil, nil
 	}
-	shardTiers, err := normalReserveShardTiers(shards, calibrationClassID)
+	shardTiers, err := normalReserveShardTiers(resources, calibrationClassID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,32 +228,49 @@ func DeriveNormalResourceTierReserves(observations []TimingObservation, shards [
 	return normalReserveAggregates(samples)
 }
 
-func normalReserveShardTiers(shards []RemoteCIShardRecord, calibrationClassID string) (map[string]cicontract.WorkloadResourceTier, error) {
-	shardTiers := make(map[string]cicontract.WorkloadResourceTier, len(shards))
+// normalReserveShardTiers 将 keyed normal 分片身份映射到资源档位，并拒绝空白、重复或冲突身份。
+func normalReserveShardTiers(shards []normalReserveShardResource, calibrationClassID string) (map[shardOverheadObservationKey]cicontract.WorkloadResourceTier, error) {
+	shardTiers := make(map[shardOverheadObservationKey]cicontract.WorkloadResourceTier, len(shards))
+	resourcesByKey := make(map[shardOverheadObservationKey]RemoteCIShardResources, len(shards))
 	for _, shard := range shards {
-		if err := shard.Resources.Validate(); err != nil {
-			return nil, fmt.Errorf("validate reserve shard %q resources: %w", shard.ShardIdentity, err)
+		if err := validateNormalReserveObservationKey(shard.key); err != nil {
+			return nil, err
 		}
-		if shard.Resources.ClassID == calibrationClassID {
+		if prior, duplicate := resourcesByKey[shard.key]; duplicate {
+			if prior != shard.resources {
+				return nil, fmt.Errorf("normal resource-tier reserve shard %s/%s has conflicting resources", shard.key.jobID, shard.key.shard)
+			}
+			return nil, fmt.Errorf("normal resource-tier reserve shard %s/%s is duplicated", shard.key.jobID, shard.key.shard)
+		}
+		if err := shard.resources.Validate(); err != nil {
+			return nil, fmt.Errorf("validate reserve shard %s/%s resources: %w", shard.key.jobID, shard.key.shard, err)
+		}
+		resourcesByKey[shard.key] = shard.resources
+		if shard.resources.ClassID == calibrationClassID {
+			shardTiers[shard.key] = 0
 			continue
 		}
-		tier, err := resourceTierForReserve(shard.Resources)
+		tier, err := resourceTierForReserve(shard.resources)
 		if err != nil {
-			return nil, fmt.Errorf("classify reserve shard %q: %w", shard.ShardIdentity, err)
+			return nil, fmt.Errorf("classify reserve shard %s/%s: %w", shard.key.jobID, shard.key.shard, err)
 		}
-		if prior, duplicate := shardTiers[shard.ShardIdentity]; duplicate && prior != tier {
-			return nil, fmt.Errorf("reserve shard %q has conflicting resource tiers", shard.ShardIdentity)
-		}
-		shardTiers[shard.ShardIdentity] = tier
+		shardTiers[shard.key] = tier
 	}
 	return shardTiers, nil
 }
 
-func normalReserveSamples(groups map[shardOverheadObservationKey]*shardOverheadObservationGroup, shardTiers map[string]cicontract.WorkloadResourceTier) ([]resourceTierReserveSample, error) {
+// normalReserveSamples 将 timing group 绑定到已登记的 normal 分片，避免静默丢失样本。
+func normalReserveSamples(groups map[shardOverheadObservationKey]*shardOverheadObservationGroup, shardTiers map[shardOverheadObservationKey]cicontract.WorkloadResourceTier) ([]resourceTierReserveSample, error) {
 	samples := make([]resourceTierReserveSample, 0, len(groups))
 	for key, group := range groups {
-		tier, ok := shardTiers[key.shard]
+		if err := validateNormalReserveObservationKey(key); err != nil {
+			return nil, err
+		}
+		tier, ok := shardTiers[key]
 		if !ok {
+			return nil, fmt.Errorf("normal resource-tier reserve timing group %s/%s references unregistered shard", key.jobID, key.shard)
+		}
+		if tier == 0 {
 			continue
 		}
 		sample, err := normalReserveSample(key, group, tier)
@@ -184,7 +299,16 @@ func normalReserveSample(key shardOverheadObservationKey, group *shardOverheadOb
 }
 
 func normalReserveExcludedIntervals(group *shardOverheadObservationGroup) []TimingObservation {
-	return append([]TimingObservation(nil), group.accounted...)
+	// normalReserveExcludedIntervals 仅保留可装箱的 workload total 与 compile-group test_binary_compile；
+	// shard total 减去其精确并集后，固定前置 reserve 覆盖 eci_wait、source_materialize、candidate_compile 与编排余量，
+	// 重叠由 union helper 只计一次。
+	excluded := append([]TimingObservation(nil), group.workloads...)
+	for _, observation := range group.accounted {
+		if observation.Scope == cicontract.TimingScopeCompileGroup && observation.Phase == cicontract.TimingTestBinaryCompile {
+			excluded = append(excluded, observation)
+		}
+	}
+	return excluded
 }
 
 func normalReserveAggregates(samples []resourceTierReserveSample) ([]cicontract.WorkloadResourceTierReserve, error) {

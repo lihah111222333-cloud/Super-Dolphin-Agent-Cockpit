@@ -10,6 +10,8 @@ cmd/super-dolphin-gate/closure_cli_test.go	cmd	remote-ci	go-test	2218	远程 CI/
 cmd/super-dolphin-gate/codemap_cli.go	cmd	remote-ci	go-source	1556	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,codemap,cli,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker,入口
 cmd/super-dolphin-gate/frontend_code_size_cli.go	cmd	remote-ci	go-source	3168	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,frontend,code,size,cli,远程,CI,Git,CLI,trusted,launcher,materializer,与
 cmd/super-dolphin-gate/frontend_code_size_cli_test.go	cmd	remote-ci	go-test	1175	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,frontend,code,size,cli,test,远程,CI,Git,CLI,trusted,launcher,materializer
+cmd/super-dolphin-gate/heteroci_workflow_root.go	cmd	remote-ci	go-source	11450	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,heteroci,workflow,root,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker
+cmd/super-dolphin-gate/heteroci_workflow_root_test.go	cmd	remote-ci	go-test	13586	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,heteroci,workflow,root,test,远程,CI,Git,CLI,trusted,launcher,materializer,与
 cmd/super-dolphin-gate/launcher_cli.go	cmd	remote-ci	go-source	3883	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,launcher,cli,远程,CI,Git,CLI,trusted,materializer,与,worker,入口
 cmd/super-dolphin-gate/launcher_cli_test.go	cmd	remote-ci	go-test	3774	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,launcher,cli,test,远程,CI,Git,CLI,trusted,materializer,与,worker,入口
 cmd/super-dolphin-gate/local_test_cli.go	cmd	remote-ci	go-source	14797	远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口	cmd,super,dolphin,gate,local,test,cli,远程,CI,Git,CLI,trusted,launcher,materializer,与,worker
@@ -82,7 +84,7 @@ cmd/super-dolphin-gate/worker_cli_test.go	cmd	remote-ci	go-test	8115	远程 CI/G
 config/remote-ci/.gitignore	config	remote-ci	file	41	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,远程,CI,strict,配置与,generation-one,receipt,输入
 config/remote-ci/README.md	config	remote-ci	doc	1826	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,README,远程,CI,strict,配置与,generation-one,receipt,输入
 config/remote-ci/aliyun.json	config	remote-ci	json	9050	远程 CI strict 配置与 generation-one receipt 输入	config,remote,ci,aliyun,远程,CI,strict,配置与,generation-one,receipt,输入
-docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	83295	远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,远程,CI,ECI,ImageCache,SQLite,唯一路径,Accepted
+docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	96506	远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,远程,CI,ECI,ImageCache,SQLite,唯一路径,Accepted
 internal/devtools/alicloud/eci/cleanup_lookup.go	internal	remote-ci	go-source	1211	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,cleanup,lookup,阿里云,ECI,container,group,与,ImageCache,只读客户端
 internal/devtools/alicloud/eci/cleanup_lookup_test.go	internal	remote-ci	go-test	961	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,cleanup,lookup,test,阿里云,ECI,container,group,与,ImageCache,只读客户端
 internal/devtools/alicloud/eci/client.go	internal	remote-ci	go-source	32946	阿里云 ECI container group 与 ImageCache 只读客户端	internal,devtools,alicloud,eci,client,阿里云,ECI,container,group,与,ImageCache,只读客户端
@@ -106,10 +108,10 @@ internal/devtools/alicloud/oss/client_test.go	internal	remote-ci	go-test	16567	�
 internal/devtools/alicloud/oss/client_waitdelay_unix_test.go	internal	remote-ci	go-test	1101	远程 CI OSS 内容寻址传输客户端	internal,devtools,alicloud,oss,client,waitdelay,unix,test,远程,CI,OSS,内容寻址传输客户端
 internal/devtools/cicontract/agent_token.go	internal	remote-ci	go-source	7851	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,agent,token,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/agent_token_test.go	internal	remote-ci	go-test	6083	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,agent,token,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
-internal/devtools/cicontract/contract.go	internal	remote-ci	go-source	61589	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
+internal/devtools/cicontract/contract.go	internal	remote-ci	go-source	62827	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/contract_authority.go	internal	remote-ci	go-source	3237	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,authority,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
-internal/devtools/cicontract/contract_plan_rules.go	internal	remote-ci	go-source	40439	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,plan,rules,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
-internal/devtools/cicontract/contract_test.go	internal	remote-ci	go-test	30600	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
+internal/devtools/cicontract/contract_plan_rules.go	internal	remote-ci	go-source	42626	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,plan,rules,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
+internal/devtools/cicontract/contract_test.go	internal	remote-ci	go-test	32983	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,test,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/contract_timing.go	internal	remote-ci	go-source	3711	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,contract,timing,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/generation_one.go	internal	remote-ci	go-source	30738	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner
 internal/devtools/cicontract/generation_one_tables.go	internal	remote-ci	go-source	623	远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner	internal,devtools,cicontract,generation,one,tables,远程,CI,ECI,ImageCache,SQLite,单路径代码契约,owner

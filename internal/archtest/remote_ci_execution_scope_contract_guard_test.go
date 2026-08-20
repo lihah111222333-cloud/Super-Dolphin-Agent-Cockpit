@@ -101,22 +101,48 @@ func TestRemoteCIRunExecutionIdentityV19AcceptedContract(t *testing.T) {
 		t.Fatal("remote run execution identity table is not registered with the one SQLite authority")
 	}
 	schema := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_schema_strict.go"))
+	statement := remoteCIRunExecutionIdentityV19Statement(t, schema)
+	assertRemoteCIRunExecutionIdentityV19Statement(t, schema, statement)
+	assertRemoteCIRunExecutionIdentityV19Migration(t, root)
+}
+
+func remoteCIRunExecutionIdentityV19Statement(t *testing.T, schema string) string {
+	t.Helper()
+	statementName := "CREATE TABLE IF NOT EXISTS " + cicontract.RemoteRunExecutionIdentitiesTable
+	statementStart := strings.Index(schema, statementName)
+	if statementStart < 0 {
+		t.Fatalf("run execution identity v19 schema is missing %q", statementName)
+	}
+	statementEnd := strings.Index(schema[statementStart:], ");")
+	if statementEnd < 0 {
+		t.Fatalf("run execution identity v19 schema is missing a closing %q", ");")
+	}
+	return schema[statementStart : statementStart+statementEnd+2]
+}
+
+func assertRemoteCIRunExecutionIdentityV19Statement(t *testing.T, schema, statement string) {
+	t.Helper()
 	for _, marker := range []string{
-		"CREATE TABLE IF NOT EXISTS " + cicontract.RemoteRunExecutionIdentitiesTable,
 		"job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE",
 		"platform TEXT NOT NULL",
 		"runner_identity_digest TEXT NOT NULL",
 		"toolchain_digest TEXT NOT NULL",
 		"execution_mode TEXT NOT NULL",
-		"cicontract.TargetPlatform",
 	} {
-		if !strings.Contains(schema, marker) {
+		if !strings.Contains(statement, marker) {
 			t.Errorf("run execution identity v19 schema is missing %q", marker)
 		}
 	}
-	if strings.Contains(schema, "DEFAULT") || strings.Contains(strings.ToLower(schema), "alter table") {
+	if !strings.Contains(schema, "cicontract.TargetPlatform") {
+		t.Errorf("run execution identity v19 schema is missing %q", "cicontract.TargetPlatform")
+	}
+	if strings.Contains(statement, "DEFAULT") || strings.Contains(strings.ToLower(statement), "alter table") {
 		t.Fatal("run execution identity v19 schema must not default or alter identity fields")
 	}
+}
+
+func assertRemoteCIRunExecutionIdentityV19Migration(t *testing.T, root string) {
+	t.Helper()
 	migration := strings.ToLower(readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_namespace_migration.go")))
 	for _, forbidden := range []string{"insert into ci_remote_run_execution_identities", "update ci_remote_run_execution_identities", "alter table ci_runs"} {
 		if strings.Contains(migration, forbidden) {

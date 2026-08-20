@@ -42,6 +42,9 @@ func resolveBootstrapPlanningContext(t *testing.T) (PlanningContext, PlanningCon
 		if reserve.Measurement != nil {
 			t.Fatalf("bootstrap reserve = %#v", reserve)
 		}
+		if target, err := resolved.EffectiveTargetDurationForResourceTier(reserve.ResourceTier); err == nil {
+			t.Fatalf("bootstrap reserve tier %d unexpectedly produced effective target %d; missing measured reserve must not use a default approximation", reserve.ResourceTier, target)
+		}
 	}
 	return context, resolved
 }
@@ -128,7 +131,7 @@ func assertInvalidReserveResolutions(t *testing.T, context, resolved PlanningCon
 	}
 }
 
-func TestDeriveNormalResourceTierReservesExcludesAccountedIntervalUnion(t *testing.T) {
+func TestDeriveNormalResourceTierReservesUsesFixedFrontIntervalUnion(t *testing.T) {
 	base := time.UnixMilli(10_000).UTC()
 	resources := []RemoteCIShardResources{
 		{ClassID: "small", CPU: 2, MemoryGiB: 4},
@@ -137,6 +140,7 @@ func TestDeriveNormalResourceTierReservesExcludesAccountedIntervalUnion(t *testi
 	}
 	var observations []TimingObservation
 	var shards []RemoteCIShardRecord
+	// 故意让 compile 与 workload-1、workload-1 与 workload-2 重叠；排除 [3s,8s] 并集一次后，10s 分片剩余 5s fixed-front reserve。
 	for index, resource := range resources {
 		jobID, shardID := "job-"+string(rune('a'+index)), "shard-"+string(rune('a'+index))
 		observations = append(observations, normalReserveTimingObservations(jobID, shardID, base, resource)...)
@@ -157,8 +161,115 @@ func assertMeasuredResourceTierReserve(t *testing.T, index int, reserve cicontra
 	if reserve.ResourceTier != wantTier || reserve.Resolution != cicontract.WorkloadResourceTierReserveResolutionMeasured || reserve.Measurement == nil {
 		t.Fatalf("reserve[%d] = %#v, want measured tier %d", index, reserve, wantTier)
 	}
-	if reserve.Measurement.P95MS != 2_000 || reserve.Measurement.SampleCount != 1 || reserve.Measurement.ProvenanceDigest == "" {
-		t.Fatalf("reserve[%d] measurement = %#v, want P95 2000ms", index, reserve.Measurement)
+	if reserve.Measurement.P95MS != 5_000 || reserve.Measurement.SampleCount != 1 || reserve.Measurement.ProvenanceDigest == "" {
+		t.Fatalf("reserve[%d] measurement = %#v, want fixed-front P95 5000ms", index, reserve.Measurement)
+	}
+}
+
+func TestDeriveNormalResourceTierReservesUsesMeasuredValueNotApproximationDefault(t *testing.T) {
+	base := time.UnixMilli(10_000).UTC()
+	resource := RemoteCIShardResources{ClassID: "small", CPU: 2, MemoryGiB: 4}
+	shard := RemoteCIShardRecord{ShardIdentity: "shard-a", Resources: resource}
+	observations := normalReserveTimingObservations("job-a", shard.ShardIdentity, base, resource)
+	assertMeasuredFixedFrontReserve(t, observations, shard, 5_000)
+	longer := extendShardTotalTiming(observations, base.Add(12*time.Second))
+	assertMeasuredFixedFrontReserve(t, longer, shard, 7_000)
+}
+
+func assertMeasuredFixedFrontReserve(t *testing.T, observations []TimingObservation, shard RemoteCIShardRecord, wantP95 int64) {
+	t.Helper()
+	reserves, err := DeriveNormalResourceTierReserves(observations, []RemoteCIShardRecord{shard}, "calibration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reserves) != 1 || reserves[0].Measurement == nil || reserves[0].Measurement.P95MS != wantP95 {
+		t.Fatalf("measured fixed-front reserve = %#v, want P95 %dms from fixture", reserves, wantP95)
+	}
+}
+
+func extendShardTotalTiming(observations []TimingObservation, completedAt time.Time) []TimingObservation {
+	longer := append([]TimingObservation(nil), observations...)
+	for index := range longer {
+		if longer[index].Scope == cicontract.TimingScopeShard && longer[index].Phase == cicontract.TimingTotal {
+			longer[index].CompletedAt = completedAt
+			longer[index].DurationMS = longer[index].CompletedAt.Sub(longer[index].StartedAt).Milliseconds()
+		}
+	}
+	return longer
+}
+
+func TestDeriveNormalResourceTierReservesRejectsMissingFixedFrontPhase(t *testing.T) {
+	base := time.UnixMilli(10_000).UTC()
+	resource := RemoteCIShardResources{ClassID: "small", CPU: 2, MemoryGiB: 4}
+	shard := RemoteCIShardRecord{ShardIdentity: "shard-a", Resources: resource}
+	observations := normalReserveTimingObservations("job-a", shard.ShardIdentity, base, resource)
+	missing := make([]TimingObservation, 0, len(observations)-1)
+	removed := false
+	for _, observation := range observations {
+		if !removed && observation.Scope == cicontract.TimingScopeShard && observation.Phase == cicontract.TimingCandidateCompile {
+			removed = true
+			continue
+		}
+		missing = append(missing, observation)
+	}
+	if !removed {
+		t.Fatal("test fixture did not contain candidate_compile phase")
+	}
+	if _, err := DeriveNormalResourceTierReserves(missing, []RemoteCIShardRecord{shard}, "calibration"); err == nil || !strings.Contains(err.Error(), "incomplete shard accounted timing coverage") {
+		t.Fatalf("missing fixed-front phase was not rejected fail-fast: %v", err)
+	}
+}
+
+func TestDeriveNormalResourceTierReservesRejectsUnknownShardTimingSample(t *testing.T) {
+	base := time.UnixMilli(10_000).UTC()
+	resource := RemoteCIShardResources{ClassID: "small", CPU: 2, MemoryGiB: 4}
+	observations := normalReserveTimingObservations("job-unknown", "shard-unknown", base, resource)
+	knownShard := RemoteCIShardRecord{ShardIdentity: "shard-known", Resources: resource}
+	reserves, err := DeriveNormalResourceTierReserves(observations, []RemoteCIShardRecord{knownShard}, "calibration")
+	if err == nil {
+		t.Fatal("unknown fixed-front timing shard was silently ignored")
+	}
+	if len(reserves) != 0 {
+		t.Fatalf("unknown fixed-front timing shard produced reserves = %#v", reserves)
+	}
+}
+
+func TestDeriveNormalResourceTierReservesRejectsDuplicateShardIdentity(t *testing.T) {
+	base := time.UnixMilli(10_000).UTC()
+	resources := []RemoteCIShardResources{
+		{ClassID: "small", CPU: 2, MemoryGiB: 4},
+		{ClassID: "medium", CPU: 4, MemoryGiB: 8},
+	}
+	tests := []struct {
+		name      string
+		shardRows []RemoteCIShardRecord
+	}{
+		{
+			name: "same tier",
+			shardRows: []RemoteCIShardRecord{
+				{ShardIdentity: "shard-duplicate", Resources: resources[0]},
+				{ShardIdentity: "shard-duplicate", Resources: resources[0]},
+			},
+		},
+		{
+			name: "conflicting tiers",
+			shardRows: []RemoteCIShardRecord{
+				{ShardIdentity: "shard-duplicate", Resources: resources[0]},
+				{ShardIdentity: "shard-duplicate", Resources: resources[1]},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observations := normalReserveTimingObservations("job-duplicate", "shard-duplicate", base, resources[0])
+			reserves, err := DeriveNormalResourceTierReserves(observations, test.shardRows, "calibration")
+			if err == nil {
+				t.Fatalf("duplicate shard identity was silently accepted: reserves=%#v", reserves)
+			}
+			if len(reserves) != 0 {
+				t.Fatalf("duplicate shard identity produced reserves=%#v", reserves)
+			}
+		})
 	}
 }
 
@@ -186,8 +297,8 @@ func TestLoadPlanningDerivesNormalResourceTierReservesFromSQLiteTiming(t *testin
 		t.Fatalf("SQLite planning reserves/index = %#v/%v", snapshot.ResourceTierReserves, snapshot.SampleIndex)
 	}
 	target, err := snapshot.SampleIndex.context.EffectiveTargetDurationForResourceTier(cicontract.WorkloadResourceTierMedium)
-	if err != nil || target != 97_000 {
-		t.Fatalf("SQLite planning medium target = %d, %v; want 97000 without compile-group timing", target, err)
+	if err != nil || target != 94_000 {
+		t.Fatalf("SQLite planning medium target = %d, %v; want 94000 with workload-only exclusion when compile-group timing is absent", target, err)
 	}
 }
 

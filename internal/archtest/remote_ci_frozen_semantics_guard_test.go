@@ -37,7 +37,7 @@ func assertRemoteCIFrozenIdentityAliases(t *testing.T, root string) {
 		},
 		"internal/devtools/cicontract/contract.go": {
 			"WorkloadPlanningAlgorithmID = \"deterministic-critical-path-aware-packing/v5\"",
-			"WorkloadPlanningRiskPolicyID = \"normal-resource-tier-reserve-measured-p95-or-isolated-bootstrap+cross-input-upper-tail-isolation/v3\"",
+			"WorkloadPlanningRiskPolicyID = \"normal-resource-tier-reserve-measured-p95-or-isolated-bootstrap+cross-input-upper-tail-isolation/v4\"",
 			"WorkloadPlanningReserveBootstrapSolverModeID      = \"isolated-reserve-bootstrap/v1\"",
 			"WorkloadPlanningObjective = \"hard constraints>target excess>minimum shards>makespan>setup proxy>canonical layout\"",
 			"WorkloadPlanningExactPackableUnitThreshold        = 12",

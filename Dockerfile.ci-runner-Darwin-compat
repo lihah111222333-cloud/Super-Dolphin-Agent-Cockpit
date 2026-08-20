@@ -1,0 +1,107 @@
+# syntax=docker/dockerfile:1.7
+
+FROM --platform=linux/amd64 ubuntu@sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316
+
+LABEL org.opencontainers.image.source="https://github.com/darlinghq/darling" \
+      org.opencontainers.image.version="v0.1.20260608" \
+      org.opencontainers.image.revision="e947f0d5a3c6bba27e3631d9bf0da2a9840e6894" \
+      org.opencontainers.image.base.name="ubuntu:24.04" \
+      org.opencontainers.image.base.digest="sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316" \
+      com.super-dolphin.darling.source="https://github.com/darlinghq/darling" \
+      com.super-dolphin.darling.revision="e947f0d5a3c6bba27e3631d9bf0da2a9840e6894" \
+      com.super-dolphin.darling.source-revision="https://github.com/darlinghq/darling@e947f0d5a3c6bba27e3631d9bf0da2a9840e6894" \
+      com.super-dolphin.darling.release="v0.1.20260608" \
+      com.super-dolphin.darling.asset-digest="sha256:27469ef3932da2e91dd7fb34b70e3628a3e54b7af9fb5480051f44af35eca1fd" \
+      com.super-dolphin.runtime="darling_compat_runtime" \
+      com.super-dolphin.authority="LOCAL_NON_AUTHORITATIVE" \
+      com.super-dolphin.qualification="NOT_VERIFIED"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    SUPER_DOLPHIN_RUNTIME=darling_compat_runtime \
+    SUPER_DOLPHIN_RUNTIME_AUTHORITY=LOCAL_NON_AUTHORITATIVE \
+    SUPER_DOLPHIN_RUNTIME_STATUS=NOT_VERIFIED \
+    SUPER_DOLPHIN_TARGET_PLATFORM=darwin/amd64 \
+    DARLING_SOURCE_REPOSITORY=https://github.com/darlinghq/darling \
+    DARLING_RELEASE=v0.1.20260608 \
+    DARLING_SOURCE_REVISION=https://github.com/darlinghq/darling@e947f0d5a3c6bba27e3631d9bf0da2a9840e6894 \
+    DARLING_COMMIT=e947f0d5a3c6bba27e3631d9bf0da2a9840e6894 \
+    DARLING_DEB_BUNDLE_SHA256=sha256:27469ef3932da2e91dd7fb34b70e3628a3e54b7af9fb5480051f44af35eca1fd \
+    GO_VERSION=go1.26.5 \
+    GO_TARBALL_SHA256=sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053 \
+    GOTOOLCHAIN=local \
+    GOROOT=/usr/local/go \
+    HOME=/home/ci-runner \
+    GOPATH=/home/ci-runner/go \
+    GOCACHE=/home/ci-runner/.cache/go-build \
+    GOTMPDIR=/tmp/go-tmp \
+    PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ADD --checksum=sha256:27469ef3932da2e91dd7fb34b70e3628a3e54b7af9fb5480051f44af35eca1fd https://github.com/darlinghq/darling/releases/download/v0.1.20260608/debs_20260608.zip /tmp/debs_20260608.zip
+ADD --checksum=sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053 https://go.dev/dl/go1.26.5.linux-amd64.tar.gz /tmp/go1.26.5.linux-amd64.tar.gz
+
+RUN set -eux; \
+    printf '%s  %s\n' \
+      '27469ef3932da2e91dd7fb34b70e3628a3e54b7af9fb5480051f44af35eca1fd' \
+      '/tmp/debs_20260608.zip' | sha256sum -c -; \
+    printf '%s  %s\n' \
+      '5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053' \
+      '/tmp/go1.26.5.linux-amd64.tar.gz' | sha256sum -c -; \
+    apt-get update; \
+    apt-get install --no-install-recommends -y \
+      bash \
+      ca-certificates \
+      file \
+      git \
+      passwd \
+      procps \
+      unzip \
+      util-linux \
+      xz-utils; \
+    install -d -m 0755 /tmp/darling-debs; \
+    unzip -q /tmp/debs_20260608.zip -d /tmp/darling-debs; \
+    darling_package_count="$(find /tmp/darling-debs -type f -name 'darling_0.1.20260609~noble_amd64.deb' -print | wc -l)"; \
+    test "$darling_package_count" -eq 1; \
+    darling_deb_count="$(find /tmp/darling-debs -type f -name '*.deb' ! -name '*-dkms*.deb' -print | wc -l)"; \
+    test "$darling_deb_count" -eq 21; \
+    find /tmp/darling-debs -type f -name '*.deb' ! -name '*-dkms*.deb' -print > /tmp/darling-debs.list; \
+    while IFS= read -r darling_deb; do \
+      test "$(dpkg-deb --field "$darling_deb" Version)" = '0.1.20260609~noble'; \
+      test "$(dpkg-deb --field "$darling_deb" Architecture)" = 'amd64'; \
+    done < /tmp/darling-debs.list; \
+    xargs apt-get install --no-install-recommends -y < /tmp/darling-debs.list; \
+    tar -C /usr/local -xzf /tmp/go1.26.5.linux-amd64.tar.gz; \
+    test -x /usr/local/go/bin/go; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/darling-debs /tmp/darling-debs.list /tmp/debs_20260608.zip /tmp/go1.26.5.linux-amd64.tar.gz
+
+RUN set -eux; \
+    darling_bin="$(command -v darling)"; \
+    test -n "$darling_bin"; \
+    test -x "$darling_bin"; \
+    go version | grep -Fq 'go1.26.5 linux/amd64'; \
+    file_bin="$(command -v file)"; \
+    test -x "$file_bin"; \
+    ps_bin="$(command -v ps)"; \
+    test -x "$ps_bin"; \
+    file "$darling_bin"; \
+    file "$file_bin"; \
+    "$ps_bin" --version
+
+RUN set -eux; \
+    groupadd_path="$(command -v groupadd)"; \
+    test -x "$groupadd_path"; \
+    useradd_path="$(command -v useradd)"; \
+    test -x "$useradd_path"; \
+    "$groupadd_path" --gid 65532 ci-runner; \
+    "$useradd_path" --uid 65532 --gid 65532 --create-home --no-log-init --shell /bin/bash ci-runner; \
+    install -d -m 0755 /home/ci-runner /home/ci-runner/go /home/ci-runner/.cache /home/ci-runner/.cache/go-build /tmp/go-tmp /workspace; \
+    chown 65532:65532 /home/ci-runner /home/ci-runner/go /home/ci-runner/.cache /home/ci-runner/.cache/go-build /tmp/go-tmp /workspace; \
+    chmod 1777 /tmp/go-tmp
+
+COPY scripts/deploy/linux/linux_runner_daemon.sh /usr/local/bin/linux_runner_daemon.sh
+RUN chmod 0755 /usr/local/bin/linux_runner_daemon.sh
+
+WORKDIR /workspace
+USER 65532:65532
+# Mach-O qualification and the runtime entrypoint are intentionally provided by a separate card.
+CMD ["/bin/bash"]

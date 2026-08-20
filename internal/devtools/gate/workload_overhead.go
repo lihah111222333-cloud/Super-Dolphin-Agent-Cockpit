@@ -102,6 +102,8 @@ func ValidateShardOrchestrationOverheadSample(sample ShardOrchestrationOverheadS
 	return ValidateShardOrchestrationOverheadSampleIntervals(sample)
 }
 
+// validatePlanningContext 校验规划上下文的基础身份、估算策略和校准开销元数据。
+// 校准模式允许空的首次开销采样，否则要求分片编排开销可复核并保留有效规划预算。
 func validatePlanningContext(context PlanningContext) error {
 	if err := validatePlanningContextBase(context); err != nil {
 		return err
@@ -249,18 +251,53 @@ func resolveWithoutAcceptedCalibration(context PlanningContext, calibration *Dur
 
 // validateAcceptedOverheadBinding 校验规划环境与 accepted overhead 完全一致。
 func validateAcceptedOverheadBinding(context PlanningContext, overhead ShardOrchestrationOverhead) error {
-	if context.Platform != overhead.Platform || context.Runner != overhead.Runner || context.Toolchain != overhead.Toolchain {
+	contextEnvironment := [3]string{context.Platform, context.Runner, context.Toolchain}
+	acceptedEnvironment := [3]string{overhead.Platform, overhead.Runner, overhead.Toolchain}
+	if contextEnvironment != acceptedEnvironment {
 		return errors.New("planning context environment does not match accepted shard overhead")
 	}
 	if context.AcceptedSnapshotID != overhead.AcceptedSnapshotID {
 		return errors.New("planning context accepted snapshot does not match accepted shard overhead")
 	}
+	if context.Calibration {
+		type resourceBinding struct {
+			classID   string
+			cpu       float64
+			memoryGiB float64
+		}
+		contextResource := resourceBinding{
+			classID:   context.CalibrationResourceClassID,
+			cpu:       context.CalibrationResourceCPU,
+			memoryGiB: context.CalibrationResourceMemoryGiB,
+		}
+		acceptedResource := resourceBinding{
+			classID:   overhead.CalibrationResourceClassID,
+			cpu:       overhead.CalibrationResourceCPU,
+			memoryGiB: overhead.CalibrationResourceMemoryGiB,
+		}
+		if contextResource != acceptedResource {
+			return errors.New("planning calibration resource does not match accepted shard overhead")
+		}
+	}
 	if planningContextOverheadIsEmpty(context) {
 		return nil
 	}
-	if context.ShardOverheadP95MS != overhead.P95MS ||
-		context.ShardOverheadSampleCount != overhead.SampleCount ||
-		context.ShardOverheadProvenanceDigest != overhead.ProvenanceDigest {
+	type overheadIdentityBinding struct {
+		p95MS            int64
+		sampleCount      int
+		provenanceDigest string
+	}
+	contextIdentity := overheadIdentityBinding{
+		p95MS:            context.ShardOverheadP95MS,
+		sampleCount:      context.ShardOverheadSampleCount,
+		provenanceDigest: context.ShardOverheadProvenanceDigest,
+	}
+	acceptedIdentity := overheadIdentityBinding{
+		p95MS:            overhead.P95MS,
+		sampleCount:      overhead.SampleCount,
+		provenanceDigest: overhead.ProvenanceDigest,
+	}
+	if contextIdentity != acceptedIdentity {
 		return errors.New("planning context shard overhead identity does not match accepted shard overhead")
 	}
 	return nil

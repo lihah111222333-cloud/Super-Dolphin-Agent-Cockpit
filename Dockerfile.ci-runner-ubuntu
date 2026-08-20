@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1.7
+
+FROM --platform=linux/amd64 ubuntu@sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316
+
+ARG OCI_SOURCE=https://github.com/lihah111222333-cloud/Super-Dolphin
+ARG OCI_REVISION=uncommitted
+
+LABEL org.opencontainers.image.source="${OCI_SOURCE}" \
+      org.opencontainers.image.revision="${OCI_REVISION}" \
+      org.opencontainers.image.version="go1.26.5" \
+      org.opencontainers.image.toolchain="go1.26.5" \
+      org.opencontainers.image.authority="LOCAL_NON_AUTHORITATIVE"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    SUPER_DOLPHIN_RUNTIME=ubuntu_container \
+    SUPER_DOLPHIN_TARGET_PLATFORM=linux/amd64 \
+    SUPER_DOLPHIN_AUTHORITY=LOCAL_NON_AUTHORITATIVE \
+    SUPER_DOLPHIN_RESULT_STATUS=NOT_VERIFIED \
+    SUPER_DOLPHIN_IMAGE_SOURCE=${OCI_SOURCE} \
+    SUPER_DOLPHIN_IMAGE_REVISION=${OCI_REVISION} \
+    SUPER_DOLPHIN_TOOLCHAIN=go1.26.5 \
+    GOTOOLCHAIN=local \
+    GOROOT=/usr/local/go \
+    GOPATH=/home/ci-runner/go \
+    GOCACHE=/home/ci-runner/.cache/go-build \
+    GOTMPDIR=/tmp/go-tmp \
+    HOME=/home/ci-runner \
+    PATH=/usr/local/go/bin:${PATH}
+
+ADD --checksum=sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053 \
+    https://go.dev/dl/go1.26.5.linux-amd64.tar.gz \
+    /tmp/go1.26.5.linux-amd64.tar.gz
+
+RUN printf '%s  %s\n' \
+      '5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053' \
+      '/tmp/go1.26.5.linux-amd64.tar.gz' | sha256sum -c - \
+    && tar -C /usr/local -xzf /tmp/go1.26.5.linux-amd64.tar.gz \
+    && rm -f /tmp/go1.26.5.linux-amd64.tar.gz \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+      bash ca-certificates file git make procps ripgrep util-linux passwd \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 65532 ci-runner \
+    && useradd --uid 65532 --gid 65532 --create-home --shell /bin/bash ci-runner \
+    && install -d -o 65532 -g 65532 \
+      /workspace /home/ci-runner/go /home/ci-runner/.cache/go-build /tmp/go-tmp \
+    && chmod 1777 /tmp/go-tmp \
+    && test "$(/usr/local/go/bin/go version)" = 'go version go1.26.5 linux/amd64' \
+    && test "$(/usr/local/go/bin/go env GOTOOLCHAIN)" = 'local'
+
+COPY scripts/deploy/linux/linux_runner_daemon.sh /usr/local/bin/linux_runner_daemon.sh
+RUN chmod 0755 /usr/local/bin/linux_runner_daemon.sh
+
+WORKDIR /workspace
+USER 65532:65532
+CMD ["/bin/bash"]

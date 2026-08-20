@@ -20,6 +20,7 @@ func deriveWorkloadPackingEvidence(shards []ShardPlan, groups []CompileGroup, co
 	return deriveWorkloadPackingEvidenceWithMode(shards, groups, context, len(groups) > 0)
 }
 
+// deriveWorkloadPackingEvidenceWithMode 根据编译感知模式校验并汇总分片、编译组及普通 workload，重建各资源档的证明单元后生成最终装箱证据。
 func deriveWorkloadPackingEvidenceWithMode(shards []ShardPlan, groups []CompileGroup, context PlanningContext, compileAware bool) ([]WorkloadPackingEvidence, error) {
 	if compileAware != (len(groups) > 0) {
 		return nil, errors.New("compile-aware mode does not match compile-group presence")
@@ -35,7 +36,7 @@ func deriveWorkloadPackingEvidenceWithMode(shards []ShardPlan, groups []CompileG
 	if err := collectPackingEvidenceGroups(stats, workloads, covered, groups, context); err != nil {
 		return nil, err
 	}
-	if err := collectPackingEvidenceOrdinary(stats, workloads, covered, context); err != nil {
+	if err := collectPackingEvidenceOrdinary(stats, workloads, covered, context, compileAware); err != nil {
 		return nil, err
 	}
 	unitsByTier, shardsByTier, err := rebuildPackingEvidenceUnits(shards, groups, context)
@@ -177,8 +178,8 @@ func collectPackingEvidenceGroup(group CompileGroup, workloads map[GateID]Planne
 	return tier, nil
 }
 
-// collectPackingEvidenceOrdinary 将未归入 compile group 的 workload 计为 ordinary packable unit。
-func collectPackingEvidenceOrdinary(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, workloads map[GateID]PlannedWorkload, covered map[GateID]struct{}, context PlanningContext) error {
+// collectPackingEvidenceOrdinary 将未归入 compile group 的 workload 按 hard-isolation 与目标分类。
+func collectPackingEvidenceOrdinary(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, workloads map[GateID]PlannedWorkload, covered map[GateID]struct{}, context PlanningContext, compileAware bool) error {
 	for id, workload := range workloads {
 		if _, grouped := covered[id]; grouped {
 			continue
@@ -192,13 +193,36 @@ func collectPackingEvidenceOrdinary(stats map[cicontract.WorkloadResourceTier]*w
 		if err != nil {
 			return fmt.Errorf("classify ordinary workload %q hard isolation: %w", workload.Workload.ID, err)
 		}
-		if reason.hardIsolated() {
+		isolated := reason.hardIsolated()
+		if !compileAware && !isolated {
+			isolated, err = ordinaryPackingEvidenceNeedsIsolation(workload, context, tier)
+			if err != nil {
+				return err
+			}
+		}
+		if isolated {
 			bucket.isolated++
 		} else {
 			bucket.packable++
 		}
 	}
 	return nil
+}
+
+// ordinaryPackingEvidenceNeedsIsolation 按档位 resolution 判定普通 workload 是否必须独占。
+func ordinaryPackingEvidenceNeedsIsolation(workload PlannedWorkload, context PlanningContext, tier cicontract.WorkloadResourceTier) (bool, error) {
+	resolution, err := packingEvidenceResolution(context, tier)
+	if err != nil {
+		return false, fmt.Errorf("classify ordinary workload %q packing resolution: %w", workload.Workload.ID, err)
+	}
+	if resolution == cicontract.WorkloadResourceTierReserveResolutionBootstrap {
+		return true, nil
+	}
+	target, err := packingEvidenceTarget(context, tier)
+	if err != nil {
+		return false, fmt.Errorf("classify ordinary workload %q effective target: %w", workload.Workload.ID, err)
+	}
+	return workload.EstimatedDurationMS > target, nil
 }
 
 func packingEvidenceStatsFor(stats map[cicontract.WorkloadResourceTier]*workloadPackingEvidenceStats, tier cicontract.WorkloadResourceTier) *workloadPackingEvidenceStats {
@@ -237,14 +261,16 @@ func finalizePackingEvidenceTier(bucket *workloadPackingEvidenceStats, context P
 	return measuredPackingEvidence(bucket, context, tier, resolution, compileAware)
 }
 
+// bootstrapPackingEvidence 将 bootstrap 档的全部 planning unit 记为 isolated。
 func bootstrapPackingEvidence(bucket *workloadPackingEvidenceStats, tier cicontract.WorkloadResourceTier) (WorkloadPackingEvidence, error) {
 	unitCount := bucket.packable + bucket.isolated
 	if bucket.planned != unitCount {
 		return WorkloadPackingEvidence{}, fmt.Errorf("tier %d bootstrap planned shards %d differ from unit count %d", tier, bucket.planned, unitCount)
 	}
-	return WorkloadPackingEvidence{ResourceTier: tier, Resolution: cicontract.WorkloadResourceTierReserveResolutionBootstrap, SolverMode: cicontract.WorkloadPlanningReserveBootstrapSolverModeID, PackableUnitCount: bucket.packable, IsolatedUnitCount: bucket.isolated, LowerBoundShards: unitCount, PlannedShards: unitCount}, nil
+	return WorkloadPackingEvidence{ResourceTier: tier, Resolution: cicontract.WorkloadResourceTierReserveResolutionBootstrap, SolverMode: cicontract.WorkloadPlanningReserveBootstrapSolverModeID, PackableUnitCount: 0, IsolatedUnitCount: unitCount, LowerBoundShards: unitCount, PlannedShards: unitCount}, nil
 }
 
+// measuredPackingEvidence 根据资源档位的实测目标计算装箱下界，校验规划分片与证明单元一致性后生成求解模式、单元计数及间隙证据。
 func measuredPackingEvidence(bucket *workloadPackingEvidenceStats, context PlanningContext, tier cicontract.WorkloadResourceTier, resolution cicontract.WorkloadResourceTierReserveResolution, compileAware bool) (WorkloadPackingEvidence, error) {
 	target, err := packingEvidenceTarget(context, tier)
 	if err != nil {

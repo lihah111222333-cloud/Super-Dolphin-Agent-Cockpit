@@ -25,7 +25,7 @@ func assertRemoteCIMissPlannerBoundary(t *testing.T, root string) {
 	assertRemoteCIMarkerOrder(t, prepared, "prepareRemoteWorkloadIdentity(", "prepareRemoteWorkloadReuse(", "remoteCompileGroupInputsForMisses(")
 	assertRemoteCIMarkerOrder(t, prepared, "prepareRemoteWorkloadReuse(", "validateAllHitExecutionIdentity(", "remoteCompileGroupInputsForMisses(")
 	identityPath := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"), "prepareRemoteWorkloadIdentity")
-	assertRemoteCIMarkerOrder(t, identityPath, "remoteWorkloadFingerprintsWithSnapshot(", "workerExecutionDigest(")
+	assertRemoteCIMarkerOrder(t, identityPath, "remoteWorkloadInputDigestsForPrepare(", "remoteWorkerExecutionDigestForPrepare(")
 	allHitIdentity := remoteCIFunctionSource(t, filepath.Join(root, "internal/devtools/remoteci/prepared_run.go"), "validateAllHitExecutionIdentity")
 	for _, marker := range []string{"CandidateGateSourceSHA256", "CandidateGateToolchainSHA256", "ExecutionRunnerImage", "ExecutionImageCacheSnapshotID", "ImageCacheOnly"} {
 		if !strings.Contains(allHitIdentity, marker) {
