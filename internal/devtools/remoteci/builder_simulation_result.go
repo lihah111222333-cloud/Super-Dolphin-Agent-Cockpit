@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -55,6 +56,21 @@ const (
 	builderSimulationResultMaxBytes = 1 << 20
 	builderSimulationEventMaxBytes  = 1 << 20
 )
+
+type builderSimulationRequirement struct {
+	valid   bool
+	message string
+}
+
+// validateBuilderSimulationRequirements 以 fail-fast 方式执行固定字段守卫。
+func validateBuilderSimulationRequirements(requirements ...builderSimulationRequirement) error {
+	for _, requirement := range requirements {
+		if !requirement.valid {
+			return errors.New(requirement.message)
+		}
+	}
+	return nil
+}
 
 // BuilderSimulationResult 是 builder-simulation stdout 的唯一 terminal DTO。
 // 它只描述非权威演练结果，不授予 CI、workload、release 或 PASS authority。
@@ -144,16 +160,15 @@ func (result BuilderSimulationResult) Validate() error {
 
 // validateBuilderSimulationResultHeader 校验 terminal header、operation 和 binding digest。
 func validateBuilderSimulationResultHeader(result BuilderSimulationResult) error {
-	if result.SchemaVersion != BuilderSimulationResultSchema || result.Status != BuilderSimulationResultStatusNotVerified {
-		return errors.New("builder simulation result schema or status is invalid")
-	}
-	if !validBuilderSimulationToken(result.OperationID, 128) || !validPortableDigest(result.RequestDigest) || !validPortableDigest(result.EngineBindingDigest) || !validPortableDigest(result.TargetBindingDigest) {
-		return errors.New("builder simulation result identity is invalid")
-	}
-	if result.Outcome != BuilderSimulationOutcomeSucceeded && result.Outcome != BuilderSimulationOutcomeFailed {
-		return errors.New("builder simulation result outcome is invalid")
-	}
-	return nil
+	return validateBuilderSimulationRequirements(
+		builderSimulationRequirement{result.SchemaVersion == BuilderSimulationResultSchema, "builder simulation result schema is invalid"},
+		builderSimulationRequirement{result.Status == BuilderSimulationResultStatusNotVerified, "builder simulation result status is invalid"},
+		builderSimulationRequirement{validBuilderSimulationToken(result.OperationID, 128), "builder simulation result operation is invalid"},
+		builderSimulationRequirement{validPortableDigest(result.RequestDigest), "builder simulation result request digest is invalid"},
+		builderSimulationRequirement{validPortableDigest(result.EngineBindingDigest), "builder simulation result engine digest is invalid"},
+		builderSimulationRequirement{validPortableDigest(result.TargetBindingDigest), "builder simulation result target digest is invalid"},
+		builderSimulationRequirement{result.Outcome == BuilderSimulationOutcomeSucceeded || result.Outcome == BuilderSimulationOutcomeFailed, "builder simulation result outcome is invalid"},
+	)
 }
 
 // validateBuilderSimulationResultExitCode 应用冻结的五类 process exit matrix。
@@ -175,67 +190,32 @@ func validateBuilderSimulationResultExitCode(result BuilderSimulationResult) err
 }
 
 func validateBuilderSimulationSuccessResult(result BuilderSimulationResult) error {
-	if err := validateBuilderSimulationSuccessIdentity(result); err != nil {
+	if err := validateBuilderSimulationRequirements(
+		builderSimulationRequirement{result.Outcome == BuilderSimulationOutcomeSucceeded, "builder simulation success outcome is invalid"},
+		builderSimulationRequirement{result.Artifact.Kind != "", "builder simulation success artifact is missing"},
+		builderSimulationRequirement{result.Cleanup.PublicationState == BuilderSimulationPublicationStateValidatedPair, "builder simulation success publication is invalid"},
+		builderSimulationRequirement{result.Cleanup.ContainerGroupAbsent, "builder simulation success group cleanup is unproven"},
+		builderSimulationRequirement{result.Cleanup.InputStagingAbsent, "builder simulation success input cleanup is unproven"},
+		builderSimulationRequirement{result.Cleanup.ConfirmedAt != "", "builder simulation success confirmation time is missing"},
+		builderSimulationRequirement{result.Cloud.Group != "", "builder simulation success group is missing"},
+		builderSimulationRequirement{result.Cloud.Status == BuilderSimulationCloudStatusSucceeded, "builder simulation success cloud status is invalid"},
+		builderSimulationRequirement{result.Cloud.ContainerExitCode == 0, "builder simulation success container exit is invalid"},
+		builderSimulationRequirement{result.Error == (BuilderSimulationResultError{}), "builder simulation success error must be empty"},
+	); err != nil {
 		return err
-	}
-	if err := validateBuilderSimulationSuccessCleanup(result.Cleanup); err != nil {
-		return err
-	}
-	if err := validateBuilderSimulationSuccessCloud(result.Cloud); err != nil {
-		return err
-	}
-	if result.Error != (BuilderSimulationResultError{}) {
-		return errors.New("builder simulation success error must be empty")
 	}
 	return validateBuilderSimulationResultTimes(result.Cloud.StartedAt, result.Cloud.FinishedAt)
 }
 
-func validateBuilderSimulationSuccessIdentity(result BuilderSimulationResult) error {
-	if result.Outcome != BuilderSimulationOutcomeSucceeded {
-		return errors.New("builder simulation success result identity is invalid")
-	}
-	if result.Artifact.Kind == "" {
-		return errors.New("builder simulation success artifact is missing")
-	}
-	if result.Cleanup.PublicationState != BuilderSimulationPublicationStateValidatedPair {
-		return errors.New("builder simulation success publication is invalid")
-	}
-	return nil
-}
-
-func validateBuilderSimulationSuccessCleanup(cleanup BuilderSimulationResultCleanup) error {
-	if !cleanup.ContainerGroupAbsent {
-		return errors.New("builder simulation success group cleanup is unproven")
-	}
-	if !cleanup.InputStagingAbsent {
-		return errors.New("builder simulation success input cleanup is unproven")
-	}
-	if cleanup.ConfirmedAt == "" {
-		return errors.New("builder simulation success confirmation time is missing")
-	}
-	return nil
-}
-
-func validateBuilderSimulationSuccessCloud(cloud BuilderSimulationResultCloud) error {
-	if cloud.Group == "" {
-		return errors.New("builder simulation success group is missing")
-	}
-	if cloud.Status != BuilderSimulationCloudStatusSucceeded {
-		return errors.New("builder simulation success cloud status is invalid")
-	}
-	if cloud.ContainerExitCode != 0 {
-		return errors.New("builder simulation success container exit is invalid")
-	}
-	return nil
-}
-
 // validateBuilderSimulationBuildFailureResult 校验 cleanup-proven 的构建或云失败。
 func validateBuilderSimulationBuildFailureResult(result BuilderSimulationResult) error {
-	if result.Outcome != BuilderSimulationOutcomeFailed {
-		return errors.New("builder simulation build failure outcome is invalid")
-	}
-	if !result.Cleanup.ContainerGroupAbsent || !result.Cleanup.InputStagingAbsent || result.Cleanup.ConfirmedAt == "" {
-		return errors.New("builder simulation build failure cleanup proof is invalid")
+	if err := validateBuilderSimulationRequirements(
+		builderSimulationRequirement{result.Outcome == BuilderSimulationOutcomeFailed, "builder simulation build failure outcome is invalid"},
+		builderSimulationRequirement{result.Cleanup.ContainerGroupAbsent, "builder simulation build failure group cleanup is unproven"},
+		builderSimulationRequirement{result.Cleanup.InputStagingAbsent, "builder simulation build failure input cleanup is unproven"},
+		builderSimulationRequirement{result.Cleanup.ConfirmedAt != "", "builder simulation build failure confirmation is missing"},
+	); err != nil {
+		return err
 	}
 	if err := validateBuilderSimulationFailureCloudStatus(result.Cloud.Status); err != nil {
 		return err
@@ -244,11 +224,11 @@ func validateBuilderSimulationBuildFailureResult(result BuilderSimulationResult)
 }
 
 func validateBuilderSimulationContractFailureResult(result BuilderSimulationResult) error {
-	if result.Outcome != BuilderSimulationOutcomeFailed {
-		return errors.New("builder simulation contract failure outcome is invalid")
-	}
-	if !builderSimulationArtifactEmpty(result.Artifact) {
-		return errors.New("builder simulation contract failure artifact is invalid")
+	if err := validateBuilderSimulationRequirements(
+		builderSimulationRequirement{result.Outcome == BuilderSimulationOutcomeFailed, "builder simulation contract failure outcome is invalid"},
+		builderSimulationRequirement{builderSimulationArtifactEmpty(result.Artifact), "builder simulation contract failure artifact is invalid"},
+	); err != nil {
+		return err
 	}
 	if err := validateBuilderSimulationContractFailureCloud(result.Cloud); err != nil {
 		return err
@@ -261,38 +241,22 @@ func validateBuilderSimulationContractFailureResult(result BuilderSimulationResu
 
 // validateBuilderSimulationContractFailureCloud 校验 side-effect 前的 cloud 空证据。
 func validateBuilderSimulationContractFailureCloud(cloud BuilderSimulationResultCloud) error {
-	if cloud.Group != "" {
-		return errors.New("builder simulation contract failure group is present")
-	}
-	if cloud.Status != BuilderSimulationCloudStatusNotStarted {
-		return errors.New("builder simulation contract failure cloud status is invalid")
-	}
-	if cloud.ContainerExitCode != -1 {
-		return errors.New("builder simulation contract failure container exit is invalid")
-	}
-	if cloud.StartedAt != "" {
-		return errors.New("builder simulation contract failure start is present")
-	}
-	if cloud.FinishedAt != "" {
-		return errors.New("builder simulation contract failure finish is present")
-	}
-	return nil
+	return validateBuilderSimulationRequirements(
+		builderSimulationRequirement{cloud.Group == "", "builder simulation contract failure group is present"},
+		builderSimulationRequirement{cloud.Status == BuilderSimulationCloudStatusNotStarted, "builder simulation contract failure cloud status is invalid"},
+		builderSimulationRequirement{cloud.ContainerExitCode == -1, "builder simulation contract failure container exit is invalid"},
+		builderSimulationRequirement{cloud.StartedAt == "", "builder simulation contract failure start is present"},
+		builderSimulationRequirement{cloud.FinishedAt == "", "builder simulation contract failure finish is present"},
+	)
 }
 
 func validateBuilderSimulationContractFailureCleanup(cleanup BuilderSimulationResultCleanup) error {
-	if !cleanup.ContainerGroupAbsent {
-		return errors.New("builder simulation contract failure group cleanup is unproven")
-	}
-	if !cleanup.InputStagingAbsent {
-		return errors.New("builder simulation contract failure input cleanup is unproven")
-	}
-	if cleanup.ConfirmedAt == "" {
-		return errors.New("builder simulation contract failure confirmation is missing")
-	}
-	if cleanup.PublicationState != BuilderSimulationPublicationStateNotApplicable {
-		return errors.New("builder simulation contract failure publication is invalid")
-	}
-	return nil
+	return validateBuilderSimulationRequirements(
+		builderSimulationRequirement{cleanup.ContainerGroupAbsent, "builder simulation contract failure group cleanup is unproven"},
+		builderSimulationRequirement{cleanup.InputStagingAbsent, "builder simulation contract failure input cleanup is unproven"},
+		builderSimulationRequirement{cleanup.ConfirmedAt != "", "builder simulation contract failure confirmation is missing"},
+		builderSimulationRequirement{cleanup.PublicationState == BuilderSimulationPublicationStateNotApplicable, "builder simulation contract failure publication is invalid"},
+	)
 }
 
 func validateBuilderSimulationCleanupFailureResult(result BuilderSimulationResult) error {
@@ -310,10 +274,13 @@ func validateBuilderSimulationResultArtifact(artifact BuilderSimulationResultArt
 	if builderSimulationArtifactEmpty(artifact) {
 		return nil
 	}
-	if artifact.Kind != BuilderSimulationArtifactKindPortableRuntime || !validPortableDigest(artifact.BytesSHA256) || !validPortableDigest(artifact.IdentityDigest) || artifact.SizeBytes <= 0 || !validPortableDigest(artifact.ReceiptDigest) {
-		return errors.New("builder simulation result artifact identity is invalid")
-	}
-	return nil
+	return validateBuilderSimulationRequirements(
+		builderSimulationRequirement{artifact.Kind == BuilderSimulationArtifactKindPortableRuntime, "builder simulation result artifact kind is invalid"},
+		builderSimulationRequirement{validPortableDigest(artifact.BytesSHA256), "builder simulation result artifact bytes digest is invalid"},
+		builderSimulationRequirement{validPortableDigest(artifact.IdentityDigest), "builder simulation result artifact identity digest is invalid"},
+		builderSimulationRequirement{artifact.SizeBytes > 0, "builder simulation result artifact size is invalid"},
+		builderSimulationRequirement{validPortableDigest(artifact.ReceiptDigest), "builder simulation result artifact receipt digest is invalid"},
+	)
 }
 
 func builderSimulationArtifactEmpty(artifact BuilderSimulationResultArtifact) bool {
@@ -579,12 +546,7 @@ func builderSimulationEventStages() []string {
 }
 
 func validBuilderSimulationEventStage(stage string) bool {
-	for _, value := range builderSimulationEventStages() {
-		if value == stage {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(builderSimulationEventStages(), stage)
 }
 
 func validBuilderSimulationEventState(state string) bool {
