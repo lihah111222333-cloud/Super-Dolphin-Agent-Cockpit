@@ -20,7 +20,7 @@ func TestRemoteCIImageCacheRefreshScriptLocksTheExternalOperatorBoundary(t *test
 		t.Fatal(err)
 	}
 	source := strings.ToLower(string(content))
-	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=100", "remote-ci-imagecache-refresh-receipt/v3", "go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci", "cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "chown 0:0 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "remote_ci_binary_sha256"} {
+	for _, required := range []string{"goproxy=off", "gocache=/tmp/go-build", "gomodcache=/tmp/gomod", "redact_cloud_error", "--imagesnapshotid", "--plainhttpregistry", "--retentiondays", "mutates_sqlite:false", "vSwitchRandom", "--if-older-than-hours", "refreshed_at_unix_sec", "baseline-refresh/receipts/current.json", "--AutoMatchImageCache true", "--EliminationStrategy LRU", "--ClientToken", "ErrImageNeverPull", "readonly image_cache_size_gib=100", "remote-ci-imagecache-refresh-receipt/v3", "go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci", "cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "tar --owner=0 --group=0 --numeric-owner", "chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci", "remote_ci_binary_sha256"} {
 		if !strings.Contains(source, strings.ToLower(required)) {
 			t.Errorf("refresh script is missing %q", required)
 		}
@@ -198,7 +198,7 @@ func assertPortableBuilderContract(t *testing.T, builder string) {
 	assertRefreshMarkers(t, builder, []string{
 		"go build -trimpath -o /tmp/candidate-remote-ci ./cmd/super-dolphin-remote-ci",
 		"cp /tmp/candidate-remote-ci /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
-		"chown 0:0 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
+		"tar --owner=0 --group=0 --numeric-owner",
 		"chmod 0555 /tmp/overlay/usr/local/bin/super-dolphin-remote-ci",
 		"remote_ci_binary_sha256=$(sha256sum /tmp/candidate-remote-ci",
 	})
@@ -208,6 +208,8 @@ func assertPortableVerifierContract(t *testing.T, source, verify string) {
 	t.Helper()
 	assertRefreshMarkers(t, verify, []string{
 		"test -x /usr/local/bin/super-dolphin-remote-ci",
+		"stat -c %u:%g /usr/local/bin/super-dolphin-remote-ci",
+		"stat -c %a /usr/local/bin/super-dolphin-remote-ci",
 		"sha256sum /usr/local/bin/super-dolphin-remote-ci",
 		"EXPECTED_REMOTE_CI_BINARY_SHA256",
 		"remote_ci_binary_sha256=%s",
