@@ -3,6 +3,7 @@ package remoteci
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -94,6 +95,114 @@ func TestSourceBaselineBuildEvidenceRejectsArtifactReceiptKeyDigestDrift(t *test
 				t.Fatal("SourceBaselineBuildEvidence.ValidateAgainst() accepted artifact/receipt key digest drift")
 			}
 		})
+	}
+}
+
+func TestSourceBaselineBuildEvidenceTerminalFieldsRoundTripAndDynamicGuard(t *testing.T) {
+	input := testSourceBaselineBuildInput(t)
+	evidence := testSourceBaselineBuildEvidence(t, input)
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatalf("json.Marshal(SourceBaselineBuildEvidence) error = %v", err)
+	}
+	assertSourceBaselineBuildEvidenceJSONContract(t, encoded, evidence)
+}
+
+func assertSourceBaselineBuildEvidenceJSONContract(t *testing.T, encoded []byte, evidence SourceBaselineBuildEvidence) {
+	t.Helper()
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatalf("json.Unmarshal(SourceBaselineBuildEvidence) error = %v", err)
+	}
+	typeOfEvidence := reflect.TypeFor[SourceBaselineBuildEvidence]()
+	assertSourceBaselineBuildEvidenceJSONFields(t, fields, typeOfEvidence)
+	assertSourceBaselineBuildEvidenceRoundTrip(t, encoded, evidence)
+}
+
+func assertSourceBaselineBuildEvidenceJSONFields(t *testing.T, fields map[string]json.RawMessage, typeOfEvidence reflect.Type) {
+	t.Helper()
+	if len(fields) != typeOfEvidence.NumField() {
+		t.Fatalf("production fields = %d, JSON fields = %d", typeOfEvidence.NumField(), len(fields))
+	}
+	for field := range typeOfEvidence.Fields() {
+		name, _, hasOptions := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" || hasOptions {
+			t.Fatalf("field %q has invalid JSON contract", field.Name)
+		}
+		if _, ok := fields[name]; !ok {
+			t.Fatalf("JSON omitted production field %q", field.Name)
+		}
+	}
+	for _, name := range []string{"container_group_status", "container_exit_code", "started_at", "finished_at"} {
+		if _, ok := fields[name]; !ok {
+			t.Fatalf("JSON omitted terminal provider field %q", name)
+		}
+	}
+}
+
+func assertSourceBaselineBuildEvidenceRoundTrip(t *testing.T, encoded []byte, evidence SourceBaselineBuildEvidence) {
+	t.Helper()
+	var decoded SourceBaselineBuildEvidence
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("terminal evidence round-trip decode error = %v", err)
+	}
+	if !reflect.DeepEqual(decoded, evidence) {
+		t.Fatalf("terminal evidence round-trip = %#v, want %#v", decoded, evidence)
+	}
+}
+
+func TestSourceBaselineBuildEvidenceRejectsTerminalProviderDrift(t *testing.T) {
+	input := testSourceBaselineBuildInput(t)
+	for name, mutate := range map[string]func(*SourceBaselineBuildEvidence){
+		"status":         func(evidence *SourceBaselineBuildEvidence) { evidence.ContainerGroupStatus = "Failed" },
+		"exit":           func(evidence *SourceBaselineBuildEvidence) { evidence.ContainerExitCode = 1 },
+		"start_format":   func(evidence *SourceBaselineBuildEvidence) { evidence.StartedAt = "1970-01-01T00:00:01+00:00" },
+		"finish_order":   func(evidence *SourceBaselineBuildEvidence) { evidence.FinishedAt = evidence.StartedAt },
+		"finish_missing": func(evidence *SourceBaselineBuildEvidence) { evidence.FinishedAt = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			evidence := testSourceBaselineBuildEvidence(t, input)
+			mutate(&evidence)
+			if err := evidence.ValidateAgainst(input); err == nil {
+				t.Fatal("SourceBaselineBuildEvidence.ValidateAgainst() accepted terminal provider drift")
+			}
+		})
+	}
+}
+
+func TestSourceBaselineBuildEvidenceValidationFieldGuard(t *testing.T) {
+	input := testSourceBaselineBuildInput(t)
+	mutators := map[string]func(*SourceBaselineBuildEvidence){
+		"Request":              func(evidence *SourceBaselineBuildEvidence) { evidence.Request.RepositoryID = "" },
+		"InputDigest":          func(evidence *SourceBaselineBuildEvidence) { evidence.InputDigest = "" },
+		"Provider":             func(evidence *SourceBaselineBuildEvidence) { evidence.Provider = "other/v1" },
+		"ContainerGroupID":     func(evidence *SourceBaselineBuildEvidence) { evidence.ContainerGroupID = "" },
+		"ContainerGroupStatus": func(evidence *SourceBaselineBuildEvidence) { evidence.ContainerGroupStatus = "Failed" },
+		"ContainerExitCode":    func(evidence *SourceBaselineBuildEvidence) { evidence.ContainerExitCode = 1 },
+		"StartedAt":            func(evidence *SourceBaselineBuildEvidence) { evidence.StartedAt = "1970-01-01T00:00:01+00:00" },
+		"FinishedAt":           func(evidence *SourceBaselineBuildEvidence) { evidence.FinishedAt = evidence.StartedAt },
+		"ArtifactKey":          func(evidence *SourceBaselineBuildEvidence) { evidence.ArtifactKey += ".drift" },
+		"ReceiptKey":           func(evidence *SourceBaselineBuildEvidence) { evidence.ReceiptKey += ".drift" },
+		"Receipt":              func(evidence *SourceBaselineBuildEvidence) { evidence.Receipt.SchemaVersion = "" },
+	}
+	typeOfEvidence := reflect.TypeFor[SourceBaselineBuildEvidence]()
+	seen := make(map[string]struct{}, typeOfEvidence.NumField())
+	for field := range typeOfEvidence.Fields() {
+		mutate, ok := mutators[field.Name]
+		if !ok {
+			t.Fatalf("evidence field %q has no validation guard mutator", field.Name)
+		}
+		seen[field.Name] = struct{}{}
+		evidence := testSourceBaselineBuildEvidence(t, input)
+		mutate(&evidence)
+		if err := evidence.ValidateAgainst(input); err == nil {
+			t.Fatalf("evidence field %q mutation bypassed ValidateAgainst", field.Name)
+		}
+	}
+	for name := range mutators {
+		if _, ok := seen[name]; !ok {
+			t.Fatalf("validation guard mutator %q is stale", name)
+		}
 	}
 }
 
@@ -224,13 +333,17 @@ func testSourceBaselineBuildEvidence(t *testing.T, input SourceBaselineBuildInpu
 		t.Fatalf("source baseline builder input digest: %v", err)
 	}
 	return SourceBaselineBuildEvidence{
-		Request:          input,
-		InputDigest:      inputDigest,
-		Provider:         PortableExecutionProvider,
-		ContainerGroupID: "group-1",
-		ArtifactKey:      artifactKey,
-		ReceiptKey:       receiptKey,
-		Receipt:          receipt,
+		Request:              input,
+		InputDigest:          inputDigest,
+		Provider:             PortableExecutionProvider,
+		ContainerGroupID:     "group-1",
+		ContainerGroupStatus: "Succeeded",
+		ContainerExitCode:    0,
+		StartedAt:            "1970-01-01T00:00:01Z",
+		FinishedAt:           "1970-01-01T00:00:02Z",
+		ArtifactKey:          artifactKey,
+		ReceiptKey:           receiptKey,
+		Receipt:              receipt,
 	}
 }
 

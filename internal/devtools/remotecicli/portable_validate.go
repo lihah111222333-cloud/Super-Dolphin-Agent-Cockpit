@@ -26,7 +26,7 @@ const (
 	outputMaxBytes     = 16 << 10
 )
 
-const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file>\n"
+const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> | builder-simulate --request <absolute-file>\n"
 
 // ErrExecutionContractUpgradeRequired 表示 execute 尚未获得可验证的执行合约。
 var ErrExecutionContractUpgradeRequired = errors.New("execution contract upgrade required")
@@ -36,6 +36,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	err := dispatchCLI(args, stdout, stderr)
 	if err == nil {
 		return 0
+	}
+	if simulationExit, ok := errors.AsType[builderSimulationExitError](err); ok {
+		return simulationExit.code
 	}
 	if _, writeErr := fmt.Fprintln(stderr, "super-dolphin-remote-ci:", err); writeErr != nil {
 		return 3
@@ -55,6 +58,8 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 		return dispatchArtifactBuild(args[1:], stdout, stderr)
 	case "_artifact-identity":
 		return dispatchArtifactIdentity(args[1:], stdout, stderr)
+	case "builder-simulate":
+		return runBuilderSimulationCLI(args[1:], stdout, stderr)
 	case "execute":
 		return ErrExecutionContractUpgradeRequired
 	default:

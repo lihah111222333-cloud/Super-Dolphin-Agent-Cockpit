@@ -12,6 +12,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -84,13 +85,17 @@ type SourceBaselineProducerReceipt struct {
 
 // SourceBaselineBuildEvidence 是制品 builder 返回的有界编排证据。
 type SourceBaselineBuildEvidence struct {
-	Request          SourceBaselineBuildInput      `json:"request"`
-	InputDigest      string                        `json:"input_digest"`
-	Provider         string                        `json:"provider"`
-	ContainerGroupID string                        `json:"container_group_id"`
-	ArtifactKey      string                        `json:"artifact_key"`
-	ReceiptKey       string                        `json:"receipt_key"`
-	Receipt          SourceBaselineProducerReceipt `json:"receipt"`
+	Request              SourceBaselineBuildInput      `json:"request"`
+	InputDigest          string                        `json:"input_digest"`
+	Provider             string                        `json:"provider"`
+	ContainerGroupID     string                        `json:"container_group_id"`
+	ContainerGroupStatus string                        `json:"container_group_status"`
+	ContainerExitCode    int64                         `json:"container_exit_code"`
+	StartedAt            string                        `json:"started_at"`
+	FinishedAt           string                        `json:"finished_at"`
+	ArtifactKey          string                        `json:"artifact_key"`
+	ReceiptKey           string                        `json:"receipt_key"`
+	Receipt              SourceBaselineProducerReceipt `json:"receipt"`
 }
 
 // CanonicalSourceBaselineBuilderKeys 是 artifact 与 receipt 的唯一对象键构造器。
@@ -364,6 +369,7 @@ func (evidence SourceBaselineBuildEvidence) Validate() error {
 		evidence.validateRequest,
 		evidence.validateProvider,
 		evidence.validateContainerGroup,
+		evidence.validateTerminal,
 		evidence.validateReceipt,
 		evidence.validateObjectKeys,
 	}
@@ -401,6 +407,22 @@ func (evidence SourceBaselineBuildEvidence) validateProvider() error {
 // validateContainerGroup 校验 ECI container group 的不透明身份。
 func (evidence SourceBaselineBuildEvidence) validateContainerGroup() error {
 	return validateBuilderObjectKey("container_group_id", evidence.ContainerGroupID)
+}
+
+// validateTerminal 校验 provider 成功终态、退出码与 canonical 时间区间。
+func (evidence SourceBaselineBuildEvidence) validateTerminal() error {
+	if evidence.ContainerGroupStatus != "Succeeded" || evidence.ContainerExitCode != 0 {
+		return errors.New("source baseline builder evidence terminal status is invalid")
+	}
+	started, err := time.Parse(time.RFC3339Nano, evidence.StartedAt)
+	if err != nil || started.UTC().Format(time.RFC3339Nano) != evidence.StartedAt {
+		return errors.New("source baseline builder evidence start time is invalid")
+	}
+	finished, err := time.Parse(time.RFC3339Nano, evidence.FinishedAt)
+	if err != nil || finished.UTC().Format(time.RFC3339Nano) != evidence.FinishedAt || !finished.After(started) {
+		return errors.New("source baseline builder evidence finish time is invalid")
+	}
+	return nil
 }
 
 // validateReceipt 校验证据携带的 producer receipt 及 provider 绑定。

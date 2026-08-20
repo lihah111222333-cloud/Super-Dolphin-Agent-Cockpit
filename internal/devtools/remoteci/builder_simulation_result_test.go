@@ -100,7 +100,7 @@ func TestBuilderSimulationResultExitMatrix(t *testing.T) {
 	validContractFailure.Outcome = BuilderSimulationOutcomeFailed
 	validContractFailure.Artifact = BuilderSimulationResultArtifact{}
 	validContractFailure.Cloud = BuilderSimulationResultCloud{Provider: cicontract.ExecutionProviderID, Status: BuilderSimulationCloudStatusNotStarted, ContainerExitCode: -1}
-	validContractFailure.Cleanup = BuilderSimulationResultCleanup{ContainerGroupAbsent: true, InputStagingAbsent: true, PublicationState: BuilderSimulationPublicationStateNotApplicable, ConfirmedAt: "2026-08-20T00:00:02Z"}
+	validContractFailure.Cleanup = BuilderSimulationResultCleanup{ContainerGroupAbsent: true, InputStagingAbsent: true, HostInputAbsent: true, PublicationState: BuilderSimulationPublicationStateNotApplicable, ConfirmedAt: "2026-08-20T00:00:02Z"}
 	validContractFailure.Error = validBuilderSimulationResultError()
 	validContractFailure.Error.Stage = BuilderSimulationEventStageRequestValidated
 	if err := validContractFailure.Validate(); err != nil {
@@ -144,8 +144,7 @@ func assertBuilderSimulationResultWireFields(t *testing.T) {
 		if root.Kind() != reflect.Struct {
 			t.Fatalf("result ABI root %s is not a struct", root)
 		}
-		for index := 0; index < root.NumField(); index++ {
-			field := root.Field(index)
+		for field := range root.Fields() {
 			jsonName, options, hasOptions := strings.Cut(field.Tag.Get("json"), ",")
 			if hasOptions || options != "" || jsonName == "" || strings.Contains(field.Tag.Get("json"), "omitempty") {
 				t.Fatalf("field %s has implicit/default JSON behavior", field.Name)
@@ -270,7 +269,7 @@ func validBuilderSimulationResult(t *testing.T) BuilderSimulationResult {
 		EngineBindingDigest: builderSimulationDigest("2"), TargetBindingDigest: builderSimulationDigest("3"),
 		Artifact:         BuilderSimulationResultArtifact{Kind: BuilderSimulationArtifactKindPortableRuntime, BytesSHA256: builderSimulationDigest("4"), IdentityDigest: builderSimulationDigest("5"), SizeBytes: 128, ReceiptDigest: builderSimulationDigest("6")},
 		Cloud:            BuilderSimulationResultCloud{Provider: cicontract.ExecutionProviderID, Group: "group-1", Status: BuilderSimulationCloudStatusSucceeded, ContainerExitCode: 0, StartedAt: "2026-08-20T00:00:00Z", FinishedAt: "2026-08-20T00:00:01Z"},
-		Cleanup:          BuilderSimulationResultCleanup{ContainerGroupAbsent: true, InputStagingAbsent: true, PublicationState: BuilderSimulationPublicationStateValidatedPair, ConfirmedAt: "2026-08-20T00:00:01Z"},
+		Cleanup:          BuilderSimulationResultCleanup{ContainerGroupAbsent: true, InputStagingAbsent: true, HostInputAbsent: true, PublicationState: BuilderSimulationPublicationStateValidatedPair, ConfirmedAt: "2026-08-20T00:00:01Z"},
 		AuthorityEffects: BuilderSimulationAuthorityEffectsNone,
 		Error:            BuilderSimulationResultError{},
 	}

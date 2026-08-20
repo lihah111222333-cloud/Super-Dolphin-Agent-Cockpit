@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,9 @@ func TestArtifactBuilderRuntimeScriptedSuccessCleansExactlyOnce(t *testing.T) {
 	}
 	if evidence.ArtifactKey != fixture.artifactKey || evidence.ReceiptKey != fixture.receiptKey {
 		t.Fatalf("evidence keys = %q/%q", evidence.ArtifactKey, evidence.ReceiptKey)
+	}
+	if evidence.ContainerGroupStatus != fixture.succeeded.Status || evidence.ContainerExitCode != 0 || evidence.StartedAt != fixture.succeeded.Container.StartTime.UTC().Format(time.RFC3339Nano) || evidence.FinishedAt != fixture.succeeded.Container.FinishTime.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("terminal provider evidence = %#v, group = %#v", evidence, fixture.succeeded)
 	}
 	assertRuntimeActorCalls(t, actor)
 	assertRuntimeStoreCleanup(t, store, events)
@@ -79,11 +83,44 @@ func TestArtifactBuilderRuntimeFailureDoesNotRecreateAndStillCleans(t *testing.T
 	actor := &scriptedArtifactBuilderActor{groups: []eci.ArtifactBuilderGroup{fixture.pending, failed}, logs: ""}
 	store := &scriptedArtifactBuilderStore{receipt: fixture.receiptBytes, artifact: fixture.bundle, receiptKey: fixture.receiptKey, artifactKey: fixture.artifactKey}
 	runtime := mustRuntime(t, fixture, actor, store)
-	if _, err := runtime.Build(context.Background(), fixture.input); err == nil {
+	evidence, err := runtime.Build(context.Background(), fixture.input)
+	if err == nil {
 		t.Fatal("Build() accepted failed builder group")
+	}
+	if !reflect.ValueOf(evidence).IsZero() {
+		t.Fatalf("failed builder formed evidence: %#v", evidence)
 	}
 	if actor.createCalls != 1 || actor.deleteCalls != 1 || store.deleteCalls != 1 || actor.absentCalls != 1 || store.absentCalls != 1 {
 		t.Fatalf("failure cleanup calls = actor create:%d delete:%d absent:%d store delete:%d absent:%d", actor.createCalls, actor.deleteCalls, actor.absentCalls, store.deleteCalls, store.absentCalls)
+	}
+}
+
+func TestArtifactBuilderRuntimeRejectsProviderTerminalEvidenceDrift(t *testing.T) {
+	for name, mutate := range map[string]func(*eci.ArtifactBuilderGroup){
+		"status": func(group *eci.ArtifactBuilderGroup) { group.Status = eci.ArtifactBuilderGroupFailed },
+		"exit": func(group *eci.ArtifactBuilderGroup) {
+			code := int64(1)
+			group.Container.ExitCode = &code
+		},
+		"container_state": func(group *eci.ArtifactBuilderGroup) { group.Container.State = eci.ArtifactBuilderContainerRunning },
+		"start":           func(group *eci.ArtifactBuilderGroup) { group.Container.StartTime = time.Time{} },
+		"finish":          func(group *eci.ArtifactBuilderGroup) { group.Container.FinishTime = group.Container.StartTime },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newRuntimeFixture(t)
+			terminal := fixture.succeeded
+			mutate(&terminal)
+			actor := &scriptedArtifactBuilderActor{groups: []eci.ArtifactBuilderGroup{fixture.pending, terminal}, logs: fixture.output}
+			store := &scriptedArtifactBuilderStore{receipt: fixture.receiptBytes, artifact: fixture.bundle, receiptKey: fixture.receiptKey, artifactKey: fixture.artifactKey}
+			runtime := mustRuntime(t, fixture, actor, store)
+			evidence, err := runtime.Build(context.Background(), fixture.input)
+			if err == nil {
+				t.Fatal("Build() accepted provider terminal evidence drift")
+			}
+			if !reflect.ValueOf(evidence).IsZero() {
+				t.Fatalf("provider drift formed evidence: %#v", evidence)
+			}
+		})
 	}
 }
 

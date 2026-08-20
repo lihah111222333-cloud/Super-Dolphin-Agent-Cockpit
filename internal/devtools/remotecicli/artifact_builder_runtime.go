@@ -185,8 +185,13 @@ func (runtime *ArtifactBuilderRuntime) collectEvidence(ctx, pollCtx context.Cont
 	if err != nil {
 		return remoteci.SourceBaselineBuildEvidence{}, err
 	}
+	if group.Container.ExitCode == nil {
+		return remoteci.SourceBaselineBuildEvidence{}, errors.New("artifact builder terminal group omitted exit code")
+	}
 	evidence := remoteci.SourceBaselineBuildEvidence{Request: input, InputDigest: inputDigest, Provider: output.ExecutionProvider,
-		ContainerGroupID: group.ID, ArtifactKey: output.ArtifactKey, ReceiptKey: output.ReceiptKey, Receipt: receipt}
+		ContainerGroupID: group.ID, ContainerGroupStatus: group.Status, ContainerExitCode: *group.Container.ExitCode,
+		StartedAt: group.Container.StartTime.UTC().Format(time.RFC3339Nano), FinishedAt: group.Container.FinishTime.UTC().Format(time.RFC3339Nano),
+		ArtifactKey: output.ArtifactKey, ReceiptKey: output.ReceiptKey, Receipt: receipt}
 	if err := evidence.ValidateAgainst(input); err != nil {
 		return remoteci.SourceBaselineBuildEvidence{}, err
 	}
