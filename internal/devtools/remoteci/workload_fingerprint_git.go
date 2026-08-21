@@ -156,8 +156,13 @@ func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) err
 	if err != nil {
 		return err
 	}
+	workspaceDirectories, err := remoteGoWorkspaceDirectories(sources["go.work"])
+	if err != nil {
+		return err
+	}
 	snapshot.goSources = sources
 	snapshot.moduleMappings = mappings
+	snapshot.workspaceModuleDirectories = workspaceDirectories
 	return nil
 }
 
@@ -234,6 +239,27 @@ func remoteGoWorkspaceModuleMappings(sources map[string][]byte, data []byte) ([]
 	}
 	sort.Slice(mappings, func(left, right int) bool { return len(mappings[left].importPath) > len(mappings[right].importPath) })
 	return mappings, nil
+}
+
+// remoteGoWorkspaceDirectories 返回已建模 workspace 的 canonical use 目录。
+func remoteGoWorkspaceDirectories(data []byte) ([]string, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	workspace, err := modfile.ParseWork("go.work", data, nil)
+	if err != nil {
+		return nil, errors.New("Go workload fingerprint workspace is invalid")
+	}
+	directories := make([]string, 0, len(workspace.Use))
+	for _, use := range workspace.Use {
+		directory, err := canonicalRemoteGoModuleDirectory(use.Path)
+		if err != nil {
+			return nil, fmt.Errorf("Go workload fingerprint workspace use: %w", err)
+		}
+		directories = append(directories, directory)
+	}
+	sort.Strings(directories)
+	return directories, nil
 }
 
 // appendRemoteWorkspaceModuleMappings 校验 use/module 唯一性并追加模块与本地 replace 映射。

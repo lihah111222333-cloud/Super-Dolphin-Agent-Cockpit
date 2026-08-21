@@ -60,3 +60,26 @@ func TestRemoteGoWorkspaceModuleMappingsRejectsUnboundWorkspace(t *testing.T) {
 		})
 	}
 }
+
+// TestInventoryFullTargetsIncludesOnlyModelledWorkspaceModules 锁定 workspace use 可见且普通 nested module 继续隔离。
+func TestInventoryFullTargetsIncludesOnlyModelledWorkspaceModules(t *testing.T) {
+	files := []string{
+		"go.mod", "internal/engine/engine.go",
+		"portable-target/remote-ci/go.mod", "portable-target/remote-ci/internal/devtools/gate/gate.go",
+		"third_party/unmodelled/go.mod", "third_party/unmodelled/package.go",
+	}
+	targets, err := inventoryFullTargets(files, inventoryVitestSuitePolicy{}, []string{".", "portable-target/remote-ci"})
+	if err != nil {
+		t.Fatalf("inventoryFullTargets: %v", err)
+	}
+	want := map[string]bool{"./internal/engine": true, "./portable-target/remote-ci/internal/devtools/gate": true}
+	for _, target := range targets.goPackages {
+		if !want[target] {
+			t.Fatalf("unexpected Go package target %q", target)
+		}
+		delete(want, target)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing Go package targets: %v", want)
+	}
+}

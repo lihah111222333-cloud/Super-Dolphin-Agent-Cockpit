@@ -81,7 +81,7 @@ func BuildWorkloadInventoryWithSnapshot(
 	if err != nil {
 		return gate.WorkloadInventory{}, nil, err
 	}
-	fullTargets, err := inventoryFullTargets(files, vitestPolicy)
+	fullTargets, err := inventoryFullTargetsWithSnapshot(ctx, snapshot, files, vitestPolicy)
 	if err != nil {
 		return gate.WorkloadInventory{}, nil, err
 	}
@@ -109,6 +109,14 @@ func BuildWorkloadInventoryWithSnapshot(
 		FrontendChangedTests: changedVitestTargets(changed, fullTargets.files, vitestPolicy),
 		FrontendFullTests:    fullTargets.frontendTests,
 	}, &WorkloadInventorySnapshot{snapshot: snapshot}, nil
+}
+
+// inventoryFullTargetsWithSnapshot 准备 module/workspace 映射后构建完整目标集合。
+func inventoryFullTargetsWithSnapshot(ctx context.Context, snapshot *remoteGitTreeSnapshot, files []string, policy inventoryVitestSuitePolicy) (inventoryTargetSet, error) {
+	if err := snapshot.prepareGoSources(ctx); err != nil {
+		return inventoryTargetSet{}, err
+	}
+	return inventoryFullTargets(files, policy, snapshot.workspaceModuleDirectories)
 }
 
 // resolveWorkloadInventoryTree 通过受信 Git 把 legacy canonical commit/tree 输入解析为 exact tree。
@@ -408,7 +416,7 @@ func inventoryVitestGlobMatches(pattern string, target string) bool {
 }
 
 // inventoryFullTargets 从完整树自动发现根模块包、嵌套模块和前端全量测试。
-func inventoryFullTargets(files []string, vitestPolicy inventoryVitestSuitePolicy) (inventoryTargetSet, error) {
+func inventoryFullTargets(files []string, vitestPolicy inventoryVitestSuitePolicy, workspaceModules []string) (inventoryTargetSet, error) {
 	nestedModules, err := inventoryNestedGoModules(files)
 	if err != nil {
 		return inventoryTargetSet{}, err
@@ -416,7 +424,7 @@ func inventoryFullTargets(files []string, vitestPolicy inventoryVitestSuitePolic
 	fileSet, packages, frontend := make(map[string]struct{}, len(files)), make(map[string]struct{}), []string{}
 	for _, file := range files {
 		fileSet[file] = struct{}{}
-		if packageTarget, ok := gate.GoPackageTargetForSource(file); ok && !withinNestedGoModule(file, nestedModules) {
+		if packageTarget, ok := gate.GoPackageTargetForSource(file); ok && (!withinNestedGoModule(file, nestedModules) || withinNestedGoModule(file, workspaceModules)) {
 			packages[packageTarget] = struct{}{}
 		}
 		if relative, ok := frontendVitestPath(file, vitestPolicy); ok {

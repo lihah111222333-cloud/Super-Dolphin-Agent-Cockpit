@@ -30,17 +30,18 @@ type remoteGitTreeEntry struct {
 }
 
 type remoteGitTreeSnapshot struct {
-	repositoryRoot           string
-	tree                     string
-	candidateObjectAuthority gate.CandidateObjectAuthority
-	entries                  []remoteGitTreeEntry
-	byPath                   map[string]remoteGitTreeEntry
-	goSources                map[string][]byte
-	frontendSources          map[string][]byte
-	moduleMappings           []remoteGoModuleMapping
-	goSourcesMu              sync.Mutex
-	gitBlobMu                sync.Mutex
-	gitBlobContents          map[string][]byte
+	repositoryRoot             string
+	tree                       string
+	candidateObjectAuthority   gate.CandidateObjectAuthority
+	entries                    []remoteGitTreeEntry
+	byPath                     map[string]remoteGitTreeEntry
+	goSources                  map[string][]byte
+	frontendSources            map[string][]byte
+	moduleMappings             []remoteGoModuleMapping
+	workspaceModuleDirectories []string
+	goSourcesMu                sync.Mutex
+	gitBlobMu                  sync.Mutex
+	gitBlobContents            map[string][]byte
 
 	cacheMu                       sync.Mutex
 	exactCompileRootMu            sync.Mutex
