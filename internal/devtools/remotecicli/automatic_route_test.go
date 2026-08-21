@@ -30,8 +30,8 @@ func TestAutomaticRouteConfigFieldGuard(t *testing.T) {
 	typeOf := reflect.TypeFor[AutomaticRouteConfig]()
 	want := []string{"schema_version", "topology_manifest_path", "owner_db_path", "owner_scope", "ssh_executable", "probe_timeout_ms", "probe_wait_delay_ms", "heartbeat_ttl_ms", "nodes"}
 	got := make([]string, 0, typeOf.NumField())
-	for index := range typeOf.NumField() {
-		got = append(got, typeOf.Field(index).Tag.Get("json"))
+	for field := range typeOf.Fields() {
+		got = append(got, field.Tag.Get("json"))
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("automatic route config fields = %v, want %v", got, want)
