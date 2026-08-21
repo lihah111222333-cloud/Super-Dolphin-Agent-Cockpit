@@ -42,13 +42,15 @@ const (
 type WorkloadTargetKind string
 
 const (
-	WorkloadTargetGoGuard       WorkloadTargetKind = workloadTargetGoGuard
-	WorkloadTargetGoPackage     WorkloadTargetKind = workloadTargetGoPackage
-	WorkloadTargetGoTest        WorkloadTargetKind = workloadTargetGoTest
-	WorkloadTargetGoBenchmark   WorkloadTargetKind = workloadTargetGoBenchmark
-	WorkloadTargetVitest        WorkloadTargetKind = workloadTargetVitest
-	WorkloadTargetPlaywright    WorkloadTargetKind = workloadTargetPlaywright
-	WorkloadTargetFrontendGuard WorkloadTargetKind = workloadTargetFrontendGuard
+	WorkloadTargetGoGuard           WorkloadTargetKind = workloadTargetGoGuard
+	WorkloadTargetGoPackage         WorkloadTargetKind = workloadTargetGoPackage
+	WorkloadTargetGoTest            WorkloadTargetKind = workloadTargetGoTest
+	WorkloadTargetGoBenchmark       WorkloadTargetKind = workloadTargetGoBenchmark
+	WorkloadTargetVitest            WorkloadTargetKind = workloadTargetVitest
+	WorkloadTargetPlaywright        WorkloadTargetKind = workloadTargetPlaywright
+	WorkloadTargetFrontendGuard     WorkloadTargetKind = workloadTargetFrontendGuard
+	WorkloadTargetPortableGoPackage WorkloadTargetKind = workloadTargetPortableGoPackage
+	WorkloadTargetPortableGoTest    WorkloadTargetKind = workloadTargetPortableGoTest
 )
 
 const (
@@ -171,6 +173,8 @@ func validateWorkloadTarget(gateID GateID, targetKind string, target string) err
 		return validatePlaywrightWorkloadTarget(gateID, target)
 	case workloadTargetFrontendGuard:
 		return validateFrontendPreflightWorkloadTarget(gateID, target)
+	case workloadTargetPortableGoPackage, workloadTargetPortableGoTest:
+		return validatePortableGoWorkloadTarget(gateID, targetKind, target)
 	default:
 		return fmt.Errorf("workload target kind %q is unsupported", targetKind)
 	}

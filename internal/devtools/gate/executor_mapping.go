@@ -205,6 +205,8 @@ func executorProgramForTarget(parent GateID, targetKind WorkloadTargetKind, targ
 		return program, err
 	case workloadTargetFrontendGuard:
 		return frontendPreflightExecutorProgram(target)
+	case workloadTargetPortableGoPackage, workloadTargetPortableGoTest:
+		return portableGoExecutorProgram(string(targetKind), target)
 	default:
 		return ExecutorProgram{}, fmt.Errorf("unsupported workload target kind %q", targetKind)
 	}

@@ -59,6 +59,19 @@ type Workload struct {
 	Shardable           bool         `json:"shardable"`
 }
 
+// NewAuthoritativeWorkloadCatalog 以当前 schema 构造并校验 authoritative workload catalog。
+func NewAuthoritativeWorkloadCatalog(workloads []Workload) (WorkloadCatalog, error) {
+	catalog := WorkloadCatalog{
+		Version:       durationLedgerVersion,
+		Authoritative: true,
+		Workloads:     slices.Clone(workloads),
+	}
+	if err := ValidateWorkloadCatalog(catalog); err != nil {
+		return WorkloadCatalog{}, err
+	}
+	return catalog, nil
+}
+
 // UnmarshalJSON 要求 shardable 即使为 false 也必须显式出现，避免缺字段静默降级。
 func (workload *Workload) UnmarshalJSON(data []byte) error {
 	type workloadDocument struct {
