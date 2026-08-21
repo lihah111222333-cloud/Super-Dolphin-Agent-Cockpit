@@ -144,6 +144,7 @@ func portableCLIManifest(t *testing.T) []byte {
 		RepositoryID:          "fixture",
 		Modules:               []remoteci.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}},
 		ExcludedNestedModules: []string{},
+		Profiles:              []remoteci.RepositoryWorkloadProfile{{Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/example"}}},
 		Workloads: []remoteci.RepositoryWorkload{{
 			ID: "go-test/example", Kind: remoteci.RepositoryWorkloadKindGoTest, ModuleRoot: ".",
 			Package: "./example", Name: "TestExample", Platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64,

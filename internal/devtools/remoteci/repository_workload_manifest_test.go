@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 func repositoryWorkloadManifestFixture() RepositoryWorkloadManifest {
@@ -17,6 +19,9 @@ func repositoryWorkloadManifestFixture() RepositoryWorkloadManifest {
 			{Root: "tools", ModulePath: "github.com/example/repository/tools"},
 		},
 		ExcludedNestedModules: []string{"vendor/example"},
+		Profiles: []RepositoryWorkloadProfile{{
+			Profile: gate.ProfileLocalFast, RequiredWorkloadIDs: []string{"go-test/internal/devtools/remoteci/TestPortableManifest"},
+		}},
 		Workloads: []RepositoryWorkload{
 			{
 				ID:                  "go-test/internal/devtools/remoteci/TestPortableManifest",
@@ -53,7 +58,7 @@ func TestRepositoryWorkloadManifestRejectsMissingRuntime(t *testing.T) {
 	manifest := repositoryWorkloadManifestFixture()
 	manifest.Workloads[0].Runtime = ""
 	if _, err := manifest.CanonicalEncode(); err == nil {
-		t.Fatal("v2 manifest without a canonical runtime was accepted")
+		t.Fatal("v5 manifest without a canonical runtime was accepted")
 	}
 }
 
@@ -79,7 +84,7 @@ func TestRepositoryWorkloadManifestCanonicalRoundTrip(t *testing.T) {
 		t.Fatalf("DecodeRepositoryWorkloadManifest() error = %v", err)
 	}
 	manifest.ManifestDigest = decoded.ManifestDigest
-	manifest.Workloads[0].ExecutionDigest = decoded.Workloads[0].ExecutionDigest
+	manifest.Workloads[0].CommandDigest = decoded.Workloads[0].CommandDigest
 	assertRepositoryManifestRoundTrip(t, decoded, manifest)
 	if err := decoded.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -98,13 +103,13 @@ func assertRepositoryManifestRoundTrip(t *testing.T, decoded, want RepositoryWor
 	if !reflect.DeepEqual(decoded, want) {
 		t.Fatalf("round trip changed manifest: got %#v want %#v", decoded, want)
 	}
-	if decoded.ManifestDigest == "" || decoded.Workloads[0].ExecutionDigest == "" {
+	if decoded.ManifestDigest == "" || decoded.Workloads[0].CommandDigest == "" {
 		t.Fatal("canonical encoding did not freeze manifest and entry digests")
 	}
-	if decoded.Workloads[0].ExecutionDigest != "sha256:b12f057e4da6c8fa09d5f7a00bfd4d92ef059d37e22669529aee81d4e843ec6e" {
-		t.Fatalf("entry digest changed: %s", decoded.Workloads[0].ExecutionDigest)
+	if decoded.Workloads[0].CommandDigest != "sha256:e77898f2e71cc12d8c881b69ea9c8022ead534ea25a0e8c070b82765dd97a995" {
+		t.Fatalf("command digest changed: %s", decoded.Workloads[0].CommandDigest)
 	}
-	if decoded.ManifestDigest != "sha256:d6d95d73b59515a894a336976b34a1946ff24863d8bbf60def48b4821671ff80" {
+	if decoded.ManifestDigest != "sha256:3d2ace8d6ae6129092da89186526b21207b466db848f04da84a0e9bc5cd20e56" {
 		t.Fatalf("manifest digest changed: %s", decoded.ManifestDigest)
 	}
 }
@@ -116,10 +121,11 @@ func TestRepositoryWorkloadManifestRejectsNonStrictJSON(t *testing.T) {
 		t.Fatalf("CanonicalEncode() error = %v", err)
 	}
 	cases := map[string][]byte{
-		"unknown":   appendJSONBeforeObjectEnd(encoded, `,"raw_argv":["go","test"]`),
-		"duplicate": appendJSONBeforeObjectEnd(encoded, `,"repository_id":"other"`),
-		"null":      bytes.Replace(encoded, []byte(`"repository_id":"github.com/example/repository"`), []byte(`"repository_id":null`), 1),
-		"trailing":  append(encoded, []byte(`{}`)...),
+		"unknown":                  appendJSONBeforeObjectEnd(encoded, `,"raw_argv":["go","test"]`),
+		"retired execution digest": bytes.Replace(encoded, []byte(`"command_digest"`), []byte(`"execution_digest"`), 1),
+		"duplicate":                appendJSONBeforeObjectEnd(encoded, `,"repository_id":"other"`),
+		"null":                     bytes.Replace(encoded, []byte(`"repository_id":"github.com/example/repository"`), []byte(`"repository_id":null`), 1),
+		"trailing":                 append(encoded, []byte(`{}`)...),
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -189,7 +195,7 @@ func TestRepositoryWorkloadManifestAcceptsWindowsNativeWorkload(t *testing.T) {
 func TestRepositoryWorkloadManifestRecomputesCallerDigests(t *testing.T) {
 	manifest := repositoryWorkloadManifestFixture()
 	manifest.ManifestDigest = "sha256:" + strings.Repeat("f", 64)
-	manifest.Workloads[0].ExecutionDigest = "sha256:" + strings.Repeat("e", 64)
+	manifest.Workloads[0].CommandDigest = "sha256:" + strings.Repeat("e", 64)
 	encoded, err := manifest.CanonicalEncode()
 	if err != nil {
 		t.Fatalf("CanonicalEncode() error = %v", err)
@@ -198,7 +204,7 @@ func TestRepositoryWorkloadManifestRecomputesCallerDigests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeRepositoryWorkloadManifest() error = %v", err)
 	}
-	if decoded.ManifestDigest == manifest.ManifestDigest || decoded.Workloads[0].ExecutionDigest == manifest.Workloads[0].ExecutionDigest {
+	if decoded.ManifestDigest == manifest.ManifestDigest || decoded.Workloads[0].CommandDigest == manifest.Workloads[0].CommandDigest {
 		t.Fatal("canonical encoding trusted caller-provided digest")
 	}
 }
@@ -214,12 +220,17 @@ func TestRepositoryWorkloadManifestJSONFieldGuard(t *testing.T) {
 	if err := json.Unmarshal(manifestObject["modules"], &moduleObjects); err != nil {
 		t.Fatalf("unmarshal module objects: %v", err)
 	}
+	var profileObjects []map[string]json.RawMessage
+	if err := json.Unmarshal(manifestObject["profiles"], &profileObjects); err != nil {
+		t.Fatalf("unmarshal profile objects: %v", err)
+	}
 	var workloadObjects []map[string]json.RawMessage
 	if err := json.Unmarshal(manifestObject["workloads"], &workloadObjects); err != nil {
 		t.Fatalf("unmarshal workload objects: %v", err)
 	}
 	objectsByType := map[reflect.Type]map[string]json.RawMessage{
 		reflect.TypeFor[RepositoryWorkloadManifest](): manifestObject,
+		reflect.TypeFor[RepositoryWorkloadProfile]():  profileObjects[0],
 		reflect.TypeFor[RepositoryWorkloadModule]():   moduleObjects[0],
 		reflect.TypeFor[RepositoryWorkload]():         workloadObjects[0],
 	}
@@ -251,7 +262,7 @@ func TestRepositoryWorkloadManifestABIDigestIsStableAndRoundTrips(t *testing.T) 
 	if digest == "" || !strings.HasPrefix(digest, "sha256:") {
 		t.Fatalf("ABI digest = %q, want canonical sha256 digest", digest)
 	}
-	if digest != "sha256:4ed6c98479013801adf57555c68c65a5ea97dce90bef100aada8bc4f3e50009d" {
+	if digest != "sha256:5475c68732ecc3bfdcda2484982c23dbd6f00fa8df00425f8518de9c2ad7d312" {
 		t.Fatalf("ABI digest drifted: %s", digest)
 	}
 	manifest := repositoryWorkloadManifestFixture()

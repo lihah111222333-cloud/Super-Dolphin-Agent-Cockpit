@@ -52,6 +52,7 @@ func builderSimulationBinderFixture(t *testing.T) (BuilderSimulationRequest, *bu
 		RepositoryID:          request.Target.RepositoryID,
 		Modules:               []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/target"}},
 		ExcludedNestedModules: []string{},
+		Profiles:              []RepositoryWorkloadProfile{{Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/binder"}}},
 		Workloads: []RepositoryWorkload{{
 			ID: "go-test/binder", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./binder",
 			Name: "TestBinder", Platform: RepositoryWorkloadPlatformLinuxAMD64, Runtime: RepositoryWorkloadRuntimeUbuntuContainer,
@@ -169,6 +170,7 @@ func TestBindBuilderSimulationRequestRejectsWrongFormatTreeBlobSHARepositorySche
 	manifest := RepositoryWorkloadManifest{
 		SchemaVersion: PortableWorkloadManifestSchemaVersion, RepositoryID: "different-repository",
 		Modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/different"}}, ExcludedNestedModules: []string{},
+		Profiles:  []RepositoryWorkloadProfile{{Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/different"}}},
 		Workloads: []RepositoryWorkload{{ID: "go-test/different", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./different", Name: "TestDifferent", Platform: RepositoryWorkloadPlatformLinuxAMD64, Runtime: RepositoryWorkloadRuntimeUbuntuContainer, BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30, ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal}},
 	}
 	manifestBytes, err := manifest.CanonicalEncode()
@@ -271,6 +273,7 @@ func bindBuilderSimulationChangedTarget(t *testing.T, request BuilderSimulationR
 	manifest := RepositoryWorkloadManifest{
 		SchemaVersion: PortableWorkloadManifestSchemaVersion, RepositoryID: targetChanged.Target.RepositoryID,
 		Modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/wjboot-v2"}}, ExcludedNestedModules: []string{},
+		Profiles:  []RepositoryWorkloadProfile{{Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/binder"}}},
 		Workloads: []RepositoryWorkload{{ID: "go-test/binder", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./binder", Name: "TestBinder", Platform: RepositoryWorkloadPlatformLinuxAMD64, Runtime: RepositoryWorkloadRuntimeUbuntuContainer, BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30, ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal}},
 	}
 	manifestBytes, err := manifest.CanonicalEncode()

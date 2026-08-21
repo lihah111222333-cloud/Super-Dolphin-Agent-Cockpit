@@ -226,6 +226,7 @@ func builderSimulationTestManifest(t *testing.T, repositoryID string) []byte {
 		RepositoryID:          repositoryID,
 		Modules:               []remoteci.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/target"}},
 		ExcludedNestedModules: []string{},
+		Profiles:              []remoteci.RepositoryWorkloadProfile{{Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/builder-simulation"}}},
 		Workloads: []remoteci.RepositoryWorkload{{
 			ID: "go-test/builder-simulation", Kind: remoteci.RepositoryWorkloadKindGoTest,
 			ModuleRoot: ".", Package: "./target", Name: "TestBuilderSimulation",

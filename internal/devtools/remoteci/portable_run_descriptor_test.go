@@ -62,6 +62,7 @@ func portableRunManifestFixture(t *testing.T) []byte {
 		RepositoryID:          "repo-1",
 		Modules:               []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/repo-1"}},
 		ExcludedNestedModules: []string{},
+		Profiles:              []RepositoryWorkloadProfile{{Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/example"}}},
 		Workloads: []RepositoryWorkload{{
 			ID: "go-test/example", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".",
 			Package: "./example", Name: "TestExample", Platform: RepositoryWorkloadPlatformLinuxAMD64, Runtime: RepositoryWorkloadRuntimeUbuntuContainer,

@@ -16,22 +16,24 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 const (
 	// RepositoryWorkloadManifestMaxBytes 是 repository-owned manifest 的总字节上限。
 	RepositoryWorkloadManifestMaxBytes = 1 << 20
 	repositoryWorkloadManifestMaxBytes = RepositoryWorkloadManifestMaxBytes
-	// RepositoryWorkloadManifestEntryDigestDomain 与 manifest digest 使用不同密码学域。
-	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v4"
-	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v4"
-	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v4"
-	RepositoryWorkloadKindGoTest                = "go_test"
-	RepositoryWorkloadKindGoPackage             = "go_package"
-	RepositoryWorkloadPlatformLinuxAMD64        = "linux/amd64"
-	RepositoryWorkloadPlatformWindowsAMD64      = "windows/amd64"
-	RepositoryWorkloadRuntimeUbuntuContainer    = "ubuntu_container"
-	RepositoryWorkloadRuntimeWindowsNative      = "windows_native"
+	// RepositoryWorkloadCommandDigestDomain 与 manifest digest 使用不同密码学域。
+	RepositoryWorkloadCommandDigestDomain     = "portable-workload-command/v5"
+	RepositoryWorkloadManifestDigestDomain    = "portable-workload-manifest/v5"
+	RepositoryWorkloadManifestABIDigestDomain = "portable-workload-manifest-abi/v5"
+	RepositoryWorkloadKindGoTest              = "go_test"
+	RepositoryWorkloadKindGoPackage           = "go_package"
+	RepositoryWorkloadPlatformLinuxAMD64      = "linux/amd64"
+	RepositoryWorkloadPlatformWindowsAMD64    = "windows/amd64"
+	RepositoryWorkloadRuntimeUbuntuContainer  = "ubuntu_container"
+	RepositoryWorkloadRuntimeWindowsNative    = "windows_native"
 )
 
 // RepositoryWorkloadKind 是 portable manifest 中受支持的 typed workload 类别。
@@ -51,15 +53,22 @@ const (
 	RepositoryWorkloadExecutionPolicyRace   RepositoryWorkloadExecutionPolicy = "race"
 )
 
-// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v4。
-// v4 只允许 typed go_package/go_test workload，并显式携带 bootstrap 路由资源；wire 中没有 argv、shell 或命令字符串。
+// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v5。
+// v5 只允许 typed go_package/go_test workload，并显式携带 profile 与 bootstrap 路由资源；wire 中没有 argv、shell 或命令字符串。
 type RepositoryWorkloadManifest struct {
-	SchemaVersion         string                     `json:"schema_version"`
-	RepositoryID          string                     `json:"repository_id"`
-	Modules               []RepositoryWorkloadModule `json:"modules"`
-	ExcludedNestedModules []string                   `json:"excluded_nested_modules"`
-	Workloads             []RepositoryWorkload       `json:"workloads"`
-	ManifestDigest        string                     `json:"manifest_digest"`
+	SchemaVersion         string                      `json:"schema_version"`
+	RepositoryID          string                      `json:"repository_id"`
+	Modules               []RepositoryWorkloadModule  `json:"modules"`
+	ExcludedNestedModules []string                    `json:"excluded_nested_modules"`
+	Profiles              []RepositoryWorkloadProfile `json:"profiles"`
+	Workloads             []RepositoryWorkload        `json:"workloads"`
+	ManifestDigest        string                      `json:"manifest_digest"`
+}
+
+// RepositoryWorkloadProfile 将一个 canonical gate profile 绑定到显式 workload 集合。
+type RepositoryWorkloadProfile struct {
+	Profile             gate.Profile `json:"profile"`
+	RequiredWorkloadIDs []string     `json:"required_workload_ids"`
 }
 
 // RepositoryWorkloadModule binds one repository-relative module root to its Go module path.
@@ -68,7 +77,7 @@ type RepositoryWorkloadModule struct {
 	ModulePath string `json:"module_path"`
 }
 
-// RepositoryWorkload 是可执行的 v4 Go package 或 exact test workload 形状。
+// RepositoryWorkload 是可执行的 v5 Go package 或 exact test workload 形状。
 type RepositoryWorkload struct {
 	ID                  string                            `json:"id"`
 	Kind                RepositoryWorkloadKind            `json:"kind"`
@@ -81,7 +90,7 @@ type RepositoryWorkload struct {
 	CPUMilli            int64                             `json:"cpu_milli"`
 	MemoryBytes         int64                             `json:"memory_bytes"`
 	ExecutionPolicy     RepositoryWorkloadExecutionPolicy `json:"execution_policy"`
-	ExecutionDigest     string                            `json:"execution_digest"`
+	CommandDigest       string                            `json:"command_digest"`
 }
 
 // Validate 拒绝形状含糊、字段漂移或摘要不一致的仓库 workload manifest。
@@ -90,12 +99,12 @@ func (manifest RepositoryWorkloadManifest) Validate() error {
 		return err
 	}
 	for index, workload := range manifest.Workloads {
-		digest, err := repositoryWorkloadEntryDigest(workload)
+		digest, err := repositoryWorkloadCommandDigest(workload)
 		if err != nil {
 			return fmt.Errorf("workload %d: %w", index, err)
 		}
-		if workload.ExecutionDigest != digest {
-			return fmt.Errorf("workload %q execution_digest drifted", workload.ID)
+		if workload.CommandDigest != digest {
+			return fmt.Errorf("workload %q command_digest drifted", workload.ID)
 		}
 	}
 	material := manifest
@@ -117,13 +126,14 @@ func (manifest RepositoryWorkloadManifest) CanonicalEncode() ([]byte, error) {
 	}
 	manifest.Modules = slices.Clone(manifest.Modules)
 	manifest.ExcludedNestedModules = slices.Clone(manifest.ExcludedNestedModules)
+	manifest.Profiles = cloneRepositoryWorkloadProfiles(manifest.Profiles)
 	manifest.Workloads = slices.Clone(manifest.Workloads)
 	for index := range manifest.Workloads {
-		digest, err := repositoryWorkloadEntryDigest(manifest.Workloads[index])
+		digest, err := repositoryWorkloadCommandDigest(manifest.Workloads[index])
 		if err != nil {
 			return nil, fmt.Errorf("workload %d: %w", index, err)
 		}
-		manifest.Workloads[index].ExecutionDigest = digest
+		manifest.Workloads[index].CommandDigest = digest
 	}
 	manifest.ManifestDigest = ""
 	digest, err := repositoryWorkloadManifestDigest(manifest)
@@ -202,11 +212,8 @@ func validateRepositoryManifestShape(manifest RepositoryWorkloadManifest) error 
 	if err := validateRepositoryIdentifier(manifest.RepositoryID, "repository_id"); err != nil {
 		return err
 	}
-	if manifest.Modules == nil || manifest.ExcludedNestedModules == nil || manifest.Workloads == nil {
-		return errors.New("manifest arrays must be present and non-null")
-	}
-	if len(manifest.Modules) == 0 || len(manifest.Workloads) == 0 {
-		return errors.New("manifest requires at least one module and workload")
+	if err := validateRepositoryManifestCollections(manifest); err != nil {
+		return err
 	}
 	if err := validateRepositoryModules(manifest.Modules); err != nil {
 		return err
@@ -214,7 +221,21 @@ func validateRepositoryManifestShape(manifest RepositoryWorkloadManifest) error 
 	if err := validateExcludedNestedModules(manifest.ExcludedNestedModules); err != nil {
 		return err
 	}
-	return validateRepositoryWorkloads(manifest.Modules, manifest.ExcludedNestedModules, manifest.Workloads)
+	if err := validateRepositoryWorkloads(manifest.Modules, manifest.ExcludedNestedModules, manifest.Workloads); err != nil {
+		return err
+	}
+	return validateRepositoryWorkloadProfiles(manifest.Profiles, manifest.Workloads)
+}
+
+// validateRepositoryManifestCollections 校验所有 manifest 数组均显式存在且核心集合非空。
+func validateRepositoryManifestCollections(manifest RepositoryWorkloadManifest) error {
+	if manifest.Modules == nil || manifest.ExcludedNestedModules == nil || manifest.Profiles == nil || manifest.Workloads == nil {
+		return errors.New("manifest arrays must be present and non-null")
+	}
+	if len(manifest.Modules) == 0 || len(manifest.Profiles) == 0 || len(manifest.Workloads) == 0 {
+		return errors.New("manifest requires at least one module, profile, and workload")
+	}
+	return nil
 }
 
 // validateRepositoryModules 校验模块根、module path、排序和唯一性。
@@ -258,6 +279,53 @@ func validateExcludedNestedModules(modules []string) error {
 		}
 	}
 	return nil
+}
+
+// validateRepositoryWorkloadProfiles 校验 canonical profile、引用顺序和 workload 完整性。
+func validateRepositoryWorkloadProfiles(profiles []RepositoryWorkloadProfile, workloads []RepositoryWorkload) error {
+	workloadIDs := make(map[string]struct{}, len(workloads))
+	for _, workload := range workloads {
+		workloadIDs[workload.ID] = struct{}{}
+	}
+	for index, profile := range profiles {
+		if err := validateRepositoryWorkloadProfile(index, profiles, profile, workloadIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRepositoryWorkloadProfile(index int, profiles []RepositoryWorkloadProfile, profile RepositoryWorkloadProfile, workloadIDs map[string]struct{}) error {
+	if err := profile.Profile.Validate(); err != nil {
+		return fmt.Errorf("profile %d: %w", index, err)
+	}
+	if index > 0 && profiles[index-1].Profile >= profile.Profile {
+		return errors.New("profiles must be sorted by unique profile")
+	}
+	if len(profile.RequiredWorkloadIDs) == 0 {
+		return fmt.Errorf("profile %q requires at least one workload", profile.Profile)
+	}
+	return validateRepositoryProfileWorkloadIDs(profile, workloadIDs)
+}
+
+func validateRepositoryProfileWorkloadIDs(profile RepositoryWorkloadProfile, workloadIDs map[string]struct{}) error {
+	for index, workloadID := range profile.RequiredWorkloadIDs {
+		if _, ok := workloadIDs[workloadID]; !ok {
+			return fmt.Errorf("profile %q required_workload_ids[%d] references unknown workload %q", profile.Profile, index, workloadID)
+		}
+		if index > 0 && profile.RequiredWorkloadIDs[index-1] >= workloadID {
+			return fmt.Errorf("profile %q required_workload_ids must be sorted and unique", profile.Profile)
+		}
+	}
+	return nil
+}
+
+func cloneRepositoryWorkloadProfiles(profiles []RepositoryWorkloadProfile) []RepositoryWorkloadProfile {
+	cloned := slices.Clone(profiles)
+	for index := range cloned {
+		cloned[index].RequiredWorkloadIDs = slices.Clone(cloned[index].RequiredWorkloadIDs)
+	}
+	return cloned
 }
 
 // validateRepositoryWorkloads 校验 workload 与模块集合的绑定及稳定排序。
@@ -504,6 +572,7 @@ func RepositoryWorkloadManifestABIDigest() (string, error) {
 func repositoryWorkloadManifestABIMaterial() ([]byte, error) {
 	types := []reflect.Type{
 		reflect.TypeFor[RepositoryWorkloadManifest](),
+		reflect.TypeFor[RepositoryWorkloadProfile](),
 		reflect.TypeFor[RepositoryWorkloadModule](),
 		reflect.TypeFor[RepositoryWorkload](),
 	}
@@ -601,21 +670,32 @@ func repositoryWorkloadManifestABISliceWireShape(typ reflect.Type) (string, stri
 
 func repositoryWorkloadManifestABIKnownStruct(typ reflect.Type) bool {
 	switch typ {
-	case reflect.TypeFor[RepositoryWorkloadManifest](), reflect.TypeFor[RepositoryWorkloadModule](), reflect.TypeFor[RepositoryWorkload]():
+	case reflect.TypeFor[RepositoryWorkloadManifest](), reflect.TypeFor[RepositoryWorkloadProfile](), reflect.TypeFor[RepositoryWorkloadModule](), reflect.TypeFor[RepositoryWorkload]():
 		return true
 	default:
 		return false
 	}
 }
 
-func repositoryWorkloadEntryDigest(workload RepositoryWorkload) (string, error) {
-	material := workload
-	material.ExecutionDigest = ""
+type repositoryWorkloadCommandMaterial struct {
+	ID              string                            `json:"id"`
+	Kind            RepositoryWorkloadKind            `json:"kind"`
+	ModuleRoot      string                            `json:"module_root"`
+	Package         string                            `json:"package"`
+	Name            string                            `json:"name"`
+	ExecutionPolicy RepositoryWorkloadExecutionPolicy `json:"execution_policy"`
+}
+
+func repositoryWorkloadCommandDigest(workload RepositoryWorkload) (string, error) {
+	material := repositoryWorkloadCommandMaterial{
+		ID: workload.ID, Kind: workload.Kind, ModuleRoot: workload.ModuleRoot,
+		Package: workload.Package, Name: workload.Name, ExecutionPolicy: workload.ExecutionPolicy,
+	}
 	encoded, err := json.Marshal(material)
 	if err != nil {
-		return "", fmt.Errorf("marshal workload digest material: %w", err)
+		return "", fmt.Errorf("marshal workload command digest material: %w", err)
 	}
-	return repositoryFramedDigest(RepositoryWorkloadManifestEntryDigestDomain, encoded), nil
+	return repositoryFramedDigest(RepositoryWorkloadCommandDigestDomain, encoded), nil
 }
 
 func repositoryWorkloadManifestDigest(manifest RepositoryWorkloadManifest) (string, error) {

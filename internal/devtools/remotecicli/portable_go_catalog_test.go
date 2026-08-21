@@ -56,12 +56,21 @@ func TestExpandDetectedRepositoryGoCatalogDerivesBothPlatformsFromExactTree(t *t
 	if !slices.IsSortedFunc(expanded.Manifest.Workloads, func(left, right remoteci.RepositoryWorkload) int { return strings.Compare(left.ID, right.ID) }) {
 		t.Fatal("expanded workloads are not canonically sorted")
 	}
+	assertPortableProfileBinding(t, expanded.Manifest.Profiles)
 	assertPortablePackageWorkload(t, expanded.Manifest.Workloads[0], remoteci.RepositoryWorkloadPlatformLinuxAMD64)
 	if expanded.Manifest.Workloads[1].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[1].ID != "go-test/example/TestFixture" {
 		t.Fatalf("explicit Linux workload was not preserved: %#v", expanded.Manifest.Workloads[1])
 	}
 	if expanded.Manifest.Workloads[2].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[2].Platform != remoteci.RepositoryWorkloadPlatformWindowsAMD64 {
 		t.Fatalf("explicit Windows workload was not preserved: %#v", expanded.Manifest.Workloads[2])
+	}
+}
+
+// assertPortableProfileBinding 校验自动目录生成不会改写仓库显式 profile 绑定。
+func assertPortableProfileBinding(t *testing.T, profiles []remoteci.RepositoryWorkloadProfile) {
+	t.Helper()
+	if len(profiles) != 1 || !slices.Equal(profiles[0].RequiredWorkloadIDs, []string{"go-test/example/TestFixture", "go-test/windows/example/TestFixture"}) {
+		t.Fatalf("expanded catalog changed explicit profile binding: %#v", profiles)
 	}
 }
 

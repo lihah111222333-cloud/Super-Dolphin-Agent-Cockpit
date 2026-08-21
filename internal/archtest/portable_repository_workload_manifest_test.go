@@ -3,6 +3,7 @@ package archtest
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -27,42 +28,61 @@ func TestPortableRepositoryWorkloadManifest(t *testing.T) {
 	assertPortableRepositoryManifest(t, manifest)
 }
 
+type portableWorkloadExpectation struct {
+	target   string
+	platform remoteci.RepositoryWorkloadPlatform
+	runtime  remoteci.RepositoryWorkloadRuntime
+}
+
 // assertPortableRepositoryManifest 校验 V3 仓库自有 manifest 的稳定 workload 绑定。
 func assertPortableRepositoryManifest(t *testing.T, manifest remoteci.RepositoryWorkloadManifest) {
 	t.Helper()
-	expected := map[string]struct {
-		packagePath string
-		name        string
-		platform    remoteci.RepositoryWorkloadPlatform
-		runtime     remoteci.RepositoryWorkloadRuntime
-	}{
-		"go-test/internal-devtools-gate/TestPlanGateFailureSummaryIsBoundedAndDoesNotEchoRawError": {
-			packagePath: "./internal/devtools/gate",
-			name:        "TestPlanGateFailureSummaryIsBoundedAndDoesNotEchoRawError",
-			platform:    remoteci.RepositoryWorkloadPlatformLinuxAMD64,
-			runtime:     remoteci.RepositoryWorkloadRuntimeUbuntuContainer,
-		},
-		"go-test/internal-devtools-heteroci/TestProbeSchemaVersionsAreFrozen": {
-			packagePath: "./internal/devtools/heteroci",
-			name:        "TestProbeSchemaVersionsAreFrozen",
-			platform:    remoteci.RepositoryWorkloadPlatformWindowsAMD64,
-			runtime:     remoteci.RepositoryWorkloadRuntimeWindowsNative,
-		},
-		"go-test/windows/internal-devtools-heterocinode/TestWindowsFactsProviderCollectsCIMCapacity": {
-			packagePath: "./internal/devtools/heterocinode",
-			name:        "TestWindowsFactsProviderCollectsCIMCapacity",
-			platform:    remoteci.RepositoryWorkloadPlatformWindowsAMD64,
-			runtime:     remoteci.RepositoryWorkloadRuntimeWindowsNative,
-		},
-	}
-	if manifest.RepositoryID != "super-agent-v3" || len(manifest.Workloads) != len(expected) {
+	if manifest.RepositoryID != "super-agent-v3" || len(manifest.Workloads) != 3 || len(manifest.Profiles) != 1 {
 		t.Fatalf("portable workload manifest identity = %#v", manifest)
 	}
+	workloadIDs := make([]string, 0, len(manifest.Workloads))
 	for _, workload := range manifest.Workloads {
-		want, ok := expected[workload.ID]
-		if !ok || workload.ModuleRoot != "." || workload.Package != want.packagePath || workload.Name != want.name ||
-			workload.Platform != want.platform || workload.Runtime != want.runtime {
-			t.Fatalf("portable workload binding = %#v", workload)
-		}
+		workloadIDs = append(workloadIDs, workload.ID)
+	}
+	profile := manifest.Profiles[0]
+	if profile.Profile != "local-fast" || !slices.Equal(profile.RequiredWorkloadIDs, workloadIDs) {
+		t.Fatalf("portable workload profile = %#v, workload IDs = %#v", profile, workloadIDs)
+	}
+	expected := map[string]portableWorkloadExpectation{
+		"go-test/internal-devtools-gate/TestPlanGateFailureSummaryIsBoundedAndDoesNotEchoRawError": {
+			target:   "./internal/devtools/gate#TestPlanGateFailureSummaryIsBoundedAndDoesNotEchoRawError",
+			platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64,
+			runtime:  remoteci.RepositoryWorkloadRuntimeUbuntuContainer,
+		},
+		"go-test/internal-devtools-heteroci/TestProbeSchemaVersionsAreFrozen": {
+			target:   "./internal/devtools/heteroci#TestProbeSchemaVersionsAreFrozen",
+			platform: remoteci.RepositoryWorkloadPlatformWindowsAMD64,
+			runtime:  remoteci.RepositoryWorkloadRuntimeWindowsNative,
+		},
+		"go-test/windows/internal-devtools-heterocinode/TestWindowsFactsProviderCollectsCIMCapacity": {
+			target:   "./internal/devtools/heterocinode#TestWindowsFactsProviderCollectsCIMCapacity",
+			platform: remoteci.RepositoryWorkloadPlatformWindowsAMD64,
+			runtime:  remoteci.RepositoryWorkloadRuntimeWindowsNative,
+		},
+	}
+	for _, workload := range manifest.Workloads {
+		assertPortableWorkloadBinding(t, workload, expected)
+	}
+}
+
+func assertPortableWorkloadBinding(t *testing.T, workload remoteci.RepositoryWorkload, expected map[string]portableWorkloadExpectation) {
+	t.Helper()
+	want, ok := expected[workload.ID]
+	if !ok {
+		t.Fatalf("portable workload ID is not registered: %#v", workload)
+	}
+	if want.target != workload.Package+"#"+workload.Name {
+		t.Fatalf("portable workload target drifted: %#v", workload)
+	}
+	if want.platform != workload.Platform || want.runtime != workload.Runtime {
+		t.Fatalf("portable workload platform/runtime drifted: %#v", workload)
+	}
+	if workload.CommandDigest == "" {
+		t.Fatalf("portable workload command digest is empty: %#v", workload)
 	}
 }

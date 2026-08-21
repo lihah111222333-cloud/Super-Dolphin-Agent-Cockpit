@@ -125,6 +125,9 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 		SchemaVersion: remoteci.PortableWorkloadManifestSchemaVersion, RepositoryID: repositoryID,
 		Modules:               []remoteci.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/" + repositoryID}},
 		ExcludedNestedModules: []string{},
+		Profiles: []remoteci.RepositoryWorkloadProfile{{
+			Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/example/TestFixture", "go-test/windows/example/TestFixture"},
+		}},
 		Workloads: []remoteci.RepositoryWorkload{{
 			ID: "go-test/example/TestFixture", Kind: remoteci.RepositoryWorkloadKindGoTest,
 			ModuleRoot: ".", Package: "./example", Name: "TestFixture",
