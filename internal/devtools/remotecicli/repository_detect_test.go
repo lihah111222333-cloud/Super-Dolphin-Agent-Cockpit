@@ -58,6 +58,37 @@ func TestDetectRepositoryDistinguishesRepositoriesWithoutNameRules(t *testing.T)
 	}
 }
 
+// TestDetectRepositoryReadsManifestFromExactTree 拒绝被 assume-unchanged 隐藏的工作树 manifest 影子。
+func TestDetectRepositoryReadsManifestFromExactTree(t *testing.T) {
+	root := newDetectedRepositoryFixture(t, "tree-owned")
+	manifestPath := filepath.Join(root, filepath.FromSlash(portableWorkloadManifestRelativePath))
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := remoteci.DecodeRepositoryWorkloadManifest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.RepositoryID = "worktree-shadow"
+	manifest.Modules[0].ModulePath = "example.invalid/worktree-shadow"
+	shadow, err := manifest.CanonicalEncode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, shadow, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runDetectedFixtureGit(t, root, "update-index", "--assume-unchanged", portableWorkloadManifestRelativePath)
+	detected, err := DetectRepository(context.Background(), root)
+	if err != nil {
+		t.Fatalf("DetectRepository() error = %v", err)
+	}
+	if detected.RepositoryID != "tree-owned" {
+		t.Fatalf("repository ID = %q, want exact-tree identity", detected.RepositoryID)
+	}
+}
+
 func TestDetectRepositoryRejectsDirtyMissingAndSymlinkInputs(t *testing.T) {
 	root := newDetectedRepositoryFixture(t, "repository-drift")
 	if err := os.WriteFile(filepath.Join(root, "untracked.txt"), []byte("dirty"), 0o600); err != nil {

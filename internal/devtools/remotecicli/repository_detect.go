@@ -83,7 +83,7 @@ func detectRepositoryAtRoot(ctx context.Context, root string) (DetectedRepositor
 	if err != nil || !validDetectedObjectID(tree, objectFormat) {
 		return DetectedRepository{}, errors.New("detected repository HEAD tree is invalid")
 	}
-	return bindDetectedRepositoryManifest(root, objectFormat, commit, tree)
+	return bindDetectedRepositoryManifest(ctx, root, objectFormat, commit, tree)
 }
 
 func validateRepositoryWorktreeClean(ctx context.Context, root string) error {
@@ -109,12 +109,13 @@ func repositoryDetectionGitField(ctx context.Context, root string, args ...strin
 	return value, nil
 }
 
-func bindDetectedRepositoryManifest(root, objectFormat, commit, tree string) (DetectedRepository, error) {
+func bindDetectedRepositoryManifest(ctx context.Context, root, objectFormat, commit, tree string) (DetectedRepository, error) {
 	manifestPath := filepath.Join(root, filepath.FromSlash(portableWorkloadManifestRelativePath))
-	data, err := readRegularBoundedFile(manifestPath)
+	blob, err := (gitObjectResolver{}).ReadTreeBlob(ctx, root, tree, portableWorkloadManifestRelativePath)
 	if err != nil {
 		return DetectedRepository{}, errors.New("read repository workload manifest failed")
 	}
+	data := blob.Data
 	manifest, err := remoteci.DecodeRepositoryWorkloadManifest(data)
 	if err != nil {
 		return DetectedRepository{}, fmt.Errorf("decode repository workload manifest: %w", err)
