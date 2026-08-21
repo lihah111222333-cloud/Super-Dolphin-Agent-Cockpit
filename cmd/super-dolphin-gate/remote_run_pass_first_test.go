@@ -10,6 +10,27 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
+type remotePreparedExecutionOwnerFunc func(context.Context, remoteci.RunInput, *remoteci.PreparedRun) (remoteci.RunResult, error)
+
+func (execute remotePreparedExecutionOwnerFunc) ExecutePrepared(ctx context.Context, input remoteci.RunInput, prepared *remoteci.PreparedRun) (remoteci.RunResult, error) {
+	return execute(ctx, input, prepared)
+}
+
+func testRemoteExecutionOwnerFactory(
+	run func(*remoteci.Coordinator, context.Context, *remoteci.PreparedRun) (remoteci.RunResult, error),
+	finalize func(remoteci.RunInput, *remoteci.RunResult, error) error,
+) func(*remoteci.Coordinator) (remotePreparedExecutionOwner, error) {
+	return func(coordinator *remoteci.Coordinator) (remotePreparedExecutionOwner, error) {
+		return remotePreparedExecutionOwnerFunc(func(ctx context.Context, input remoteci.RunInput, prepared *remoteci.PreparedRun) (remoteci.RunResult, error) {
+			result, runErr := run(coordinator, ctx, prepared)
+			if err := finalize(input, &result, runErr); err != nil {
+				return result, err
+			}
+			return result, runErr
+		}), nil
+	}
+}
+
 type allHitDependencyProbe struct {
 	t                                     *testing.T
 	closureCalls, runtimeCalls, bindCalls int
@@ -64,7 +85,7 @@ func (probe *allHitDependencyProbe) dependencies() remotePreparedRunDependencies
 	return remotePreparedRunDependencies{
 		allReused: probe.allReused, resolveCandidateGateIdentity: probe.resolveCandidateGateIdentity,
 		loadImageCacheRuntime: probe.loadImageCacheRuntime, bindMissExecution: probe.bindMissExecution,
-		reloadPlanning: probe.reloadPlanning, runPrepared: probe.runPrepared, finalizeEvidence: probe.finalizeEvidence,
+		reloadPlanning: probe.reloadPlanning, newExecutionOwner: testRemoteExecutionOwnerFactory(probe.runPrepared, probe.finalizeEvidence),
 	}
 }
 
@@ -109,7 +130,7 @@ func TestExecutePreparedRemoteRunRefreshesCalibrationBeforeMissDependencies(t *t
 			recovered = true
 			return nil
 		},
-		runPrepared: passedRemotePreparedRun, finalizeEvidence: noOpRemoteEvidenceFinalizer,
+		newExecutionOwner: testRemoteExecutionOwnerFactory(passedRemotePreparedRun, noOpRemoteEvidenceFinalizer),
 	}
 	if _, _, err := executePreparedRemoteRun(context.Background(), remoteRunOptions{}, remoteRunConfig{}, remoteci.BaselineState{}, "runner", remoteci.RunInput{}, nil, nil, dependencies); err != nil {
 		t.Fatalf("executePreparedRemoteRun() error = %v", err)
@@ -173,8 +194,8 @@ func (probe *partialMissDependencyProbe) dependencies() remotePreparedRunDepende
 	return remotePreparedRunDependencies{
 		allReused: probe.allReused, resolveCandidateGateIdentity: probe.resolveCandidateGateIdentity,
 		loadImageCacheRuntime: probe.loadImageCacheRuntime, bindMissExecution: probe.bindMissExecution,
-		reloadPlanning: noOpRemoteReloadPlanning, runPrepared: passedRemotePreparedRun,
-		finalizeEvidence: noOpRemoteEvidenceFinalizer,
+		reloadPlanning:    noOpRemoteReloadPlanning,
+		newExecutionOwner: testRemoteExecutionOwnerFactory(passedRemotePreparedRun, noOpRemoteEvidenceFinalizer),
 	}
 }
 

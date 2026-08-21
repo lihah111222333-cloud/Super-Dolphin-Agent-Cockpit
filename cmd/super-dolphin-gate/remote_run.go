@@ -84,8 +84,11 @@ type remotePreparedRunDependencies struct {
 	loadImageCacheRuntime        func(remoteRunConfig, remoteci.BaselineState) (remoteImageCacheRuntime, error)
 	bindMissExecution            func(*remoteci.Coordinator, context.Context, *remoteci.PreparedRun, remoteci.MissExecutionBinding) error
 	reloadPlanning               func(remoteRunOptions, remoteci.BaselineState, string, remoteci.RunInput, *remoteci.PreparedRun) error
-	runPrepared                  func(*remoteci.Coordinator, context.Context, *remoteci.PreparedRun) (remoteci.RunResult, error)
-	finalizeEvidence             func(remoteci.RunInput, *remoteci.RunResult, error) error
+	newExecutionOwner            func(*remoteci.Coordinator) (remotePreparedExecutionOwner, error)
+}
+
+type remotePreparedExecutionOwner interface {
+	ExecutePrepared(context.Context, remoteci.RunInput, *remoteci.PreparedRun) (remoteci.RunResult, error)
 }
 
 // defaultRemotePreparedRunDependencies 将生产闭包与云端 runtime 读取显式注入 PASS-first 编排。
@@ -96,8 +99,9 @@ func defaultRemotePreparedRunDependencies() remotePreparedRunDependencies {
 		loadImageCacheRuntime:        loadRemoteImageCacheRuntime,
 		bindMissExecution:            (*remoteci.Coordinator).BindPreparedMissExecution,
 		reloadPlanning:               reloadRemotePlanningAfterCalibration,
-		runPrepared:                  (*remoteci.Coordinator).RunPrepared,
-		finalizeEvidence:             finalizeRemoteRunEvidence,
+		newExecutionOwner: func(coordinator *remoteci.Coordinator) (remotePreparedExecutionOwner, error) {
+			return remoteci.NewExecutionOwner(coordinator, finalizeRemoteRunEvidence)
+		},
 	}
 }
 
@@ -127,11 +131,12 @@ func executePreparedRemoteRun(
 		return result, input, err
 	}
 	input = boundInput
-	result, runErr := dependencies.runPrepared(coordinator, ctx, prepared)
-	if err := dependencies.finalizeEvidence(input, &result, runErr); err != nil {
+	owner, err := dependencies.newExecutionOwner(coordinator)
+	if err != nil {
 		return result, input, err
 	}
-	return result, input, runErr
+	result, err = owner.ExecutePrepared(ctx, input, prepared)
+	return result, input, err
 }
 
 // bindRemoteMissExecutionInputs 在 all-hit 时直接返回；MISS 才依次读取 exact Gate closure 与 OSS/ECI runtime。
@@ -180,8 +185,7 @@ func validateRemotePreparedRunDependencies(dependencies remotePreparedRunDepende
 		dependencies.loadImageCacheRuntime == nil ||
 		dependencies.bindMissExecution == nil ||
 		dependencies.reloadPlanning == nil ||
-		dependencies.runPrepared == nil ||
-		dependencies.finalizeEvidence == nil {
+		dependencies.newExecutionOwner == nil {
 		return errors.New("remote prepared run dependencies are incomplete")
 	}
 	return nil

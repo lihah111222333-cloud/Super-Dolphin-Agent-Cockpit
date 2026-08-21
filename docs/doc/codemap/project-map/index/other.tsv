@@ -337,6 +337,7 @@ internal/archtest/remote_ci_eci_imagecache_heteroci_contract_guard_test.go	inter
 internal/archtest/remote_ci_eci_imagecache_schema_owner_guard_test.go	internal	other	go-test	31663	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,eci,imagecache,schema,owner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_engine_builder_simulation_contract_guard_test.go	internal	other	go-test	3443	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,engine,builder,simulation,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_exact_timing_guard_test.go	internal	other	go-test	9904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,exact,timing,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_execution_owner_guard_test.go	internal	other	go-test	1413	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,execution,owner,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_execution_scope_contract_guard_test.go	internal	other	go-test	10151	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,execution,scope,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_final_cleanup_guard_test.go	internal	other	go-test	7023	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,final,cleanup,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_fingerprint_scope_guard_test.go	internal	other	go-test	8316	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,fingerprint,scope,guard,test,架构守卫,baseline,ratchet,与冻结规则
