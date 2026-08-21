@@ -26,7 +26,7 @@ const (
 	outputMaxBytes     = 16 << 10
 )
 
-const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> | route --config <absolute-file> --repository <absolute-root> | builder-simulate --request <absolute-file>\n"
+const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> | route --config <absolute-file> --repository <absolute-root> | run --config <absolute-file> --repository <absolute-root> --run-id <identity> | builder-simulate --request <absolute-file>\n"
 
 // ErrExecutionContractUpgradeRequired 表示 execute 尚未获得可验证的执行合约。
 var ErrExecutionContractUpgradeRequired = errors.New("execution contract upgrade required")
@@ -62,6 +62,8 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 		return runBuilderSimulationCLI(args[1:], stdout, stderr)
 	case "route":
 		return dispatchAutomaticRoute(args[1:], stdout, stderr)
+	case "run":
+		return dispatchAutomaticRun(args[1:], stdout, stderr)
 	case "execute":
 		return ErrExecutionContractUpgradeRequired
 	default:

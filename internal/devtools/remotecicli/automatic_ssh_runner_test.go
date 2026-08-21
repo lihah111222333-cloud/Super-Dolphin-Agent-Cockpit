@@ -63,7 +63,7 @@ func automaticRunnerTestConfig(ssh string, platform heteroci.Platform, logs *byt
 	config := AutomaticSSHRunnerConfig{SSHExecutable: ssh, Host: "node", Platform: platform, Timeout: 5 * time.Second, WaitDelay: time.Second, LogWriter: logs}
 	if platform == heteroci.PlatformLinuxAMD64 {
 		config.Linux = &AutomaticLinuxRunnerConfig{
-			RunnerExecutable: "/runner", RepoPath: "/repo", SharedRoot: "/shared", CacheRoot: "/cache",
+			RunAsUser: "ci-runner", DockerGroup: "docker", RunnerExecutable: "/runner", RepoPath: "/repo", SharedRoot: "/shared", CacheRoot: "/cache",
 			RepositoryID: "repo", NodeID: "node", ObjectFormat: "sha1", SourceCommit: strings.Repeat("a", 40), SourceTree: strings.Repeat("b", 40),
 			ToolchainIdentity: "sha256:" + strings.Repeat("c", 64), ModuleIdentity: "sha256:" + strings.Repeat("d", 64), WorkloadIdentity: "sha256:" + strings.Repeat("e", 64),
 			DockerImage: "sha256:" + strings.Repeat("f", 64), WorkerBinary: "/worker", WorkerIdentity: "sha256:" + strings.Repeat("1", 64),

@@ -25,16 +25,38 @@ func TestAutomaticRouteCLIRejectsManualRoutingFields(t *testing.T) {
 	}
 }
 
+func TestAutomaticRunCLIRejectsManualRoutingFields(t *testing.T) {
+	for _, forbidden := range []string{"--node", "--node-id", "--tier", "--eci-tier", "--executor"} {
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"run", forbidden, "manual"}, &stdout, &stderr)
+		if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "automatic run usage") {
+			t.Fatalf("flag=%s code=%d stdout=%q stderr=%q", forbidden, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
 // TestAutomaticRouteConfigFieldGuard 从生产类型动态枚举 wire 字段并锁定消费集合。
 func TestAutomaticRouteConfigFieldGuard(t *testing.T) {
 	typeOf := reflect.TypeFor[AutomaticRouteConfig]()
-	want := []string{"schema_version", "topology_manifest_path", "owner_db_path", "owner_namespace", "ssh_executable", "probe_timeout_ms", "probe_wait_delay_ms", "heartbeat_ttl_ms", "route_timeout_ms", "nodes"}
+	want := []string{"schema_version", "topology_manifest_path", "owner_db_path", "receipt_db_path", "owner_namespace", "ssh_executable", "probe_timeout_ms", "probe_wait_delay_ms", "heartbeat_ttl_ms", "route_timeout_ms", "cleanup_timeout_ms", "nodes"}
 	got := make([]string, 0, typeOf.NumField())
 	for field := range typeOf.Fields() {
 		got = append(got, field.Tag.Get("json"))
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("automatic route config fields = %v, want %v", got, want)
+	}
+}
+
+func TestAutomaticProbeNodeFieldGuard(t *testing.T) {
+	typeOf := reflect.TypeFor[AutomaticProbeNode]()
+	want := []string{"node_id", "probe_executable", "probe_config_path", "runner_executable", "worker_executable", "worker_identity", "repository_base_path", "cache_root", "go_executable", "toolchain_identity", "shared_root", "docker_image", "run_as_user", "docker_group"}
+	got := make([]string, 0, typeOf.NumField())
+	for field := range typeOf.Fields() {
+		got = append(got, field.Tag.Get("json"))
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("automatic node fields = %v, want %v", got, want)
 	}
 }
 
@@ -56,9 +78,9 @@ func TestAutomaticRouteOwnerScopeSeparatesRepositories(t *testing.T) {
 
 // TestBindAutomaticProbeCommandsRequiresExactManifestNodeSet 锁定 node binding 双向差集。
 func TestBindAutomaticProbeCommandsRequiresExactManifestNodeSet(t *testing.T) {
-	manifest := heteroci.Manifest{Nodes: []heteroci.NodeConfig{{NodeID: "node-a"}, {NodeID: "node-b"}}}
+	manifest := heteroci.Manifest{Nodes: []heteroci.NodeConfig{{NodeID: "node-a", Platform: heteroci.PlatformLinuxAMD64}, {NodeID: "node-b", Platform: heteroci.PlatformWindowsAMD64}}}
 	config := AutomaticRouteConfig{Nodes: []AutomaticProbeNode{
-		{NodeID: "node-a", ProbeExecutable: "/probe", ProbeConfigPath: "/a.json"},
+		{NodeID: "node-a", ProbeExecutable: "/probe", ProbeConfigPath: "/a.json", RunAsUser: "ci-runner", DockerGroup: "docker", SharedRoot: "/shared", DockerImage: "sha256:image"},
 		{NodeID: "node-b", ProbeExecutable: "C:/probe.exe", ProbeConfigPath: "C:/b.json"},
 	}}
 	commands, err := bindAutomaticProbeCommands(config, manifest)
@@ -74,7 +96,7 @@ func TestBindAutomaticProbeCommandsRequiresExactManifestNodeSet(t *testing.T) {
 		t.Fatal("missing manifest node was accepted")
 	}
 	stale := config
-	stale.Nodes = append(stale.Nodes, AutomaticProbeNode{NodeID: "node-c", ProbeExecutable: "/probe", ProbeConfigPath: "/c.json"})
+	stale.Nodes = append(stale.Nodes, AutomaticProbeNode{NodeID: "node-c", ProbeExecutable: "/probe", ProbeConfigPath: "/c.json", RunAsUser: "ci-runner", DockerGroup: "docker", SharedRoot: "/shared", DockerImage: "sha256:image"})
 	if _, err := bindAutomaticProbeCommands(stale, manifest); err == nil {
 		t.Fatal("stale node binding was accepted")
 	}

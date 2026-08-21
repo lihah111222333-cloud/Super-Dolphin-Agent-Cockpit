@@ -30,20 +30,33 @@ type AutomaticRouteConfig struct {
 	SchemaVersion        string               `json:"schema_version"`
 	TopologyManifestPath string               `json:"topology_manifest_path"`
 	OwnerDBPath          string               `json:"owner_db_path"`
+	ReceiptDBPath        string               `json:"receipt_db_path"`
 	OwnerNamespace       string               `json:"owner_namespace"`
 	SSHExecutable        string               `json:"ssh_executable"`
 	ProbeTimeoutMS       int64                `json:"probe_timeout_ms"`
 	ProbeWaitDelayMS     int64                `json:"probe_wait_delay_ms"`
 	HeartbeatTTLMS       int64                `json:"heartbeat_ttl_ms"`
 	RouteTimeoutMS       int64                `json:"route_timeout_ms"`
+	CleanupTimeoutMS     int64                `json:"cleanup_timeout_ms"`
 	Nodes                []AutomaticProbeNode `json:"nodes"`
 }
 
 // AutomaticProbeNode 把 manifest node 绑定到唯一 probe binary 与 config 路径。
 type AutomaticProbeNode struct {
-	NodeID          string `json:"node_id"`
-	ProbeExecutable string `json:"probe_executable"`
-	ProbeConfigPath string `json:"probe_config_path"`
+	NodeID             string `json:"node_id"`
+	ProbeExecutable    string `json:"probe_executable"`
+	ProbeConfigPath    string `json:"probe_config_path"`
+	RunnerExecutable   string `json:"runner_executable"`
+	WorkerExecutable   string `json:"worker_executable"`
+	WorkerIdentity     string `json:"worker_identity"`
+	RepositoryBasePath string `json:"repository_base_path"`
+	CacheRoot          string `json:"cache_root"`
+	GoExecutable       string `json:"go_executable"`
+	ToolchainIdentity  string `json:"toolchain_identity"`
+	SharedRoot         string `json:"shared_root"`
+	DockerImage        string `json:"docker_image"`
+	RunAsUser          string `json:"run_as_user"`
+	DockerGroup        string `json:"docker_group"`
 }
 
 // AutomaticRouteResult 是不产生 remote PASS 的自动路由证明。
@@ -309,8 +322,16 @@ func validateAutomaticRouteDurations(config AutomaticRouteConfig) error {
 	if config.HeartbeatTTLMS <= 0 || config.HeartbeatTTLMS > 120_000 {
 		return errors.New("automatic route heartbeat TTL is invalid")
 	}
+	return validateAutomaticRouteOverallDurations(config)
+}
+
+// validateAutomaticRouteOverallDurations 校验 route 与 cleanup 总体边界。
+func validateAutomaticRouteOverallDurations(config AutomaticRouteConfig) error {
 	if config.RouteTimeoutMS < 1_000 || config.RouteTimeoutMS > 600_000 {
 		return errors.New("automatic route overall timeout is invalid")
+	}
+	if config.CleanupTimeoutMS < 1_000 || config.CleanupTimeoutMS > 120_000 {
+		return errors.New("automatic route cleanup timeout is invalid")
 	}
 	return nil
 }
@@ -337,7 +358,7 @@ func validateAutomaticRouteHostPaths(config AutomaticRouteConfig) error {
 		path      string
 		directory bool
 	}{
-		{path: config.TopologyManifestPath}, {path: config.OwnerDBPath}, {path: config.SSHExecutable},
+		{path: config.TopologyManifestPath}, {path: config.OwnerDBPath}, {path: config.ReceiptDBPath}, {path: config.SSHExecutable},
 	} {
 		if err := validateAbsolutePathComponents(candidate.path, candidate.directory); err != nil {
 			return errors.New("automatic route host path is invalid")
@@ -353,6 +374,14 @@ func validateAutomaticProbeNode(node AutomaticProbeNode) error {
 	}
 	if !validRemoteAbsolutePath(node.ProbeExecutable) || !validRemoteAbsolutePath(node.ProbeConfigPath) {
 		return errors.New("probe executable and config paths must be absolute")
+	}
+	for _, value := range []string{node.RunnerExecutable, node.WorkerExecutable, node.RepositoryBasePath, node.CacheRoot} {
+		if !validRemoteAbsolutePath(value) {
+			return errors.New("runner, worker, repository, and cache paths must be absolute")
+		}
+	}
+	if !validAutomaticIdentity(node.GoExecutable) || !isDigest(node.WorkerIdentity) || !isDigest(node.ToolchainIdentity) {
+		return errors.New("worker and toolchain identities are invalid")
 	}
 	return nil
 }
@@ -396,6 +425,9 @@ func bindAutomaticProbeCommands(config AutomaticRouteConfig, manifest heteroci.M
 		if !ok {
 			return nil, errors.New("automatic route config is missing a manifest node")
 		}
+		if err := validateAutomaticNodePlatformFields(node.Platform, binding); err != nil {
+			return nil, err
+		}
 		commands[node.NodeID] = []string{binding.ProbeExecutable, "probe", "--config", binding.ProbeConfigPath}
 		delete(bindings, node.NodeID)
 	}
@@ -408,4 +440,30 @@ func bindAutomaticProbeCommands(config AutomaticRouteConfig, manifest heteroci.M
 		return nil, errors.New("automatic route config contains a stale node binding")
 	}
 	return commands, nil
+}
+
+// validateAutomaticNodePlatformFields 拒绝 Linux/Windows 执行字段混用。
+func validateAutomaticNodePlatformFields(platform heteroci.Platform, binding AutomaticProbeNode) error {
+	switch platform {
+	case heteroci.PlatformLinuxAMD64:
+		return validateAutomaticLinuxNodeFields(binding)
+	case heteroci.PlatformWindowsAMD64:
+		return validateAutomaticWindowsNodeFields(binding)
+	default:
+		return errors.New("automatic node platform fields are invalid")
+	}
+}
+
+func validateAutomaticLinuxNodeFields(binding AutomaticProbeNode) error {
+	if !validAutomaticIdentity(binding.RunAsUser) || !validAutomaticIdentity(binding.DockerGroup) || !validRemoteAbsolutePath(binding.SharedRoot) || binding.DockerImage == "" {
+		return errors.New("automatic Linux node fields are invalid")
+	}
+	return nil
+}
+
+func validateAutomaticWindowsNodeFields(binding AutomaticProbeNode) error {
+	if binding.RunAsUser != "" || binding.DockerGroup != "" || binding.SharedRoot != "" || binding.DockerImage != "" {
+		return errors.New("automatic Windows node fields are invalid")
+	}
+	return nil
 }

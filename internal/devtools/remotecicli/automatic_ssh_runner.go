@@ -34,6 +34,8 @@ type AutomaticSSHRunnerConfig struct {
 
 // AutomaticLinuxRunnerConfig 绑定 Ubuntu Docker、共享源码/cache 与 worker identity。
 type AutomaticLinuxRunnerConfig struct {
+	RunAsUser         string
+	DockerGroup       string
 	RunnerExecutable  string
 	RepoPath          string
 	SharedRoot        string
@@ -88,12 +90,16 @@ func (runner *automaticSSHRunner) Run(ctx context.Context, command heterociexec.
 	if err != nil {
 		return heterociexec.RunOutcome{}, err
 	}
+	remoteCommand, err := quoteAutomaticRemoteCommand(runner.config.Platform, remoteArgs)
+	if err != nil {
+		return heterociexec.RunOutcome{}, err
+	}
 	runCtx, cancel := context.WithTimeout(ctx, runner.config.Timeout)
 	defer cancel()
 	stdout, stderr := &boundedAutomaticOutput{}, &boundedAutomaticOutput{}
 	ssh := exec.CommandContext(runCtx, runner.config.SSHExecutable,
 		"-o", "BatchMode=yes", "-o", "ConnectTimeout="+strconv.FormatInt(max(int64(runner.config.Timeout/time.Second), 1), 10),
-		"--", runner.config.Host, quoteAutomaticRemoteCommand(remoteArgs))
+		"--", runner.config.Host, remoteCommand)
 	ssh.WaitDelay = runner.config.WaitDelay
 	ssh.Stdout = io.MultiWriter(runner.config.LogWriter, stdout)
 	ssh.Stderr = io.MultiWriter(runner.config.LogWriter, stderr)
@@ -128,7 +134,7 @@ func (runner *automaticSSHRunner) remoteRunnerArgs(command heterociexec.Command)
 }
 
 func automaticLinuxRunnerArgs(config AutomaticLinuxRunnerConfig, command []string) []string {
-	args := []string{config.RunnerExecutable,
+	args := []string{"sudo", "-n", "--", "systemd-run", "--quiet", "--scope", "--slice=super-dolphin-ci.slice", "--uid=" + config.RunAsUser, "--gid=" + config.DockerGroup, "--", config.RunnerExecutable,
 		"--repo", config.RepoPath, "--mode", "docker", "--runtime", "ubuntu", "--docker-image", config.DockerImage,
 		"--worker-binary", config.WorkerBinary, "--worker-identity", config.WorkerIdentity,
 		"--shared-root", config.SharedRoot, "--cache-root", config.CacheRoot,
@@ -179,7 +185,7 @@ func validateAutomaticWindowsSelection(config AutomaticSSHRunnerConfig) error {
 }
 
 func validateAutomaticLinuxRunner(config AutomaticLinuxRunnerConfig) error {
-	values := []string{config.RunnerExecutable, config.RepoPath, config.SharedRoot, config.CacheRoot, config.RepositoryID, config.NodeID,
+	values := []string{config.RunAsUser, config.DockerGroup, config.RunnerExecutable, config.RepoPath, config.SharedRoot, config.CacheRoot, config.RepositoryID, config.NodeID,
 		config.ObjectFormat, config.SourceCommit, config.SourceTree, config.ToolchainIdentity, config.ModuleIdentity, config.WorkloadIdentity,
 		config.DockerImage, config.WorkerBinary, config.WorkerIdentity}
 	for _, value := range values {
@@ -205,12 +211,33 @@ func validAutomaticRunnerText(value string) bool {
 	return value != "" && strings.TrimSpace(value) == value && strings.IndexFunc(value, unicode.IsControl) < 0
 }
 
-func quoteAutomaticRemoteCommand(args []string) string {
+// quoteAutomaticRemoteCommand 按目标平台生成无 shell fallback 的 SSH 命令。
+func quoteAutomaticRemoteCommand(platform heteroci.Platform, args []string) (string, error) {
+	if platform == heteroci.PlatformWindowsAMD64 {
+		for _, argument := range args {
+			if !automaticWindowsSSHArgumentSafe(argument) {
+				return "", errors.New("automatic Windows SSH argument is unsafe")
+			}
+		}
+		return strings.Join(args, " "), nil
+	}
 	quoted := make([]string, len(args))
 	for index, argument := range args {
 		quoted[index] = "'" + strings.ReplaceAll(argument, "'", "'\"'\"'") + "'"
 	}
-	return strings.Join(quoted, " ")
+	return strings.Join(quoted, " "), nil
+}
+
+func automaticWindowsSSHArgumentSafe(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:=+-", character) {
+			return false
+		}
+	}
+	return true
 }
 
 type boundedAutomaticOutput struct {
@@ -238,7 +265,7 @@ func (output *boundedAutomaticOutput) Bytes() []byte {
 // decodeAutomaticBatchOutput 从混合日志中要求恰好一个 canonical batch result。
 func decodeAutomaticBatchOutput(output []byte) (heterocinode.BatchResult, error) {
 	var found *heterocinode.BatchResult
-	for _, line := range bytes.Split(bytes.TrimSpace(output), []byte{'\n'}) {
+	for line := range bytes.SplitSeq(bytes.TrimSpace(output), []byte{'\n'}) {
 		if !bytes.Contains(line, []byte(`"schema_version":"heteroci-node-batch-result/v1"`)) {
 			continue
 		}
