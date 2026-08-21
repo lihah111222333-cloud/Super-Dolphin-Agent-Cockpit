@@ -20,7 +20,10 @@ import (
 	platformsqlite "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
-const automaticRunOutputMaxBytes = 16 << 20
+const (
+	automaticRunOutputMaxBytes      = 16 << 20
+	automaticRunResultSchemaVersion = "automatic-heteroci-run-result/v1"
+)
 
 // AutomaticRunResult 是 local-first workflow 的非权威 terminal result。
 type AutomaticRunResult struct {
@@ -76,6 +79,9 @@ func dispatchAutomaticRun(args []string, stdout, stderr io.Writer) error {
 
 // writeAutomaticRunResult 在写 stdout 前强制 terminal result 总字节上限。
 func writeAutomaticRunResult(stdout io.Writer, result AutomaticRunResult) error {
+	if err := validateAutomaticRunResult(result); err != nil {
+		return err
+	}
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		return newCLIFailure("encode automatic run result", err)
@@ -86,6 +92,20 @@ func writeAutomaticRunResult(stdout io.Writer, result AutomaticRunResult) error 
 	}
 	if _, err := stdout.Write(encoded); err != nil {
 		return newCLIFailure("write automatic run result", err)
+	}
+	return nil
+}
+
+// validateAutomaticRunResult 拒绝非权威 terminal 结果的 schema、authority 或 status 漂移。
+func validateAutomaticRunResult(result AutomaticRunResult) error {
+	if result.SchemaVersion != automaticRunResultSchemaVersion {
+		return newCLIFailure("automatic run result schema is invalid", nil)
+	}
+	if result.Authority != heteroci.AuthorityLocalNonAuthoritative {
+		return newCLIFailure("automatic run result authority is invalid", nil)
+	}
+	if result.Status != heterociworkflow.ResultStatusNotVerified {
+		return newCLIFailure("automatic run result status is invalid", nil)
 	}
 	return nil
 }
@@ -316,7 +336,7 @@ func projectAutomaticRunResult(repository DetectedRepository, runID string, resu
 		units[index] = AutomaticRunUnitResult{UnitID: unit.UnitID, BatchID: unit.BatchID, State: unit.State}
 	}
 	return AutomaticRunResult{
-		SchemaVersion: "automatic-heteroci-run-result/v1", Authority: result.Authority, Status: result.Status,
+		SchemaVersion: automaticRunResultSchemaVersion, Authority: result.Authority, Status: result.Status,
 		RepositoryID: repository.RepositoryID, SourceCommit: repository.CommitSHA, SourceTree: repository.TreeSHA, RunID: runID,
 		Fence: result.Fence, Plan: result.Plan, Decision: result.Decision, Leases: result.Leases, Units: units,
 	}

@@ -7,38 +7,81 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-// TestAutomaticRouteCLIIsNotPublic 锁定公开入口只有自动 run，route 不能推进 owner epoch。
+// TestAutomaticRouteCLIIsNotPublic 锁定 route 不能推进 owner epoch。
 func TestAutomaticRouteCLIIsNotPublic(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"route", "--config", "/tmp/config", "--repository", "/tmp/repository"}, &stdout, &stderr)
-	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unknown command") {
+	if code != 1 || stdout.Len() != 0 || stderr.String() != "super-dolphin-remote-ci: unknown command\n" {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 
-func TestAutomaticRunCLIRejectsManualRoutingFields(t *testing.T) {
+// TestAutomaticRunCLIIsNotPublic 锁定任何 run 参数都不能抵达本地 workflow。
+func TestAutomaticRunCLIIsNotPublic(t *testing.T) {
 	for _, forbidden := range []string{"--node", "--node-id", "--tier", "--eci-tier", "--executor"} {
 		var stdout, stderr bytes.Buffer
 		code := Run([]string{"run", forbidden, "manual"}, &stdout, &stderr)
-		if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "automatic run usage") {
+		if code != 1 || stdout.Len() != 0 || stderr.String() != "super-dolphin-remote-ci: unknown command\n" {
 			t.Fatalf("flag=%s code=%d stdout=%q stderr=%q", forbidden, code, stdout.String(), stderr.String())
 		}
 	}
 }
 
+// TestAutomaticRunResultRejectsContractDriftBeforeStdoutWrite 逐字段锁定非权威结果契约。
+func TestAutomaticRunResultRejectsContractDriftBeforeStdoutWrite(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*AutomaticRunResult)
+	}{
+		{name: "missing schema", mutate: func(result *AutomaticRunResult) { result.SchemaVersion = "" }},
+		{name: "unknown schema", mutate: func(result *AutomaticRunResult) { result.SchemaVersion = "automatic-heteroci-run-result/v2" }},
+		{name: "missing authority", mutate: func(result *AutomaticRunResult) { result.Authority = "" }},
+		{name: "remote authority", mutate: func(result *AutomaticRunResult) { result.Authority = "REMOTE_AUTHORITATIVE" }},
+		{name: "missing status", mutate: func(result *AutomaticRunResult) { result.Status = "" }},
+		{name: "verified status", mutate: func(result *AutomaticRunResult) { result.Status = "PASSED" }},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := validAutomaticRunResultFixture()
+			testCase.mutate(&result)
+			var stdout bytes.Buffer
+			if err := writeAutomaticRunResult(&stdout, result); err == nil || stdout.Len() != 0 {
+				t.Fatalf("write result error=%v stdout=%q", err, stdout.String())
+			}
+		})
+	}
+	var stdout bytes.Buffer
+	if err := writeAutomaticRunResult(&stdout, validAutomaticRunResultFixture()); err != nil || stdout.Len() == 0 {
+		t.Fatalf("write canonical result error=%v stdout=%q", err, stdout.String())
+	}
+}
+
+// validAutomaticRunResultFixture 返回冻结字段完整的最小非权威结果。
+func validAutomaticRunResultFixture() AutomaticRunResult {
+	return AutomaticRunResult{
+		SchemaVersion: "automatic-heteroci-run-result/v1",
+		Authority:     heteroci.AuthorityLocalNonAuthoritative,
+		Status:        heterociworkflow.ResultStatusNotVerified,
+	}
+}
+
+// TestAutomaticRunResultRejectsOversizeBeforeStdoutWrite 锁定合法结果仍受字节上限保护。
 func TestAutomaticRunResultRejectsOversizeBeforeStdoutWrite(t *testing.T) {
 	var stdout bytes.Buffer
 	units := make([]AutomaticRunUnitResult, 20_000)
 	for index := range units {
 		units[index].UnitID = strings.Repeat("x", 1_024)
 	}
-	if err := writeAutomaticRunResult(&stdout, AutomaticRunResult{Units: units}); err == nil || stdout.Len() != 0 {
+	oversize := validAutomaticRunResultFixture()
+	oversize.Units = units
+	if err := writeAutomaticRunResult(&stdout, oversize); err == nil || stdout.Len() != 0 {
 		t.Fatalf("oversize result error=%v stdout_bytes=%d", err, stdout.Len())
 	}
-	if err := writeAutomaticRunResult(&stdout, AutomaticRunResult{SchemaVersion: "bounded"}); err != nil || stdout.Len() == 0 {
+	if err := writeAutomaticRunResult(&stdout, validAutomaticRunResultFixture()); err != nil || stdout.Len() == 0 {
 		t.Fatalf("bounded result error=%v stdout_bytes=%d", err, stdout.Len())
 	}
 }

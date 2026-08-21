@@ -998,8 +998,8 @@ internal/devtools/remotecicli/artifact_builder_observed_identity_test.go	interna
 internal/devtools/remotecicli/artifact_builder_runtime.go	internal	other	go-source	32455	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,builder,runtime,开发工具与生成器辅助包
 internal/devtools/remotecicli/artifact_builder_runtime_test.go	internal	other	go-test	29996	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,builder,runtime,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_route.go	internal	other	go-source	12832	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,route,开发工具与生成器辅助包
-internal/devtools/remotecicli/automatic_route_test.go	internal	other	go-test	6182	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,route,test,开发工具与生成器辅助包
-internal/devtools/remotecicli/automatic_run.go	internal	other	go-source	15283	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,run,开发工具与生成器辅助包
+internal/devtools/remotecicli/automatic_route_test.go	internal	other	go-test	8299	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,route,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/automatic_run.go	internal	other	go-source	16037	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,run,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_ssh_runner.go	internal	other	go-source	12697	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,ssh,runner,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_ssh_runner_test.go	internal	other	go-test	4030	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,ssh,runner,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/builder_simulate.go	internal	other	go-source	45037	开发工具与生成器辅助包	internal,devtools,remotecicli,builder,simulate,开发工具与生成器辅助包
@@ -1008,8 +1008,8 @@ internal/devtools/remotecicli/builder_simulate_request_test.go	internal	other	go
 internal/devtools/remotecicli/builder_simulate_test.go	internal	other	go-test	13491	开发工具与生成器辅助包	internal,devtools,remotecicli,builder,simulate,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_go_catalog.go	internal	other	go-source	3892	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_go_catalog_test.go	internal	other	go-test	6919	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,test,开发工具与生成器辅助包
-internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	18555	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
-internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	14087	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	18344	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
+internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	18550	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect.go	internal	other	go-source	5718	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect_test.go	internal	other	go-test	8033	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_module_identity.go	internal	other	go-source	2750	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,开发工具与生成器辅助包

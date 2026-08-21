@@ -5,9 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -265,11 +269,141 @@ func TestExecuteRequiresContractUpgrade(t *testing.T) {
 func TestRetiredCommandsDoNotCreateExecutionPaths(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"plan", "run", "status", "worker", "remote"} {
-		code, stdout, stderr := executeCLI([]string{command})
-		if code == 0 || stdout != "" || stderr == "" {
-			t.Fatalf("command %q result = code %d stdout %q stderr %q", command, code, stdout, stderr)
+	cases := []struct {
+		command string
+		args    []string
+	}{
+		{command: "plan", args: []string{"plan"}},
+		{command: "run", args: []string{"run", "--config", "/tmp/config", "--repository", "/tmp/repository", "--run-id", "retired-run"}},
+		{command: "route", args: []string{"route", "--config", "/tmp/config", "--repository", "/tmp/repository"}},
+		{command: "status", args: []string{"status"}},
+		{command: "worker", args: []string{"worker"}},
+		{command: "remote", args: []string{"remote"}},
+	}
+	for _, testCase := range cases {
+		code, stdout, stderr := executeCLI(testCase.args)
+		if code != 1 || stdout != "" || stderr != "super-dolphin-remote-ci: unknown command\n" {
+			t.Fatalf("command %q result = code %d stdout %q stderr %q", testCase.command, code, stdout, stderr)
 		}
+	}
+}
+
+// TestRemoteCIPublicDispatchASTGuard 静态锁定公开分派不会重新接入本地 workflow。
+func TestRemoteCIPublicDispatchASTGuard(t *testing.T) {
+	t.Parallel()
+
+	cases := parseRemoteCIDispatchCases(t)
+	assertRemoteCIDispatchAllowlist(t, cases)
+	assertExecuteUpgradeSentinelCase(t, cases["execute"])
+	assertRemoteCIUsage(t)
+}
+
+// assertRemoteCIDispatchAllowlist 拒绝未知或缺失的生产命令 case。
+func assertRemoteCIDispatchAllowlist(t *testing.T, cases map[string]*ast.CaseClause) {
+	t.Helper()
+
+	want := map[string]bool{"validate": true, "_artifact-build": true, "_artifact-identity": true, "builder-simulate": true, "execute": true}
+	if len(cases) != len(want) {
+		t.Fatalf("dispatch command count = %d, want %d: %v", len(cases), len(want), cases)
+	}
+	for command := range cases {
+		if !want[command] {
+			t.Fatalf("dispatch exposes forbidden command %q", command)
+		}
+	}
+}
+
+// assertRemoteCIUsage 锁定 usage 只宣传获准的公开命令。
+func assertRemoteCIUsage(t *testing.T) {
+	t.Helper()
+
+	for _, retired := range []string{" route ", " run "} {
+		if strings.Contains(usageText, retired) {
+			t.Fatalf("usageText advertises retired local command %q: %q", retired, usageText)
+		}
+	}
+	for _, public := range []string{" validate ", " builder-simulate "} {
+		if !strings.Contains(" "+usageText, public) {
+			t.Fatalf("usageText is missing public command %q: %q", public, usageText)
+		}
+	}
+}
+
+// parseRemoteCIDispatchCases 从生产 switch 动态枚举全部命令 case。
+func parseRemoteCIDispatchCases(t *testing.T) map[string]*ast.CaseClause {
+	t.Helper()
+
+	parsed, err := parser.ParseFile(token.NewFileSet(), "portable_validate.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse portable_validate.go: %v", err)
+	}
+	function := findRemoteCIDispatchFunction(t, parsed)
+	cases := make(map[string]*ast.CaseClause)
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		clause, ok := node.(*ast.CaseClause)
+		if !ok || len(clause.List) == 0 {
+			return true
+		}
+		recordRemoteCIDispatchClause(t, cases, clause)
+		return false
+	})
+	return cases
+}
+
+// findRemoteCIDispatchFunction 定位生产 dispatchCLI 声明。
+func findRemoteCIDispatchFunction(t *testing.T, parsed *ast.File) *ast.FuncDecl {
+	t.Helper()
+
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if function.Name.Name == "dispatchCLI" {
+			return function
+		}
+	}
+	t.Fatal("dispatchCLI declaration is missing")
+	return nil
+}
+
+// recordRemoteCIDispatchClause 登记一个 case 的全部字符串命令并拒绝歧义。
+func recordRemoteCIDispatchClause(t *testing.T, cases map[string]*ast.CaseClause, clause *ast.CaseClause) {
+	t.Helper()
+
+	for _, expression := range clause.List {
+		literal, ok := expression.(*ast.BasicLit)
+		if !ok {
+			t.Fatalf("dispatch case is not a string literal: %T", expression)
+		}
+		if literal.Kind != token.STRING {
+			t.Fatalf("dispatch case literal kind = %s, want string", literal.Kind)
+		}
+		command, err := strconv.Unquote(literal.Value)
+		if err != nil {
+			t.Fatalf("unquote dispatch command: %v", err)
+		}
+		if cases[command] != nil {
+			t.Fatalf("dispatch command %q is duplicated", command)
+		}
+		cases[command] = clause
+	}
+}
+
+// assertExecuteUpgradeSentinelCase 锁定 execute 只能直接返回升级哨兵。
+func assertExecuteUpgradeSentinelCase(t *testing.T, clause *ast.CaseClause) {
+	t.Helper()
+
+	if clause == nil || len(clause.Body) != 1 {
+		t.Fatalf("execute case body is not one direct return: %#v", clause)
+	}
+	statement, ok := clause.Body[0].(*ast.ReturnStmt)
+	if !ok || len(statement.Results) != 1 {
+		t.Fatalf("execute case is not one direct return: %T", clause.Body[0])
+	}
+	identifier, ok := statement.Results[0].(*ast.Ident)
+	if !ok || identifier.Name != "ErrExecutionContractUpgradeRequired" {
+		t.Fatalf("execute case returns %T %v, want upgrade sentinel", statement.Results[0], statement.Results[0])
 	}
 }
 
