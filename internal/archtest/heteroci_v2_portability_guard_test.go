@@ -730,6 +730,7 @@ func heterociV2Executable(t *testing.T, name string) string {
 
 func heterociV2CommandEnvironment(t *testing.T, fixtureRoot, goExecutable, bashExecutable string) []string {
 	t.Helper()
+	sha256Executable := heterociV2Executable(t, "sha256sum")
 	cacheDir := filepath.Join(fixtureRoot, ".gocache")
 	tmpDir := filepath.Join(fixtureRoot, ".gotmp")
 	moduleCacheDir := filepath.Join(fixtureRoot, ".gomodcache")
@@ -740,7 +741,7 @@ func heterociV2CommandEnvironment(t *testing.T, fixtureRoot, goExecutable, bashE
 			t.Fatalf("create isolated Go command directory %q: %v", directory, err)
 		}
 	}
-	pathEntries := []string{filepath.Dir(goExecutable), filepath.Dir(bashExecutable), "/usr/bin", "/bin"}
+	pathEntries := []string{filepath.Dir(goExecutable), filepath.Dir(bashExecutable), filepath.Dir(sha256Executable), "/usr/bin", "/bin"}
 	return []string{
 		"PATH=" + strings.Join(pathEntries, string(os.PathListSeparator)),
 		"HOME=" + homeDir,

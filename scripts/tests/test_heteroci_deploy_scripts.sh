@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # PowerShell 与 fake-script 字面源码必须由目标解释器展开。
 set -Eeuo pipefail
 
 root=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
@@ -28,7 +29,7 @@ canonical_ubuntu_runtime=$(go_string_constant "$root/internal/devtools/heteroci/
 canonical_darling_runtime=$(go_string_constant "$root/internal/devtools/heteroci/manifest.go" RuntimeDarlingCompatRuntime) || die 'unable to derive canonical Darling runtime'
 canonical_windows_runtime=$(go_string_constant "$root/internal/devtools/heteroci/manifest.go" RuntimeWindowsNative) || die 'unable to derive canonical Windows runtime'
 canonical_darwin_runtime=$(go_string_constant "$root/internal/devtools/heteroci/manifest.go" RuntimeDarwinNative) || die 'unable to derive canonical Darwin runtime'
-canonical_status=$(go_string_constant "$root/internal/devtools/heterociworkflow/types.go" ResultStatusNotVerified) || die 'unable to derive canonical local result status'
+canonical_status=$(go_string_constant "$root/internal/devtools/heteroci/manifest.go" ResultStatusNotVerified) || die 'unable to derive canonical local result status'
 
 expect_linux_reject() {
   local label=$1 expected=$2 output

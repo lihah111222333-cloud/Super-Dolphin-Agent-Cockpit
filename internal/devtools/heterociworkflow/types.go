@@ -16,7 +16,7 @@ type ManifestLoader func(path string) (heteroci.Manifest, error)
 
 const (
 	// ResultStatusNotVerified 表示本地观察尚未取得远程权威资格。
-	ResultStatusNotVerified = "NOT_VERIFIED"
+	ResultStatusNotVerified = heteroci.ResultStatusNotVerified
 )
 
 // SnapshotAcquirer 是 workflow 使用方提供的实时节点快照端口。

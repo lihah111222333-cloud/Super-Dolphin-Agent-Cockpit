@@ -15,6 +15,8 @@ const (
 	ManifestSchemaVersion = "heteroci-manifest/v1"
 	// AuthorityLocalNonAuthoritative 标记本地主机证据不具备远程权威性。
 	AuthorityLocalNonAuthoritative = "LOCAL_NON_AUTHORITATIVE"
+	// ResultStatusNotVerified 标记本地异构执行结果尚未取得远程权威资格。
+	ResultStatusNotVerified = "NOT_VERIFIED"
 
 	// 以下常量是协议允许的平台标识。
 	PlatformLinuxAMD64   = "linux/amd64"
