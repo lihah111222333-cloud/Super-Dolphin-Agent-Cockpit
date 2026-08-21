@@ -9,6 +9,7 @@ LABEL org.opencontainers.image.source="${OCI_SOURCE}" \
       org.opencontainers.image.revision="${OCI_REVISION}" \
       org.opencontainers.image.version="go1.26.5" \
       org.opencontainers.image.toolchain="go1.26.5" \
+      org.opencontainers.image.node="v22.13.0" \
       org.opencontainers.image.authority="LOCAL_NON_AUTHORITATIVE"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -19,6 +20,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     SUPER_DOLPHIN_IMAGE_SOURCE=${OCI_SOURCE} \
     SUPER_DOLPHIN_IMAGE_REVISION=${OCI_REVISION} \
     SUPER_DOLPHIN_TOOLCHAIN=go1.26.5 \
+    SUPER_DOLPHIN_NODE=v22.13.0 \
     GOTOOLCHAIN=local \
     GOROOT=/usr/local/go \
     GOPATH=/home/ci-runner/go \
@@ -31,11 +33,20 @@ ADD --checksum=sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb813
     https://go.dev/dl/go1.26.5.linux-amd64.tar.gz \
     /tmp/go1.26.5.linux-amd64.tar.gz
 
+ADD --checksum=sha256:3ff0d57063c33313d73d0bdcebc4c778ad6be948234584694a042c6fe57164f6 \
+    https://nodejs.org/dist/v22.13.0/node-v22.13.0-linux-x64.tar.xz \
+    /tmp/node-v22.13.0-linux-x64.tar.xz
+
 RUN printf '%s  %s\n' \
       '5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053' \
       '/tmp/go1.26.5.linux-amd64.tar.gz' | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go1.26.5.linux-amd64.tar.gz \
     && rm -f /tmp/go1.26.5.linux-amd64.tar.gz \
+    && printf '%s  %s\n' \
+      '3ff0d57063c33313d73d0bdcebc4c778ad6be948234584694a042c6fe57164f6' \
+      '/tmp/node-v22.13.0-linux-x64.tar.xz' | sha256sum -c - \
+    && tar -C /usr/local --strip-components=1 -xJf /tmp/node-v22.13.0-linux-x64.tar.xz \
+    && rm -f /tmp/node-v22.13.0-linux-x64.tar.xz \
     && apt-get update \
     && apt-get install --no-install-recommends -y \
       bash ca-certificates file git make procps ripgrep util-linux passwd \
@@ -46,7 +57,8 @@ RUN printf '%s  %s\n' \
       /workspace /home/ci-runner/go /home/ci-runner/.cache/go-build /tmp/go-tmp \
     && chmod 1777 /tmp/go-tmp \
     && test "$(/usr/local/go/bin/go version)" = 'go version go1.26.5 linux/amd64' \
-    && test "$(/usr/local/go/bin/go env GOTOOLCHAIN)" = 'local'
+    && test "$(/usr/local/go/bin/go env GOTOOLCHAIN)" = 'local' \
+    && test "$(/usr/local/bin/node --version)" = 'v22.13.0'
 
 COPY scripts/deploy/linux/linux_runner_daemon.sh /usr/local/bin/linux_runner_daemon.sh
 RUN chmod 0755 /usr/local/bin/linux_runner_daemon.sh
