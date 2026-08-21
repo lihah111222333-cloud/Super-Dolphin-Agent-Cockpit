@@ -820,6 +820,9 @@ func executorEnvironment(
 		"PATH=" + searchPath, "TMPDIR=" + layout.tmp, "XDG_CACHE_HOME=" + layout.xdgCache,
 	}
 	environment = append(environment, cicontract.CanonicalWorkerExecutionEnvironment()...)
+	if ValidateGeneratedPortableGoWorkspace(layout.sourceCopy, []byte("?? go.work\n")) == nil {
+		environment = setCompileGroupEnvironmentValue(environment, "GOWORK", filepath.Join(layout.sourceCopy, "go.work"))
+	}
 	if frontendSeedRoot != "" {
 		environment = append(environment, "SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED="+frontendSeedRoot)
 		environment = append(environment, "SUPER_DOLPHIN_VITE_CACHE_DIR="+filepath.Join(layout.tmp, ".vite-temp"))
