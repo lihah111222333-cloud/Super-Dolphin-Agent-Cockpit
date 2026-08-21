@@ -160,7 +160,7 @@ func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) err
 	if err != nil {
 		return err
 	}
-	if err := snapshot.validatePortableWorkspaceTree(sources[PortableGoWorkspaceDescriptorPath]); err != nil {
+	if err := snapshot.validatePortableWorkspaceTree(ctx, sources[PortableGoWorkspaceDescriptorPath]); err != nil {
 		return err
 	}
 	snapshot.goSources = sources
@@ -285,7 +285,7 @@ func remoteGoWorkspaceDirectories(sources map[string][]byte) ([]string, error) {
 }
 
 // validatePortableWorkspaceTree 核对 descriptor target tree 恰为组合树中的绑定子树。
-func (snapshot *remoteGitTreeSnapshot) validatePortableWorkspaceTree(data []byte) error {
+func (snapshot *remoteGitTreeSnapshot) validatePortableWorkspaceTree(ctx context.Context, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
@@ -293,8 +293,22 @@ func (snapshot *remoteGitTreeSnapshot) validatePortableWorkspaceTree(data []byte
 	if err != nil {
 		return err
 	}
-	entry, ok := snapshot.byPath[descriptor.TargetPath]
-	if !ok || entry.kind != "tree" || entry.objectID != descriptor.TargetTree {
+	command, err := gateprivate.TrustedGitCommandWithCandidateObjectAuthority(ctx, snapshot.repositoryRoot, snapshot.candidateObjectAuthority, "rev-parse", "--verify", "--end-of-options", snapshot.tree+":"+descriptor.TargetPath)
+	if err != nil {
+		return fmt.Errorf("resolve portable Go workspace target tree: %w", err)
+	}
+	if err := gate.ConfigureBoundedCommand(command); err != nil {
+		return err
+	}
+	output, err := command.Output()
+	if err != nil {
+		return fmt.Errorf("read portable Go workspace target tree: %w", remoteGitContextError(ctx, err))
+	}
+	targetTree, err := strictGitLine(output)
+	if err != nil {
+		return errors.New("portable Go workspace target tree output is invalid")
+	}
+	if targetTree != descriptor.TargetTree {
 		return errors.New("portable Go workspace target tree binding drifted")
 	}
 	return nil

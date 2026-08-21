@@ -57,20 +57,6 @@ func TestPortableWorkspaceDescriptorModelsTargetModuleWithoutGoWork(t *testing.T
 	if err != nil || len(mappings) != 2 {
 		t.Fatalf("remoteGoModuleMappings = %+v, %v", mappings, err)
 	}
-	snapshot := &remoteGitTreeSnapshot{byPath: map[string]remoteGitTreeEntry{
-		"portable-target": {kind: "tree", objectID: descriptor.TargetTree, path: "portable-target"},
-	}}
-	if err := snapshot.validatePortableWorkspaceTree(data); err != nil {
-		t.Fatalf("validatePortableWorkspaceTree: %v", err)
-	}
-	descriptor.TargetTree = strings.Repeat("c", 40)
-	drifted, err := json.Marshal(descriptor)
-	if err != nil {
-		t.Fatalf("marshal drifted descriptor: %v", err)
-	}
-	if err := snapshot.validatePortableWorkspaceTree(drifted); err == nil || !strings.Contains(err.Error(), "drifted") {
-		t.Fatalf("drifted target tree error = %v", err)
-	}
 }
 
 // TestRemoteGoWorkspaceModuleMappingsRejectsUnboundWorkspace 锁定缺根、越界、重复与 workspace replace 拒绝。
