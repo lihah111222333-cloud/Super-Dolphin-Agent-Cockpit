@@ -75,6 +75,81 @@ type BatchResult struct {
 	Outcomes      []BatchOutcome `json:"outcomes"`
 }
 
+// DecodeBatchResult 严格解码 worker stdout 中的 canonical batch result。
+func DecodeBatchResult(data []byte) (BatchResult, error) {
+	if len(data) == 0 || len(data) > batchRequestMaxBytes {
+		return BatchResult{}, errors.New("batch result size is invalid")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var result BatchResult
+	if err := decoder.Decode(&result); err != nil {
+		return BatchResult{}, fmt.Errorf("decode batch result: %w", err)
+	}
+	if err := ensureBatchJSONEOF(decoder); err != nil {
+		return BatchResult{}, err
+	}
+	if err := result.Validate(); err != nil {
+		return BatchResult{}, err
+	}
+	canonical, err := json.Marshal(result)
+	if err != nil || !bytes.Equal(canonical, data) {
+		return BatchResult{}, errors.New("batch result is not canonical")
+	}
+	return result, nil
+}
+
+// Validate 校验 authority/status、整体 outcome 和逐 unit 终态一致。
+func (result BatchResult) Validate() error {
+	if result.SchemaVersion != BatchResultSchemaVersion || result.Authority != BatchAuthorityLocalNonAuthoritative || result.Status != BatchStatusNotVerified {
+		return errors.New("batch result identity is invalid")
+	}
+	if len(result.Outcomes) == 0 {
+		return errors.New("batch result outcomes are empty")
+	}
+	failed, err := validateBatchOutcomes(result.Outcomes)
+	if err != nil {
+		return err
+	}
+	want := BatchOutcomeSuccess
+	if failed {
+		want = BatchOutcomeFailed
+	}
+	if result.Outcome != want {
+		return errors.New("batch result aggregate outcome drifted")
+	}
+	return nil
+}
+
+// validateBatchOutcomes 校验排序后的逐 unit 终态并报告是否存在失败。
+func validateBatchOutcomes(outcomes []BatchOutcome) (bool, error) {
+	failed := false
+	for index, outcome := range outcomes {
+		if err := validateBatchOutcome(outcome); err != nil {
+			return false, err
+		}
+		if index > 0 && outcomes[index-1].UnitID >= outcome.UnitID {
+			return false, errors.New("batch result outcomes must be sorted and unique")
+		}
+		failed = failed || outcome.Status == BatchOutcomeFailed
+	}
+	return failed, nil
+}
+
+// validateBatchOutcome 校验单个 unit 的 status、exit code 与 error code。
+func validateBatchOutcome(outcome BatchOutcome) error {
+	if err := validateBatchUnitID(outcome.UnitID); err != nil {
+		return err
+	}
+	if outcome.Status == BatchOutcomeSuccess && outcome.ExitCode == 0 && outcome.ErrorCode == "" {
+		return nil
+	}
+	if outcome.Status == BatchOutcomeFailed && (outcome.ExitCode != 0 || outcome.ErrorCode != "") && !hasBatchControl(outcome.ErrorCode) {
+		return nil
+	}
+	return errors.New("batch outcome fields are inconsistent")
+}
+
 // EncodeBatchRequest 只编码已经满足排序和 typed workload 约束的 canonical JSON。
 func EncodeBatchRequest(request BatchRequest) ([]byte, error) {
 	if err := request.Validate(); err != nil {

@@ -921,10 +921,10 @@ internal/devtools/heterociexec/registry_test.go	internal	other	go-test	16710	开
 internal/devtools/heterociexec/sqlite_receipt_schema.go	internal	other	go-source	10601	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store.go	internal	other	go-source	20083	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store_test.go	internal	other	go-test	10480	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,test,开发工具与生成器辅助包
-internal/devtools/heterocinode/batch.go	internal	other	go-source	17538	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch.go	internal	other	go-source	20144	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,开发工具与生成器辅助包
 internal/devtools/heterocinode/batch_process_unix.go	internal	other	go-source	1062	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,process,unix,开发工具与生成器辅助包
 internal/devtools/heterocinode/batch_process_windows.go	internal	other	go-source	4867	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,process,windows,开发工具与生成器辅助包
-internal/devtools/heterocinode/batch_test.go	internal	other	go-test	5261	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,test,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch_test.go	internal	other	go-test	6422	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/linux_facts.go	internal	other	go-source	10452	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,开发工具与生成器辅助包
 internal/devtools/heterocinode/linux_facts_test.go	internal	other	go-test	4419	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/probe.go	internal	other	go-source	5544	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,开发工具与生成器辅助包

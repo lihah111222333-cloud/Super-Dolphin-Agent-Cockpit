@@ -56,6 +56,39 @@ func TestBatchRequestCodecIsStrictAndCanonical(t *testing.T) {
 	}
 }
 
+func TestBatchResultCodecRejectsIdentityAndAggregateDrift(t *testing.T) {
+	result := BatchResult{
+		SchemaVersion: BatchResultSchemaVersion, Authority: BatchAuthorityLocalNonAuthoritative,
+		Status: BatchStatusNotVerified, Outcome: BatchOutcomeSuccess,
+		Outcomes: []BatchOutcome{{UnitID: "unit-a", Status: BatchOutcomeSuccess, ExitCode: 0}},
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeBatchResult(encoded); err != nil {
+		t.Fatalf("DecodeBatchResult() error = %v", err)
+	}
+	for name, mutate := range map[string]func(*BatchResult){
+		"authority": func(value *BatchResult) { value.Authority = "REMOTE" },
+		"aggregate": func(value *BatchResult) { value.Outcome = BatchOutcomeFailed },
+		"outcome":   func(value *BatchResult) { value.Outcomes[0].ExitCode = 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := result
+			invalid.Outcomes = append([]BatchOutcome(nil), result.Outcomes...)
+			mutate(&invalid)
+			raw, err := json.Marshal(invalid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeBatchResult(raw); err == nil {
+				t.Fatal("DecodeBatchResult() accepted drift")
+			}
+		})
+	}
+}
+
 func TestBatchRequestRejectsShellArgvCwdDefaultsAndUnsortedWorkloads(t *testing.T) {
 	base := BatchRequest{
 		SchemaVersion: BatchRequestSchemaVersion,
