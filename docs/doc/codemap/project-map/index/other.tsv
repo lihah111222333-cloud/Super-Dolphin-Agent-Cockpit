@@ -991,6 +991,8 @@ internal/devtools/remotecicli/artifact_builder_runtime.go	internal	other	go-sour
 internal/devtools/remotecicli/artifact_builder_runtime_test.go	internal	other	go-test	29996	开发工具与生成器辅助包	internal,devtools,remotecicli,artifact,builder,runtime,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_route.go	internal	other	go-source	17155	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,route,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_route_test.go	internal	other	go-test	3624	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,route,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/automatic_ssh_runner.go	internal	other	go-source	11459	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,ssh,runner,开发工具与生成器辅助包
+internal/devtools/remotecicli/automatic_ssh_runner_test.go	internal	other	go-test	3494	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,ssh,runner,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/builder_simulate.go	internal	other	go-source	45037	开发工具与生成器辅助包	internal,devtools,remotecicli,builder,simulate,开发工具与生成器辅助包
 internal/devtools/remotecicli/builder_simulate_request.go	internal	other	go-source	4201	开发工具与生成器辅助包	internal,devtools,remotecicli,builder,simulate,request,开发工具与生成器辅助包
 internal/devtools/remotecicli/builder_simulate_request_test.go	internal	other	go-test	13527	开发工具与生成器辅助包	internal,devtools,remotecicli,builder,simulate,request,test,开发工具与生成器辅助包
