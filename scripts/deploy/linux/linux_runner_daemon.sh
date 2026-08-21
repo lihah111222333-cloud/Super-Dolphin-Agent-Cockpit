@@ -8,6 +8,8 @@ export SUPER_DOLPHIN_RESULT_STATUS=NOT_VERIFIED
 
 die() { printf 'linux_runner_daemon: %s LOCAL_NON_AUTHORITATIVE=1 NOT_VERIFIED=1\n' "$*" >&2; exit 2; }
 
+cd / || die 'unable to enter the fixed runner working directory'
+
 repo_path=''
 runner_id='linux-host'
 mode='native'
@@ -206,13 +208,14 @@ install_cache_blob() {
   if [[ -e "$target" ]]; then
     [[ -f "$target" && ! -L "$target" ]] || die "$label destination entry is not a regular file"
     actual=$(sha256sum -- "$target") || die "$label existing entry cannot be hashed"
-    [[ "${actual%% *}" == "$digest" ]] || die "$label destination cache collision detected"
-    return 0
+	if [[ "${actual%% *}" == "$digest" ]]; then
+	  return 0
+	fi
   fi
   temporary="$parent/.${target##*/}.$$.tmp"
   [[ ! -e "$temporary" ]] || die "$label staging file already exists"
   cp -p -- "$blob" "$temporary" || die "$label staging file cannot be copied"
-  mv -- "$temporary" "$target" || die "$label cache file cannot be installed atomically"
+	mv -f -- "$temporary" "$target" || die "$label cache file cannot be installed atomically"
 }
 
 validate_cache_generation() {
@@ -301,7 +304,7 @@ sync_shared_cache_to_node() {
 }
 
 publish_node_cache() {
-  local stage blobs node_records current_records combined_records sorted_records final_manifest manifest_digest manifest_target ready_stage
+	local stage blobs node_records base_records base_manifest current_records combined_records sorted_records final_manifest manifest_digest manifest_target ready_stage generation_changed
   local blob digest target parent temporary actual
   stage=$(mktemp -d "$node_tmp_root/publish.XXXXXX") || die 'shared cache publication staging directory cannot be created'
   blobs="$stage/blobs"
@@ -316,6 +319,13 @@ publish_node_cache() {
   acquire_shared_cache_lock
   bind_shared_cache_manifest
   current_cache_generation
+	base_records="$stage/base-records"
+	: >"$base_records"
+	if [[ -n "$cache_generation" ]]; then
+	  base_manifest="$shared_cache_manifests/${cache_generation#sha256:}.manifest"
+	  validate_cache_generation "$base_manifest" "$cache_generation" 0
+	  tail -n +4 -- "$base_manifest" >"$base_records" || die 'base shared cache generation cannot be read'
+	fi
   current_records="$stage/current-records"
   : >"$current_records"
   if [[ -n "$current_manifest" ]]; then
@@ -323,10 +333,21 @@ publish_node_cache() {
     tail -n +4 -- "$current_manifest" >"$current_records" || die 'current shared cache generation cannot be read'
   fi
   combined_records="$stage/combined-records"
-  if ! awk -F '\t' '
+	if [[ "$cache_generation" == "$current_generation" ]]; then generation_changed=0; else generation_changed=1; fi
+  if ! awk -F '\t' -v changed="$generation_changed" '
     NF != 5 || $1 != "file" { exit 41 }
-    { key=$2 "\t" $5; value=$3 "\t" $4; if (key in seen && seen[key] != value) exit 42; seen[key]=value; print }
-  ' "$current_records" "$node_records" >"$combined_records"; then
+    FILENAME == ARGV[1] { key=$2 "\t" $5; base[key]=$3 "\t" $4; next }
+    FILENAME == ARGV[2] { key=$2 "\t" $5; current[key]=$3 "\t" $4; current_line[key]=$0; next }
+    FILENAME == ARGV[3] {
+      key=$2 "\t" $5; value=$3 "\t" $4
+      if (changed && key in current && current[key] != value && (!(key in base) || current[key] != base[key])) exit 42
+      node[key]=value; node_line[key]=$0; next
+    }
+    END {
+      for (key in current_line) if (!(key in node_line)) print current_line[key]
+      for (key in node_line) print node_line[key]
+    }
+  ' "$base_records" "$current_records" "$node_records" >"$combined_records"; then
     die 'shared cache generation path collision detected'
   fi
   sorted_records="$stage/sorted-records"
@@ -786,9 +807,28 @@ read_cgroup_file() {
     (( status == 1 )) || die "$label cannot be read"
   fi
 }
+resolve_cgroup_limit_file() {
+  local filename=$1 label=$2 current=$cgroup_root candidate first_line depth=0
+  while :; do
+    candidate="$current/$filename"
+    if [[ -r "$candidate" ]]; then
+      IFS= read -r first_line <"$candidate" || die "$label cannot be read"
+      if [[ "$first_line" != max && "$first_line" != max[[:blank:]]* ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+    [[ "$current" == /sys/fs/cgroup/* ]] || break
+    current=${current%/*}
+    depth=$((depth + 1))
+    ((depth <= 64)) || die "$label ancestor search exceeded its bound"
+  done
+  die "$label has no finite inherited limit"
+}
 read_cgroup_memory_bytes() {
-  local value
-  read_cgroup_file "$cgroup_root/memory.max" 'cgroup memory.max'
+	local value limit_file
+	limit_file=$(resolve_cgroup_limit_file memory.max 'cgroup memory.max')
+	read_cgroup_file "$limit_file" 'cgroup memory.max'
   value=$cgroup_file_value
   if [[ "$value" == *$'\n' ]]; then
     value=${value%$'\n'}
@@ -798,8 +838,9 @@ read_cgroup_memory_bytes() {
   printf '%s\n' "$value"
 }
 read_cgroup_cpu_milli() {
-	local raw quota period milli
-	read_cgroup_file "$cgroup_root/cpu.max" 'cgroup cpu.max'
+	local raw quota period milli limit_file
+	limit_file=$(resolve_cgroup_limit_file cpu.max 'cgroup cpu.max')
+	read_cgroup_file "$limit_file" 'cgroup cpu.max'
   raw=$cgroup_file_value
   if [[ "$raw" == *$'\n' ]]; then
     raw=${raw%$'\n'}
