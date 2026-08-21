@@ -917,6 +917,8 @@ internal/devtools/heteroci/snapshot_codec_test.go	internal	other	go-test	36360	�
 internal/devtools/heteroci/snapshot_test.go	internal	other	go-test	35467	开发工具与生成器辅助包	internal,devtools,heteroci,snapshot,test,开发工具与生成器辅助包
 internal/devtools/heteroci/started_occupancy.go	internal	other	go-source	3732	开发工具与生成器辅助包	internal,devtools,heteroci,started,occupancy,开发工具与生成器辅助包
 internal/devtools/heteroci/started_occupancy_test.go	internal	other	go-test	3192	开发工具与生成器辅助包	internal,devtools,heteroci,started,occupancy,test,开发工具与生成器辅助包
+internal/devtools/heteroci/topology_session.go	internal	other	go-source	5399	开发工具与生成器辅助包	internal,devtools,heteroci,topology,session,开发工具与生成器辅助包
+internal/devtools/heteroci/topology_session_test.go	internal	other	go-test	6016	开发工具与生成器辅助包	internal,devtools,heteroci,topology,session,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/command.go	internal	other	go-source	5285	开发工具与生成器辅助包	internal,devtools,heterociexec,command,开发工具与生成器辅助包
 internal/devtools/heterociexec/command_executor.go	internal	other	go-source	28820	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,开发工具与生成器辅助包
 internal/devtools/heterociexec/command_executor_test.go	internal	other	go-test	27542	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,test,开发工具与生成器辅助包
