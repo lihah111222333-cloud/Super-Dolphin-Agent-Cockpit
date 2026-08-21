@@ -999,6 +999,8 @@ internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	1847
 internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	13949	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect.go	internal	other	go-source	5718	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect_test.go	internal	other	go-test	6644	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/repository_module_identity.go	internal	other	go-source	2750	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,开发工具与生成器辅助包
+internal/devtools/remotecicli/repository_module_identity_test.go	internal	other	go-test	1911	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,test,开发工具与生成器辅助包
 internal/devtools/shardresource/planner.go	internal	other	go-source	20508	开发工具与生成器辅助包	internal,devtools,shardresource,planner,开发工具与生成器辅助包
 internal/devtools/shardresource/planner_test.go	internal	other	go-test	16541	开发工具与生成器辅助包	internal,devtools,shardresource,planner,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/errors.go	internal	other	go-source	1294	开发工具与生成器辅助包	internal,devtools,sourceexport,errors,开发工具与生成器辅助包
