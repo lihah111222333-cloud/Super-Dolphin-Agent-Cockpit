@@ -64,6 +64,10 @@ docker_image_seen=0
 runtime=''
 runtime_seen=0
 docker_runtime_marker=''
+worker_binary=''
+worker_binary_seen=0
+worker_identity=''
+worker_identity_seen=0
 readonly max_int64=9223372036854775807
 
 validate_absolute_clean_path() {
@@ -663,6 +667,20 @@ while (($#)); do
       docker_image_seen=1
       shift 2
       ;;
+    --worker-binary)
+      (($# >= 2)) || die '--worker-binary requires a value'
+      ((worker_binary_seen == 0)) || die '--worker-binary must be provided once'
+      worker_binary=$2
+      worker_binary_seen=1
+      shift 2
+      ;;
+    --worker-identity)
+      (($# >= 2)) || die '--worker-identity requires a value'
+      ((worker_identity_seen == 0)) || die '--worker-identity must be provided once'
+      worker_identity=$2
+      worker_identity_seen=1
+      shift 2
+      ;;
     --timeout-seconds)
       (($# >= 2)) || die '--timeout-seconds requires a value'
       timeout_seconds=$2
@@ -681,7 +699,7 @@ while (($#)); do
       break
       ;;
     -h|--help)
-      printf '%s\n' 'linux_runner_daemon.sh --repo PATH [--mode native|docker] [--runtime ubuntu|darling-compat] [--docker-image sha256:ID|REPOSITORY@sha256:DIGEST] [--alternates OBJECTS_DIR] [--shared-root PATH --cache-root PATH --repository-id ID --node-id ID --object-format sha1|sha256 --source-commit OID --source-tree OID --toolchain-identity SHA256 --goos GOOS --goarch GOARCH --cgo-enabled 0|1 --module-identity SHA256 --workload-identity SHA256] [-- COMMAND...]'
+      printf '%s\n' 'linux_runner_daemon.sh --repo PATH [--mode native|docker] [--runtime ubuntu|darling-compat] [--docker-image sha256:ID|REPOSITORY@sha256:DIGEST] [--worker-binary PATH --worker-identity SHA256] [--alternates OBJECTS_DIR] [--shared-root PATH --cache-root PATH --repository-id ID --node-id ID --object-format sha1|sha256 --source-commit OID --source-tree OID --toolchain-identity SHA256 --goos GOOS --goarch GOARCH --cgo-enabled 0|1 --module-identity SHA256 --workload-identity SHA256] [-- COMMAND...]'
       exit 0
       ;;
     *)
@@ -711,9 +729,21 @@ if [[ "$mode" == docker ]]; then
 	  ;;
 	esac
 	export SUPER_DOLPHIN_RUNTIME="$docker_runtime_marker"
+	if ((worker_binary_seen != worker_identity_seen)); then
+	  die '--worker-binary and --worker-identity must be provided together'
+	fi
+	if ((worker_binary_seen == 1)); then
+	  validate_absolute_clean_path '--worker-binary' "$worker_binary"
+	  [[ -f "$worker_binary" && ! -L "$worker_binary" ]] || die '--worker-binary must be a regular file'
+	  require_canonical_sha256 "$worker_identity" '--worker-identity'
+	  command -v sha256sum >/dev/null 2>&1 || die 'sha256sum is required for worker identity'
+	  worker_actual=$(sha256sum -- "$worker_binary") || die '--worker-binary cannot be hashed'
+	  [[ "sha256:${worker_actual%% *}" == "$worker_identity" ]] || die '--worker-binary does not match --worker-identity'
+	fi
 else
 	((runtime_seen == 0)) || die '--runtime is forbidden in native mode'
 	((docker_image_seen == 0)) || die '--docker-image is forbidden in native mode'
+	((worker_binary_seen == 0 && worker_identity_seen == 0)) || die 'worker mount fields are forbidden in native mode'
 	unset SUPER_DOLPHIN_RUNTIME
 fi
 require_bounded_positive_integer "$timeout_seconds" '--timeout-seconds'
@@ -877,6 +907,9 @@ run_command() {
 	    -v "$run_tmp_root:/tmp:rw"
 	    -v "$node_write_overlay:/cache/write:rw"
 	  )
+	fi
+	if ((worker_binary_seen == 1)); then
+	  argv+=(-v "$worker_binary:/opt/super-dolphin/bin/super-dolphin-heteroci-node:ro")
 	fi
 	argv+=(
 	  -e LOCAL_NON_AUTHORITATIVE=1 -e NOT_VERIFIED=1

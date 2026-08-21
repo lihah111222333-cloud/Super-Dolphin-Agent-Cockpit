@@ -72,6 +72,27 @@ run_linux_runtime_marker_mismatch_case() {
   [[ "$output" == *'immutable Docker image runtime marker does not match --runtime'* ]] || die "Linux runtime marker mismatch returned the wrong failure: $output"
 }
 
+run_linux_worker_mount_case() {
+  local worker="$linux_fixture/worker" digest argv_log="$linux_fixture/argv-worker.log" output
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$worker"
+  chmod 555 "$worker"
+  digest=$(sha256sum -- "$worker") || die 'unable to hash Linux worker fixture'
+  digest=sha256:${digest%% *}
+  if ! DOCKER_ARGV_LOG="$argv_log" EXPECTED_IMAGE_RUNTIME="$canonical_ubuntu_runtime" PATH="$linux_fixture/bin:$PATH" \
+    bash "$linux_fixture/linux_runner_daemon.sh" --repo "$root" --mode docker --runtime ubuntu --docker-image "$ubuntu_image" \
+    --worker-binary "$worker" --worker-identity "$digest" -- /opt/super-dolphin/bin/super-dolphin-heteroci-node batch --request-base64 token \
+    >"$linux_fixture/out-worker.log" 2>"$linux_fixture/err-worker.log"; then
+    die 'Linux worker bind mount execution failed'
+  fi
+  grep -Fxq "$worker:/opt/super-dolphin/bin/super-dolphin-heteroci-node:ro" "$argv_log" || die 'Linux worker bind mount is missing'
+  if output=$(EXPECTED_IMAGE_RUNTIME="$canonical_ubuntu_runtime" PATH="$linux_fixture/bin:$PATH" \
+    bash "$linux_fixture/linux_runner_daemon.sh" --repo "$root" --mode docker --runtime ubuntu --docker-image "$ubuntu_image" \
+    --worker-binary "$worker" --worker-identity "sha256:$linux_digest" -- true 2>&1); then
+    die 'Linux worker identity mismatch was unexpectedly accepted'
+  fi
+  [[ "$output" == *'--worker-binary does not match --worker-identity'* ]] || die "Linux worker mismatch returned the wrong failure: $output"
+}
+
 run_linux_native_case() {
   local output output_file="$linux_fixture/out-native.log"
   if ! EXPECTED_AUTHORITY="$canonical_authority" EXPECTED_STATUS="$canonical_status" \
@@ -493,6 +514,7 @@ awk -v fixture_root="$linux_fixture/cgroup" '
 ' "$linux_daemon" >"$linux_fixture/linux_runner_daemon.sh" || die 'unable to bind Linux cgroup fixture'
 
 run_linux_runtime_marker_mismatch_case
+run_linux_worker_mount_case
 run_linux_runtime_case ubuntu "$canonical_ubuntu_runtime" "$ubuntu_image" 2
 printf '%s\n' '150000 100000' >"$linux_fixture/cgroup/cpu.max"
 run_linux_runtime_case darling-compat "$canonical_darling_runtime" "$darling_image" 1.5

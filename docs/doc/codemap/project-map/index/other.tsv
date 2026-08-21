@@ -1264,7 +1264,7 @@ scripts/darwin_qualification/main.go	scripts	other	go-source	24504	工程自动�
 scripts/darwin_qualification/main_test.go	scripts	other	go-test	10235	工程自动化、测试守卫、代码地图与开发脚本	scripts,darwin,qualification,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/darwin_qualification/process_group_unix.go	scripts	other	go-source	8702	工程自动化、测试守卫、代码地图与开发脚本	scripts,darwin,qualification,process,group,unix,工程自动化,测试守卫,代码地图与开发脚本
 scripts/darwin_qualification/process_group_unix_test.go	scripts	other	go-test	6263	工程自动化、测试守卫、代码地图与开发脚本	scripts,darwin,qualification,process,group,unix,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/deploy/linux/linux_runner_daemon.sh	scripts	other	script	43909	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,linux,runner,daemon,工程自动化,测试守卫,代码地图与开发脚本
+scripts/deploy/linux/linux_runner_daemon.sh	scripts	other	script	45476	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,linux,runner,daemon,工程自动化,测试守卫,代码地图与开发脚本
 scripts/deploy/mac/deploy_mac_host.sh	scripts	other	script	7736	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,mac,host,工程自动化,测试守卫,代码地图与开发脚本
 scripts/deploy/mac/mac_runner_daemon.sh	scripts	other	script	28927	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,mac,runner,daemon,工程自动化,测试守卫,代码地图与开发脚本
 scripts/deploy/windows/deploy_windows_host.ps1	scripts	other	script	27964	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,host,工程自动化,测试守卫,代码地图与开发脚本
@@ -1415,7 +1415,7 @@ scripts/test_with_guard.sh	scripts	other	script	36004	工程自动化、测试�
 scripts/test_with_guard_host_resource_test.go	scripts	other	go-test	1806	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,host,resource,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard_host_resource_windows_e2e_test.go	scripts	other	go-test	1261	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,host,resource,windows,e2e,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard_remote_guidance_test.go	scripts	other	go-test	7214	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,remote,guidance,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_heteroci_deploy_scripts.sh	scripts	other	script	39661	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,heteroci,deploy,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_heteroci_deploy_scripts.sh	scripts	other	script	41196	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,heteroci,deploy,工程自动化,测试守卫,代码地图与开发脚本
 scripts/tests/test_trusted_gate_launcher_contract.sh	scripts	other	script	8859	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,trusted,gate,launcher,contract,工程自动化,测试守卫,代码地图与开发脚本
 scripts/trusted_launcher_test_helpers_test.go	scripts	other	go-test	1604	工程自动化、测试守卫、代码地图与开发脚本	scripts,trusted,launcher,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/main.go	scripts	other	go-source	6740	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,main,工程自动化,测试守卫,代码地图与开发脚本
