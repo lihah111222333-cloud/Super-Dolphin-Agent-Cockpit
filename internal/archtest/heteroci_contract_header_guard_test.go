@@ -52,6 +52,52 @@ func TestHeterociContractCanonicalRule(t *testing.T) {
 	}
 }
 
+// TestHeterociPostgreSQLLocalAuthoritiesProtocolBoundary 冻结未接线的远程 PostgreSQL-only owner/receipt 边界。
+func TestHeterociPostgreSQLLocalAuthoritiesProtocolBoundary(t *testing.T) {
+	root := findRepoRoot(t)
+	document := readRemoteCIContractGuardFile(t, filepath.Join(root, "docs/契约/remote-ci-eci-imagecache-contract.md"))
+	protocol := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/heterociowner/postgresql_protocol.go"))
+	for _, marker := range []string{
+		"<!-- heteroci-postgresql-local-authorities:begin -->",
+		"heteroci-postgresql-local-authorities-protocol/v1",
+		"remote_postgresql_primary_only",
+		"owner_db_path",
+		"receipt_db_path",
+		"synchronous_commit=remote_apply",
+		"automatic_two_node_failover=forbidden",
+		"NOT_VERIFIED/not_wired",
+		"<!-- heteroci-postgresql-local-authorities:end -->",
+	} {
+		if strings.Count(document, marker) != 1 {
+			t.Fatalf("PostgreSQL local authorities contract marker %q count is not one", marker)
+		}
+	}
+	for _, marker := range []string{
+		"PostgreSQLOwnerPlacementRemotePrimaryOnly",
+		"PostgreSQLOwnerReadPrimaryOnly",
+		"PostgreSQLOwnerSynchronousCommitRemoteApply",
+		"PostgreSQLOwnerAmbiguousCommitExactReplay",
+		"PostgreSQLReceiptAmbiguousCommitExactReplay",
+		"PostgreSQLOwnerRuntimeNotWired",
+		"OwnerSQLite",
+		"ReceiptSQLite",
+		"LocalReplicaRead",
+		"CrossAuthorityTransaction",
+	} {
+		if !strings.Contains(protocol, marker) {
+			t.Fatalf("PostgreSQL local authorities protocol is missing %q", marker)
+		}
+	}
+	for _, forbidden := range []string{"database/sql", "pgx", "lib/pq", "sql.Open", "owner_db_path", "receipt_db_path"} {
+		if strings.Contains(protocol, forbidden) {
+			t.Fatalf("evidence-only PostgreSQL protocol unexpectedly wires %q", forbidden)
+		}
+	}
+	if cicontract.SQLAuthorityID != "duration-ledger-sqlite/v1" || cicontract.DurationLedgerSQLiteSchemaVersion != 22 {
+		t.Fatal("PostgreSQL local authorities protocol changed remote duration-ledger SQLite authority")
+	}
+}
+
 func heterociContractUniqueLine(t *testing.T, lines []string, prefix string) (int, string) {
 	t.Helper()
 	foundIndex := -1

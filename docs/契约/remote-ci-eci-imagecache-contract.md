@@ -307,6 +307,20 @@ Windows workload 按 inventory 中任意 `N` 个 live Windows 节点的实时容
 
 本节只定义私有开发加速池；本地节点可以为已选定的 local lane 构建节点私有、短生命周期、非权威的测试二进制或兼容运行时临时产物，但其来源、固定 identity、生命周期和清理必须可审计。所有结果及本地产物都必须标记 `LOCAL_NON_AUTHORITATIVE`，不得写入 remote duration-ledger SQLite authority、remote workload PASS/evidence、release receipt、accepted generation、ImageCache authority 或冒充 ECI 基准镜像。它收窄前文任何“转 ECI”或 `auto`/`hybrid` 表述：只有上述 pre-execution、linux/amd64、全体合格 Linux 节点无容量条件允许 ECI overflow，其他平台或已经开始执行的 workload 一律 fail-fast。
 
+### 7.2.1 local heteroci PostgreSQL-only owner/receipt 协议（Accepted 证据边界；runtime 未接线）
+
+<!-- heteroci-postgresql-local-authorities:begin -->
+`heteroci-postgresql-local-authorities-protocol/v1` 只冻结 local heteroci durable owner 与 batch receipt 的未来远程 PostgreSQL-only 持久化协议；本卡没有 PostgreSQL driver、连接、DDL、migration 或 production composition wiring，runtime 状态固定为 `NOT_VERIFIED/not_wired`。它不改变 `duration-ledger-sqlite/v1`、physical schema 22、remote PASS/correctness authority 或 `aliyun-eci/v1` 唯一路径。未来 Coordinator 即使部署在远程 Ubuntu，也仍只按主契约打开该主机本地的 remote duration-ledger SQLite；本协议不得读取、写入、镜像或迁移它。
+
+owner 与 receipt 的唯一 placement 都是 `remote_postgresql_primary_only`。owner 使用独立 `heteroci_owner` schema 与 `heteroci_owner_writer` role；receipt 使用独立 `heteroci_receipt` schema 与 `heteroci_receipt_writer` role。两者各自拥有独立事务 authority，禁止共用 schema、role、事务、cross-authority commit、双写或互相成为 fallback。本协议未来接线后的生产配置不得以 `owner_db_path`、`receipt_db_path` 或其他本机 SQLite 路径表达这两个 authority；现有 `automatic-heteroci-run/v2` SQLite runtime 不满足本协议，必须在后续独占切换卡删除这些字段后才能改变 `not_wired`。本机 PostgreSQL/SQLite/replica 不得参与 scheduling read、mutation、OperationID lookup、batch receipt lookup 或网络失败 fallback。
+
+所有 owner/receipt correctness read 与 mutation 只能进入已验证为 read-write primary 的远程端点；standby、只读副本、本机副本和读写分离一律禁止。提交语义固定为 `synchronous_commit=remote_apply`，standby 不可用时必须阻断或 fail-fast，禁止降为 async。网络失败固定 fail-fast，不得返回内存 plan、使用本地状态继续执行或切换 SQLite。
+
+owner mutation 必须在 `SERIALIZABLE` transaction 中先取得按 canonical owner scope 派生的 transaction-level advisory lock，再读取 operation journal/current fence/reservation 并执行 `PlanAndReserve`、Start/Finish projection 与 journal CAS；事务内禁止 probe、SSH 或 executor I/O。serialization/deadlock 只能有界重试整笔同一 mutation。COMMIT 结果不确定时只能回到远程 read-write primary，以原 `OperationID` 与 request digest 查 journal：完全一致时 exact replay，不一致时 conflict，无记录时才用同一 OperationID 重试。receipt 的不确定 claim/terminal 只能在远程 primary 以相同 batch/material/command identity exact replay。
+
+两数据库节点不构成自动选主 quorum；`automatic_two_node_failover=forbidden`。promotion 只允许 `manual_fenced_promotion`，或显式第三 witness 的 `quorum_witness_fenced_promotion`；两者都必须在 promotion 前证明旧 primary 已被 STONITH/网络隔离而不可写。promotion 后 controller 必须先 Acquire 新 owner ID/epoch，旧 fence 的 mutation/Start 必须失败，旧 epoch 仍运行的 occupancy 按 §7.2 归入 external capacity，不能重新加载为新 epoch reservation。
+<!-- heteroci-postgresql-local-authorities:end -->
+
 ## 8. 明确禁止的旧实现
 
 以下生产代码、配置和降级路径不得存在或重新接线：
