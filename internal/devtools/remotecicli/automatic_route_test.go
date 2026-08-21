@@ -28,13 +28,29 @@ func TestAutomaticRouteCLIRejectsManualRoutingFields(t *testing.T) {
 // TestAutomaticRouteConfigFieldGuard 从生产类型动态枚举 wire 字段并锁定消费集合。
 func TestAutomaticRouteConfigFieldGuard(t *testing.T) {
 	typeOf := reflect.TypeFor[AutomaticRouteConfig]()
-	want := []string{"schema_version", "topology_manifest_path", "owner_db_path", "owner_scope", "ssh_executable", "probe_timeout_ms", "probe_wait_delay_ms", "heartbeat_ttl_ms", "nodes"}
+	want := []string{"schema_version", "topology_manifest_path", "owner_db_path", "owner_namespace", "ssh_executable", "probe_timeout_ms", "probe_wait_delay_ms", "heartbeat_ttl_ms", "route_timeout_ms", "nodes"}
 	got := make([]string, 0, typeOf.NumField())
 	for field := range typeOf.Fields() {
 		got = append(got, field.Tag.Get("json"))
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("automatic route config fields = %v, want %v", got, want)
+	}
+}
+
+// TestAutomaticRouteOwnerScopeSeparatesRepositories 锁定同一 namespace 不会跨仓库复用 owner scope。
+func TestAutomaticRouteOwnerScopeSeparatesRepositories(t *testing.T) {
+	manifest := heteroci.Manifest{SchemaVersion: "heteroci-manifest/v1", Authority: heteroci.AuthorityLocalNonAuthoritative, Nodes: []heteroci.NodeConfig{}}
+	first, err := deriveAutomaticRouteOwnerScope("local-nodes", DetectedRepository{RepositoryID: "repo-a", TreeSHA: strings.Repeat("a", 40)}, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := deriveAutomaticRouteOwnerScope("local-nodes", DetectedRepository{RepositoryID: "repo-b", TreeSHA: strings.Repeat("b", 40)}, manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("different repositories received the same owner scope")
 	}
 }
 

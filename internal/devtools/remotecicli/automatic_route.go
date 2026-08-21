@@ -3,7 +3,9 @@ package remotecicli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,11 +30,12 @@ type AutomaticRouteConfig struct {
 	SchemaVersion        string               `json:"schema_version"`
 	TopologyManifestPath string               `json:"topology_manifest_path"`
 	OwnerDBPath          string               `json:"owner_db_path"`
-	OwnerScope           string               `json:"owner_scope"`
+	OwnerNamespace       string               `json:"owner_namespace"`
 	SSHExecutable        string               `json:"ssh_executable"`
 	ProbeTimeoutMS       int64                `json:"probe_timeout_ms"`
 	ProbeWaitDelayMS     int64                `json:"probe_wait_delay_ms"`
 	HeartbeatTTLMS       int64                `json:"heartbeat_ttl_ms"`
+	RouteTimeoutMS       int64                `json:"route_timeout_ms"`
 	Nodes                []AutomaticProbeNode `json:"nodes"`
 }
 
@@ -63,6 +66,9 @@ type automaticRouteInputs struct {
 	repository DetectedRepository
 	manifest   heteroci.Manifest
 	commands   map[string][]string
+	ownerScope heteroci.RoutingOwnerScope
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 type automaticRouteSnapshot struct {
@@ -119,13 +125,14 @@ func runAutomaticRoute(ctx context.Context, configPath, repositoryPath string, s
 	if err != nil {
 		return result, err
 	}
+	defer inputs.cancel()
 	now := time.Now().UTC()
-	database, fence, err := acquireAutomaticRouteOwner(ctx, inputs.config, now)
+	database, fence, err := acquireAutomaticRouteOwner(inputs.ctx, inputs, now)
 	if err != nil {
 		return result, err
 	}
 	defer func() { returnErr = errors.Join(returnErr, database.Close()) }()
-	routeSnapshot, err := acquireAutomaticRouteSnapshot(ctx, inputs, fence, now, stderr)
+	routeSnapshot, err := acquireAutomaticRouteSnapshot(inputs.ctx, inputs, fence, now, stderr)
 	if err != nil {
 		return result, err
 	}
@@ -133,12 +140,18 @@ func runAutomaticRoute(ctx context.Context, configPath, repositoryPath string, s
 }
 
 // prepareAutomaticRouteInputs 绑定 strict config、exact repository manifest 与动态 topology。
-func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath string, stderr io.Writer) (automaticRouteInputs, error) {
+func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath string, stderr io.Writer) (inputs automaticRouteInputs, returnErr error) {
 	config, err := loadAutomaticRouteConfig(configPath)
 	if err != nil {
 		return automaticRouteInputs{}, newCLIFailure("load automatic route config", err)
 	}
-	repository, err := DetectRepository(ctx, repositoryPath)
+	routeCtx, cancel := context.WithTimeout(ctx, time.Duration(config.RouteTimeoutMS)*time.Millisecond)
+	defer func() {
+		if returnErr != nil {
+			cancel()
+		}
+	}()
+	repository, err := DetectRepository(routeCtx, repositoryPath)
 	if err != nil {
 		return automaticRouteInputs{}, newCLIFailure("detect target repository", err)
 	}
@@ -153,20 +166,31 @@ func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath
 	if err != nil {
 		return automaticRouteInputs{}, err
 	}
-	return automaticRouteInputs{config: config, repository: repository, manifest: manifest, commands: commands}, nil
+	ownerScope, err := deriveAutomaticRouteOwnerScope(config.OwnerNamespace, repository, manifest)
+	if err != nil {
+		return automaticRouteInputs{}, err
+	}
+	return automaticRouteInputs{config: config, repository: repository, manifest: manifest, commands: commands, ownerScope: ownerScope, ctx: routeCtx, cancel: cancel}, nil
+}
+
+// deriveAutomaticRouteOwnerScope 按 namespace、仓库 exact tree 与 topology 派生隔离 scope。
+func deriveAutomaticRouteOwnerScope(namespace string, repository DetectedRepository, manifest heteroci.Manifest) (heteroci.RoutingOwnerScope, error) {
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return "", errors.New("automatic route topology identity cannot be encoded")
+	}
+	material := strings.Join([]string{"automatic-route-owner-scope/v1", namespace, repository.RepositoryID, repository.TreeSHA, digestBytes(encoded)}, "\x00")
+	digest := sha256.Sum256([]byte(material))
+	return heteroci.ParseRoutingOwnerScope("sha256:" + hex.EncodeToString(digest[:]))
 }
 
 // acquireAutomaticRouteOwner 打开显式 owner authority 并取得新 epoch。
-func acquireAutomaticRouteOwner(ctx context.Context, config AutomaticRouteConfig, now time.Time) (*sql.DB, heteroci.OwnerFence, error) {
-	database, err := platformsqlite.Open(ctx, platformsqlite.OpenOptions{Path: config.OwnerDBPath})
+func acquireAutomaticRouteOwner(ctx context.Context, inputs automaticRouteInputs, now time.Time) (*sql.DB, heteroci.OwnerFence, error) {
+	database, err := platformsqlite.Open(ctx, platformsqlite.OpenOptions{Path: inputs.config.OwnerDBPath})
 	if err != nil {
 		return nil, heteroci.OwnerFence{}, newCLIFailure("open routing owner", err)
 	}
-	ownerScope, err := heteroci.ParseRoutingOwnerScope(config.OwnerScope)
-	if err != nil {
-		return nil, heteroci.OwnerFence{}, errors.Join(newCLIFailure("parse routing owner scope", err), database.Close())
-	}
-	owner, err := heterociowner.NewOwnerWithClock(ctx, database, ownerScope, func() time.Time { return now })
+	owner, err := heterociowner.NewOwnerWithClock(ctx, database, inputs.ownerScope, func() time.Time { return now })
 	if err != nil {
 		return nil, heteroci.OwnerFence{}, errors.Join(newCLIFailure("initialize routing owner", err), database.Close())
 	}
@@ -244,6 +268,10 @@ func loadAutomaticRouteConfig(configPath string) (AutomaticRouteConfig, error) {
 	if err := validateAutomaticRouteConfig(config); err != nil {
 		return AutomaticRouteConfig{}, err
 	}
+	canonical, err := json.Marshal(config)
+	if err != nil || !bytes.Equal(canonical, raw) {
+		return AutomaticRouteConfig{}, errors.New("automatic route config is not canonical")
+	}
 	return config, nil
 }
 
@@ -264,8 +292,8 @@ func validateAutomaticRouteConfig(config AutomaticRouteConfig) error {
 	if err := validateAutomaticRouteHostPaths(config); err != nil {
 		return err
 	}
-	if _, err := heteroci.ParseRoutingOwnerScope(config.OwnerScope); err != nil {
-		return errors.New("automatic route owner_scope is invalid")
+	if !validAutomaticIdentity(config.OwnerNamespace) {
+		return errors.New("automatic route owner_namespace is invalid")
 	}
 	if err := validateAutomaticRouteDurations(config); err != nil {
 		return err
@@ -280,6 +308,9 @@ func validateAutomaticRouteDurations(config AutomaticRouteConfig) error {
 	}
 	if config.HeartbeatTTLMS <= 0 || config.HeartbeatTTLMS > 120_000 {
 		return errors.New("automatic route heartbeat TTL is invalid")
+	}
+	if config.RouteTimeoutMS < 1_000 || config.RouteTimeoutMS > 600_000 {
+		return errors.New("automatic route overall timeout is invalid")
 	}
 	return nil
 }
