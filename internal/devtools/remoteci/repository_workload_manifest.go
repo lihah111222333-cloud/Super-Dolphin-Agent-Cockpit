@@ -23,11 +23,14 @@ const (
 	RepositoryWorkloadManifestMaxBytes = 1 << 20
 	repositoryWorkloadManifestMaxBytes = RepositoryWorkloadManifestMaxBytes
 	// RepositoryWorkloadManifestEntryDigestDomain 与 manifest digest 使用不同密码学域。
-	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v1"
-	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v1"
-	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v1"
+	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v2"
+	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v2"
+	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v2"
 	RepositoryWorkloadKindGoTest                = "go_test"
 	RepositoryWorkloadPlatformLinuxAMD64        = "linux/amd64"
+	RepositoryWorkloadPlatformWindowsAMD64      = "windows/amd64"
+	RepositoryWorkloadRuntimeUbuntuContainer    = "ubuntu_container"
+	RepositoryWorkloadRuntimeWindowsNative      = "windows_native"
 )
 
 // RepositoryWorkloadKind 是 portable manifest 中受支持的 typed workload 类别。
@@ -35,6 +38,9 @@ type RepositoryWorkloadKind string
 
 // RepositoryWorkloadPlatform 是 workload 的 canonical 目标平台。
 type RepositoryWorkloadPlatform string
+
+// RepositoryWorkloadRuntime 是 workload 的 canonical 执行运行时。
+type RepositoryWorkloadRuntime string
 
 // RepositoryWorkloadExecutionPolicy 是 exact Go test 的显式执行策略。
 type RepositoryWorkloadExecutionPolicy string
@@ -44,8 +50,8 @@ const (
 	RepositoryWorkloadExecutionPolicyRace   RepositoryWorkloadExecutionPolicy = "race"
 )
 
-// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v1。
-// v1 只有 typed exact go_test workload，故 wire 中没有 argv、shell 或命令字符串。
+// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v2。
+// v2 只有 typed exact go_test workload，故 wire 中没有 argv、shell 或命令字符串。
 type RepositoryWorkloadManifest struct {
 	SchemaVersion         string                     `json:"schema_version"`
 	RepositoryID          string                     `json:"repository_id"`
@@ -61,7 +67,7 @@ type RepositoryWorkloadModule struct {
 	ModulePath string `json:"module_path"`
 }
 
-// RepositoryWorkload is the only executable v1 workload shape.
+// RepositoryWorkload 是唯一可执行的 v2 workload 形状。
 type RepositoryWorkload struct {
 	ID              string                            `json:"id"`
 	Kind            RepositoryWorkloadKind            `json:"kind"`
@@ -69,6 +75,7 @@ type RepositoryWorkload struct {
 	Package         string                            `json:"package"`
 	Name            string                            `json:"name"`
 	Platform        RepositoryWorkloadPlatform        `json:"platform"`
+	Runtime         RepositoryWorkloadRuntime         `json:"runtime"`
 	ExecutionPolicy RepositoryWorkloadExecutionPolicy `json:"execution_policy"`
 	ExecutionDigest string                            `json:"execution_digest"`
 }
@@ -295,11 +302,29 @@ func validateRepositoryWorkload(moduleRoots map[string]struct{}, excluded map[st
 	if err := validateGoTestName(workload.Name); err != nil {
 		return err
 	}
-	if workload.Platform != RepositoryWorkloadPlatformLinuxAMD64 {
-		return errors.New("workload platform must be linux/amd64")
+	if err := validateRepositoryWorkloadPlatformRuntime(workload.Platform, workload.Runtime); err != nil {
+		return err
 	}
 	if !validExecutionPolicy(workload.ExecutionPolicy) {
 		return errors.New("workload execution_policy is unsupported")
+	}
+	return nil
+}
+
+// validateRepositoryWorkloadPlatformRuntime 只接受已声明且明确配对的平台与运行时。
+// 新平台/运行时必须新增显式矩阵项，禁止由 platform 推断 runtime。
+func validateRepositoryWorkloadPlatformRuntime(platform RepositoryWorkloadPlatform, runtime RepositoryWorkloadRuntime) error {
+	switch platform {
+	case RepositoryWorkloadPlatformLinuxAMD64:
+		if runtime != RepositoryWorkloadRuntimeUbuntuContainer {
+			return errors.New("linux/amd64 workload runtime must be ubuntu_container")
+		}
+	case RepositoryWorkloadPlatformWindowsAMD64:
+		if runtime != RepositoryWorkloadRuntimeWindowsNative {
+			return errors.New("windows/amd64 workload runtime must be windows_native")
+		}
+	default:
+		return fmt.Errorf("workload platform %q is unsupported", platform)
 	}
 	return nil
 }

@@ -25,9 +25,18 @@ func repositoryWorkloadManifestFixture() RepositoryWorkloadManifest {
 				Package:         "./internal/devtools/remoteci",
 				Name:            "TestPortableManifest",
 				Platform:        RepositoryWorkloadPlatformLinuxAMD64,
+				Runtime:         RepositoryWorkloadRuntimeUbuntuContainer,
 				ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal,
 			},
 		},
+	}
+}
+
+func TestRepositoryWorkloadManifestRejectsMissingRuntime(t *testing.T) {
+	manifest := repositoryWorkloadManifestFixture()
+	manifest.Workloads[0].Runtime = ""
+	if _, err := manifest.CanonicalEncode(); err == nil {
+		t.Fatal("v2 manifest without a canonical runtime was accepted")
 	}
 }
 
@@ -65,10 +74,10 @@ func assertRepositoryManifestRoundTrip(t *testing.T, decoded, want RepositoryWor
 	if decoded.ManifestDigest == "" || decoded.Workloads[0].ExecutionDigest == "" {
 		t.Fatal("canonical encoding did not freeze manifest and entry digests")
 	}
-	if decoded.Workloads[0].ExecutionDigest != "sha256:898612e2d3b0bc99a3923fe271db2a157c86367c4e13827bf551c8e2650a10ac" {
+	if decoded.Workloads[0].ExecutionDigest != "sha256:d1d1256fcf604b296002e855257036c1faf658ce389189890e8dd5fdb4270cba" {
 		t.Fatalf("entry digest changed: %s", decoded.Workloads[0].ExecutionDigest)
 	}
-	if decoded.ManifestDigest != "sha256:c4565b1791f85e76684386605e2505a9a1cb2f951d6a0acbd0640ef8a1d2ba8a" {
+	if decoded.ManifestDigest != "sha256:19e6c8795a8d0393d856faf8aa6827f6dee124441369419ad4b72abca2eb86f9" {
 		t.Fatalf("manifest digest changed: %s", decoded.ManifestDigest)
 	}
 }
@@ -109,6 +118,10 @@ func TestRepositoryWorkloadManifestRejectsInvalidWorkloadShape(t *testing.T) {
 		{"ellipsis package", func(manifest *RepositoryWorkloadManifest) { manifest.Workloads[0].Package = "./..." }},
 		{"lowercase test suffix", func(manifest *RepositoryWorkloadManifest) { manifest.Workloads[0].Name = "Testportable" }},
 		{"wrong platform", func(manifest *RepositoryWorkloadManifest) { manifest.Workloads[0].Platform = "darwin/arm64" }},
+		{"missing runtime", func(manifest *RepositoryWorkloadManifest) { manifest.Workloads[0].Runtime = "" }},
+		{"platform runtime drift", func(manifest *RepositoryWorkloadManifest) {
+			manifest.Workloads[0].Runtime = RepositoryWorkloadRuntimeWindowsNative
+		}},
 		{"duplicate workload", func(manifest *RepositoryWorkloadManifest) {
 			manifest.Workloads = append(manifest.Workloads, manifest.Workloads[0])
 		}},
@@ -134,6 +147,15 @@ func TestRepositoryWorkloadManifestAcceptsModuleRelativePackage(t *testing.T) {
 	manifest.Workloads[0].Package = "./internal/example"
 	if _, err := manifest.CanonicalEncode(); err != nil {
 		t.Fatalf("CanonicalEncode() rejected module-relative package: %v", err)
+	}
+}
+
+func TestRepositoryWorkloadManifestAcceptsWindowsNativeWorkload(t *testing.T) {
+	manifest := repositoryWorkloadManifestFixture()
+	manifest.Workloads[0].Platform = RepositoryWorkloadPlatformWindowsAMD64
+	manifest.Workloads[0].Runtime = RepositoryWorkloadRuntimeWindowsNative
+	if _, err := manifest.CanonicalEncode(); err != nil {
+		t.Fatalf("CanonicalEncode() rejected Windows native workload: %v", err)
 	}
 }
 
@@ -203,7 +225,7 @@ func TestRepositoryWorkloadManifestABIDigestIsStableAndRoundTrips(t *testing.T) 
 	if digest == "" || !strings.HasPrefix(digest, "sha256:") {
 		t.Fatalf("ABI digest = %q, want canonical sha256 digest", digest)
 	}
-	if digest != "sha256:855d0f384f3108f89efa5c3752b27cd341425a226db2cd34233c6395675b9ba1" {
+	if digest != "sha256:d2464bdd1317e816fae6e3b7ffd749f4497e55acab6f826b607a5d109bd9449c" {
 		t.Fatalf("ABI digest drifted: %s", digest)
 	}
 	manifest := repositoryWorkloadManifestFixture()

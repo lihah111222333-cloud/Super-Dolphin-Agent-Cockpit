@@ -64,7 +64,7 @@ func portableRunManifestFixture(t *testing.T) []byte {
 		ExcludedNestedModules: []string{},
 		Workloads: []RepositoryWorkload{{
 			ID: "go-test/example", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".",
-			Package: "./example", Name: "TestExample", Platform: RepositoryWorkloadPlatformLinuxAMD64,
+			Package: "./example", Name: "TestExample", Platform: RepositoryWorkloadPlatformLinuxAMD64, Runtime: RepositoryWorkloadRuntimeUbuntuContainer,
 			ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal,
 		}},
 	}
@@ -124,7 +124,7 @@ func portableRunInputFixture(t *testing.T) (PortableRunInput, *portableRunGitRes
 			RepoRelativePath: "ci/workload-manifest.json",
 			SHA256:           bytesDigest(manifest),
 			ABIDigest:        abiDigest,
-			SchemaVersion:    "portable-workload-manifest/v1",
+			SchemaVersion:    PortableWorkloadManifestSchemaVersion,
 			RepositoryID:     "repo-1",
 		},
 		Authority: PortableRunAuthority{
