@@ -191,8 +191,8 @@ func remoteGoModuleMappings(sources map[string][]byte) ([]remoteGoModuleMapping,
 	if !ok {
 		return nil, errors.New("Go workload fingerprint requires go.mod")
 	}
-	if _, hasWork := sources["go.work"]; hasWork {
-		return nil, errors.New("Go workload fingerprint does not accept an unmodelled go.work workspace")
+	if goWork, hasWork := sources["go.work"]; hasWork {
+		return remoteGoWorkspaceModuleMappings(sources, goWork)
 	}
 	parsed, err := modfile.Parse("go.mod", goMod, nil)
 	if err != nil || parsed.Module == nil || parsed.Module.Mod.Path == "" {
@@ -209,10 +209,79 @@ func remoteGoModuleMappings(sources map[string][]byte) ([]remoteGoModuleMapping,
 	return mappings, nil
 }
 
+// remoteGoWorkspaceModuleMappings 严格绑定 tree 内 go.work 的 use 集合与每个模块元数据。
+func remoteGoWorkspaceModuleMappings(sources map[string][]byte, data []byte) ([]remoteGoModuleMapping, error) {
+	workspace, err := modfile.ParseWork("go.work", data, nil)
+	if err != nil || len(workspace.Use) == 0 || len(workspace.Replace) != 0 {
+		return nil, errors.New("Go workload fingerprint workspace is invalid")
+	}
+	mappings := make([]remoteGoModuleMapping, 0, len(workspace.Use))
+	directories := make(map[string]struct{}, len(workspace.Use))
+	modules := make(map[string]struct{}, len(workspace.Use))
+	hasRoot := false
+	for _, use := range workspace.Use {
+		directory, err := canonicalRemoteGoModuleDirectory(use.Path)
+		if err != nil {
+			return nil, fmt.Errorf("Go workload fingerprint workspace use: %w", err)
+		}
+		hasRoot = hasRoot || directory == "."
+		if err := appendRemoteWorkspaceModuleMappings(sources, directory, directories, modules, &mappings); err != nil {
+			return nil, err
+		}
+	}
+	if !hasRoot {
+		return nil, errors.New("Go workload fingerprint workspace must include the engine root module")
+	}
+	sort.Slice(mappings, func(left, right int) bool { return len(mappings[left].importPath) > len(mappings[right].importPath) })
+	return mappings, nil
+}
+
+// appendRemoteWorkspaceModuleMappings 校验 use/module 唯一性并追加模块与本地 replace 映射。
+func appendRemoteWorkspaceModuleMappings(sources map[string][]byte, directory string, directories, modules map[string]struct{}, mappings *[]remoteGoModuleMapping) error {
+	if _, exists := directories[directory]; exists {
+		return errors.New("Go workload fingerprint workspace contains a duplicate module directory")
+	}
+	directories[directory] = struct{}{}
+	mapping, local, err := remoteWorkspaceModuleMapping(sources, directory)
+	if err != nil {
+		return err
+	}
+	if _, exists := modules[mapping.importPath]; exists {
+		return errors.New("Go workload fingerprint workspace contains a duplicate module path")
+	}
+	modules[mapping.importPath] = struct{}{}
+	*mappings = append(*mappings, mapping)
+	*mappings = append(*mappings, local...)
+	return nil
+}
+
+// remoteWorkspaceModuleMapping 解析一个已校验 workspace use 目录的 module 与本地 replace。
+func remoteWorkspaceModuleMapping(sources map[string][]byte, directory string) (remoteGoModuleMapping, []remoteGoModuleMapping, error) {
+	moduleFile := "go.mod"
+	if directory != "." {
+		moduleFile = path.Join(directory, "go.mod")
+	}
+	data, ok := sources[moduleFile]
+	if !ok {
+		return remoteGoModuleMapping{}, nil, errors.New("Go workload fingerprint workspace module metadata is missing")
+	}
+	parsed, err := modfile.Parse(moduleFile, data, nil)
+	if err != nil || parsed.Module == nil || parsed.Module.Mod.Path == "" {
+		return remoteGoModuleMapping{}, nil, errors.New("Go workload fingerprint workspace module path is invalid")
+	}
+	local, err := localRemoteGoModuleMappingsAt(parsed, directory)
+	return remoteGoModuleMapping{importPath: parsed.Module.Mod.Path, directory: directory}, local, err
+}
+
 func localRemoteGoModuleMappings(parsed *modfile.File) ([]remoteGoModuleMapping, error) {
+	return localRemoteGoModuleMappingsAt(parsed, ".")
+}
+
+// localRemoteGoModuleMappingsAt 将 replace 相对路径绑定到所属 workspace module 目录。
+func localRemoteGoModuleMappingsAt(parsed *modfile.File, moduleDirectory string) ([]remoteGoModuleMapping, error) {
 	mappings := make([]remoteGoModuleMapping, 0, len(parsed.Replace))
 	for _, replacement := range parsed.Replace {
-		mapping, ok, err := localRemoteGoModuleMapping(replacement)
+		mapping, ok, err := localRemoteGoModuleMappingAt(replacement, moduleDirectory)
 		if err != nil {
 			return nil, err
 		}
@@ -225,6 +294,11 @@ func localRemoteGoModuleMappings(parsed *modfile.File) ([]remoteGoModuleMapping,
 
 // localRemoteGoModuleMapping 保留版本化模块替换不参与仓库文件映射，并拒绝越出候选 tree 的本地目录。
 func localRemoteGoModuleMapping(replacement *modfile.Replace) (remoteGoModuleMapping, bool, error) {
+	return localRemoteGoModuleMappingAt(replacement, ".")
+}
+
+// localRemoteGoModuleMappingAt 解析 module-relative replace 并拒绝逃逸组合 tree。
+func localRemoteGoModuleMappingAt(replacement *modfile.Replace, moduleDirectory string) (remoteGoModuleMapping, bool, error) {
 	if replacement.New.Version != "" {
 		return remoteGoModuleMapping{}, false, nil
 	}
@@ -234,6 +308,12 @@ func localRemoteGoModuleMapping(replacement *modfile.Replace) (remoteGoModuleMap
 	directory, err := canonicalRemoteGoModuleDirectory(replacement.New.Path)
 	if err != nil {
 		return remoteGoModuleMapping{}, false, err
+	}
+	if moduleDirectory != "." {
+		directory, err = canonicalRemoteGoModuleDirectory(path.Join(moduleDirectory, directory))
+		if err != nil {
+			return remoteGoModuleMapping{}, false, err
+		}
 	}
 	return remoteGoModuleMapping{
 		importPath: replacement.Old.Path,
