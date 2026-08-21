@@ -25,7 +25,7 @@ duration-ledger SQLite physical schema：`22`
 
 本文冻结远程 CI 的唯一生产架构。后续实现、重构、子代理任务和代码审查必须以本契约为边界；历史计划、旧迁移说明和已删除实现不得覆盖本文。
 
-## 未来独立 `super-dolphin-remote-ci` 引擎边界（Accepted 分层边界，正常执行仍未接线）
+## 未来独立 `super-dolphin-remote-ci` 引擎边界（Accepted 分层边界，normal execute 协议已冻结、runtime 仍未接线）
 
 本节冻结未来独立引擎的输入、产物和 authority 边界，并把无副作用 validate-only、非权威 builder-simulation 与尚未接线的正常执行明确分层；Accepted 文档不等于生产实现或实云验收已经存在。未来引擎必须把三类输入分开绑定：engine 输入是独立 `super-dolphin-remote-ci` exact source tree 的 `engine.tree_sha`；target 输入是目标 exact source tree 的 `target.tree_sha`；global authority 输入仍是既有唯一 Coordinator 与同一 SQLite authority。三者必须由 composition root 显式传入，或由同一组已验证参数无歧义检测得到；禁止以 cwd/HEAD/default/fallback 充当任一输入，也禁止把 engine、target、global authority 合并为一个隐式根。
 
@@ -34,6 +34,21 @@ duration-ledger SQLite physical schema：`22`
 `target.tree_sha` 只提供 target source 与 workload。target tree 不再要求含 `cmd/super-dolphin-gate`，也不承担 engine artifact 构建职责。repository-owned workload manifest 必须通过 `workload_manifest.path` 指向 target tree 内的 repo-relative regular blob，并以从该 `target.tree_sha` 解析出的 blob 字节计算 `workload_manifest.sha256`；manifest 的 ABI 也必须进入上述 source/toolchain/protocol/workload-manifest ABI digest。禁止宿主绝对 manifest 路径、禁止宿主绝对 worktree、宿主文件时间或未绑定的临时目录参与 manifest、source、workload 或 artifact identity。
 
 未来 composition root 的 `validate-only` 形态只能验证 engine/target/global authority 的身份、引用、regular-blob 和 digest 绑定，必须不得产出 plan/PASS、shard、ECI side effect 或 SQLite authority 写入。`validate-only remains side-effect free`；它只能返回 validation evidence。下述 builder-simulation 是与 validate-only 分离的 additive 非权威供给边界；只有另行接入既有唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 唯一路径后，才可进入正常规划与执行，正常执行仍未接线。
+
+### `portable-remote-ci-execution/v1` additive Accepted 请求协议（协议已冻结、runtime 仍未接线）
+
+`portable-remote-ci-execution/v1` 只冻结未来 normal portable execute composition root 的显式请求 DTO；它不授权或证明 runtime、Coordinator、SQLite、OSS、ECI、plan、PASS、shard 或 worker 已接线。正式 host 命令 `execute` 仍保持 fail-fast sentinel。本协议不修改 validate-only、`remote-ci-engine-builder-simulation/v1`、现行 v3 normal run、SQLite schema 或 accepted generation，且不得被 builder-simulate、local automatic workflow 或第二 executor 消费。
+
+请求 header 固定为 `schema_version=portable-remote-ci-execution/v1`、`contract_id=remote-ci-portable-execution/v1`、`execution_provider=aliyun-eci/v1`，并以互不合并的 nested object 一次性显式绑定：
+
+- `engine`：`repository_id`、`object_format`、exact `commit_sha`、exact `tree_sha`，以及 `artifact` 的固定 `contract_id=remote-ci-portable-runtime-artifact/v1`、固定 `kind=portable-remote-ci-runtime/v1`、`artifact_key`、artifact byte `artifact_sha256`/`artifact_size_bytes`、`receipt_key`/`receipt_sha256`、`identity_digest`、observed `builder_digest`/`toolchain_digest`、独立 normal `protocol_abi_digest` 和 `workload_manifest_abi_digest`。`identity_digest` 必须由 `portable-remote-ci-runtime-artifact-identity/v1` 域内的 runtime kind/contract/source/artifact/builder/toolchain/ABI 材料重算；`source-baseline-git-bundle/v1`、builder-simulation ABI、既有 `remote-ci-artifact-identity/v1` 或 caller 自报漂移值均不得冒充 normal runtime artifact。
+- `target`：`repository_id`、`object_format`、exact `commit_sha`、exact `tree_sha`、显式 clean repo-relative `mount_path`，以及既有 `portable-workload-manifest/v5` binding 的 repo-relative `repo_relative_path`、blob `sha256`、`abi_digest`、`schema_version` 与同一 `repository_id`。本 additive schema 只消费 workload ABI digest 字符串，不修改 `RepositoryWorkloadManifest` 或其 ABI 版本；后续 composition 不得推断默认 mount。
+- `authority`：clean absolute 且互不相同的 `config_path`/`ledger_path`、`config_sha256`、稳定 `ledger_identity`、正 `accepted_generation` 与 `accepted_authority_sha256`；这些字段只冻结未来 global authority 输入，当前协议 codec 不打开 SQLite、不读取或写入 authority。
+- `audit`：canonical `agent_token_digest`、已登记 `profile`、非 local-only pre-commit 的已登记 `entrypoint` 与显式 `force`。这些字段只属于运行审计，不进入 workload PASS identity。
+
+decoder 必须在任何 repository、artifact resolver、Coordinator、SQLite、OSS 或 ECI I/O 前拒绝空文档、超过 `1 MiB`、root/nested `null`、unknown、duplicate、missing、trailing、非 canonical JSON、零值/非 canonical digest、无效 Git object format/OID、relative/unclean/shared authority path、无效或隐式 target mount、artifact/receipt key 重合、source-baseline/builder-simulation artifact type 或 ABI、artifact identity 重算漂移、engine/target workload ABI 不一致、raw agent token、unknown profile/entrypoint 或零 accepted generation。canonical encoder 必须先完成相同验证；独立 normal 协议 ABI 必须从上述 DTO 与 enum 动态派生，字段 consumer registry 必须动态枚举 producer 并同时拒绝 missing/stale 登记。
+
+后续 runtime 卡只能把已验证请求接入既有唯一 Coordinator、同一 SQLite authority 和 `aliyun-eci/v1` 唯一路径；在那之前不得把 codec 成功、artifact identity、validate-only 或 builder-simulation 结果表述为 CI 执行、PASS 或 runtime evidence。
 
 ### `remote-ci-engine-builder-simulation/v1` additive Accepted 子契约
 
@@ -419,7 +434,7 @@ owner mutation 必须在 `SERIALIZABLE` transaction 中先取得按 canonical ow
 | `7.8` | §7 | 阿里云 ECI 终态生命周期字段允许沿同一 Describe 路径按 PollInterval 每分片最多重读 3 次；不得伪造时间、提前消费报告、移出 pending、取消兄弟或跳过清理，窗口耗尽仍 fail-fast | `bounded terminal evidence reread + fanout drain tests + timing guard` |
 <!-- cicontract:end -->
 
-### §10 future engine boundary mapping（Accepted 预留，当前未接线）
+### §10 future engine boundary mapping（normal execute 协议已冻结，runtime 当前未接线）
 
 下表是未来独立 `super-dolphin-remote-ci` 引擎的文档级映射，不加入当前 `cicontract.CanonicalMarkdown`，也不宣称已有 runtime owner、执行接线或 PASS authority。未来实现必须先让这些 guard 从 RED 收敛到 GREEN，再由唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 路径接入。
 
@@ -433,3 +448,4 @@ owner mutation 必须在 `SERIALIZABLE` transaction 中先取得按 canonical ow
 | `future-engine.6` | §8 | 禁止第二 artifact builder、第二 executor、target Gate artifact、host-path manifest、隐式输入与 validation-only promotion | `forbidden-path archtest guard` |
 | `future-engine.7` | §9 | RED→GREEN guard、LSP/测试/尺寸证据与未接线声明必须随 future contract 变更保留 | `contract review evidence` |
 | `future-engine.8` | §1.1 | portable source baseline artifact 固定为 `source-baseline-git-bundle/v1` 标准自包含单文件 Git bundle：唯一 `refs/source/baseline`、`DeterministicSourceBaselineCommitSHA` zero-parent commit、0 prerequisites、完整且无额外 closure；唯一 `aliyun-eci/v1` builder 的 receipt 绑定 builder/toolchain/repository_id/object_format/baseline commit/tree/artifact SHA/size，`validate-only` 只读验证且仅允许私有 0700 临时导入，不得产出或写 authority | `documentation guard RED→GREEN; runtime not wired` |
+| `future-engine.9` | §3.7 | `portable-remote-ci-execution/v1` strict request 以独立 runtime kind/contract/identity domain 动态绑定 engine artifact/receipt/toolchain/normal protocol/workload ABI、target commit/tree/mount/manifest、显式 config/ledger path 与 global accepted authority、audit；source-baseline/builder-simulation 身份及 unknown/duplicate/null/missing/trailing/非 canonical 全部拒绝，且 `execute` 继续 fail-fast | `protocol and field guards GREEN; runtime not wired` |

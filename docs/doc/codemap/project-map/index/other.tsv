@@ -352,6 +352,7 @@ internal/archtest/remote_ci_incremental_source_transport_contract_guard_test.go	
 internal/archtest/remote_ci_miss_only_contract_guard_test.go	internal	other	go-test	11872	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,miss,only,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_plan_contract_field_guard_test.go	internal	other	go-test	21631	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,plan,contract,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_plan_report_decoder_binding_guard_test.go	internal	other	go-test	4004	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,plan,report,decoder,binding,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/remote_ci_portable_execution_protocol_guard_test.go	internal	other	go-test	7524	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,portable,execution,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_resource_tier_behavior_guard_test.go	internal	other	go-test	3748	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,resource,tier,behavior,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_resource_tiers_guard_test.go	internal	other	go-test	5858	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,resource,tiers,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/remote_ci_retention_contract_guard_test.go	internal	other	go-test	33013	架构守卫、baseline ratchet 与冻结规则	internal,archtest,remote,ci,retention,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
