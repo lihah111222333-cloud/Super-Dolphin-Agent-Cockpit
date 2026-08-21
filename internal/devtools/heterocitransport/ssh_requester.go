@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,7 +77,7 @@ func (requester *SSHRequester) Do(ctx context.Context, endpoint string, request 
 	if !ok {
 		return nil, ErrInvalidRequest
 	}
-	decoded, err := decodeCanonicalProbeRequest(request)
+	decoded, err := heteroci.DecodeProbeRequest(request)
 	if err != nil || decoded.NodeID != node.config.NodeID || decoded.ProbeIdentity != node.config.ProbeIdentity {
 		return nil, ErrInvalidRequest
 	}
@@ -200,36 +198,6 @@ func validateSSHRemoteCommand(command []string) error {
 		}
 	}
 	return nil
-}
-
-// decodeCanonicalProbeRequest 复核 core request 的严格字段、canonical bytes 与正 owner epoch。
-func decodeCanonicalProbeRequest(data []byte) (heteroci.ProbeRequest, error) {
-	if len(data) == 0 || len(data) > 4<<10 {
-		return heteroci.ProbeRequest{}, ErrInvalidRequest
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var request heteroci.ProbeRequest
-	if err := decoder.Decode(&request); err != nil {
-		return heteroci.ProbeRequest{}, ErrInvalidRequest
-	}
-	if err := ensureSSHProbeRequestEOF(decoder); err != nil {
-		return heteroci.ProbeRequest{}, err
-	}
-	canonical, err := json.Marshal(request)
-	if err != nil || !bytes.Equal(canonical, data) || request.SchemaVersion != heteroci.ProbeRequestSchemaVersion || request.OwnerEpoch <= 0 {
-		return heteroci.ProbeRequest{}, ErrInvalidRequest
-	}
-	return request, nil
-}
-
-func ensureSSHProbeRequestEOF(decoder *json.Decoder) error {
-	var trailing json.RawMessage
-	err := decoder.Decode(&trailing)
-	if errors.Is(err, io.EOF) {
-		return nil
-	}
-	return ErrInvalidRequest
 }
 
 func sshRemoteProbeCommand(command []string, request []byte) string {
