@@ -18,14 +18,13 @@ type portableGoPlatform struct {
 	runtime  remoteci.RepositoryWorkloadRuntime
 }
 
-func portableGoCatalogPlatforms() [2]portableGoPlatform {
-	return [2]portableGoPlatform{
+func portableGoCatalogPlatforms() [1]portableGoPlatform {
+	return [1]portableGoPlatform{
 		{name: "linux-amd64", platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64, runtime: remoteci.RepositoryWorkloadRuntimeUbuntuContainer},
-		{name: "windows-amd64", platform: remoteci.RepositoryWorkloadPlatformWindowsAMD64, runtime: remoteci.RepositoryWorkloadRuntimeWindowsNative},
 	}
 }
 
-// expandDetectedRepositoryGoCatalog 从 exact tree 自动派生全部平台 Go package workload。
+// expandDetectedRepositoryGoCatalog 从 exact tree 自动派生 Linux 全量 package，并保留调用者声明的平台 workload。
 func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedRepository) (DetectedRepository, error) {
 	if ctx == nil || repository.Root == "" || repository.TreeSHA == "" {
 		return DetectedRepository{}, errors.New("portable Go catalog repository identity is invalid")

@@ -57,9 +57,11 @@ func TestExpandDetectedRepositoryGoCatalogDerivesBothPlatformsFromExactTree(t *t
 		t.Fatal("expanded workloads are not canonically sorted")
 	}
 	assertPortablePackageWorkload(t, expanded.Manifest.Workloads[0], remoteci.RepositoryWorkloadPlatformLinuxAMD64)
-	assertPortablePackageWorkload(t, expanded.Manifest.Workloads[1], remoteci.RepositoryWorkloadPlatformWindowsAMD64)
-	if expanded.Manifest.Workloads[2].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[2].ID != "go-test/example/TestFixture" {
-		t.Fatalf("explicit workload was not preserved: %#v", expanded.Manifest.Workloads[2])
+	if expanded.Manifest.Workloads[1].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[1].ID != "go-test/example/TestFixture" {
+		t.Fatalf("explicit Linux workload was not preserved: %#v", expanded.Manifest.Workloads[1])
+	}
+	if expanded.Manifest.Workloads[2].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[2].Platform != remoteci.RepositoryWorkloadPlatformWindowsAMD64 {
+		t.Fatalf("explicit Windows workload was not preserved: %#v", expanded.Manifest.Workloads[2])
 	}
 }
 
@@ -73,8 +75,8 @@ func TestExpandDetectedRepositoryGoCatalogSupportsRootlessDeclaredModules(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPortablePackageCount(t, expanded.Manifest.Workloads, ".", "./example", 2)
-	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", ".", 2)
+	assertPortablePackageCount(t, expanded.Manifest.Workloads, ".", "./example", 1)
+	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", ".", 1)
 	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", "./sub", 1)
 	assertPortablePackageCount(t, expanded.Manifest.Workloads, "hidden", ".", 0)
 }

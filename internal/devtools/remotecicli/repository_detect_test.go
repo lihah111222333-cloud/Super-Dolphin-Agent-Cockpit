@@ -131,6 +131,12 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 			Platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64, Runtime: remoteci.RepositoryWorkloadRuntimeUbuntuContainer,
 			BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
 			ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
+		}, {
+			ID: "go-test/windows/example/TestFixture", Kind: remoteci.RepositoryWorkloadKindGoTest,
+			ModuleRoot: ".", Package: "./example", Name: "TestFixture",
+			Platform: remoteci.RepositoryWorkloadPlatformWindowsAMD64, Runtime: remoteci.RepositoryWorkloadRuntimeWindowsNative,
+			BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
+			ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
 		}},
 	}
 	encoded, err := manifest.CanonicalEncode()
