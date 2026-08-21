@@ -2322,7 +2322,7 @@
         "lines": 99,
         "max_func_len": 31,
         "max_nesting": 2,
-        "max_complexity": 11,
+        "max_complexity": 10,
         "max_params": 2,
         "max_returns": 2,
         "max_underscore": 0,

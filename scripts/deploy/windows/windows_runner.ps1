@@ -15,6 +15,8 @@ param(
     [Parameter(Mandatory = $true)][ValidateSet('0', '1')][string]$CGOEnabled,
     [Parameter(Mandatory = $true)][string]$ModuleIdentity,
     [Parameter(Mandatory = $true)][string]$WorkloadIdentity,
+    [Parameter(Mandatory = $true)][string]$SourceCommit,
+    [Parameter(Mandatory = $true)][string]$SourceTree,
     [int]$TimeoutSeconds = 120
 )
 
@@ -60,7 +62,7 @@ function Assert-NoReparsePoints {
     $fullPath = [System.IO.Path]::GetFullPath($Path)
     $root = [System.IO.Path]::GetPathRoot($fullPath)
     if ([string]::IsNullOrWhiteSpace($root)) { Stop-Fast 'path has no filesystem root' }
-    $rootItem = Get-Item -LiteralPath $root -ErrorAction Stop
+    $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop
     if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         Stop-Fast "path contains a reparse point: $Path"
     }
@@ -70,7 +72,7 @@ function Assert-NoReparsePoints {
     foreach ($segment in ($relative -split '[\\/]+')) {
         if ([string]::IsNullOrEmpty($segment)) { continue }
         $current = [System.IO.Path]::Combine($current, $segment)
-        $item = Get-Item -LiteralPath $current -ErrorAction SilentlyContinue
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
         if ($null -eq $item) {
             if ($AllowMissing) { return }
             Stop-Fast "path does not exist: $Path"
@@ -142,8 +144,9 @@ function Get-NodeScopedCacheRoot {
     )
 
     $scopeRoot = Join-Path $BaseRoot 'windows-node-local-v1'
-    $nodeRoot = Join-Path $scopeRoot ('node-' + (ConvertTo-Sha256Identity -Value $NodeIdentity).Substring(7))
-    $repositoryRoot = Join-Path $nodeRoot ('repository-' + (ConvertTo-Sha256Identity -Value $RepositoryIdentity).Substring(7))
+    $scopeMaterial = $NodeIdentity + '|' + $RepositoryIdentity
+    $scopeIdentity = ConvertTo-Sha256Identity -Value $scopeMaterial
+    $repositoryRoot = Join-Path $scopeRoot ('scope-' + $scopeIdentity.Substring(7))
     return Resolve-ExplicitDirectory -Path $repositoryRoot -Label 'node-local cache root' -Create
 }
 
@@ -175,6 +178,17 @@ function Get-GitValue {
         Stop-Fast "$Label could not be uniquely verified from the explicit Git root"
     }
     return $output
+}
+
+function Assert-GitObjectId {
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$ObjectFormat,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $pattern = if ($ObjectFormat -ceq 'sha1') { '^[a-f0-9]{40}$' } elseif ($ObjectFormat -ceq 'sha256') { '^[a-f0-9]{64}$' } else { Stop-Fast 'Git object format is unsupported' }
+    if ($Value -cnotmatch $pattern) { Stop-Fast "$Label does not match the Git object format" }
 }
 
 function Get-CacheManifest {
@@ -257,10 +271,12 @@ if ([string]::IsNullOrWhiteSpace($Command)) { Stop-Fast 'decoded command must no
 [void](Assert-IdentityField -Value $GOARCH -Label 'GOARCH')
 [void](Assert-IdentityField -Value $ModuleIdentity -Label 'ModuleIdentity')
 [void](Assert-IdentityField -Value $WorkloadIdentity -Label 'WorkloadIdentity')
+[void](Assert-IdentityField -Value $SourceCommit -Label 'SourceCommit')
+[void](Assert-IdentityField -Value $SourceTree -Label 'SourceTree')
 
 $RepoPath = Resolve-ExplicitDirectory -Path $RepoPath -Label 'RepoPath'
-$git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue
-if ($null -eq $git) { $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue }
+$git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($null -eq $git) { $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if ($null -eq $git) { Stop-Fast 'git executable is required to verify the explicit repository root' }
 $gitExecutable = [string]$git.Source
 $gitRootRaw = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', '--show-toplevel') -Label 'Git worktree root'
@@ -280,6 +296,15 @@ if (-not [System.IO.Path]::IsPathRooted($gitCommonRaw)) {
 }
 $gitCommonRoot = Resolve-ExplicitDirectory -Path $gitCommonRaw -Label 'Git common directory'
 $objectFormat = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', '--show-object-format') -Label 'Git object format'
+Assert-GitObjectId -Value $SourceCommit -ObjectFormat $objectFormat -Label 'SourceCommit'
+Assert-GitObjectId -Value $SourceTree -ObjectFormat $objectFormat -Label 'SourceTree'
+$actualCommit = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', 'HEAD') -Label 'Git source commit'
+$actualTree = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', 'HEAD^{tree}') -Label 'Git source tree'
+if ($actualCommit -cne $SourceCommit) { Stop-Fast 'SourceCommit does not match the explicit Git worktree HEAD' }
+if ($actualTree -cne $SourceTree) { Stop-Fast 'SourceTree does not match the explicit Git worktree tree' }
+$worktreeStatus = (& $gitExecutable -C $RepoPath status --porcelain=v1 --untracked-files=all --ignored=matching 2>$null | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { Stop-Fast 'Git worktree cleanliness could not be verified' }
+if (-not [string]::IsNullOrWhiteSpace($worktreeStatus)) { Stop-Fast 'Git worktree contains tracked, untracked, or ignored drift' }
 if ([string]::IsNullOrWhiteSpace($RepositoryId)) {
     $RepositoryId = 'git-common-dir/' + (ConvertTo-Sha256Identity -Value ($objectFormat + '|' + $gitCommonRoot)).Substring(7)
 }
@@ -414,11 +439,28 @@ public static class SuperDolphinWindows {
   public const uint CREATE_SUSPENDED = 0x00000004;
   const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
   const uint CREATE_NO_WINDOW = 0x08000000;
+  const int STARTF_USESTDHANDLES = 0x00000100;
+  const int STD_INPUT_HANDLE = -10;
+  const int STD_OUTPUT_HANDLE = -11;
+  const int STD_ERROR_HANDLE = -12;
   const uint WAIT_OBJECT_0 = 0x00000000;
   const uint WAIT_TIMEOUT = 0x00000102;
   const uint WAIT_FAILED = 0xffffffff;
   const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+  const int JobObjectBasicAccountingInformation = 1;
   const int JobObjectExtendedLimitInformation = 9;
+
+  [StructLayout(LayoutKind.Sequential)]
+  struct JOBOBJECT_BASIC_ACCOUNTING_INFORMATION {
+    public long TotalUserTime;
+    public long TotalKernelTime;
+    public long ThisPeriodTotalUserTime;
+    public long ThisPeriodTotalKernelTime;
+    public uint TotalPageFaultCount;
+    public uint TotalProcesses;
+    public uint ActiveProcesses;
+    public uint TotalTerminatedProcesses;
+  }
 
   [StructLayout(LayoutKind.Sequential)]
   struct JOBOBJECT_BASIC_LIMIT_INFORMATION {
@@ -507,6 +549,9 @@ public static class SuperDolphinWindows {
       out PROCESS_INFORMATION processInformation);
 
   [DllImport("kernel32.dll", SetLastError = true)]
+  static extern IntPtr GetStdHandle(int standardHandle);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
   static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
   [DllImport("kernel32.dll", SetLastError = true)]
@@ -523,6 +568,14 @@ public static class SuperDolphinWindows {
 
   [DllImport("kernel32.dll", SetLastError = true)]
   static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool QueryInformationJobObject(
+      IntPtr job,
+      int informationClass,
+      out JOBOBJECT_BASIC_ACCOUNTING_INFORMATION information,
+      uint informationLength,
+      IntPtr returnLength);
 
   [DllImport("kernel32.dll", SetLastError = true)]
   static extern bool CloseHandle(IntPtr handle);
@@ -559,14 +612,17 @@ public static class SuperDolphinWindows {
     return job;
   }
 
-  public static string BuildPowerShellCommandLine(string command) {
+  public static string BuildPowerShellCommandLine(string executable, string command) {
+    if (String.IsNullOrWhiteSpace(executable) || !System.IO.Path.IsPathRooted(executable)) {
+      throw new ArgumentException("PowerShell executable is invalid", "executable");
+    }
     if (command == null || command.Length == 0) {
       throw new ArgumentException("PowerShell command is empty", "command");
     }
     if (command.IndexOf('\0') >= 0) {
       throw new ArgumentException("PowerShell command contains a NUL character", "command");
     }
-    return "powershell.exe -NoProfile -Command " + QuoteWindowsArgument(command);
+    return QuoteWindowsArgument(executable) + " -NoProfile -Command " + QuoteWindowsArgument(command);
   }
 
   // Quote one argument using the CommandLineToArgvW escaping rules.  This
@@ -595,20 +651,27 @@ public static class SuperDolphinWindows {
     return result.ToString();
   }
 
-  public static Launch CreateSuspended(string commandLine, string currentDirectory) {
+  public static Launch CreateSuspended(string executable, string commandLine, string currentDirectory) {
+    if (String.IsNullOrWhiteSpace(executable) || !System.IO.Path.IsPathRooted(executable)) {
+      throw new ArgumentException("CreateProcessW executable is invalid", "executable");
+    }
     if (String.IsNullOrWhiteSpace(commandLine)) {
       throw new ArgumentException("CreateProcessW command line is empty", "commandLine");
     }
     var startup = new STARTUPINFO();
     startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = RequiredStandardHandle(STD_INPUT_HANDLE, "stdin");
+    startup.hStdOutput = RequiredStandardHandle(STD_OUTPUT_HANDLE, "stdout");
+    startup.hStdError = RequiredStandardHandle(STD_ERROR_HANDLE, "stderr");
     var mutableCommandLine = new StringBuilder(commandLine);
     PROCESS_INFORMATION processInformation;
     bool created = CreateProcessW(
-        "powershell.exe",
+        executable,
         mutableCommandLine,
         IntPtr.Zero,
         IntPtr.Zero,
-        false,
+        true,
         CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
         IntPtr.Zero,
         currentDirectory,
@@ -622,6 +685,14 @@ public static class SuperDolphinWindows {
       ThreadHandle = processInformation.hThread,
       ProcessId = processInformation.dwProcessId,
     };
+  }
+
+  static IntPtr RequiredStandardHandle(int identifier, string label) {
+    IntPtr handle = GetStdHandle(identifier);
+    if (handle == IntPtr.Zero || handle == new IntPtr(-1)) {
+      throw new Win32Exception(Marshal.GetLastWin32Error(), "GetStdHandle(" + label + ") failed");
+    }
+    return handle;
   }
 
   public static void Assign(IntPtr job, IntPtr process) {
@@ -652,7 +723,28 @@ public static class SuperDolphinWindows {
   }
 
   public static bool WaitForJobEmpty(IntPtr job, uint milliseconds) {
-    return WaitForHandle(job, milliseconds, "Job Object");
+    if (job == IntPtr.Zero) {
+      throw new ArgumentException("Job Object handle is required");
+    }
+    var stopwatch = Stopwatch.StartNew();
+    while (true) {
+      JOBOBJECT_BASIC_ACCOUNTING_INFORMATION information;
+      if (!QueryInformationJobObject(
+          job,
+          JobObjectBasicAccountingInformation,
+          out information,
+          (uint)Marshal.SizeOf(typeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)),
+          IntPtr.Zero)) {
+        throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryInformationJobObject failed");
+      }
+      if (information.ActiveProcesses == 0) {
+        return true;
+      }
+      if (stopwatch.ElapsedMilliseconds >= milliseconds) {
+        return false;
+      }
+      System.Threading.Thread.Sleep(10);
+    }
   }
 
   static bool WaitForHandle(IntPtr handle, uint milliseconds, string description) {
@@ -725,7 +817,7 @@ public static class SuperDolphinWindows {
     }
     if (job != IntPtr.Zero) {
       try {
-        if (!WaitForHandle(job, milliseconds, "Job Object")) {
+        if (!WaitForJobEmpty(job, milliseconds)) {
           errors.Add(new TimeoutException("Job Object did not become empty within the cleanup window"));
         }
       }
@@ -849,7 +941,11 @@ function Stop-And-Reap([ref]$Job, [object]$Launch, [bool]$Assigned) {
     }
 }
 
-$commandLine = [SuperDolphinWindows]::BuildPowerShellCommandLine($Command)
+$powerShellExecutable = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+if ([string]::IsNullOrWhiteSpace($powerShellExecutable) -or -not [System.IO.Path]::IsPathRooted($powerShellExecutable)) {
+    Stop-Fast 'current PowerShell executable path is invalid'
+}
+$commandLine = [SuperDolphinWindows]::BuildPowerShellCommandLine($powerShellExecutable, $Command)
 $job = [IntPtr]::Zero
 $launch = $null
 $assigned = $false
@@ -889,7 +985,7 @@ try {
 
     # The Job exists before CreateProcessW so no user code can run outside it.
     $job = [SuperDolphinWindows]::CreateJob()
-    $launch = [SuperDolphinWindows]::CreateSuspended($commandLine, $RepoPath)
+    $launch = [SuperDolphinWindows]::CreateSuspended($powerShellExecutable, $commandLine, $RepoPath)
     [SuperDolphinWindows]::Assign($job, $launch.ProcessHandle)
     $assigned = $true
     [SuperDolphinWindows]::Resume($launch.ThreadHandle)
@@ -990,8 +1086,10 @@ if ($null -ne $mutexCleanupError) {
 [pscustomobject]@{
 	runner_id = $NodeId
 	node_id = $NodeId
-	repository_id = $RepositoryId
-	cache_scope = 'windows_node_local'
+    repository_id = $RepositoryId
+    source_commit = $SourceCommit
+    source_tree = $SourceTree
+    cache_scope = 'windows_node_local'
 	cache_seed_state = $cacheSeedState
 	cache_identity = $cacheIdentity
 	cache = [pscustomobject]@{

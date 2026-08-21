@@ -7,6 +7,7 @@ die() { printf 'heteroci deploy script test: %s\n' "$*" >&2; exit 1; }
 linux_daemon="$root/scripts/deploy/linux/linux_runner_daemon.sh"
 mac_daemon="$root/scripts/deploy/mac/mac_runner_daemon.sh"
 windows_runner="$root/scripts/deploy/windows/windows_runner.ps1"
+windows_deploy="$root/scripts/deploy/windows/deploy_windows_host.ps1"
 linux_digest=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 real_git=$(command -v git) || die 'git is required for Linux shared source tests'
 
@@ -44,7 +45,7 @@ run_linux_runtime_case() {
   local runtime=$1 runtime_marker=$2 image=$3 expected_cpu=$4
   local argv_log="$linux_fixture/argv-$runtime.log"
   local expected actual runtime_output
-  if ! DOCKER_ARGV_LOG="$argv_log" PATH="$linux_fixture/bin:$PATH" \
+  if ! DOCKER_ARGV_LOG="$argv_log" EXPECTED_IMAGE_RUNTIME="$runtime_marker" PATH="$linux_fixture/bin:$PATH" \
     bash "$linux_fixture/linux_runner_daemon.sh" --repo "$root" --mode docker --runtime "$runtime" --docker-image "$image" -- /bin/echo "$runtime" \
     >"$linux_fixture/out-$runtime.log" 2>"$linux_fixture/err-$runtime.log"; then
     die "Linux $runtime runtime fake Docker execution failed"
@@ -60,6 +61,15 @@ run_linux_runtime_case() {
     -e "SUPER_DOLPHIN_RUNTIME=$runtime_marker" \
     "$image" /bin/echo "$runtime")
   [[ "$actual" == "$expected" ]] || die "Linux $runtime runtime Docker argv drifted"
+}
+
+run_linux_runtime_marker_mismatch_case() {
+  local output
+  if output=$(EXPECTED_IMAGE_RUNTIME=windows_native PATH="$linux_fixture/bin:$PATH" \
+    bash "$linux_fixture/linux_runner_daemon.sh" --repo "$root" --mode docker --runtime ubuntu --docker-image "$ubuntu_image" -- true 2>&1); then
+    die 'Linux runtime marker mismatch was unexpectedly accepted'
+  fi
+  [[ "$output" == *'immutable Docker image runtime marker does not match --runtime'* ]] || die "Linux runtime marker mismatch returned the wrong failure: $output"
 }
 
 run_linux_native_case() {
@@ -316,6 +326,22 @@ if command -v pwsh >/dev/null 2>&1; then
         $errors | ForEach-Object { Write-Error ("PowerShell parser: " + $_.Message) }
         exit 1
       }
+      $pathGuard = @($asts[$relative].FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq "Assert-NoReparsePoints"
+      }, $true))
+      if ($pathGuard.Count -ne 1) { throw "Assert-NoReparsePoints function count drifted: $relative" }
+      $guardGetItems = @($pathGuard[0].Body.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -ceq "Get-Item"
+      }, $true))
+      if ($guardGetItems.Count -ne 2) { throw "Assert-NoReparsePoints Get-Item count drifted: $relative" }
+      foreach ($getItem in $guardGetItems) {
+        $force = @($getItem.CommandElements | Where-Object {
+          $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -ceq "Force"
+        })
+        if ($force.Count -ne 1) { throw "Assert-NoReparsePoints must inspect hidden path components with -Force: $relative" }
+      }
     }
     $runnerRelative = "scripts/deploy/windows/windows_runner.ps1"
     $deployRelative = "scripts/deploy/windows/deploy_windows_host.ps1"
@@ -365,9 +391,22 @@ grep -Fq 'cache_identity' "$windows_runner" || die 'Windows cache identity outpu
 grep -Fq '$env:GOMODCACHE' "$windows_runner" || die 'Windows GOMODCACHE isolation missing'
 grep -Fq '$env:GOCACHE' "$windows_runner" || die 'Windows GOCACHE isolation missing'
 grep -Fq 'Get-NodeScopedCacheRoot' "$windows_runner" || die 'Windows node-scoped cache root derivation missing'
+grep -Fq "\$scopeMaterial = \$NodeIdentity + '|' + \$RepositoryIdentity" "$windows_runner" || die 'Windows cache scope does not combine node and repository identity'
+grep -Fq "'scope-' + \$scopeIdentity.Substring(7)" "$windows_runner" || die 'Windows cache scope lost its full combined SHA-256 identity'
 grep -Fq 'WorktreeRoot must equal the uniquely verified Git worktree root' "$windows_runner" || die 'Windows worktree root is not bound to the actual Git root'
 grep -Fq 'ObjectStoreRoot must equal the uniquely verified Git common directory' "$windows_runner" || die 'Windows object-store root is not bound to the actual Git common directory'
 grep -Fq 'Assert-NodeLocalFixedPath' "$windows_runner" || die 'Windows runner does not reject shared/network source and cache roots'
+grep -Fq 'Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1' "$windows_runner" || die 'Windows runner does not select one PATH-priority Git application'
+grep -Fq 'Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1' "$windows_deploy" || die 'Windows deployer does not select one PATH-priority Git application'
+grep -Fq '[System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName' "$windows_runner" || die 'Windows runner does not bind CreateProcessW to the current PowerShell executable'
+grep -Fq 'CreateSuspended($powerShellExecutable, $commandLine, $RepoPath)' "$windows_runner" || die 'Windows runner did not pass the bound PowerShell executable to CreateProcessW'
+grep -Fq 'QueryInformationJobObject(' "$windows_runner" || die 'Windows runner does not query Job Object active-process accounting'
+grep -Fq 'information.ActiveProcesses == 0' "$windows_runner" || die 'Windows runner does not prove the Job Object process tree is empty'
+grep -Fq 'startup.dwFlags = STARTF_USESTDHANDLES' "$windows_runner" || die 'Windows runner does not bind child standard handles'
+grep -Fq 'startup.hStdOutput = RequiredStandardHandle(STD_OUTPUT_HANDLE, "stdout")' "$windows_runner" || die 'Windows runner child stdout is not observable'
+grep -Fq 'SourceCommit does not match the explicit Git worktree HEAD' "$windows_runner" || die 'Windows runner does not bind the requested source commit'
+grep -Fq 'SourceTree does not match the explicit Git worktree tree' "$windows_runner" || die 'Windows runner does not bind the requested source tree'
+grep -Fq 'status --porcelain=v1 --untracked-files=all --ignored=matching' "$windows_runner" || die 'Windows runner does not reject exact-tree worktree drift'
 grep -Fq 'Assert-DeploymentNodeLocalPath' "$root/scripts/deploy/windows/deploy_windows_host.ps1" || die 'Windows deploy does not reject shared/network source and cache roots'
 grep -Fq '$env:SUPER_DOLPHIN_WORKLOAD_IDENTITY = $WorkloadIdentity' "$windows_runner" || die 'Windows workload identity binding missing'
 grep -Fq 'RepositoryId' "$root/scripts/deploy/windows/deploy_windows_host.ps1" || die 'Windows deploy repository identity parameter missing'
@@ -398,10 +437,8 @@ expect_linux_reject 'Linux unknown runtime' '--runtime must be ubuntu or darling
   --repo "$root" --mode docker --runtime unknown --docker-image "$ubuntu_image" -- true
 expect_linux_reject 'Linux native runtime' '--runtime is forbidden in native mode' \
   --repo "$root" --mode native --runtime ubuntu -- true
-expect_linux_reject 'Linux Ubuntu runtime with Darling image' 'ubuntu runtime requires --docker-image super-dolphin-ci-runner:ubuntu@sha256:' \
-  --repo "$root" --mode docker --runtime ubuntu --docker-image "$darling_image" -- true
-expect_linux_reject 'Linux Darling runtime with Ubuntu image' 'darling-compat runtime requires --docker-image super-dolphin-ci-runner:darwin-compat@sha256:' \
-  --repo "$root" --mode docker --runtime darling-compat --docker-image "$ubuntu_image" -- true
+expect_linux_reject 'Linux mutable image' '--docker-image must be an immutable sha256 image ID or repository@sha256 digest' \
+  --repo "$root" --mode docker --runtime ubuntu --docker-image 'ubuntu:latest' -- true
 
 linux_fixture=$(mktemp -d "${TMPDIR:-/tmp}/heteroci-linux-runtime.XXXXXX") || die 'unable to create Linux runtime fixture'
 linux_fixture=$(cd -P -- "$linux_fixture" && pwd) || die 'unable to canonicalize Linux runtime fixture'
@@ -441,6 +478,7 @@ printf '%s\n' '#!/usr/bin/env python3' \
   '        time.sleep(0.02)' >"$linux_fixture/bin/flock"
 printf '%s\n' '#!/usr/bin/env bash' 'set -Eeuo pipefail' \
   'if [[ "${1:-}" == info ]]; then exit 0; fi' \
+  'if [[ "${1:-}" == image && "${2:-}" == inspect ]]; then printf "SUPER_DOLPHIN_RUNTIME=%s\n" "${EXPECTED_IMAGE_RUNTIME:?}"; exit 0; fi' \
   '[[ "${1:-}" == run ]] || exit 97' \
   'printf "%s\n" "$@" >"${DOCKER_ARGV_LOG:?}"' >"$linux_fixture/bin/docker"
 chmod 700 "$linux_fixture/bin/uname" "$linux_fixture/bin/git" "$linux_fixture/bin/setsid" "$linux_fixture/bin/flock" "$linux_fixture/bin/docker"
@@ -454,6 +492,7 @@ awk -v fixture_root="$linux_fixture/cgroup" '
   END { if (replacement_count != 1) exit 1 }
 ' "$linux_daemon" >"$linux_fixture/linux_runner_daemon.sh" || die 'unable to bind Linux cgroup fixture'
 
+run_linux_runtime_marker_mismatch_case
 run_linux_runtime_case ubuntu "$canonical_ubuntu_runtime" "$ubuntu_image" 2
 printf '%s\n' '150000 100000' >"$linux_fixture/cgroup/cpu.max"
 run_linux_runtime_case darling-compat "$canonical_darling_runtime" "$darling_image" 1.5

@@ -104,6 +104,12 @@ require_canonical_sha256() {
   [[ "$value" =~ ^sha256:[a-f0-9]{64}$ ]] || die "$label must be canonical sha256:<64 lowercase hex>"
 }
 
+require_immutable_docker_image() {
+  local value=$1
+  [[ "$value" =~ ^sha256:[a-f0-9]{64}$ || "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._/:+-]*@sha256:[a-f0-9]{64}$ ]] || \
+    die '--docker-image must be an immutable sha256 image ID or repository@sha256 digest'
+}
+
 require_git_object_id() {
   local value=$1 format=$2 label=$3
   if [[ "$format" == sha1 ]]; then
@@ -675,7 +681,7 @@ while (($#)); do
       break
       ;;
     -h|--help)
-      printf '%s\n' 'linux_runner_daemon.sh --repo PATH [--mode native|docker] [--runtime ubuntu|darling-compat] [--docker-image REPOSITORY@sha256:DIGEST] [--alternates OBJECTS_DIR] [--shared-root PATH --cache-root PATH --repository-id ID --node-id ID --object-format sha1|sha256 --source-commit OID --source-tree OID --toolchain-identity SHA256 --goos GOOS --goarch GOARCH --cgo-enabled 0|1 --module-identity SHA256 --workload-identity SHA256] [-- COMMAND...]'
+      printf '%s\n' 'linux_runner_daemon.sh --repo PATH [--mode native|docker] [--runtime ubuntu|darling-compat] [--docker-image sha256:ID|REPOSITORY@sha256:DIGEST] [--alternates OBJECTS_DIR] [--shared-root PATH --cache-root PATH --repository-id ID --node-id ID --object-format sha1|sha256 --source-commit OID --source-tree OID --toolchain-identity SHA256 --goos GOOS --goarch GOARCH --cgo-enabled 0|1 --module-identity SHA256 --workload-identity SHA256] [-- COMMAND...]'
       exit 0
       ;;
     *)
@@ -692,13 +698,12 @@ fi
 if [[ "$mode" == docker ]]; then
   ((runtime_seen == 1)) || die '--runtime is required for docker mode'
   ((docker_image_seen == 1)) || die '--docker-image is required for docker mode'
+  require_immutable_docker_image "$docker_image"
   case "$runtime" in
 	ubuntu)
-	  [[ "$docker_image" =~ ^super-dolphin-ci-runner:ubuntu@sha256:[a-f0-9]{64}$ ]] || die 'ubuntu runtime requires --docker-image super-dolphin-ci-runner:ubuntu@sha256:<64 lowercase hex>'
 	  docker_runtime_marker=ubuntu_container
       ;;
     darling-compat)
-      [[ "$docker_image" =~ ^super-dolphin-ci-runner:darwin-compat@sha256:[a-f0-9]{64}$ ]] || die 'darling-compat runtime requires --docker-image super-dolphin-ci-runner:darwin-compat@sha256:<64 lowercase hex>'
       docker_runtime_marker=darling_compat_runtime
       ;;
     *)
@@ -717,6 +722,11 @@ require_bounded_positive_integer "$timeout_seconds" '--timeout-seconds'
 [[ ${#command_args[@]} -gt 0 ]] || die 'a command is required after --'
 command -v git >/dev/null 2>&1 || die 'git is required'
 cgroup_root='/sys/fs/cgroup'
+if [[ "$cgroup_root" == /sys/fs/cgroup ]]; then
+  cgroup_relative=$(cut -d: -f3 /proc/self/cgroup) || die 'current cgroup path cannot be read'
+  [[ -n "$cgroup_relative" && "$cgroup_relative" = /* && ! "$cgroup_relative" =~ [[:cntrl:]] ]] || die 'current cgroup path is invalid'
+  cgroup_root="$cgroup_root$cgroup_relative"
+fi
 [[ -r "$cgroup_root/cgroup.controllers" ]] || die 'cgroup v2 is required'
 git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1 || die 'unable to materialize Git repository identity'
 if ((shared_root_seen == 1)); then
@@ -808,6 +818,8 @@ fi
 if [[ "$mode" == docker ]]; then
   command -v docker >/dev/null 2>&1 || die 'docker is required for docker mode'
   docker info >/dev/null 2>&1 || die 'docker daemon is unavailable'
+  image_runtime=$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$docker_image" 2>/dev/null) || die 'immutable Docker image cannot be inspected'
+  grep -Fxq "SUPER_DOLPHIN_RUNTIME=$docker_runtime_marker" <<<"$image_runtime" || die 'immutable Docker image runtime marker does not match --runtime'
 fi
 
 if [[ "$mode" == docker ]]; then

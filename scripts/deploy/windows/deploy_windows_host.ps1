@@ -14,7 +14,9 @@ param(
     [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$GOARCH,
     [Parameter(Mandatory = $true)][ValidateSet('0', '1')][string]$CGOEnabled,
     [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ModuleIdentity,
-    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$WorkloadIdentity
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$WorkloadIdentity,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$SourceCommit,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$SourceTree
 )
 
 Set-StrictMode -Version Latest
@@ -67,7 +69,7 @@ function Assert-NoReparsePoints {
     $root = [System.IO.Path]::GetPathRoot($fullPath)
     if ([string]::IsNullOrWhiteSpace($root)) { Stop-Fast "$Label has no filesystem root" }
 
-    $rootItem = Get-Item -LiteralPath $root -ErrorAction Stop
+    $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop
     if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         Stop-Fast "$Label contains a reparse point"
     }
@@ -77,7 +79,7 @@ function Assert-NoReparsePoints {
     foreach ($segment in ($relative -split '[\\/]+')) {
         if ([string]::IsNullOrEmpty($segment)) { continue }
         $current = [System.IO.Path]::Combine($current, $segment)
-        $item = Get-Item -LiteralPath $current -ErrorAction SilentlyContinue
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
         if ($null -eq $item) {
             if ($AllowMissing) { return }
             Stop-Fast "$Label does not exist"
@@ -285,6 +287,8 @@ if ([string]::IsNullOrWhiteSpace($Command)) { Stop-Fast '-Command must not be em
 [void](Assert-DeploymentIdentity -Value $GOARCH -Label 'GOARCH')
 [void](Assert-DeploymentIdentity -Value $ModuleIdentity -Label 'ModuleIdentity')
 [void](Assert-DeploymentIdentity -Value $WorkloadIdentity -Label 'WorkloadIdentity')
+[void](Assert-DeploymentIdentity -Value $SourceCommit -Label 'SourceCommit')
+[void](Assert-DeploymentIdentity -Value $SourceTree -Label 'SourceTree')
 
 $RepoPath = Get-CanonicalAbsolutePath -Path $RepoPath -Label 'RepoPath'
 if (-not (Test-Path -LiteralPath $RepoPath -PathType Container)) { Stop-Fast 'RepoPath must name a directory' }
@@ -298,7 +302,7 @@ $CacheRoot = Get-CanonicalAbsolutePath -Path $CacheRoot -Label 'CacheRoot' -Allo
 if (-not (Test-Path -LiteralPath $ObjectStoreRoot -PathType Container)) { Stop-Fast 'ObjectStoreRoot must name the existing Git common directory' }
 if (-not (Test-Path -LiteralPath $WorktreeRoot -PathType Container)) { Stop-Fast 'WorktreeRoot must name the existing Git worktree root' }
 
-$git = Get-Command git.exe -ErrorAction SilentlyContinue
+$git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $git) { Stop-Fast 'git.exe is required' }
 $gitRootRaw = (& $git.Source -C $RepoPath rev-parse --show-toplevel 2>$null | Out-String).Trim()
 if (($LASTEXITCODE -ne 0) -or [string]::IsNullOrWhiteSpace($gitRootRaw)) { Stop-Fast 'RepoPath is not a Git worktree' }
@@ -393,6 +397,8 @@ $runnerInvocation = '& ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $runn
     ' -CGOEnabled ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $CGOEnabled) +
     ' -ModuleIdentity ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $ModuleIdentity) +
     ' -WorkloadIdentity ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $WorkloadIdentity) +
+    ' -SourceCommit ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $SourceCommit) +
+    ' -SourceTree ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $SourceTree) +
     ' -CommandBase64 ' + (ConvertTo-PowerShellSingleQuotedLiteral -Value $commandBase64)
 $actionToken = ConvertTo-VerifiedBase64Token -Value $runnerInvocation -Label 'ScheduledTask action'
 $actionArguments = "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $actionToken"
@@ -400,7 +406,7 @@ if ($actionArguments -notmatch '^-NoProfile -ExecutionPolicy Bypass -EncodedComm
     Stop-Fast 'scheduled task action arguments are not a validated token sequence'
 }
 
-$powershell = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue
+$powershell = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $powershell) { Stop-Fast 'powershell.exe is required' }
 $powershellPath = Get-CanonicalAbsolutePath -Path $powershell.Source -Label 'powershell.exe'
 $action = New-ScheduledTaskAction -Execute $powershellPath -Argument $actionArguments

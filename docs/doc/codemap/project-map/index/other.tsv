@@ -851,9 +851,9 @@ internal/devtools/gateprivate/trusted_executable_owner_unix.go	internal	other	go
 internal/devtools/gateprivate/trusted_executable_owner_windows.go	internal	other	go-source	394	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,executable,owner,windows,开发工具与生成器辅助包
 internal/devtools/gateprivate/trusted_git.go	internal	other	go-source	7419	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,git,开发工具与生成器辅助包
 internal/devtools/gateprivate/trusted_git_test.go	internal	other	go-test	4802	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,git,test,开发工具与生成器辅助包
-internal/devtools/godistribution/go-distribution.lock	internal	other	lock	427	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,开发工具与生成器辅助包
-internal/devtools/godistribution/go_distribution.go	internal	other	go-source	3610	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,开发工具与生成器辅助包
-internal/devtools/godistribution/go_distribution_test.go	internal	other	go-test	1965	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,test,开发工具与生成器辅助包
+internal/devtools/godistribution/go-distribution.lock	internal	other	lock	569	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,开发工具与生成器辅助包
+internal/devtools/godistribution/go_distribution.go	internal	other	go-source	4168	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,开发工具与生成器辅助包
+internal/devtools/godistribution/go_distribution_test.go	internal	other	go-test	2391	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,test,开发工具与生成器辅助包
 internal/devtools/heteroci/anchor_wave.go	internal	other	go-source	12217	开发工具与生成器辅助包	internal,devtools,heteroci,anchor,wave,开发工具与生成器辅助包
 internal/devtools/heteroci/anchor_wave_test.go	internal	other	go-test	16967	开发工具与生成器辅助包	internal,devtools,heteroci,anchor,wave,test,开发工具与生成器辅助包
 internal/devtools/heteroci/execution_unit.go	internal	other	go-source	4700	开发工具与生成器辅助包	internal,devtools,heteroci,execution,unit,开发工具与生成器辅助包
@@ -1255,11 +1255,11 @@ scripts/darwin_qualification/main.go	scripts	other	go-source	24504	工程自动�
 scripts/darwin_qualification/main_test.go	scripts	other	go-test	10235	工程自动化、测试守卫、代码地图与开发脚本	scripts,darwin,qualification,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/darwin_qualification/process_group_unix.go	scripts	other	go-source	8702	工程自动化、测试守卫、代码地图与开发脚本	scripts,darwin,qualification,process,group,unix,工程自动化,测试守卫,代码地图与开发脚本
 scripts/darwin_qualification/process_group_unix_test.go	scripts	other	go-test	6263	工程自动化、测试守卫、代码地图与开发脚本	scripts,darwin,qualification,process,group,unix,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/deploy/linux/linux_runner_daemon.sh	scripts	other	script	43337	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,linux,runner,daemon,工程自动化,测试守卫,代码地图与开发脚本
+scripts/deploy/linux/linux_runner_daemon.sh	scripts	other	script	43909	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,linux,runner,daemon,工程自动化,测试守卫,代码地图与开发脚本
 scripts/deploy/mac/deploy_mac_host.sh	scripts	other	script	7736	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,mac,host,工程自动化,测试守卫,代码地图与开发脚本
 scripts/deploy/mac/mac_runner_daemon.sh	scripts	other	script	28927	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,mac,runner,daemon,工程自动化,测试守卫,代码地图与开发脚本
-scripts/deploy/windows/deploy_windows_host.ps1	scripts	other	script	27387	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,host,工程自动化,测试守卫,代码地图与开发脚本
-scripts/deploy/windows/windows_runner.ps1	scripts	other	script	38923	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,runner,工程自动化,测试守卫,代码地图与开发脚本
+scripts/deploy/windows/deploy_windows_host.ps1	scripts	other	script	27964	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,host,工程自动化,测试守卫,代码地图与开发脚本
+scripts/deploy/windows/windows_runner.ps1	scripts	other	script	43824	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,runner,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dispatch_remote_ci_imagecache_refresh.sh	scripts	other	script	2040	工程自动化、测试守卫、代码地图与开发脚本	scripts,dispatch,remote,ci,imagecache,refresh,工程自动化,测试守卫,代码地图与开发脚本
 scripts/docs_navigation_guard_test.go	scripts	other	go-test	1319	工程自动化、测试守卫、代码地图与开发脚本	scripts,docs,navigation,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本
@@ -1406,7 +1406,7 @@ scripts/test_with_guard.sh	scripts	other	script	36004	工程自动化、测试�
 scripts/test_with_guard_host_resource_test.go	scripts	other	go-test	1806	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,host,resource,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard_host_resource_windows_e2e_test.go	scripts	other	go-test	1261	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,host,resource,windows,e2e,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard_remote_guidance_test.go	scripts	other	go-test	7214	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,remote,guidance,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_heteroci_deploy_scripts.sh	scripts	other	script	36028	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,heteroci,deploy,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_heteroci_deploy_scripts.sh	scripts	other	script	39661	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,heteroci,deploy,工程自动化,测试守卫,代码地图与开发脚本
 scripts/tests/test_trusted_gate_launcher_contract.sh	scripts	other	script	8859	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,trusted,gate,launcher,contract,工程自动化,测试守卫,代码地图与开发脚本
 scripts/trusted_launcher_test_helpers_test.go	scripts	other	go-test	1604	工程自动化、测试守卫、代码地图与开发脚本	scripts,trusted,launcher,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/turncontract/main.go	scripts	other	go-source	6740	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,main,工程自动化,测试守卫,代码地图与开发脚本
