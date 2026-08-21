@@ -182,6 +182,7 @@ internal/archtest/codexapp_session_dispatch_size_guard_test.go	internal	other	go
 internal/archtest/contract_import_boundary_test.go	internal	other	go-test	534	架构守卫、baseline ratchet 与冻结规则	internal,archtest,contract,import,boundary,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cron_list_field_guard_test.go	internal	other	go-test	7045	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cron,list,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cross_domain_guard_test.go	internal	other	go-test	1719	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/cross_platform_git_path_guard_test.go	internal	other	go-test	1882	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,platform,git,path,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dag_designer_prompt_asset_contract_test.go	internal	other	go-test	3887	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,asset,contract,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dbquery_table_policy_guard_test.go	internal	other	go-test	2772	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dbquery,table,policy,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/deep_map_probe_guard_test.go	internal	other	go-test	2904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deep,map,probe,guard,test,架构守卫,baseline,ratchet,与冻结规则
