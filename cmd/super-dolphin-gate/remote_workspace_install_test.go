@@ -35,16 +35,28 @@ func TestInstallPortableGoWorkspaceWritesCanonicalWorkspace(t *testing.T) {
 	if err := remoteci.InstallPortableGoWorkspace(root); err != nil {
 		t.Fatalf("InstallPortableGoWorkspace: %v", err)
 	}
+	assertPortableWorkspaceInstalled(t, root)
+	if err := remoteci.InstallPortableGoWorkspace(root); err == nil || !strings.Contains(err.Error(), "existing go.work") {
+		t.Fatalf("second InstallPortableGoWorkspace error = %v", err)
+	}
+}
+
+func assertPortableWorkspaceInstalled(t *testing.T, root string) {
+	t.Helper()
 	workspace, err := os.ReadFile(filepath.Join(root, "go.work"))
 	if err != nil {
 		t.Fatalf("read go.work: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(root, "go.work"))
+	if err != nil {
+		t.Fatalf("stat go.work: %v", err)
+	}
+	if info.Mode().Perm() != 0o444 {
+		t.Fatalf("go.work mode = %v, want 0444", info.Mode().Perm())
 	}
 	for _, material := range [][]byte{[]byte("go 1.26.5"), []byte("\t."), []byte("\t./portable-target/remote-ci")} {
 		if !bytes.Contains(workspace, material) {
 			t.Fatalf("go.work misses %q: %q", material, workspace)
 		}
-	}
-	if err := remoteci.InstallPortableGoWorkspace(root); err == nil || !strings.Contains(err.Error(), "existing go.work") {
-		t.Fatalf("second InstallPortableGoWorkspace error = %v", err)
 	}
 }

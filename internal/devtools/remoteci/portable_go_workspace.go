@@ -153,6 +153,10 @@ func writePortableGoWorkspace(sourceRoot string, data []byte) (returnErr error) 
 		temporary.Close()
 		return fmt.Errorf("write portable Go workspace: %w", err)
 	}
+	if err := temporary.Chmod(0o444); err != nil {
+		temporary.Close()
+		return fmt.Errorf("set portable Go workspace permissions: %w", err)
+	}
 	if err := temporary.Sync(); err != nil {
 		temporary.Close()
 		return fmt.Errorf("sync portable Go workspace: %w", err)
