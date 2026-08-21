@@ -3,11 +3,10 @@ package main
 import (
 	"flag"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteciruntime"
 	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
@@ -361,17 +360,5 @@ func normalizeRemoteRunSource(options *remoteRunOptions) error {
 }
 
 func loadRemoteRunConfig(path string) (remoteRunConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return remoteRunConfig{}, err
-	}
-	var config remoteRunConfig
-	if err := gatecontract.DecodeCanonicalStrictJSON(data, &config); err != nil {
-		return remoteRunConfig{}, err
-	}
-	if err := config.Validate(); err != nil {
-		return remoteRunConfig{}, err
-	}
-	return config, nil
-
+	return remoteciruntime.LoadConfig(path)
 }

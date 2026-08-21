@@ -5,12 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteciruntime"
 )
-
-const remoteRunConfigSchemaVersion uint32 = 10
 
 const (
 	remoteContainerReportAllowance = 30 * time.Second
@@ -20,47 +17,7 @@ const remoteCalibrationResultSchemaVersion uint32 = 4
 
 var errRemoteCalibrationSamplesIncomplete = errors.New("remote calibration samples are incomplete")
 
-type remoteRunConfig struct {
-	SchemaVersion     uint32                  `json:"schema_version"`
-	AliyunCLI         string                  `json:"aliyun_cli"`
-	CredentialProfile string                  `json:"credential_profile"`
-	RegionID          string                  `json:"region_id"`
-	VSwitches         []cicontract.ECIVSwitch `json:"vswitches"`
-	SecurityGroupID   string                  `json:"security_group_id"`
-	WorkerRoleName    string                  `json:"worker_role_name"`
-	OSS               struct {
-		Bucket           string `json:"bucket"`
-		Endpoint         string `json:"endpoint"`
-		InternalEndpoint string `json:"internal_endpoint"`
-		SourcePrefix     string `json:"source_prefix"`
-	} `json:"oss"`
-	Capacity struct {
-		ResourcePolicy shardresource.Policy `json:"resource_policy"`
-	} `json:"capacity"`
-	GenerationOneProvision *cicontract.GenerationOneProvisionReceipt `json:"generation_one_provision,omitempty"`
-}
-
-// Validate 校验 normal CI 所需的云身份、对象存储和分片资源。
-func (config remoteRunConfig) Validate() error {
-	if config.SchemaVersion != remoteRunConfigSchemaVersion {
-		return errors.New("remote CI config schema_version must equal 10")
-	}
-	if err := validateRemoteCloudIdentity(config); err != nil {
-		return err
-	}
-	if err := validateRemoteStorageConfig(config); err != nil {
-		return err
-	}
-	if err := validateRemoteShardCapacity(config); err != nil {
-		return err
-	}
-	if config.GenerationOneProvision != nil {
-		if err := config.GenerationOneProvision.Validate(); err != nil {
-			return errors.New("remote CI generation_one_provision is invalid: " + err.Error())
-		}
-	}
-	return nil
-}
+type remoteRunConfig = remoteciruntime.Config
 
 type remoteRunOptions struct {
 	Target                string

@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"strings"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
@@ -715,55 +713,4 @@ func remoteCalibrationPlanningContext(
 		TargetDurationMS:             gatecontract.FullCITargetDurationMS,
 		AcceptedSnapshotID:           calibration.AcceptedSnapshotID,
 	}
-}
-
-// validateRemoteCloudIdentity 校验执行远程 ECI 所需的账号和网络字段。
-func validateRemoteCloudIdentity(config remoteRunConfig) error {
-	for _, value := range []string{config.AliyunCLI, config.CredentialProfile, config.RegionID, config.SecurityGroupID, config.WorkerRoleName} {
-		if strings.TrimSpace(value) == "" {
-			return errors.New("remote CI Aliyun identity and network settings are incomplete")
-		}
-	}
-	if err := cicontract.ValidateECIMultiZoneScheduling(cicontract.ECIMultiZoneScheduleStrategy, config.VSwitches); err != nil {
-		return err
-	}
-	if path.Base(config.AliyunCLI) != "aliyun" {
-		return errors.New("remote CI cloud client must be the Alibaba Cloud aliyun CLI")
-	}
-	return nil
-}
-
-// validateRemoteStorageConfig 校验 source 与 baseline 对象存储前缀安全且不相同。
-func validateRemoteStorageConfig(config remoteRunConfig) error {
-	if strings.TrimSpace(config.OSS.Bucket) == "" || strings.TrimSpace(config.OSS.Endpoint) == "" || strings.TrimSpace(config.OSS.InternalEndpoint) == "" ||
-		!validRemoteOSSPrefix(config.OSS.SourcePrefix) {
-		return errors.New("remote CI OSS settings are incomplete")
-	}
-	return nil
-}
-
-// validRemoteOSSPrefix 只接受规范化、以斜杠结尾的相对 OSS 对象前缀。
-func validRemoteOSSPrefix(value string) bool {
-	if value == "" || strings.TrimSpace(value) != value || strings.HasPrefix(value, "/") ||
-		!strings.HasSuffix(value, "/") || strings.ContainsAny(value, "\\\x00\r\n") {
-		return false
-	}
-	withoutSlash := strings.TrimSuffix(value, "/")
-	for segment := range strings.SplitSeq(withoutSlash, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return false
-		}
-	}
-	return path.Clean(withoutSlash) == withoutSlash
-}
-
-// validateRemoteShardCapacity 校验可配置 ECI 资源档位。
-func validateRemoteShardCapacity(config remoteRunConfig) error {
-	if err := config.Capacity.ResourcePolicy.Validate(); err != nil {
-		return fmt.Errorf("remote CI resource policy: %w", err)
-	}
-	if _, err := config.Capacity.ResourcePolicy.ResolveCalibrationClass(); err != nil {
-		return fmt.Errorf("remote CI calibration resource class: %w", err)
-	}
-	return nil
 }

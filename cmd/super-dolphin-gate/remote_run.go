@@ -9,11 +9,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/eci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/alicloud/oss"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteciruntime"
 )
 
 // runRemote 分派远程 CLI 子命令并保持各入口的独立协议边界。
@@ -257,50 +256,15 @@ func newRemoteRunCoordinator(
 	input remoteci.RunInput,
 	progressObservers ...remoteci.ProgressObserver,
 ) (*remoteci.Coordinator, time.Duration, error) {
-	store, err := oss.NewCLI(oss.Config{
-		Binary: config.AliyunCLI, Bucket: config.OSS.Bucket, Endpoint: config.OSS.Endpoint,
-		Profile: config.CredentialProfile, Prefix: config.OSS.SourcePrefix,
-	})
+	coordinator, containerDeadline, err := remoteciruntime.NewCoordinator(
+		config, input, remoteWorkerTimeout, remoteContainerDeadline, loadRemoteRegistryCredential, progressObservers...,
+	)
 	if err != nil {
-		return nil, 0, infrastructureError("create remote CI OSS client: %v", err)
-	}
-	workerTimeout, err := remoteWorkerTimeout(input.Profile, input.Calibration)
-	if err != nil {
-		return nil, 0, protocolError("resolve remote CI deadline: %v", err)
-	}
-	containerDeadline, err := remoteContainerDeadline(workerTimeout)
-	if err != nil {
-		return nil, 0, protocolError("resolve remote CI container deadline: %v", err)
-	}
-	if len(progressObservers) > 1 {
-		return nil, 0, protocolError("remote CI accepts at most one progress observer")
-	}
-	var progressObserver remoteci.ProgressObserver
-	if len(progressObservers) == 1 {
-		progressObserver = progressObservers[0]
-	}
-	runtime, err := eci.New(eci.Config{
-		Binary:   config.AliyunCLI,
-		RegionID: config.RegionID, VSwitches: slices.Clone(config.VSwitches), SecurityGroupID: config.SecurityGroupID,
-		WorkerRoleName: config.WorkerRoleName, Profile: config.CredentialProfile,
-		Deadline:     containerDeadline,
-		SpotStrategy: eci.SpotStrategyAsPriceGo, SpotDurationHours: 1,
-		RegistryCredentialLoader: loadRemoteRegistryCredential,
-	})
-	if err != nil {
-		return nil, 0, infrastructureError("create remote CI ECI client: %v", err)
-	}
-	coordinator, err := remoteci.NewCoordinator(remoteci.CoordinatorConfig{
-		Bucket: config.OSS.Bucket, SourcePrefix: config.OSS.SourcePrefix,
-		InternalOSSEndpoint: config.OSS.InternalEndpoint,
-		WorkerRoleName:      config.WorkerRoleName, WorkerTimeout: workerTimeout,
-		ImageCacheSnapshotID: input.ImageCacheSnapshotID,
-		PollInterval:         2 * time.Second, CleanupTimeout: 2 * time.Minute,
-		ResourcePolicy:   config.Capacity.ResourcePolicy,
-		ProgressObserver: progressObserver,
-	}, store, runtime)
-	if err != nil {
-		return nil, 0, infrastructureError("create remote CI coordinator: %v", err)
+		var compositionErr *remoteciruntime.CompositionError
+		if errors.As(err, &compositionErr) && compositionErr.Class == remoteciruntime.ErrorClassProtocol {
+			return nil, 0, protocolError("%v", err)
+		}
+		return nil, 0, infrastructureError("%v", err)
 	}
 	return coordinator, containerDeadline, nil
 }

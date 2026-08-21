@@ -692,6 +692,37 @@ func TestRemoteCIWorkloadPassForceContract(t *testing.T) {
 	assertRemoteCIJSONFields(t, checkpointSchema, "calibrationCheckpointResult", [][2]string{{"Force", "force"}})
 }
 
+// TestRemoteCIRuntimeOwnerGuard 将 strict config 与 Coordinator composition 锁定到唯一共享 owner。
+func TestRemoteCIRuntimeOwnerGuard(t *testing.T) {
+	root := findRepoRoot(t)
+	runtimeConfigPath := filepath.Join(root, "internal", "devtools", "remoteciruntime", "config.go")
+	runtimeCoordinatorPath := filepath.Join(root, "internal", "devtools", "remoteciruntime", "coordinator.go")
+	runtimeConfig := parseRemoteCIContractGuardFile(t, runtimeConfigPath)
+	runtimeCoordinator := parseRemoteCIContractGuardFile(t, runtimeCoordinatorPath)
+	for _, required := range []struct {
+		file *ast.File
+		name string
+	}{
+		{file: runtimeConfig, name: "LoadConfig"},
+		{file: runtimeCoordinator, name: "NewCoordinator"},
+	} {
+		if !remoteCIFunctionExists(required.file, required.name) {
+			t.Fatalf("shared remote CI runtime owner is missing %s", required.name)
+		}
+	}
+	coordinatorConstructors := 0
+	for _, file := range remoteCIProductionFiles(t, root) {
+		coordinatorConstructors += strings.Count(readRemoteCIContractGuardFile(t, file), "remoteci.NewCoordinator(")
+	}
+	if coordinatorConstructors != 1 {
+		t.Fatalf("remote CI must have exactly one Coordinator constructor, got %d", coordinatorConstructors)
+	}
+	gateConfig := readRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_config.go"))
+	if strings.Contains(gateConfig, "type remoteRunConfig struct") {
+		t.Fatal("Gate package must not own a second remote run config type")
+	}
+}
+
 // TestGenerationOneProvisionReceiptFieldGuard 将 ECI check catalogue、receipt JSON
 // field 和 normal run/hook bootstrap 绑定到同一个 strict boundary。
 func TestGenerationOneProvisionReceiptFieldGuard(t *testing.T) {
@@ -699,7 +730,7 @@ func TestGenerationOneProvisionReceiptFieldGuard(t *testing.T) {
 	receiptPath := filepath.Join(root, "internal", "devtools", "cicontract", "generation_one.go")
 	contractPath := filepath.Join(root, "internal", "devtools", "cicontract", "contract.go")
 	importerPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_provision_generation_one.go")
-	configPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run_config.go")
+	configPath := filepath.Join(root, "internal", "devtools", "remoteciruntime", "config.go")
 	baselinePath := filepath.Join(root, "internal", "devtools", "remoteci", "baseline_state.go")
 	if !remoteCITypeHasJSONField(parseRemoteCIContractGuardFile(t, receiptPath), "GenerationOneProvisionReceipt", "ProvisionChecks", "provision_checks") {
 		t.Fatal("generation-one provision receipt must declare ProvisionChecks with JSON field provision_checks")
@@ -720,7 +751,7 @@ func TestGenerationOneProvisionReceiptFieldGuard(t *testing.T) {
 	baselineFile := parseRemoteCIContractGuardFile(t, baselinePath)
 	assertRemoteCIJSONFields(t, baselineFile, "BaselineState", [][2]string{{"ExecutionProvider", "execution_provider"}, {"RegionID", "region_id"}})
 	configFile := parseRemoteCIContractGuardFile(t, configPath)
-	assertRemoteCIJSONFields(t, configFile, "remoteRunConfig", [][2]string{{"GenerationOneProvision", "generation_one_provision,omitempty"}})
+	assertRemoteCIJSONFields(t, configFile, "Config", [][2]string{{"GenerationOneProvision", "generation_one_provision,omitempty"}})
 	importer := parseRemoteCIContractGuardFile(t, importerPath)
 	if !remoteCIFunctionHasSelector(importer, "configuredRemoteGenerationOneProvision", "cicontract", "ValidateGenerationOneProvisionChecks") {
 		t.Fatal("generation-one normal bootstrap must validate provision checks")
