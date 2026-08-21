@@ -233,6 +233,9 @@ printf 'SUPER_DOLPHIN_SHARD_COMPILE started_at_unix_ms=%s completed_at_unix_ms=%
 test -n "${SUPER_DOLPHIN_REMOTE_FULL_REQUEST_KEY:-}"
 test -n "${SUPER_DOLPHIN_REMOTE_FULL_REQUEST_SHA256:-}"
 test -n "${SUPER_DOLPHIN_REMOTE_FULL_MANIFEST_DIGEST:-}"
+if test -f .super-dolphin/portable-go-workspace.json; then
+  "$built_gate" _remote-install-workspace
+fi
 "$built_gate" _remote-install-manifest`
 	remoteWritableTempMountPath = "/tmp"
 	remoteInitSearchPath        = gate.ExecutorRuntimeSeedRoot + "/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"

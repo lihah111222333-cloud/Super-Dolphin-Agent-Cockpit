@@ -1,6 +1,7 @@
 package remoteci
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,44 @@ func TestRemoteGoWorkspaceModuleMappingsBindsEngineAndTarget(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing workspace mappings: %v", want)
+	}
+}
+
+// TestPortableWorkspaceDescriptorModelsTargetModuleWithoutGoWork 锁定滚动升级 descriptor 与 target tree 绑定。
+func TestPortableWorkspaceDescriptorModelsTargetModuleWithoutGoWork(t *testing.T) {
+	descriptor := PortableGoWorkspaceDescriptor{
+		SchemaVersion: PortableGoWorkspaceSchema,
+		EngineTree:    strings.Repeat("a", 40),
+		TargetTree:    strings.Repeat("b", 40),
+		TargetPath:    "portable-target",
+		Modules:       []string{".", "portable-target/remote-ci"},
+	}
+	data, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatalf("marshal descriptor: %v", err)
+	}
+	sources := map[string][]byte{
+		"go.mod":                           []byte("module example.invalid/engine\n\ngo 1.26.5\n"),
+		PortableGoWorkspaceDescriptorPath:  data,
+		"portable-target/remote-ci/go.mod": []byte("module example.invalid/target/remote-ci\n\ngo 1.26.5\n"),
+	}
+	mappings, err := remoteGoModuleMappings(sources)
+	if err != nil || len(mappings) != 2 {
+		t.Fatalf("remoteGoModuleMappings = %+v, %v", mappings, err)
+	}
+	snapshot := &remoteGitTreeSnapshot{byPath: map[string]remoteGitTreeEntry{
+		"portable-target": {kind: "tree", objectID: descriptor.TargetTree, path: "portable-target"},
+	}}
+	if err := snapshot.validatePortableWorkspaceTree(data); err != nil {
+		t.Fatalf("validatePortableWorkspaceTree: %v", err)
+	}
+	descriptor.TargetTree = strings.Repeat("c", 40)
+	drifted, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatalf("marshal drifted descriptor: %v", err)
+	}
+	if err := snapshot.validatePortableWorkspaceTree(drifted); err == nil || !strings.Contains(err.Error(), "drifted") {
+		t.Fatalf("drifted target tree error = %v", err)
 	}
 }
 

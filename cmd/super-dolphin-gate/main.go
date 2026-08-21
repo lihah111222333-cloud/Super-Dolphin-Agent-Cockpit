@@ -27,6 +27,7 @@ func main() {
 	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// runCLI 统一执行 CLI、映射退出码并保持 stderr 协议边界。
 func runCLI(args []string, stdout, stderr io.Writer) int {
 	if topLevelHelpRequested(args) {
 		if err := writeTopLevelUsage(stdout); err != nil {
@@ -277,6 +278,8 @@ func dispatchPrimaryCLI(args []string, stdout io.Writer, progressWriters ...io.W
 		return true, runRemoteMaterialize(args[1:], stdout)
 	case "_remote-install-manifest":
 		return true, runRemoteInstallManifest(args[1:], stdout)
+	case "_remote-install-workspace":
+		return true, runRemoteInstallWorkspace(args[1:], stdout)
 	default:
 		return false, nil
 	}

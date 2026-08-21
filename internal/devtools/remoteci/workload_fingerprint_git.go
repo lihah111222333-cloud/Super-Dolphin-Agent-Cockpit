@@ -156,8 +156,11 @@ func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) err
 	if err != nil {
 		return err
 	}
-	workspaceDirectories, err := remoteGoWorkspaceDirectories(sources["go.work"])
+	workspaceDirectories, err := remoteGoWorkspaceDirectories(sources)
 	if err != nil {
+		return err
+	}
+	if err := snapshot.validatePortableWorkspaceTree(sources[PortableGoWorkspaceDescriptorPath]); err != nil {
 		return err
 	}
 	snapshot.goSources = sources
@@ -183,7 +186,7 @@ func (snapshot *remoteGitTreeSnapshot) goSourcePaths() []string {
 	paths := make([]string, 0)
 	for _, entry := range snapshot.entries {
 		base := path.Base(entry.path)
-		if entry.kind == "blob" && (path.Ext(entry.path) == ".go" || base == "go.mod" || base == "go.sum" || base == "go.work") {
+		if entry.kind == "blob" && (path.Ext(entry.path) == ".go" || base == "go.mod" || base == "go.sum" || base == "go.work" || entry.path == PortableGoWorkspaceDescriptorPath) {
 			paths = append(paths, entry.path)
 		}
 	}
@@ -197,7 +200,17 @@ func remoteGoModuleMappings(sources map[string][]byte) ([]remoteGoModuleMapping,
 		return nil, errors.New("Go workload fingerprint requires go.mod")
 	}
 	if goWork, hasWork := sources["go.work"]; hasWork {
+		if _, hasPortable := sources[PortableGoWorkspaceDescriptorPath]; hasPortable {
+			return nil, errors.New("Go workload fingerprint accepts exactly one workspace model")
+		}
 		return remoteGoWorkspaceModuleMappings(sources, goWork)
+	}
+	if portable, ok := sources[PortableGoWorkspaceDescriptorPath]; ok {
+		descriptor, err := DecodePortableGoWorkspaceDescriptor(portable)
+		if err != nil {
+			return nil, err
+		}
+		return remoteGoWorkspaceModuleMappings(sources, descriptor.GoWork())
 	}
 	parsed, err := modfile.Parse("go.mod", goMod, nil)
 	if err != nil || parsed.Module == nil || parsed.Module.Mod.Path == "" {
@@ -242,9 +255,18 @@ func remoteGoWorkspaceModuleMappings(sources map[string][]byte, data []byte) ([]
 }
 
 // remoteGoWorkspaceDirectories 返回已建模 workspace 的 canonical use 目录。
-func remoteGoWorkspaceDirectories(data []byte) ([]string, error) {
+func remoteGoWorkspaceDirectories(sources map[string][]byte) ([]string, error) {
+	data := sources["go.work"]
 	if len(data) == 0 {
-		return nil, nil
+		portable := sources[PortableGoWorkspaceDescriptorPath]
+		if len(portable) == 0 {
+			return nil, nil
+		}
+		descriptor, err := DecodePortableGoWorkspaceDescriptor(portable)
+		if err != nil {
+			return nil, err
+		}
+		return descriptor.WorkspaceDirectories(), nil
 	}
 	workspace, err := modfile.ParseWork("go.work", data, nil)
 	if err != nil {
@@ -260,6 +282,22 @@ func remoteGoWorkspaceDirectories(data []byte) ([]string, error) {
 	}
 	sort.Strings(directories)
 	return directories, nil
+}
+
+// validatePortableWorkspaceTree 核对 descriptor target tree 恰为组合树中的绑定子树。
+func (snapshot *remoteGitTreeSnapshot) validatePortableWorkspaceTree(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	descriptor, err := DecodePortableGoWorkspaceDescriptor(data)
+	if err != nil {
+		return err
+	}
+	entry, ok := snapshot.byPath[descriptor.TargetPath]
+	if !ok || entry.kind != "tree" || entry.objectID != descriptor.TargetTree {
+		return errors.New("portable Go workspace target tree binding drifted")
+	}
+	return nil
 }
 
 // appendRemoteWorkspaceModuleMappings 校验 use/module 唯一性并追加模块与本地 replace 映射。
@@ -397,6 +435,12 @@ func (snapshot *remoteGitTreeSnapshot) localGoModuleMetadataEntries() ([]remoteG
 			seen[filePath] = struct{}{}
 			entries = append(entries, entry)
 		}
+	}
+	if entry, ok := snapshot.byPath[PortableGoWorkspaceDescriptorPath]; ok {
+		if entry.kind != "blob" {
+			return nil, errors.New("portable Go workspace descriptor is not a blob")
+		}
+		entries = append(entries, entry)
 	}
 	sort.Slice(entries, func(left, right int) bool { return entries[left].path < entries[right].path })
 	return entries, nil
