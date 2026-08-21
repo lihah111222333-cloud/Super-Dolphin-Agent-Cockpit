@@ -586,7 +586,7 @@ internal/devtools/gate/executor_execution_profile_test.go	internal	other	go-test
 internal/devtools/gate/executor_execution_result.go	internal	other	go-source	13049	开发工具与生成器辅助包	internal,devtools,gate,executor,execution,result,开发工具与生成器辅助包
 internal/devtools/gate/executor_frontend_vite_cache.go	internal	other	go-source	3320	开发工具与生成器辅助包	internal,devtools,gate,executor,frontend,vite,cache,开发工具与生成器辅助包
 internal/devtools/gate/executor_frontend_vite_cache_test.go	internal	other	go-test	3106	开发工具与生成器辅助包	internal,devtools,gate,executor,frontend,vite,cache,test,开发工具与生成器辅助包
-internal/devtools/gate/executor_git.go	internal	other	go-source	12864	开发工具与生成器辅助包	internal,devtools,gate,executor,git,开发工具与生成器辅助包
+internal/devtools/gate/executor_git.go	internal	other	go-source	13111	开发工具与生成器辅助包	internal,devtools,gate,executor,git,开发工具与生成器辅助包
 internal/devtools/gate/executor_go_module_overlay.go	internal	other	go-source	1873	开发工具与生成器辅助包	internal,devtools,gate,executor,go,module,overlay,开发工具与生成器辅助包
 internal/devtools/gate/executor_guard_helpers_test.go	internal	other	go-test	4186	开发工具与生成器辅助包	internal,devtools,gate,executor,guard,helpers,test,开发工具与生成器辅助包
 internal/devtools/gate/executor_mapping.go	internal	other	go-source	27528	开发工具与生成器辅助包	internal,devtools,gate,executor,mapping,开发工具与生成器辅助包
@@ -703,6 +703,7 @@ internal/devtools/gate/local_workload_scheduler_execution_red_test.go	internal	o
 internal/devtools/gate/local_workload_scheduler_red_test.go	internal	other	go-test	22087	开发工具与生成器辅助包	internal,devtools,gate,local,workload,scheduler,red,test,开发工具与生成器辅助包
 internal/devtools/gate/mcp_lsp_catalog_guard_executor_test.go	internal	other	go-test	3915	开发工具与生成器辅助包	internal,devtools,gate,mcp,lsp,catalog,guard,executor,test,开发工具与生成器辅助包
 internal/devtools/gate/oci_baseline_state_store_test.go	internal	other	go-test	2780	开发工具与生成器辅助包	internal,devtools,gate,oci,baseline,state,store,test,开发工具与生成器辅助包
+internal/devtools/gate/portable_go_workspace.go	internal	other	go-source	8528	开发工具与生成器辅助包	internal,devtools,gate,portable,go,workspace,开发工具与生成器辅助包
 internal/devtools/gate/registry.go	internal	other	go-source	15893	开发工具与生成器辅助包	internal,devtools,gate,registry,开发工具与生成器辅助包
 internal/devtools/gate/registry_test.go	internal	other	go-test	13124	开发工具与生成器辅助包	internal,devtools,gate,registry,test,开发工具与生成器辅助包
 internal/devtools/gate/remote_baseline_generation_one.go	internal	other	go-source	8881	开发工具与生成器辅助包	internal,devtools,gate,remote,baseline,generation,one,开发工具与生成器辅助包

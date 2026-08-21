@@ -45,6 +45,13 @@ func validateCopiedSnapshot(ctx context.Context, gitBinary string, sourceCopy st
 		return fmt.Errorf("verify copied snapshot status: %w", err)
 	}
 	if len(status) != 0 {
+		workspaceErr := ValidateGeneratedPortableGoWorkspace(sourceCopy, status)
+		if workspaceErr == nil {
+			return nil
+		}
+		if string(status) == "?? go.work\n" {
+			return fmt.Errorf("validate generated portable Go workspace: %w", workspaceErr)
+		}
 		return fmt.Errorf("copied snapshot is not clean: git status --porcelain: %s", copiedSnapshotStatusDiagnostic(status))
 	}
 	return nil

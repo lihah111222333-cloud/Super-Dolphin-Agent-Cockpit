@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
@@ -36,6 +37,12 @@ func TestInstallPortableGoWorkspaceWritesCanonicalWorkspace(t *testing.T) {
 		t.Fatalf("InstallPortableGoWorkspace: %v", err)
 	}
 	assertPortableWorkspaceInstalled(t, root)
+	if err := gatecontract.ValidateGeneratedPortableGoWorkspace(root, []byte("?? go.work\n")); err != nil {
+		t.Fatalf("ValidateGeneratedPortableGoWorkspace: %v", err)
+	}
+	if err := gatecontract.ValidateGeneratedPortableGoWorkspace(root, []byte(" M tracked.go\n")); err == nil {
+		t.Fatal("ValidateGeneratedPortableGoWorkspace accepted another dirty path")
+	}
 	if err := remoteci.InstallPortableGoWorkspace(root); err == nil || !strings.Contains(err.Error(), "existing go.work") {
 		t.Fatalf("second InstallPortableGoWorkspace error = %v", err)
 	}
