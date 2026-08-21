@@ -18,7 +18,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
 
-const automaticRouteConfigSchema = "automatic-heteroci-route/v1"
+const automaticRouteConfigSchema = "automatic-heteroci-run/v2"
 
 // AutomaticRouteConfig 是自动仓库识别、动态探针和 local-first 路由所需的显式配置。
 type AutomaticRouteConfig struct {
@@ -31,7 +31,7 @@ type AutomaticRouteConfig struct {
 	ProbeTimeoutMS       int64                `json:"probe_timeout_ms"`
 	ProbeWaitDelayMS     int64                `json:"probe_wait_delay_ms"`
 	HeartbeatTTLMS       int64                `json:"heartbeat_ttl_ms"`
-	RouteTimeoutMS       int64                `json:"route_timeout_ms"`
+	RunTimeoutMS         int64                `json:"run_timeout_ms"`
 	CleanupTimeoutMS     int64                `json:"cleanup_timeout_ms"`
 	Nodes                []AutomaticProbeNode `json:"nodes"`
 }
@@ -70,7 +70,7 @@ func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath
 	if err != nil {
 		return automaticRouteInputs{}, newCLIFailure("load automatic route config", err)
 	}
-	routeCtx, cancel := context.WithTimeout(ctx, time.Duration(config.RouteTimeoutMS)*time.Millisecond)
+	routeCtx, cancel := context.WithTimeout(ctx, time.Duration(config.RunTimeoutMS)*time.Millisecond)
 	defer func() {
 		if returnErr != nil {
 			cancel()
@@ -180,8 +180,8 @@ func validateAutomaticRouteDurations(config AutomaticRouteConfig) error {
 
 // validateAutomaticRouteOverallDurations 校验 route 与 cleanup 总体边界。
 func validateAutomaticRouteOverallDurations(config AutomaticRouteConfig) error {
-	if config.RouteTimeoutMS < 1_000 || config.RouteTimeoutMS > 600_000 {
-		return errors.New("automatic route overall timeout is invalid")
+	if config.RunTimeoutMS < 1_000 || config.RunTimeoutMS > 21_600_000 {
+		return errors.New("automatic run overall timeout is invalid")
 	}
 	if config.CleanupTimeoutMS < 1_000 || config.CleanupTimeoutMS > 120_000 {
 		return errors.New("automatic route cleanup timeout is invalid")

@@ -277,7 +277,7 @@ func automaticNodeRunnerConfig(inputs automaticRouteInputs, node heteroci.NodeCo
 	repositoryPath := joinAutomaticRemotePath(binding.RepositoryBasePath, inputs.repository.RepositoryID)
 	base := AutomaticSSHRunnerConfig{
 		SSHExecutable: inputs.config.SSHExecutable, Host: host, Platform: node.Platform,
-		Timeout:   time.Duration(inputs.config.RouteTimeoutMS) * time.Millisecond,
+		Timeout:   time.Duration(inputs.config.RunTimeoutMS) * time.Millisecond,
 		WaitDelay: time.Duration(inputs.config.ProbeWaitDelayMS) * time.Millisecond, LogWriter: logs,
 	}
 	workloadIdentity := inputs.repository.Manifest.ManifestDigest

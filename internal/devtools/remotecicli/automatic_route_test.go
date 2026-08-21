@@ -61,7 +61,7 @@ func TestAutomaticBatchWorkloadMapsEveryManifestKind(t *testing.T) {
 // TestAutomaticRouteConfigFieldGuard 从生产类型动态枚举 wire 字段并锁定消费集合。
 func TestAutomaticRouteConfigFieldGuard(t *testing.T) {
 	typeOf := reflect.TypeFor[AutomaticRouteConfig]()
-	want := []string{"schema_version", "topology_manifest_path", "owner_db_path", "receipt_db_path", "owner_namespace", "ssh_executable", "probe_timeout_ms", "probe_wait_delay_ms", "heartbeat_ttl_ms", "route_timeout_ms", "cleanup_timeout_ms", "nodes"}
+	want := []string{"schema_version", "topology_manifest_path", "owner_db_path", "receipt_db_path", "owner_namespace", "ssh_executable", "probe_timeout_ms", "probe_wait_delay_ms", "heartbeat_ttl_ms", "run_timeout_ms", "cleanup_timeout_ms", "nodes"}
 	got := make([]string, 0, typeOf.NumField())
 	for field := range typeOf.Fields() {
 		got = append(got, field.Tag.Get("json"))
