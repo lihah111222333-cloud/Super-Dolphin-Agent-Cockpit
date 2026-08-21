@@ -37,7 +37,38 @@ func durationLedgerSQLiteCurrentSchemaStatements() []string {
 	statements = append(statements, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements()...)
 	statements = append(statements, durationLedgerRemoteCIPlanningReceiptSchemaStatements()...)
 	statements = append(statements, durationLedgerWorkloadSemanticReplayCacheSchemaStatements()...)
-	return append(statements, durationLedgerRemoteCleanupJournalSchemaStatements()...)
+	statements = append(statements, durationLedgerRemoteCleanupJournalSchemaStatements()...)
+	return append(statements, durationLedgerRemoteCITargetBindingSchemaStatements()...)
+}
+
+func durationLedgerRemoteCITargetBindingSchemaStatements() []string {
+	return []string{
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+			job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE CHECK (length(job_id) > 0 AND trim(job_id) = job_id),
+			repository_id TEXT NOT NULL CHECK (length(repository_id) BETWEEN 1 AND 128 AND trim(repository_id) = repository_id AND repository_id NOT IN ('default', 'cwd', 'HEAD')),
+			object_format TEXT NOT NULL CHECK (object_format IN ('%s', '%s')),
+			commit_sha TEXT NOT NULL CHECK (((object_format = '%s' AND length(commit_sha) = 40) OR (object_format = '%s' AND length(commit_sha) = 64)) AND commit_sha NOT GLOB '*[^0-9a-f]*' AND commit_sha NOT IN (printf('%%040d', 0), printf('%%064d', 0))),
+			tree_sha TEXT NOT NULL CHECK (((object_format = '%s' AND length(tree_sha) = 40) OR (object_format = '%s' AND length(tree_sha) = 64)) AND tree_sha NOT GLOB '*[^0-9a-f]*' AND tree_sha NOT IN (printf('%%040d', 0), printf('%%064d', 0))),
+			mount_path TEXT NOT NULL CHECK (length(mount_path) > 0 AND trim(mount_path) = mount_path AND substr(mount_path, 1, 1) <> '/' AND instr(mount_path, '\') = 0 AND mount_path NOT IN ('.', '..', 'default', 'cwd', 'HEAD') AND mount_path NOT LIKE './%%' AND mount_path NOT LIKE '../%%' AND mount_path NOT LIKE '%%/./%%' AND mount_path NOT LIKE '%%/../%%' AND mount_path NOT LIKE '%%/.' AND mount_path NOT LIKE '%%/..' AND instr(mount_path, '//') = 0),
+			manifest_path TEXT NOT NULL CHECK (length(manifest_path) > 0 AND trim(manifest_path) = manifest_path AND substr(manifest_path, 1, 1) <> '/' AND instr(manifest_path, '\') = 0 AND manifest_path NOT IN ('.', '..', 'default', 'cwd', 'HEAD') AND manifest_path NOT LIKE './%%' AND manifest_path NOT LIKE '../%%' AND manifest_path NOT LIKE '%%/./%%' AND manifest_path NOT LIKE '%%/../%%' AND manifest_path NOT LIKE '%%/.' AND manifest_path NOT LIKE '%%/..' AND instr(manifest_path, '//') = 0),
+			manifest_sha256 TEXT NOT NULL CHECK (length(manifest_sha256) = 71 AND substr(manifest_sha256, 1, 7) = 'sha256:' AND substr(manifest_sha256, 8) NOT GLOB '*[^0-9a-f]*' AND substr(manifest_sha256, 8) GLOB '*[1-9a-f]*'),
+			manifest_schema_version TEXT NOT NULL CHECK (manifest_schema_version = '%s'),
+			manifest_abi_digest TEXT NOT NULL CHECK (length(manifest_abi_digest) = 71 AND substr(manifest_abi_digest, 1, 7) = 'sha256:' AND substr(manifest_abi_digest, 8) NOT GLOB '*[^0-9a-f]*' AND substr(manifest_abi_digest, 8) GLOB '*[1-9a-f]*'),
+			manifest_digest TEXT NOT NULL CHECK (length(manifest_digest) = 71 AND substr(manifest_digest, 1, 7) = 'sha256:' AND substr(manifest_digest, 8) NOT GLOB '*[^0-9a-f]*' AND substr(manifest_digest, 8) GLOB '*[1-9a-f]*'),
+			profile TEXT NOT NULL CHECK (profile IN ('%s', '%s', '%s', '%s', '%s')),
+			profile_workload_set_digest TEXT NOT NULL CHECK (length(profile_workload_set_digest) = 71 AND substr(profile_workload_set_digest, 1, 7) = 'sha256:' AND substr(profile_workload_set_digest, 8) NOT GLOB '*[^0-9a-f]*' AND substr(profile_workload_set_digest, 8) GLOB '*[1-9a-f]*'),
+			CHECK (manifest_sha256 <> manifest_abi_digest AND manifest_sha256 <> manifest_digest AND manifest_sha256 <> profile_workload_set_digest AND manifest_abi_digest <> manifest_digest AND manifest_abi_digest <> profile_workload_set_digest AND manifest_digest <> profile_workload_set_digest),
+			UNIQUE (job_id, repository_id, object_format, commit_sha, tree_sha, mount_path, manifest_path, manifest_sha256, manifest_schema_version, manifest_abi_digest, manifest_digest, profile, profile_workload_set_digest)
+		);`,
+			cicontract.RemoteRunTargetBindingsTable,
+			GitObjectFormatSHA1, GitObjectFormatSHA256, GitObjectFormatSHA1, GitObjectFormatSHA256,
+			GitObjectFormatSHA1, GitObjectFormatSHA256,
+			cicontract.RemoteCITargetBindingManifestSchemaVersion,
+			ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion, ProfileRelease,
+		),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s ON %s (profile, profile_workload_set_digest, repository_id, object_format, tree_sha, job_id);`, cicontract.RemoteRunTargetBindingsProfileIndex, cicontract.RemoteRunTargetBindingsTable),
+		fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s BEFORE UPDATE ON %s BEGIN SELECT RAISE(ABORT, 'remote CI target binding is immutable'); END;`, cicontract.RemoteRunTargetBindingsImmutableTrigger, cicontract.RemoteRunTargetBindingsTable),
+	}
 }
 
 func durationLedgerRemoteCleanupJournalSchemaStatements() []string {

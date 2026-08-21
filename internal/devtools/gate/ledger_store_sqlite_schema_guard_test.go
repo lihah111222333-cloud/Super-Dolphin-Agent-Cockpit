@@ -56,6 +56,23 @@ func TestDurationLedgerSQLiteFieldGuardFailsWhenProducerMappingIsRemoved(t *test
 	}
 }
 
+// TestRemoteCITargetBindingFieldGuardFailsWhenWorkloadSetMappingIsRemoved 锁定 13 个 target binding 生产字段的动态差集。
+func TestRemoteCITargetBindingFieldGuardFailsWhenWorkloadSetMappingIsRemoved(t *testing.T) {
+	contract := sqliteProjectionContractForTable(t, cicontract.RemoteRunTargetBindingsTable)
+	columns := make([]string, 0, len(contract.columns))
+	for _, column := range contract.columns {
+		columns = append(columns, column)
+	}
+	if len(contract.columns) != 13 {
+		t.Fatalf("target binding producer field count = %d, want 13", len(contract.columns))
+	}
+	delete(contract.columns, "ProfileWorkloadSetDigest")
+	err := validateSQLiteProjectionContract(contract, columns)
+	if err == nil || !strings.Contains(err.Error(), "ProfileWorkloadSetDigest") {
+		t.Fatalf("target binding field guard error = %v", err)
+	}
+}
+
 func TestDurationLedgerSQLiteFieldGuardFailsWhenProducerMappingIsStale(t *testing.T) {
 	contract := sqliteProjectionContractForTable(t, "ci_workload_executions")
 	columns := make([]string, 0, len(contract.columns)+len(contract.synthetic)+1)

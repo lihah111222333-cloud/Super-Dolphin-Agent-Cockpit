@@ -42,7 +42,9 @@ const (
 	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
 	// DurationLedgerSQLiteSchemaVersion 是 duration-ledger SQLite 物理 schema 的唯一版本 owner。
-	DurationLedgerSQLiteSchemaVersion = 22
+	DurationLedgerSQLiteSchemaVersion = 23
+	// RemoteCITargetBindingManifestSchemaVersion 是 normal portable target binding 可持久化的唯一 workload manifest schema。
+	RemoteCITargetBindingManifestSchemaVersion = "portable-workload-manifest/v5"
 	// CacheMaterialSchemaID 标识 OCI 构建阶段可生成的非权威缓存材料 manifest。
 	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或首代检查回执。
 	CacheMaterialSchemaID = "remote-ci-cache-material/v1"
@@ -518,6 +520,7 @@ var requirements = [...]Requirement{
 	{ID: "2.8", Section: 2, Summary: "首次读取缺失 SQLite 时原子初始化 schema/index；normal run/hook 仅凭显式 strict ECI receipt 原子首写 baseline 与账本元数据，缺失或漂移仍 fail-fast", Enforcement: "SQLite initializer + generation-one bootstrap test"},
 	{ID: "2.9", Section: 2, Summary: "authoritative JobID 的全部 SQLite 投影不可重写；晋级前必须精确回读 aggregate/workload execution 的状态、摘要、时序与执行画像", Enforcement: "provisional write guard + strict aggregate/workload readback tests"},
 	{ID: "2.10", Section: 2, Summary: "每次阿里云 CLI 调用同时受 context 超时与进程管道 WaitDelay 约束；子孙进程持有输出管道不得使轮询、汇总或清理无界等待", Enforcement: "ECI CLI process watchdog + inherited-pipe regression test"},
+	{ID: "2.11", Section: 2, Summary: "normal portable target binding 仅以 immutable job_id 一对一 additive side table 绑定 target repository/object/commit/tree/mount、manifest path/SHA/schema/ABI/manifest digest 与 profile 的 gate.WorkloadCatalogDigest(mapped selected profile catalog)；禁止 manifest/declared command digest 替代，只提供 record+exact readback，runtime/Coordinator/finalizer 仍未接线且不回填 legacy run", Enforcement: "SQLite v23 side table + strict record/readback + migration/field/arch guards; runtime not wired"},
 	{ID: "3.1", Section: 3, Summary: "正常 CI 唯一路径为 accepted SQLite correctness identity 加实时验证 refresh runtime，再到 LPT 和无上限并发 ECI shards", Enforcement: "runtime call graph + archtest"},
 	{ID: "3.2", Section: 3, Summary: "正常 shard 显式绑定本次实时验证的 refresh snapshot 与同一 cached immutable image，禁止 AutoMatch 或 registry fallback", Enforcement: "ECI request validation"},
 	{ID: "3.3", Section: 3, Summary: "候选 Gate 在 exact candidate tree 内增量编译，测试二进制在同一 ECI shard worker 路径按 compile group 各编译一次；cache hit 不跳过身份验证", Enforcement: "materializer + shard worker + receipt"},

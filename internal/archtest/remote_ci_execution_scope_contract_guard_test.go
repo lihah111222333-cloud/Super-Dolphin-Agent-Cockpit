@@ -170,6 +170,58 @@ func TestRemoteCIPlanningReceiptV20AcceptedContract(t *testing.T) {
 	}
 }
 
+// TestRemoteCITargetBindingV23AcceptedContract 冻结 additive target side table，且 runtime/finalizer 保持未接线。
+func TestRemoteCITargetBindingV23AcceptedContract(t *testing.T) {
+	root := findRepoRoot(t)
+	if !slices.Contains(cicontract.SQLAuthoritySchemaTables(), cicontract.RemoteRunTargetBindingsTable) || !slices.Contains(cicontract.SQLAuthorityAdditiveSchemaIndexes(), cicontract.RemoteRunTargetBindingsProfileIndex) {
+		t.Fatal("remote target binding table/index is not registered with the one SQLite authority")
+	}
+	assertRemoteCITargetBindingSchema(t, root)
+	assertRemoteCITargetBindingMigration(t, root)
+	assertRemoteCITargetBindingStoreBoundary(t, root)
+}
+
+func assertRemoteCITargetBindingSchema(t *testing.T, root string) {
+	t.Helper()
+	schema := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_schema_strict.go"))
+	for _, marker := range []string{
+		"CREATE TABLE IF NOT EXISTS %s",
+		"job_id TEXT PRIMARY KEY REFERENCES ci_runs(job_id) ON DELETE CASCADE",
+		"repository_id TEXT NOT NULL", "object_format TEXT NOT NULL", "commit_sha TEXT NOT NULL", "tree_sha TEXT NOT NULL", "mount_path TEXT NOT NULL",
+		"manifest_path TEXT NOT NULL", "manifest_sha256 TEXT NOT NULL", "manifest_schema_version TEXT NOT NULL", "manifest_abi_digest TEXT NOT NULL", "manifest_digest TEXT NOT NULL",
+		"profile TEXT NOT NULL", "profile_workload_set_digest TEXT NOT NULL", "UNIQUE (job_id, repository_id",
+		"CREATE INDEX IF NOT EXISTS %s ON %s (profile, profile_workload_set_digest",
+		"CREATE TRIGGER IF NOT EXISTS %s BEFORE UPDATE ON %s",
+	} {
+		if !strings.Contains(schema, marker) {
+			t.Errorf("target binding v23 schema is missing %q", marker)
+		}
+	}
+}
+
+func assertRemoteCITargetBindingMigration(t *testing.T, root string) {
+	t.Helper()
+	migration := strings.ToLower(readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/ledger_store_sqlite_namespace_migration.go")))
+	for _, forbidden := range []string{"insert into ci_remote_run_target_bindings", "update ci_remote_run_target_bindings", "alter table ci_runs"} {
+		if strings.Contains(migration, forbidden) {
+			t.Errorf("target binding v23 migration contains forbidden compatibility operation %q", forbidden)
+		}
+	}
+}
+
+func assertRemoteCITargetBindingStoreBoundary(t *testing.T, root string) {
+	t.Helper()
+	store := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/remote_ci_authority_store.go"))
+	for _, marker := range []string{"RecordRemoteCITargetBinding", "LoadRemoteCITargetBinding", "remote CI target binding exact readback drifted", "本卡只提供独立 SQLite record/readback，不接入 Coordinator 或 finalizer", "WorkloadCatalogDigest(mapped selected profile catalog)", "不得以 manifest digest 或 declared command digest 替代"} {
+		if !strings.Contains(store, marker) {
+			t.Errorf("target binding v23 store is missing %q", marker)
+		}
+	}
+	if strings.Contains(store, "remoteci.Coordinator") || strings.Contains(store, "FinalizeRemoteCIRunAuthority") {
+		t.Fatal("target binding schema card wired Coordinator or authoritative finalizer")
+	}
+}
+
 func TestRemoteCIExecutionScopeV15GuardCounterexamples(t *testing.T) {
 	for name, source := range map[string]string{
 		"second scope table":   `CREATE TABLE IF NOT EXISTS ci_remote_run_execution_scopes (job_id TEXT); CREATE TABLE IF NOT EXISTS ci_remote_run_execution_scope_alias (job_id TEXT);`,

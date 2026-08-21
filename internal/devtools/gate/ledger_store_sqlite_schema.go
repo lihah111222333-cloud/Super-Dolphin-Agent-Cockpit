@@ -426,18 +426,18 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() ti
 	case 0:
 		return validator.initializeAuthority(database, now, validator)
 	case legacyDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchemaThrough22(database, migrateDurationLedgerSQLiteSchema13To18(database, now))
+		return migrateDurationLedgerSQLiteSchemaThrough23(database, migrateDurationLedgerSQLiteSchema13To18(database, now))
 	case localDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchemaThrough22(database, migrateDurationLedgerSQLiteSchema14To18(database))
+		return migrateDurationLedgerSQLiteSchemaThrough23(database, migrateDurationLedgerSQLiteSchema14To18(database))
 	case executionScopeDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchemaThrough22(database, migrateDurationLedgerSQLiteSchema15To18(database))
+		return migrateDurationLedgerSQLiteSchemaThrough23(database, migrateDurationLedgerSQLiteSchema15To18(database))
 	case retainedProofDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchemaThrough22(database, migrateDurationLedgerSQLiteSchema16To18(database))
+		return migrateDurationLedgerSQLiteSchemaThrough23(database, migrateDurationLedgerSQLiteSchema16To18(database))
 	case sourceReplayIndexDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchemaThrough22(database, migrateDurationLedgerSQLiteSchema17To18(database))
+		return migrateDurationLedgerSQLiteSchemaThrough23(database, migrateDurationLedgerSQLiteSchema17To18(database))
 	case workloadInputReplayDurationLedgerSQLiteSchemaVersion:
-		return migrateDurationLedgerSQLiteSchema18To22(database)
-	case runExecutionIdentityDurationLedgerSQLiteSchemaVersion, planningReceiptDurationLedgerSQLiteSchemaVersion, workloadSemanticReplayDurationLedgerSQLiteSchemaVersion:
+		return migrateDurationLedgerSQLiteSchema18To23(database)
+	case runExecutionIdentityDurationLedgerSQLiteSchemaVersion, planningReceiptDurationLedgerSQLiteSchemaVersion, workloadSemanticReplayDurationLedgerSQLiteSchemaVersion, remoteCleanupJournalDurationLedgerSQLiteSchemaVersion:
 		return migrateDurationLedgerSQLiteSchemaToCurrent(database, schemaVersion)
 	case durationLedgerSQLiteSchemaVersion:
 		return validator.preflight(database, schemaVersion)
@@ -448,12 +448,30 @@ func coordinateDurationLedgerSQLiteSchemaVersion(database *sql.DB, now func() ti
 
 func migrateDurationLedgerSQLiteSchemaToCurrent(database *sql.DB, schemaVersion int) error {
 	if schemaVersion == runExecutionIdentityDurationLedgerSQLiteSchemaVersion {
-		return migrateDurationLedgerSQLiteSchema19To22(database)
+		if err := migrateDurationLedgerSQLiteSchema19To22(database); err != nil {
+			return err
+		}
+		return migrateDurationLedgerSQLiteSchema22To23(database)
 	}
 	if schemaVersion == planningReceiptDurationLedgerSQLiteSchemaVersion {
-		return migrateDurationLedgerSQLiteSchema20To22(database)
+		if err := migrateDurationLedgerSQLiteSchema20To22(database); err != nil {
+			return err
+		}
+		return migrateDurationLedgerSQLiteSchema22To23(database)
 	}
-	return migrateDurationLedgerSQLiteSchema21To22(database)
+	if schemaVersion == workloadSemanticReplayDurationLedgerSQLiteSchemaVersion {
+		if err := migrateDurationLedgerSQLiteSchema21To22(database); err != nil {
+			return err
+		}
+	}
+	return migrateDurationLedgerSQLiteSchema22To23(database)
+}
+
+func migrateDurationLedgerSQLiteSchemaThrough23(database *sql.DB, previous error) error {
+	if err := migrateDurationLedgerSQLiteSchemaThrough22(database, previous); err != nil {
+		return err
+	}
+	return migrateDurationLedgerSQLiteSchema22To23(database)
 }
 
 func migrateDurationLedgerSQLiteSchemaThrough22(database *sql.DB, previous error) error {
@@ -473,8 +491,8 @@ func migrateDurationLedgerSQLiteSchemaThrough21(database *sql.DB, previous error
 	return migrateDurationLedgerSQLiteSchema19To21(database)
 }
 
-func migrateDurationLedgerSQLiteSchema18To22(database *sql.DB) error {
-	return migrateDurationLedgerSQLiteSchemaThrough22(database, nil)
+func migrateDurationLedgerSQLiteSchema18To23(database *sql.DB) error {
+	return migrateDurationLedgerSQLiteSchemaThrough23(database, nil)
 }
 
 func migrateDurationLedgerSQLiteSchema19To21(database *sql.DB) error {

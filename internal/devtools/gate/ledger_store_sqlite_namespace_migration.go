@@ -27,6 +27,8 @@ const planningReceiptDurationLedgerSQLiteSchemaVersion = 20
 
 const workloadSemanticReplayDurationLedgerSQLiteSchemaVersion = 21
 
+const remoteCleanupJournalDurationLedgerSQLiteSchemaVersion = 22
+
 // migrateDurationLedgerSQLiteSchema13To14 adds only local-origin projections;
 // the frozen remote PASS table is validated and left untouched.
 func migrateDurationLedgerSQLiteSchema13To14(database *sql.DB, now func() time.Time) error {
@@ -412,8 +414,53 @@ func migrateDurationLedgerSQLiteRemoteCleanupJournalOnConnection(connection *sql
 			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite remote cleanup journal", err)
 		}
 	}
-	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, remoteCleanupJournalDurationLedgerSQLiteSchemaVersion)); err != nil {
 		return mapDurationLedgerSQLiteError("write duration ledger SQLite remote cleanup journal schema version", err)
+	}
+	return preflightDurationLedgerSQLiteSchemaVersion(connection, remoteCleanupJournalDurationLedgerSQLiteSchemaVersion)
+}
+
+// migrateDurationLedgerSQLiteSchema22To23 只新增 normal portable target binding；
+// 不回填、推断或改写既有 run、PASS、planning、timing 或 cleanup authority。
+func migrateDurationLedgerSQLiteSchema22To23(database *sql.DB) error {
+	if database == nil {
+		return errors.New("duration ledger SQLite remote target binding migration requires database")
+	}
+	connection, err := database.Conn(context.Background())
+	if err != nil {
+		return mapDurationLedgerSQLiteError("open duration ledger SQLite remote target binding migration connection", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(context.Background(), `BEGIN IMMEDIATE`); err != nil {
+		return mapDurationLedgerSQLiteError("begin duration ledger SQLite remote target binding migration", err)
+	}
+	if err := migrateDurationLedgerSQLiteRemoteTargetBindingOnConnection(connection); err != nil {
+		return rollbackDurationLedgerSQLiteNamespace(connection, err)
+	}
+	if _, err := connection.ExecContext(context.Background(), `COMMIT`); err != nil {
+		return mapDurationLedgerSQLiteError("commit duration ledger SQLite remote target binding migration", err)
+	}
+	return nil
+}
+
+func migrateDurationLedgerSQLiteRemoteTargetBindingOnConnection(connection *sql.Conn) error {
+	version, err := readDurationLedgerSQLiteSchemaVersion(connection)
+	if err != nil {
+		return err
+	}
+	if version != remoteCleanupJournalDurationLedgerSQLiteSchemaVersion {
+		return fmt.Errorf("duration ledger SQLite remote target binding migration expected schema version %d, got %d", remoteCleanupJournalDurationLedgerSQLiteSchemaVersion, version)
+	}
+	if err := preflightDurationLedgerSQLiteSchemaVersion(connection, remoteCleanupJournalDurationLedgerSQLiteSchemaVersion); err != nil {
+		return err
+	}
+	for _, statement := range durationLedgerRemoteCITargetBindingSchemaStatements() {
+		if _, err := connection.ExecContext(context.Background(), statement); err != nil {
+			return mapDurationLedgerSQLiteError("migrate duration ledger SQLite remote target binding", err)
+		}
+	}
+	if _, err := connection.ExecContext(context.Background(), fmt.Sprintf(`PRAGMA user_version = %d`, durationLedgerSQLiteSchemaVersion)); err != nil {
+		return mapDurationLedgerSQLiteError("write duration ledger SQLite remote target binding schema version", err)
 	}
 	return preflightDurationLedgerSQLiteSchemaVersion(connection, durationLedgerSQLiteSchemaVersion)
 }
@@ -603,7 +650,8 @@ func preflightDurationLedgerSQLiteSchemaVersion(queryer durationLedgerSQLiteSche
 			{runExecutionIdentityDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIRunExecutionIdentitySchemaStatements},
 			{planningReceiptDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCIPlanningReceiptSchemaStatements},
 			{workloadSemanticReplayDurationLedgerSQLiteSchemaVersion, durationLedgerWorkloadSemanticReplayCacheSchemaStatements},
-			{durationLedgerSQLiteSchemaVersion, durationLedgerRemoteCleanupJournalSchemaStatements},
+			{remoteCleanupJournalDurationLedgerSQLiteSchemaVersion, durationLedgerRemoteCleanupJournalSchemaStatements},
+			{durationLedgerSQLiteSchemaVersion, durationLedgerRemoteCITargetBindingSchemaStatements},
 		} {
 			if version >= step.version {
 				statements = append(statements, step.statements()...)

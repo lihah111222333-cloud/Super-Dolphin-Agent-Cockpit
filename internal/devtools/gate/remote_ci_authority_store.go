@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
 )
@@ -156,3 +158,184 @@ func verifySQLiteCheckReceiptAgentIdentity(storedDigest, receiptDigest string) e
 }
 
 func unixMilliUTC(value int64) time.Time { return time.UnixMilli(value).UTC() }
+
+// RemoteCITargetBinding 是 authoritative finalizer 后续消费的 immutable normal portable target 身份。
+// 本卡只提供独立 SQLite record/readback，不接入 Coordinator 或 finalizer。
+type RemoteCITargetBinding struct {
+	JobID                 string
+	RepositoryID          string
+	ObjectFormat          GitObjectFormat
+	CommitSHA             string
+	TreeSHA               string
+	MountPath             string
+	ManifestPath          string
+	ManifestSHA256        string
+	ManifestSchemaVersion string
+	ManifestABIDigest     string
+	ManifestDigest        string
+	Profile               Profile
+	// ProfileWorkloadSetDigest 必须是 WorkloadCatalogDigest(mapped selected profile catalog)，
+	// 不得以 manifest digest 或 declared command digest 替代。
+	ProfileWorkloadSetDigest string
+}
+
+// Validate 拒绝隐式 target、非 canonical Git/manifest identity 与 profile workload-set 漂移。
+func (binding RemoteCITargetBinding) Validate() error {
+	if err := validateRemoteCITargetBindingToken("job ID", binding.JobID, 256); err != nil {
+		return err
+	}
+	if err := validateRemoteCITargetBindingToken("repository ID", binding.RepositoryID, 128); err != nil {
+		return err
+	}
+	if remoteCITargetBindingImplicitToken(binding.RepositoryID) {
+		return errors.New("remote target repository ID cannot be implicit")
+	}
+	if err := validateOID("remote target commit SHA", binding.CommitSHA, binding.ObjectFormat, false); err != nil {
+		return err
+	}
+	if err := validateOID("remote target tree SHA", binding.TreeSHA, binding.ObjectFormat, false); err != nil {
+		return err
+	}
+	if err := validateRemoteCITargetBindingRelativePath("mount path", binding.MountPath); err != nil {
+		return err
+	}
+	if err := validateRemoteCITargetBindingRelativePath("manifest path", binding.ManifestPath); err != nil {
+		return err
+	}
+	if err := validateRemoteCITargetBindingDigests(binding); err != nil {
+		return err
+	}
+	if binding.ManifestSchemaVersion != cicontract.RemoteCITargetBindingManifestSchemaVersion {
+		return fmt.Errorf("remote target manifest schema must equal %q", cicontract.RemoteCITargetBindingManifestSchemaVersion)
+	}
+	return binding.Profile.Validate()
+}
+
+func validateRemoteCITargetBindingToken(name, value string, maxBytes int) error {
+	if value == "" || len(value) > maxBytes || strings.TrimSpace(value) != value || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return fmt.Errorf("remote target %s is invalid", name)
+	}
+	return nil
+}
+
+func remoteCITargetBindingImplicitToken(value string) bool {
+	return value == "default" || value == "cwd" || value == "HEAD"
+}
+
+func validateRemoteCITargetBindingDigest(name, value string) error {
+	if err := validateDigest(name, value); err != nil {
+		return err
+	}
+	if strings.TrimPrefix(value, "sha256:") == strings.Repeat("0", 64) {
+		return fmt.Errorf("%s must not be the zero digest", name)
+	}
+	return nil
+}
+
+func validateRemoteCITargetBindingDigests(binding RemoteCITargetBinding) error {
+	digests := []struct {
+		name, value string
+	}{
+		{"manifest SHA-256", binding.ManifestSHA256},
+		{"manifest ABI digest", binding.ManifestABIDigest},
+		{"manifest digest", binding.ManifestDigest},
+		{"profile workload-set digest", binding.ProfileWorkloadSetDigest},
+	}
+	seen := make(map[string]string, len(digests))
+	for _, digest := range digests {
+		if err := validateRemoteCITargetBindingDigest(digest.name, digest.value); err != nil {
+			return err
+		}
+		if previous, exists := seen[digest.value]; exists {
+			return fmt.Errorf("%s must not reuse %s", digest.name, previous)
+		}
+		seen[digest.value] = digest.name
+	}
+	return nil
+}
+
+func validateRemoteCITargetBindingRelativePath(name, value string) error {
+	if value == "" || strings.TrimSpace(value) != value || strings.Contains(value, "\\") || path.IsAbs(value) || path.Clean(value) != value || value == "." || value == ".." || remoteCITargetBindingImplicitToken(value) || strings.HasPrefix(value, "../") {
+		return fmt.Errorf("remote target %s must be a clean repository-relative path", name)
+	}
+	return nil
+}
+
+// RecordRemoteCITargetBinding 只允许为已有 ci_runs job 插入一次 binding，并在同一事务精确回读。
+func (store *DurationLedgerStore) RecordRemoteCITargetBinding(binding RemoteCITargetBinding) (RemoteCITargetBinding, error) {
+	if store == nil {
+		return RemoteCITargetBinding{}, errors.New("duration ledger store is nil")
+	}
+	if err := binding.Validate(); err != nil {
+		return RemoteCITargetBinding{}, err
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		return RemoteCITargetBinding{}, err
+	}
+	defer database.Close()
+	var readback RemoteCITargetBinding
+	err = withSQLiteWriteTransaction(database, "record remote CI target binding", func(transaction *sql.Tx) error {
+		query := fmt.Sprintf(`INSERT INTO %s (job_id, repository_id, object_format, commit_sha, tree_sha, mount_path, manifest_path, manifest_sha256, manifest_schema_version, manifest_abi_digest, manifest_digest, profile, profile_workload_set_digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, cicontract.RemoteRunTargetBindingsTable)
+		if _, err := transaction.Exec(query, binding.JobID, binding.RepositoryID, binding.ObjectFormat, binding.CommitSHA, binding.TreeSHA, binding.MountPath, binding.ManifestPath, binding.ManifestSHA256, binding.ManifestSchemaVersion, binding.ManifestABIDigest, binding.ManifestDigest, binding.Profile, binding.ProfileWorkloadSetDigest); err != nil {
+			return mapDurationLedgerSQLiteError("insert remote CI target binding", err)
+		}
+		var err error
+		readback, err = loadSQLiteRemoteCITargetBinding(transaction, binding.JobID)
+		if err != nil {
+			return err
+		}
+		if readback != binding {
+			return errors.New("remote CI target binding exact readback drifted")
+		}
+		return nil
+	})
+	return readback, err
+}
+
+// LoadRemoteCITargetBinding 在一个只读快照中返回完整 binding；缺失 side row 必须 fail-fast。
+func (store *DurationLedgerStore) LoadRemoteCITargetBinding(jobID string) (RemoteCITargetBinding, error) {
+	if store == nil {
+		return RemoteCITargetBinding{}, errors.New("duration ledger store is nil")
+	}
+	if err := validateRemoteCITargetBindingToken("job ID", jobID, 256); err != nil {
+		return RemoteCITargetBinding{}, err
+	}
+	database, err := store.openSQLiteAuthority(false)
+	if err != nil {
+		return RemoteCITargetBinding{}, err
+	}
+	defer database.Close()
+	transaction, err := database.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return RemoteCITargetBinding{}, mapDurationLedgerSQLiteError("begin remote CI target binding read", err)
+	}
+	defer transaction.Rollback()
+	binding, err := loadSQLiteRemoteCITargetBinding(transaction, jobID)
+	if err != nil {
+		return RemoteCITargetBinding{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return RemoteCITargetBinding{}, mapDurationLedgerSQLiteError("commit remote CI target binding read", err)
+	}
+	return binding, nil
+}
+
+func loadSQLiteRemoteCITargetBinding(transaction *sql.Tx, jobID string) (RemoteCITargetBinding, error) {
+	query := fmt.Sprintf(`SELECT job_id, repository_id, object_format, commit_sha, tree_sha, mount_path, manifest_path, manifest_sha256, manifest_schema_version, manifest_abi_digest, manifest_digest, profile, profile_workload_set_digest FROM %s WHERE job_id = ?`, cicontract.RemoteRunTargetBindingsTable)
+	var binding RemoteCITargetBinding
+	var objectFormat, profile string
+	err := transaction.QueryRow(query, jobID).Scan(&binding.JobID, &binding.RepositoryID, &objectFormat, &binding.CommitSHA, &binding.TreeSHA, &binding.MountPath, &binding.ManifestPath, &binding.ManifestSHA256, &binding.ManifestSchemaVersion, &binding.ManifestABIDigest, &binding.ManifestDigest, &profile, &binding.ProfileWorkloadSetDigest)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RemoteCITargetBinding{}, fmt.Errorf("remote CI target binding for job %q is missing", jobID)
+	}
+	if err != nil {
+		return RemoteCITargetBinding{}, mapDurationLedgerSQLiteError("load remote CI target binding", err)
+	}
+	binding.ObjectFormat = GitObjectFormat(objectFormat)
+	binding.Profile = Profile(profile)
+	if err := binding.Validate(); err != nil {
+		return RemoteCITargetBinding{}, fmt.Errorf("stored remote CI target binding: %w", err)
+	}
+	return binding, nil
+}

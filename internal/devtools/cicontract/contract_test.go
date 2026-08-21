@@ -478,9 +478,9 @@ func TestSQLAuthoritySchemaTablesRejectUnregisteredExtraTable(t *testing.T) {
 	}
 }
 
-func TestDurationLedgerSQLiteSchemaV21OwnsPlanningReceipt(t *testing.T) {
-	if DurationLedgerSQLiteSchemaVersion != 22 {
-		t.Fatalf("duration-ledger SQLite physical schema = %d, want 22", DurationLedgerSQLiteSchemaVersion)
+func TestDurationLedgerSQLiteSchemaV23OwnsTargetBinding(t *testing.T) {
+	if DurationLedgerSQLiteSchemaVersion != 23 {
+		t.Fatalf("duration-ledger SQLite physical schema = %d, want 23", DurationLedgerSQLiteSchemaVersion)
 	}
 	if !slices.Contains(SQLAuthoritySchemaTables(), RemoteRunPlanningReceiptsTable) {
 		t.Fatalf("planning receipt table %q is not registered", RemoteRunPlanningReceiptsTable)
@@ -498,6 +498,12 @@ func TestDurationLedgerSQLiteSchemaV21OwnsPlanningReceipt(t *testing.T) {
 		if !slices.Contains(SQLAuthorityAdditiveSchemaIndexes(), index) {
 			t.Fatalf("retained proof schema index %q is not registered", index)
 		}
+	}
+	if !slices.Contains(SQLAuthoritySchemaTables(), RemoteRunTargetBindingsTable) {
+		t.Fatalf("remote target binding table %q is not registered", RemoteRunTargetBindingsTable)
+	}
+	if !slices.Contains(SQLAuthorityAdditiveSchemaIndexes(), RemoteRunTargetBindingsProfileIndex) {
+		t.Fatalf("remote target binding index %q is not registered", RemoteRunTargetBindingsProfileIndex)
 	}
 }
 

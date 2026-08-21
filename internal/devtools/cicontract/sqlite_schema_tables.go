@@ -35,6 +35,12 @@ const (
 	RemoteCleanupTargetsTable = "ci_remote_cleanup_targets"
 	// RemoteCleanupTargetsPendingIndex 是按 job 和目标类型读取恢复项的索引。
 	RemoteCleanupTargetsPendingIndex = "idx_ci_remote_cleanup_targets_pending"
+	// RemoteRunTargetBindingsTable 是 normal portable run 的 immutable target identity 侧表。
+	RemoteRunTargetBindingsTable = "ci_remote_run_target_bindings"
+	// RemoteRunTargetBindingsProfileIndex 是 authoritative finalizer 按 profile workload-set 精确核对 target 的索引。
+	RemoteRunTargetBindingsProfileIndex = "idx_ci_remote_run_target_bindings_profile"
+	// RemoteRunTargetBindingsImmutableTrigger 阻断 target binding 的任何原地改写。
+	RemoteRunTargetBindingsImmutableTrigger = "trg_ci_remote_run_target_bindings_immutable"
 )
 
 // SQLAuthorityAuxiliaryTables 返回不属于事实域绑定但仍受唯一 SQLite authority 管理的表。
@@ -56,6 +62,7 @@ func SQLAuthorityAuxiliaryTables() []string {
 		RemoteRunPlanningReceiptsTable,
 		RemoteCleanupJournalsTable,
 		RemoteCleanupTargetsTable,
+		RemoteRunTargetBindingsTable,
 	}
 }
 
@@ -71,6 +78,7 @@ func SQLAuthorityAdditiveSchemaIndexes() []string {
 		RetainedWorkloadPassProofSourceReplayIndex,
 		RemoteRunPlanningReceiptsStatusIndex,
 		RemoteCleanupTargetsPendingIndex,
+		RemoteRunTargetBindingsProfileIndex,
 	}
 }
 

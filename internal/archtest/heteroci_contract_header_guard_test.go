@@ -93,7 +93,7 @@ func TestHeterociPostgreSQLLocalAuthoritiesProtocolBoundary(t *testing.T) {
 			t.Fatalf("evidence-only PostgreSQL protocol unexpectedly wires %q", forbidden)
 		}
 	}
-	if cicontract.SQLAuthorityID != "duration-ledger-sqlite/v1" || cicontract.DurationLedgerSQLiteSchemaVersion != 22 {
+	if cicontract.SQLAuthorityID != "duration-ledger-sqlite/v1" || cicontract.DurationLedgerSQLiteSchemaVersion != 23 {
 		t.Fatal("PostgreSQL local authorities protocol changed remote duration-ledger SQLite authority")
 	}
 }
