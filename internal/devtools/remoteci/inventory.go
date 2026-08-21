@@ -111,6 +111,148 @@ func BuildWorkloadInventoryWithSnapshot(
 	}, &WorkloadInventorySnapshot{snapshot: snapshot}, nil
 }
 
+// BuildPortableGoWorkloadInventory 从任意 repository exact tree 构建仅 Go 的平台清单。
+// 它不要求 V3 前端策略文件，供独立 remote-ci 二进制跨仓库复用。
+func BuildPortableGoWorkloadInventory(
+	ctx context.Context,
+	repositoryRoot string,
+	tree string,
+	platform string,
+	modules []RepositoryWorkloadModule,
+) (gate.WorkloadInventory, error) {
+	if !validRemoteGitTreeRequest(ctx, repositoryRoot, tree) {
+		return gate.WorkloadInventory{}, errors.New("portable Go inventory exact tree identity is invalid")
+	}
+	if err := verifyReadOnlyTreeObject(ctx, repositoryRoot, tree); err != nil {
+		return gate.WorkloadInventory{}, fmt.Errorf("validate portable Go inventory exact tree: %w", err)
+	}
+	snapshot, err := loadRemoteGitTreeSnapshot(ctx, repositoryRoot, tree)
+	if err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	if err := snapshot.prepareGoSourcesForDeclaredModules(ctx, modules); err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	targets, err := inventoryPortableGoTargets(remoteGitTreeFileNames(snapshot), snapshot.workspaceModuleDirectories)
+	if err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	packages, err := inventoryPlatformGoPackagesWithSnapshot(ctx, snapshot, platform, targets.goPackages)
+	if err != nil {
+		return gate.WorkloadInventory{}, err
+	}
+	return gate.WorkloadInventory{GoPackages: packages, NestedGoModules: targets.nestedGoModules}, nil
+}
+
+// inventoryPortableGoTargets 只收集清单声明 module roots 内的 Go 包，并排除未声明的嵌套模块。
+func inventoryPortableGoTargets(files, declaredModules []string) (inventoryTargetSet, error) {
+	if len(declaredModules) == 0 {
+		return inventoryTargetSet{}, errors.New("portable Go inventory has no declared modules")
+	}
+	moduleDirectories, moduleSet, err := portableGoModuleMetadata(files)
+	if err != nil {
+		return inventoryTargetSet{}, err
+	}
+	declaredSet, err := portableDeclaredModuleSet(declaredModules, moduleSet)
+	if err != nil {
+		return inventoryTargetSet{}, err
+	}
+	fileSet, goPackages := portableGoPackageTargets(files, declaredModules, moduleDirectories, declaredSet)
+	sort.Strings(goPackages)
+	sort.Strings(moduleDirectories)
+	return inventoryTargetSet{files: fileSet, goPackages: goPackages, nestedGoModules: moduleDirectories}, nil
+}
+
+// portableGoModuleMetadata 发现 exact tree 中全部 go.mod 目录。
+func portableGoModuleMetadata(files []string) ([]string, map[string]struct{}, error) {
+	moduleSet := make(map[string]struct{})
+	moduleDirectories := make([]string, 0)
+	for _, file := range files {
+		if path.Base(file) != "go.mod" {
+			continue
+		}
+		directory := path.Dir(file)
+		if !validPortableGoModuleDirectory(directory) {
+			return nil, nil, errors.New("portable Go inventory module path is invalid")
+		}
+		if _, duplicate := moduleSet[directory]; duplicate {
+			return nil, nil, errors.New("portable Go inventory repeats module metadata")
+		}
+		moduleSet[directory] = struct{}{}
+		moduleDirectories = append(moduleDirectories, directory)
+	}
+	return moduleDirectories, moduleSet, nil
+}
+
+// validPortableGoModuleDirectory 校验仓库相对 module directory。
+func validPortableGoModuleDirectory(directory string) bool {
+	return directory != "" && !strings.HasPrefix(directory, "../") && !path.IsAbs(directory) && path.Clean(directory) == directory
+}
+
+// portableDeclaredModuleSet 校验每个声明模块都有 exact-tree go.mod。
+func portableDeclaredModuleSet(declaredModules []string, moduleSet map[string]struct{}) (map[string]struct{}, error) {
+	declaredSet := make(map[string]struct{}, len(declaredModules))
+	for _, directory := range declaredModules {
+		if _, exists := moduleSet[directory]; !exists {
+			return nil, errors.New("portable Go inventory declared module metadata is missing")
+		}
+		declaredSet[directory] = struct{}{}
+	}
+	return declaredSet, nil
+}
+
+// portableGoPackageTargets 收集声明模块内且不进入未声明子模块的 Go packages。
+func portableGoPackageTargets(files, declaredModules, moduleDirectories []string, declaredSet map[string]struct{}) (map[string]struct{}, []string) {
+	packages := make(map[string]struct{})
+	fileSet := make(map[string]struct{}, len(files))
+	for _, file := range files {
+		fileSet[file] = struct{}{}
+		if packageTarget, ok := portableGoPackageTarget(file, declaredModules, moduleDirectories, declaredSet); ok {
+			packages[packageTarget] = struct{}{}
+		}
+	}
+	goPackages := make([]string, 0, len(packages))
+	for packageTarget := range packages {
+		goPackages = append(goPackages, packageTarget)
+	}
+	return fileSet, goPackages
+}
+
+// portableGoPackageTarget 将单个源码映射到允许执行的 exact package。
+func portableGoPackageTarget(file string, declaredModules, moduleDirectories []string, declaredSet map[string]struct{}) (string, bool) {
+	packageTarget, ok := gate.GoPackageTargetForSource(file)
+	if !ok || !pathWithinAnyModule(file, declaredModules) {
+		return "", false
+	}
+	if pathWithinUndeclaredModule(file, moduleDirectories, declaredSet) {
+		return "", false
+	}
+	return packageTarget, true
+}
+
+// pathWithinAnyModule 判断路径是否位于任一声明 module root。
+func pathWithinAnyModule(file string, modules []string) bool {
+	for _, module := range modules {
+		if module == "." || strings.HasPrefix(file, module+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// pathWithinUndeclaredModule 判断路径是否进入 tree 中存在但清单未声明的嵌套模块。
+func pathWithinUndeclaredModule(file string, modules []string, declared map[string]struct{}) bool {
+	for _, module := range modules {
+		if module == "." || !strings.HasPrefix(file, module+"/") {
+			continue
+		}
+		if _, ok := declared[module]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
 // inventoryFullTargetsWithSnapshot 准备 module/workspace 映射后构建完整目标集合。
 func inventoryFullTargetsWithSnapshot(ctx context.Context, snapshot *remoteGitTreeSnapshot, files []string, policy inventoryVitestSuitePolicy) (inventoryTargetSet, error) {
 	if err := snapshot.prepareGoSources(ctx); err != nil {

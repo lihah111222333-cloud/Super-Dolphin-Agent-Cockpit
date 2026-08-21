@@ -60,8 +60,6 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 		return dispatchArtifactIdentity(args[1:], stdout, stderr)
 	case "builder-simulate":
 		return runBuilderSimulationCLI(args[1:], stdout, stderr)
-	case "route":
-		return dispatchAutomaticRoute(args[1:], stdout, stderr)
 	case "run":
 		return dispatchAutomaticRun(args[1:], stdout, stderr)
 	case "execute":

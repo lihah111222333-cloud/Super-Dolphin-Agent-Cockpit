@@ -7,21 +7,15 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
-// TestAutomaticRouteCLIRejectsManualRoutingFields 锁定调用者不能选择 node、tier 或 executor。
-func TestAutomaticRouteCLIRejectsManualRoutingFields(t *testing.T) {
-	for _, forbidden := range []string{"--node", "--node-id", "--tier", "--eci-tier", "--executor"} {
-		t.Run(strings.TrimPrefix(forbidden, "--"), func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			code := Run([]string{"route", forbidden, "manual"}, &stdout, &stderr)
-			if code != 1 || stdout.Len() != 0 {
-				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-			}
-			if strings.Contains(stderr.String(), "unknown command") || !strings.Contains(stderr.String(), "automatic route usage") {
-				t.Fatalf("manual routing field returned wrong boundary: %q", stderr.String())
-			}
-		})
+// TestAutomaticRouteCLIIsNotPublic 锁定公开入口只有自动 run，route 不能推进 owner epoch。
+func TestAutomaticRouteCLIIsNotPublic(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"route", "--config", "/tmp/config", "--repository", "/tmp/repository"}, &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 
@@ -31,6 +25,35 @@ func TestAutomaticRunCLIRejectsManualRoutingFields(t *testing.T) {
 		code := Run([]string{"run", forbidden, "manual"}, &stdout, &stderr)
 		if code != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "automatic run usage") {
 			t.Fatalf("flag=%s code=%d stdout=%q stderr=%q", forbidden, code, stdout.String(), stderr.String())
+		}
+	}
+}
+
+func TestAutomaticRunResultRejectsOversizeBeforeStdoutWrite(t *testing.T) {
+	var stdout bytes.Buffer
+	units := make([]AutomaticRunUnitResult, 20_000)
+	for index := range units {
+		units[index].UnitID = strings.Repeat("x", 1_024)
+	}
+	if err := writeAutomaticRunResult(&stdout, AutomaticRunResult{Units: units}); err == nil || stdout.Len() != 0 {
+		t.Fatalf("oversize result error=%v stdout_bytes=%d", err, stdout.Len())
+	}
+	if err := writeAutomaticRunResult(&stdout, AutomaticRunResult{SchemaVersion: "bounded"}); err != nil || stdout.Len() == 0 {
+		t.Fatalf("bounded result error=%v stdout_bytes=%d", err, stdout.Len())
+	}
+}
+
+func TestAutomaticBatchWorkloadMapsEveryManifestKind(t *testing.T) {
+	for _, workload := range []remoteci.RepositoryWorkload{
+		{ID: "test", Kind: remoteci.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./pkg", Name: "TestExact", ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal},
+		{ID: "package", Kind: remoteci.RepositoryWorkloadKindGoPackage, ModuleRoot: ".", Package: ".", ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal},
+	} {
+		mapped := automaticBatchWorkload(workload)
+		if mapped.Kind != string(workload.Kind) {
+			t.Fatalf("mapped kind = %q, want %q", mapped.Kind, workload.Kind)
+		}
+		if err := mapped.Validate(); err != nil {
+			t.Fatalf("mapped workload %q: %v", workload.Kind, err)
 		}
 	}
 }
@@ -60,7 +83,7 @@ func TestAutomaticProbeNodeFieldGuard(t *testing.T) {
 	}
 }
 
-// TestAutomaticRouteOwnerScopeSeparatesRepositories 锁定同一 namespace 不会跨仓库复用 owner scope。
+// TestAutomaticRouteOwnerScopeSeparatesRepositories 锁定短命 CLI owner 不会跨仓互相 takeover。
 func TestAutomaticRouteOwnerScopeSeparatesRepositories(t *testing.T) {
 	manifest := heteroci.Manifest{SchemaVersion: "heteroci-manifest/v1", Authority: heteroci.AuthorityLocalNonAuthoritative, Nodes: []heteroci.NodeConfig{}}
 	first, err := deriveAutomaticRouteOwnerScope("local-nodes", DetectedRepository{RepositoryID: "repo-a", TreeSHA: strings.Repeat("a", 40)}, manifest)
@@ -72,7 +95,7 @@ func TestAutomaticRouteOwnerScopeSeparatesRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first == second {
-		t.Fatal("different repositories received the same owner scope")
+		t.Fatal("different repositories received the same short-lived owner scope")
 	}
 }
 

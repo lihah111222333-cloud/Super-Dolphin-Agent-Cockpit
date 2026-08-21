@@ -127,7 +127,7 @@ func (runner *automaticSSHRunner) remoteRunnerArgs(command heterociexec.Command)
 		if command.CommandBase64 == "" {
 			return nil, errors.New("automatic Windows command base64 is missing")
 		}
-		return automaticWindowsRunnerArgs(*runner.config.Windows, command.CommandBase64), nil
+		return automaticWindowsRunnerArgs(*runner.config.Windows, command.CommandBase64)
 	default:
 		return nil, errors.New("automatic runner platform is unsupported")
 	}
@@ -146,13 +146,17 @@ func automaticLinuxRunnerArgs(config AutomaticLinuxRunnerConfig, command []strin
 	return append(args, command...)
 }
 
-func automaticWindowsRunnerArgs(config AutomaticWindowsRunnerConfig, commandBase64 string) []string {
-	return []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", config.RunnerExecutable,
+func automaticWindowsRunnerArgs(config AutomaticWindowsRunnerConfig, commandBase64 string) ([]string, error) {
+	args := []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", config.RunnerExecutable,
 		"-RepoPath", config.RepoPath, "-CommandBase64", commandBase64, "-NodeId", config.NodeID, "-RepositoryId", config.RepositoryID,
 		"-ObjectStoreRoot", config.ObjectStoreRoot, "-WorktreeRoot", config.WorktreeRoot, "-CacheRoot", config.CacheRoot,
 		"-ToolchainIdentity", config.ToolchainIdentity, "-GOOS", "windows", "-GOARCH", "amd64", "-CGOEnabled", "0",
 		"-ModuleIdentity", config.ModuleIdentity, "-WorkloadIdentity", config.WorkloadIdentity,
 		"-SourceCommit", config.SourceCommit, "-SourceTree", config.SourceTree, "-TimeoutSeconds", "120"}
+	if _, err := heterociexec.EncodeCommand(heteroci.PlatformWindowsAMD64, args); err != nil {
+		return nil, errors.New("automatic Windows runner command exceeds platform boundary")
+	}
+	return args, nil
 }
 
 // validateAutomaticSSHRunnerConfig 校验 SSH 依赖与恰好一个平台配置。

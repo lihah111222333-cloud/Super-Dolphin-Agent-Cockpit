@@ -46,7 +46,7 @@ func NewWindowsFactsProvider(config WindowsFactsProviderConfig) (*WindowsFactsPr
 	}}, nil
 }
 
-// Collect 采集 ProcessorCount、CIM 总/可用内存和 boot identity，并固定单节点并发为一。
+// Collect 采集 ProcessorCount、CIM 总/可用内存和 boot identity，并以逻辑处理器数约束节点并发。
 func (provider *WindowsFactsProvider) Collect(ctx context.Context, config Config, _ heteroci.ProbeRequest) (Facts, error) {
 	if provider == nil || provider.runner == nil || config.Node.Platform != heteroci.PlatformWindowsAMD64 {
 		return Facts{}, errors.New("windows facts provider dependencies are invalid")
@@ -63,8 +63,10 @@ func (provider *WindowsFactsProvider) Collect(ctx context.Context, config Config
 	if err != nil {
 		return Facts{}, err
 	}
-	total := heteroci.ResourceCapacity{CPUMilli: facts.ProcessorCount * 1000, MemoryBytes: facts.TotalMemoryBytes, MaxConcurrency: 1}
-	available := heteroci.ResourceCapacity{CPUMilli: total.CPUMilli, MemoryBytes: facts.FreeMemoryBytes, MaxConcurrency: 1}
+	// Windows 外层命令使用 UTF-16/base64 双层编码；八个受限 go test 可稳定低于 CreateProcess 32767 字符边界。
+	maxConcurrency := int(min(facts.ProcessorCount, int64(8)))
+	total := heteroci.ResourceCapacity{CPUMilli: facts.ProcessorCount * 1000, MemoryBytes: facts.TotalMemoryBytes, MaxConcurrency: maxConcurrency}
+	available := heteroci.ResourceCapacity{CPUMilli: total.CPUMilli, MemoryBytes: facts.FreeMemoryBytes, MaxConcurrency: maxConcurrency}
 	return Facts{
 		BootID: facts.BootID, Total: total, Available: available,
 		Capabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeWindowsNative}},
@@ -89,10 +91,16 @@ func decodeWindowsFacts(data []byte) (windowsFactsDocument, error) {
 	if err := decoder.Decode(&facts); err != nil || !windowsFactsEOF(decoder) {
 		return windowsFactsDocument{}, errors.New("windows facts output is invalid")
 	}
-	if facts.ProcessorCount <= 0 || facts.TotalMemoryBytes <= 0 || facts.FreeMemoryBytes <= 0 || facts.FreeMemoryBytes > facts.TotalMemoryBytes || strings.TrimSpace(facts.BootID) == "" {
+	if !validWindowsFactsCapacity(facts) || strings.TrimSpace(facts.BootID) == "" {
 		return windowsFactsDocument{}, errors.New("windows facts values are invalid")
 	}
 	return facts, nil
+}
+
+// validWindowsFactsCapacity 校验 CIM CPU 与内存容量边界。
+func validWindowsFactsCapacity(facts windowsFactsDocument) bool {
+	return facts.ProcessorCount > 0 && facts.ProcessorCount <= 4_096 && facts.TotalMemoryBytes > 0 &&
+		facts.FreeMemoryBytes > 0 && facts.FreeMemoryBytes <= facts.TotalMemoryBytes
 }
 
 func windowsFactsEOF(decoder *json.Decoder) bool {

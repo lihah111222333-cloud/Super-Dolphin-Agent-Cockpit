@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,8 +25,8 @@ func TestBatchRequestCodecIsStrictAndCanonical(t *testing.T) {
 		SchemaVersion: BatchRequestSchemaVersion,
 		GoExecutable:  os.Args[0],
 		Workloads: []BatchWorkload{
-			{UnitID: "unit-a", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal},
-			{UnitID: "unit-b", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace},
+			{UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal},
+			{UnitID: "unit-b", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace},
 		},
 	}
 	encoded, err := EncodeBatchRequest(request)
@@ -94,7 +95,7 @@ func TestBatchRequestRejectsShellArgvCwdDefaultsAndUnsortedWorkloads(t *testing.
 		SchemaVersion: BatchRequestSchemaVersion,
 		GoExecutable:  os.Args[0],
 		Workloads: []BatchWorkload{{
-			UnitID: "unit-a", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal,
+			UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal,
 		}},
 	}
 	tests := map[string]BatchRequest{
@@ -121,7 +122,7 @@ func TestBatchRequestRejectsShellArgvCwdDefaultsAndUnsortedWorkloads(t *testing.
 	}
 	unsorted := base
 	unsorted.Workloads = append(unsorted.Workloads, BatchWorkload{
-		UnitID: "unit-0", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal,
+		UnitID: "unit-0", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal,
 	})
 	if _, err := EncodeBatchRequest(unsorted); err == nil {
 		t.Fatal("EncodeBatchRequest() unexpectedly accepted unsorted workloads")
@@ -139,8 +140,8 @@ func TestRunBatchRunsEveryExactWorkloadAndEmitsPerUnitResult(t *testing.T) {
 		SchemaVersion: BatchRequestSchemaVersion,
 		GoExecutable:  os.Args[0],
 		Workloads: []BatchWorkload{
-			{UnitID: "unit-a", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal},
-			{UnitID: "unit-b", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace},
+			{UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal},
+			{UnitID: "unit-b", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace},
 		},
 	}
 	t.Setenv("SUPER_DOLPHIN_HETEROCI_BATCH_HELPER", "1")
@@ -150,6 +151,29 @@ func TestRunBatchRunsEveryExactWorkloadAndEmitsPerUnitResult(t *testing.T) {
 		t.Fatalf("RunBatch() error = %v", err)
 	}
 	assertBatchResult(t, result, stdout.String(), stderr.String())
+}
+
+func TestBatchGoPackageRunsWholePackageWithoutRunFilter(t *testing.T) {
+	workload := BatchWorkload{
+		UnitID: "unit-package", Kind: "go_package", ModuleRoot: ".", Package: ".",
+		ExecutionPolicy: BatchExecutionPolicyRace,
+	}
+	if err := workload.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	args := batchGoTestArgs(workload)
+	if got, want := strings.Join(args, "\x00"), strings.Join([]string{"test", ".", "-p=1", "-count=1", "-timeout=0", "-race"}, "\x00"); got != want {
+		t.Fatalf("batchGoTestArgs() = %#v", args)
+	}
+	t.Setenv("GOMAXPROCS", "99")
+	environment := batchWorkloadEnvironment()
+	if strings.Count(strings.Join(environment, "\x00"), "GOMAXPROCS=") != 1 || !slices.Contains(environment, "GOMAXPROCS=1") {
+		t.Fatalf("batchWorkloadEnvironment() = %#v", environment)
+	}
+	workload.Name = "TestForbidden"
+	if err := workload.Validate(); err == nil {
+		t.Fatal("Validate() unexpectedly accepted go_package name")
+	}
 }
 
 func assertBatchResult(t *testing.T, result BatchResult, stdout, stderr string) {

@@ -20,7 +20,7 @@ import (
 
 const (
 	// BatchRequestSchemaVersion 是本地非权威 batch request 的唯一 wire schema。
-	BatchRequestSchemaVersion = "heteroci-node-batch-request/v1"
+	BatchRequestSchemaVersion = "heteroci-node-batch-request/v2"
 	// BatchResultSchemaVersion 是本地非权威 batch result 的唯一 wire schema。
 	BatchResultSchemaVersion = "heteroci-node-batch-result/v1"
 	// BatchAuthorityLocalNonAuthoritative 标记结果不能升级为远程权威证据。
@@ -52,6 +52,7 @@ type BatchRequest struct {
 // BatchWorkload 是一个按 unit_id 排序的 exact go_test workload。
 type BatchWorkload struct {
 	UnitID          string               `json:"unit_id"`
+	Kind            string               `json:"kind"`
 	ModuleRoot      string               `json:"module_root"`
 	Package         string               `json:"package"`
 	Name            string               `json:"name"`
@@ -225,8 +226,17 @@ func (workload BatchWorkload) Validate() error {
 	if err := validateBatchPackage(workload.Package); err != nil {
 		return err
 	}
-	if err := validateBatchTestName(workload.Name); err != nil {
-		return err
+	switch workload.Kind {
+	case "go_test":
+		if err := validateBatchTestName(workload.Name); err != nil {
+			return err
+		}
+	case "go_package":
+		if workload.Name != "" {
+			return errors.New("go_package workload name must be empty")
+		}
+	default:
+		return errors.New("workload kind is unsupported")
 	}
 	switch workload.ExecutionPolicy {
 	case BatchExecutionPolicyNormal, BatchExecutionPolicyRace:
@@ -392,6 +402,7 @@ func runBatchWorkload(ctx context.Context, goExecutable string, workload resolve
 	args := batchGoTestArgs(workload.BatchWorkload)
 	command := exec.Command(goExecutable, args...)
 	command.Dir = workload.Directory
+	command.Env = batchWorkloadEnvironment()
 	command.Stdout = output.stdoutWriter()
 	command.Stderr = output.stderrWriter()
 	guard, err := startBatchProcess(command)
@@ -444,15 +455,27 @@ func batchGoTestArgs(workload BatchWorkload) []string {
 	args := []string{
 		"test",
 		workload.Package,
-		"-run",
-		"^" + workload.Name + "$",
+		"-p=1",
 		"-count=1",
 		"-timeout=0",
+	}
+	if workload.Kind == "go_test" {
+		args = append(args, "-run", "^"+workload.Name+"$")
 	}
 	if workload.ExecutionPolicy == BatchExecutionPolicyRace {
 		args = append(args, "-race")
 	}
 	return args
+}
+
+func batchWorkloadEnvironment() []string {
+	environment := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(entry), "GOMAXPROCS=") {
+			environment = append(environment, entry)
+		}
+	}
+	return append(environment, "GOMAXPROCS=1")
 }
 
 func batchExitCode(command *exec.Cmd) int {
@@ -490,7 +513,7 @@ func validateBatchModuleRoot(value string) error {
 	return nil
 }
 
-// validateBatchPackage 校验 module-relative exact package 的 slash path。
+// validateBatchPackage 校验 module-relative exact package 的 slash path；`.` 代表 module root。
 func validateBatchPackage(value string) error {
 	relative, err := validateBatchPackageShape(value)
 	if err != nil {
@@ -501,6 +524,9 @@ func validateBatchPackage(value string) error {
 
 // validateBatchPackageShape 校验 exact package 的顶层 slash path 形状。
 func validateBatchPackageShape(value string) (string, error) {
+	if value == "." {
+		return value, nil
+	}
 	relative := strings.TrimPrefix(value, "./")
 	if !strings.HasPrefix(value, "./") || value == "./" || strings.Contains(value, "...") || relative != path.Clean(relative) || path.IsAbs(relative) || strings.Contains(value, "\\") || hasBatchControl(value) {
 		return "", errors.New("package must be a clean exact ./ package path")

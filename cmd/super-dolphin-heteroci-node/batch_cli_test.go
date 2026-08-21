@@ -17,7 +17,7 @@ func TestRunNodeCLIBatchRequiresStrictRequestBase64(t *testing.T) {
 		SchemaVersion: heterocinode.BatchRequestSchemaVersion,
 		GoExecutable:  "/definitely/missing/go",
 		Workloads: []heterocinode.BatchWorkload{{
-			UnitID: "unit-a", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: heterocinode.BatchExecutionPolicyNormal,
+			UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: heterocinode.BatchExecutionPolicyNormal,
 		}},
 	}
 	data, err := heterocinode.EncodeBatchRequest(request)

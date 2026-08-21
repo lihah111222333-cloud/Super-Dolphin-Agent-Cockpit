@@ -28,7 +28,7 @@ func TestWindowsFactsProviderCollectsCIMCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
-	if facts.Total.CPUMilli != 64_000 || facts.Available.MemoryBytes != 64_424_509_440 || facts.Total.MaxConcurrency != 1 {
+	if facts.Total.CPUMilli != 64_000 || facts.Available.MemoryBytes != 64_424_509_440 || facts.Total.MaxConcurrency != 8 || facts.Available.MaxConcurrency != 8 {
 		t.Fatalf("facts = %#v", facts)
 	}
 	if len(runner.args) != 7 || runner.args[5] != "-EncodedCommand" {

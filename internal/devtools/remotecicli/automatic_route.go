@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,10 +16,6 @@ import (
 	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterocitransport"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
-	platformsqlite "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
 const automaticRouteConfigSchema = "automatic-heteroci-route/v1"
@@ -59,21 +54,6 @@ type AutomaticProbeNode struct {
 	DockerGroup        string `json:"docker_group"`
 }
 
-// AutomaticRouteResult 是不产生 remote PASS 的自动路由证明。
-type AutomaticRouteResult struct {
-	SchemaVersion  string                   `json:"schema_version"`
-	Authority      string                   `json:"authority"`
-	Status         string                   `json:"status"`
-	RepositoryID   string                   `json:"repository_id"`
-	SourceCommit   string                   `json:"source_commit"`
-	SourceTree     string                   `json:"source_tree"`
-	ManifestDigest string                   `json:"workload_manifest_digest"`
-	OwnerFence     heteroci.OwnerFence      `json:"owner_fence"`
-	Snapshot       heteroci.SnapshotSet     `json:"snapshot"`
-	Plan           heteroci.PackingPlan     `json:"plan"`
-	Decision       heteroci.RoutingDecision `json:"decision"`
-}
-
 type automaticRouteInputs struct {
 	config     AutomaticRouteConfig
 	repository DetectedRepository
@@ -82,74 +62,6 @@ type automaticRouteInputs struct {
 	ownerScope heteroci.RoutingOwnerScope
 	ctx        context.Context
 	cancel     context.CancelFunc
-}
-
-type automaticRouteSnapshot struct {
-	now      time.Time
-	ttl      time.Duration
-	fence    heteroci.OwnerFence
-	snapshot heteroci.SnapshotSet
-}
-
-// dispatchAutomaticRoute 只接受显式 config 与 repository，拒绝 route assignment 输入。
-func dispatchAutomaticRoute(args []string, stdout, stderr io.Writer) error {
-	configPath, repositoryPath, err := parseAutomaticRouteArgs(args)
-	if err != nil {
-		return err
-	}
-	if err := writeProgress(stderr, "automatic route input accepted"); err != nil {
-		return newCLIFailure("write progress", err)
-	}
-	result, err := runAutomaticRoute(context.Background(), configPath, repositoryPath, stderr)
-	if err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		return newCLIFailure("encode automatic route result", err)
-	}
-	encoded = append(encoded, '\n')
-	if len(encoded) > outputMaxBytes {
-		return newCLIFailure("automatic route result exceeds output limit", nil)
-	}
-	if _, err := stdout.Write(encoded); err != nil {
-		return newCLIFailure("write automatic route result", err)
-	}
-	return writeProgress(stderr, "automatic route planned")
-}
-
-// parseAutomaticRouteArgs 接受唯一固定参数序列，不支持 node、tier 或 executor 选择。
-func parseAutomaticRouteArgs(args []string) (string, string, error) {
-	if len(args) != 4 || args[0] != "--config" || args[2] != "--repository" {
-		return "", "", newCLIFailure("automatic route usage: route --config <absolute-file> --repository <absolute-root>", nil)
-	}
-	if err := validateAbsolutePathComponents(args[1], false); err != nil {
-		return "", "", newCLIFailure("automatic route config path is invalid", err)
-	}
-	if err := validateAbsolutePathComponents(args[3], true); err != nil {
-		return "", "", newCLIFailure("automatic route repository path is invalid", err)
-	}
-	return args[1], args[3], nil
-}
-
-// runAutomaticRoute 获取同一时刻、同一 owner epoch 的动态快照并生成唯一决策。
-func runAutomaticRoute(ctx context.Context, configPath, repositoryPath string, stderr io.Writer) (result AutomaticRouteResult, returnErr error) {
-	inputs, err := prepareAutomaticRouteInputs(ctx, configPath, repositoryPath, stderr)
-	if err != nil {
-		return result, err
-	}
-	defer inputs.cancel()
-	now := time.Now().UTC()
-	database, fence, err := acquireAutomaticRouteOwner(inputs.ctx, inputs, now)
-	if err != nil {
-		return result, err
-	}
-	defer func() { returnErr = errors.Join(returnErr, database.Close()) }()
-	routeSnapshot, err := acquireAutomaticRouteSnapshot(inputs.ctx, inputs, fence, now, stderr)
-	if err != nil {
-		return result, err
-	}
-	return planAutomaticRouteResult(inputs, routeSnapshot)
 }
 
 // prepareAutomaticRouteInputs 绑定 strict config、exact repository manifest 与动态 topology。
@@ -167,6 +79,10 @@ func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath
 	repository, err := DetectRepository(routeCtx, repositoryPath)
 	if err != nil {
 		return automaticRouteInputs{}, newCLIFailure("detect target repository", err)
+	}
+	repository, err = expandDetectedRepositoryGoCatalog(routeCtx, repository)
+	if err != nil {
+		return automaticRouteInputs{}, newCLIFailure("derive exact-tree Go workload catalog", err)
 	}
 	if err := writeProgress(stderr, "target repository detected"); err != nil {
 		return automaticRouteInputs{}, newCLIFailure("write progress", err)
@@ -195,69 +111,6 @@ func deriveAutomaticRouteOwnerScope(namespace string, repository DetectedReposit
 	material := strings.Join([]string{"automatic-route-owner-scope/v1", namespace, repository.RepositoryID, repository.TreeSHA, digestBytes(encoded)}, "\x00")
 	digest := sha256.Sum256([]byte(material))
 	return heteroci.ParseRoutingOwnerScope("sha256:" + hex.EncodeToString(digest[:]))
-}
-
-// acquireAutomaticRouteOwner 打开显式 owner authority 并取得新 epoch。
-func acquireAutomaticRouteOwner(ctx context.Context, inputs automaticRouteInputs, now time.Time) (*sql.DB, heteroci.OwnerFence, error) {
-	database, err := platformsqlite.Open(ctx, platformsqlite.OpenOptions{Path: inputs.config.OwnerDBPath})
-	if err != nil {
-		return nil, heteroci.OwnerFence{}, newCLIFailure("open routing owner", err)
-	}
-	owner, err := heterociowner.NewOwnerWithClock(ctx, database, inputs.ownerScope, func() time.Time { return now })
-	if err != nil {
-		return nil, heteroci.OwnerFence{}, errors.Join(newCLIFailure("initialize routing owner", err), database.Close())
-	}
-	fence, err := owner.Acquire(ctx)
-	if err != nil {
-		return nil, heteroci.OwnerFence{}, errors.Join(newCLIFailure("acquire routing owner", err), database.Close())
-	}
-	return database, fence, nil
-}
-
-// acquireAutomaticRouteSnapshot 只按 manifest 节点全集取得一次实时快照。
-func acquireAutomaticRouteSnapshot(ctx context.Context, inputs automaticRouteInputs, fence heteroci.OwnerFence, now time.Time, stderr io.Writer) (automaticRouteSnapshot, error) {
-	config := inputs.config
-	requester, err := heterocitransport.NewSSHRequester(heterocitransport.SSHRequesterConfig{
-		SSHExecutable: config.SSHExecutable, Manifest: inputs.manifest, NodeCommands: inputs.commands,
-		Timeout:   time.Duration(config.ProbeTimeoutMS) * time.Millisecond,
-		WaitDelay: time.Duration(config.ProbeWaitDelayMS) * time.Millisecond,
-	})
-	if err != nil {
-		return automaticRouteSnapshot{}, newCLIFailure("construct SSH probe requester", err)
-	}
-	transport, err := heterocitransport.New(requester)
-	if err != nil {
-		return automaticRouteSnapshot{}, newCLIFailure("construct probe transport", err)
-	}
-	ttl := time.Duration(config.HeartbeatTTLMS) * time.Millisecond
-	snapshot, err := heteroci.AcquireSnapshot(ctx, inputs.manifest, fence.OwnerEpoch, transport, now, ttl)
-	if err != nil {
-		return automaticRouteSnapshot{}, newCLIFailure("acquire dynamic node snapshot", err)
-	}
-	if err := writeProgress(stderr, "dynamic node snapshot acquired"); err != nil {
-		return automaticRouteSnapshot{}, newCLIFailure("write progress", err)
-	}
-	return automaticRouteSnapshot{now: now, ttl: ttl, fence: fence, snapshot: snapshot}, nil
-}
-
-// planAutomaticRouteResult 投影仓库 workload 后生成 local-first 唯一决策。
-func planAutomaticRouteResult(inputs automaticRouteInputs, routeSnapshot automaticRouteSnapshot) (AutomaticRouteResult, error) {
-	repository := inputs.repository
-	units, err := remoteci.ProjectRepositoryWorkloadBootstrapExecutionUnits(repository.Manifest)
-	if err != nil {
-		return AutomaticRouteResult{}, newCLIFailure("project workload execution units", err)
-	}
-	plan, decision, err := heteroci.PlanRoutingDecision(inputs.manifest, routeSnapshot.snapshot, units, routeSnapshot.now, routeSnapshot.ttl)
-	if err != nil {
-		return AutomaticRouteResult{}, newCLIFailure("plan automatic route", err)
-	}
-	return AutomaticRouteResult{
-		SchemaVersion: "automatic-heteroci-route-result/v1", Authority: heteroci.AuthorityLocalNonAuthoritative,
-		Status: heteroci.ResultStatusNotVerified, RepositoryID: repository.RepositoryID,
-		SourceCommit: repository.CommitSHA, SourceTree: repository.TreeSHA,
-		ManifestDigest: repository.Manifest.ManifestDigest, OwnerFence: routeSnapshot.fence,
-		Snapshot: routeSnapshot.snapshot, Plan: plan, Decision: decision,
-	}, nil
 }
 
 // loadAutomaticRouteConfig 严格解码并校验自动路由配置。

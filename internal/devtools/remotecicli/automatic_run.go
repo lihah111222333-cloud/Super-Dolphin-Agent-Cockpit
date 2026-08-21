@@ -20,6 +20,8 @@ import (
 	platformsqlite "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
+const automaticRunOutputMaxBytes = 16 << 20
+
 // AutomaticRunResult 是 local-first workflow 的非权威 terminal result。
 type AutomaticRunResult struct {
 	SchemaVersion string                   `json:"schema_version"`
@@ -66,14 +68,26 @@ func dispatchAutomaticRun(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := writeAutomaticRunResult(stdout, result); err != nil {
+		return err
+	}
+	return writeProgress(stderr, "automatic run completed")
+}
+
+// writeAutomaticRunResult 在写 stdout 前强制 terminal result 总字节上限。
+func writeAutomaticRunResult(stdout io.Writer, result AutomaticRunResult) error {
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		return newCLIFailure("encode automatic run result", err)
 	}
-	if _, err := stdout.Write(append(encoded, '\n')); err != nil {
+	encoded = append(encoded, '\n')
+	if len(encoded) > automaticRunOutputMaxBytes {
+		return newCLIFailure("automatic run result exceeds output limit", nil)
+	}
+	if _, err := stdout.Write(encoded); err != nil {
 		return newCLIFailure("write automatic run result", err)
 	}
-	return writeProgress(stderr, "automatic run completed")
+	return nil
 }
 
 // parseAutomaticRunArgs 只接受 config、repository 和 run identity。
@@ -81,11 +95,16 @@ func parseAutomaticRunArgs(args []string) (string, string, string, error) {
 	if len(args) != 6 || args[0] != "--config" || args[2] != "--repository" || args[4] != "--run-id" {
 		return "", "", "", newCLIFailure("automatic run usage: run --config <absolute-file> --repository <absolute-root> --run-id <identity>", nil)
 	}
-	configPath, repositoryPath, err := parseAutomaticRouteArgs(args[:4])
-	if err != nil || !validAutomaticIdentity(args[5]) {
-		return "", "", "", newCLIFailure("automatic run input is invalid", err)
+	if err := validateAbsolutePathComponents(args[1], false); err != nil {
+		return "", "", "", newCLIFailure("automatic run config path is invalid", err)
 	}
-	return configPath, repositoryPath, args[5], nil
+	if err := validateAbsolutePathComponents(args[3], true); err != nil {
+		return "", "", "", newCLIFailure("automatic run repository path is invalid", err)
+	}
+	if !validAutomaticIdentity(args[5]) {
+		return "", "", "", newCLIFailure("automatic run identity is invalid", nil)
+	}
+	return args[1], args[3], args[5], nil
 }
 
 // runAutomaticExecution 组装 durable owner、receipt、probe、binder 并执行一次 workflow。
@@ -95,8 +114,7 @@ func runAutomaticExecution(ctx context.Context, configPath, repositoryPath, runI
 		return result, err
 	}
 	defer inputs.cancel()
-	frozenNow := time.Now().UTC()
-	clock := func() time.Time { return frozenNow }
+	clock := func() time.Time { return time.Now().UTC() }
 	ownerDB, err := platformsqlite.Open(inputs.ctx, platformsqlite.OpenOptions{Path: inputs.config.OwnerDBPath})
 	if err != nil {
 		return result, newCLIFailure("open automatic owner DB", err)
@@ -245,7 +263,7 @@ func automaticNodeCommandFactory(manifest remoteci.RepositoryWorkloadManifest, p
 
 func automaticBatchWorkload(workload remoteci.RepositoryWorkload) heterocinode.BatchWorkload {
 	return heterocinode.BatchWorkload{
-		UnitID: workload.ID, ModuleRoot: workload.ModuleRoot, Package: workload.Package, Name: workload.Name,
+		UnitID: workload.ID, Kind: string(workload.Kind), ModuleRoot: workload.ModuleRoot, Package: workload.Package, Name: workload.Name,
 		ExecutionPolicy: heterocinode.BatchExecutionPolicy(workload.ExecutionPolicy),
 	}
 }

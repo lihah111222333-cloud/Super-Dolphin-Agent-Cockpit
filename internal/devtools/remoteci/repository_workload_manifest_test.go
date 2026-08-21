@@ -35,6 +35,20 @@ func repositoryWorkloadManifestFixture() RepositoryWorkloadManifest {
 	}
 }
 
+func TestRepositoryWorkloadManifestAcceptsWholeGoPackage(t *testing.T) {
+	manifest := repositoryWorkloadManifestFixture()
+	manifest.Workloads[0].Kind = RepositoryWorkloadKindGoPackage
+	manifest.Workloads[0].Name = ""
+	manifest.Workloads[0].Package = "."
+	if _, err := manifest.CanonicalEncode(); err != nil {
+		t.Fatalf("CanonicalEncode() error = %v", err)
+	}
+	manifest.Workloads[0].Name = "TestForbidden"
+	if _, err := manifest.CanonicalEncode(); err == nil {
+		t.Fatal("CanonicalEncode() unexpectedly accepted go_package test name")
+	}
+}
+
 func TestRepositoryWorkloadManifestRejectsMissingRuntime(t *testing.T) {
 	manifest := repositoryWorkloadManifestFixture()
 	manifest.Workloads[0].Runtime = ""
@@ -87,10 +101,10 @@ func assertRepositoryManifestRoundTrip(t *testing.T, decoded, want RepositoryWor
 	if decoded.ManifestDigest == "" || decoded.Workloads[0].ExecutionDigest == "" {
 		t.Fatal("canonical encoding did not freeze manifest and entry digests")
 	}
-	if decoded.Workloads[0].ExecutionDigest != "sha256:7eeae4afa6c94b12644e7853052ab0f81ea955b68386275e810f914a196cac3d" {
+	if decoded.Workloads[0].ExecutionDigest != "sha256:b12f057e4da6c8fa09d5f7a00bfd4d92ef059d37e22669529aee81d4e843ec6e" {
 		t.Fatalf("entry digest changed: %s", decoded.Workloads[0].ExecutionDigest)
 	}
-	if decoded.ManifestDigest != "sha256:aa07d745d181ec5d56047802928d622ec38ed541ca56da11c6fe90849bd2f67d" {
+	if decoded.ManifestDigest != "sha256:d6d95d73b59515a894a336976b34a1946ff24863d8bbf60def48b4821671ff80" {
 		t.Fatalf("manifest digest changed: %s", decoded.ManifestDigest)
 	}
 }
@@ -237,7 +251,7 @@ func TestRepositoryWorkloadManifestABIDigestIsStableAndRoundTrips(t *testing.T) 
 	if digest == "" || !strings.HasPrefix(digest, "sha256:") {
 		t.Fatalf("ABI digest = %q, want canonical sha256 digest", digest)
 	}
-	if digest != "sha256:b69d5fc25279cddd382a676e701426bc5732bc9f56d2aaffef954151b0c8e285" {
+	if digest != "sha256:4ed6c98479013801adf57555c68c65a5ea97dce90bef100aada8bc4f3e50009d" {
 		t.Fatalf("ABI digest drifted: %s", digest)
 	}
 	manifest := repositoryWorkloadManifestFixture()

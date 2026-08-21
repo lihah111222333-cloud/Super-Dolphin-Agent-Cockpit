@@ -42,6 +42,16 @@ func TestAutomaticSSHRunnerExecutesLinuxAndWindowsBatchCommands(t *testing.T) {
 	}
 }
 
+func TestAutomaticWindowsRunnerRejectsOuterCreateProcessOverflow(t *testing.T) {
+	config := automaticRunnerTestConfig("/ssh", heteroci.PlatformWindowsAMD64, &bytes.Buffer{})
+	if _, err := automaticWindowsRunnerArgs(*config.Windows, "token"); err != nil {
+		t.Fatalf("bounded Windows runner args rejected: %v", err)
+	}
+	if _, err := automaticWindowsRunnerArgs(*config.Windows, strings.Repeat("A", 32_766)); err == nil {
+		t.Fatal("outer Windows runner command overflow was accepted")
+	}
+}
+
 func automaticRunnerFakeSSH(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()

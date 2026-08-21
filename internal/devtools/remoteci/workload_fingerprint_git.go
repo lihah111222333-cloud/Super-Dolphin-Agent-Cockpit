@@ -169,6 +169,98 @@ func (snapshot *remoteGitTreeSnapshot) prepareGoSources(ctx context.Context) err
 	return nil
 }
 
+// prepareGoSourcesForDeclaredModules 从仓库清单声明的 module roots 构造跨仓库 Go workspace 视图。
+// 它允许仓库根目录不含 go.mod，但每个声明模块都必须与 exact tree 中的 go.mod 身份一致。
+func (snapshot *remoteGitTreeSnapshot) prepareGoSourcesForDeclaredModules(ctx context.Context, declared []RepositoryWorkloadModule) error {
+	snapshot.goSourcesMu.Lock()
+	defer snapshot.goSourcesMu.Unlock()
+	if snapshot.goSources != nil {
+		return errors.New("Go workload fingerprint sources are already prepared")
+	}
+	if len(declared) == 0 {
+		return errors.New("portable Go inventory requires declared modules")
+	}
+	sources, err := snapshot.readDeclaredGoSources(ctx)
+	if err != nil {
+		return err
+	}
+	mappings, workspaceDirectories, err := declaredGoModuleView(sources, declared)
+	if err != nil {
+		return err
+	}
+	sort.Slice(mappings, func(left, right int) bool { return len(mappings[left].importPath) > len(mappings[right].importPath) })
+	sort.Strings(workspaceDirectories)
+	if err := snapshot.validatePortableWorkspaceTree(ctx, sources[PortableGoWorkspaceDescriptorPath]); err != nil {
+		return err
+	}
+	snapshot.goSources = sources
+	snapshot.moduleMappings = mappings
+	snapshot.workspaceModuleDirectories = workspaceDirectories
+	return nil
+}
+
+// readDeclaredGoSources 读取 exact tree 的 Go blobs 与符号链接目标。
+func (snapshot *remoteGitTreeSnapshot) readDeclaredGoSources(ctx context.Context) (map[string][]byte, error) {
+	sources, err := snapshot.readGitBlobs(ctx, snapshot.goSourcePaths())
+	if err != nil {
+		return nil, err
+	}
+	if symlinkPaths := snapshot.gitSymlinkPaths(); len(symlinkPaths) != 0 {
+		if _, err := snapshot.readGitBlobs(ctx, symlinkPaths); err != nil {
+			return nil, fmt.Errorf("read Git symlink targets for Go workload fingerprint: %w", err)
+		}
+	}
+	return sources, nil
+}
+
+type declaredGoModuleViewState struct {
+	directories          map[string]struct{}
+	modulePaths          map[string]struct{}
+	mappings             []remoteGoModuleMapping
+	workspaceDirectories []string
+}
+
+// declaredGoModuleView 校验清单声明模块并构造 import/directory 映射。
+func declaredGoModuleView(sources map[string][]byte, declared []RepositoryWorkloadModule) ([]remoteGoModuleMapping, []string, error) {
+	state := declaredGoModuleViewState{
+		directories: make(map[string]struct{}, len(declared)), modulePaths: make(map[string]struct{}, len(declared)),
+		mappings: make([]remoteGoModuleMapping, 0, len(declared)), workspaceDirectories: make([]string, 0, len(declared)),
+	}
+	for _, module := range declared {
+		if err := state.append(sources, module); err != nil {
+			return nil, nil, err
+		}
+	}
+	return state.mappings, state.workspaceDirectories, nil
+}
+
+// append 校验并追加一个声明模块及其 local replace 映射。
+func (state *declaredGoModuleViewState) append(sources map[string][]byte, module RepositoryWorkloadModule) error {
+	directory, err := canonicalRemoteGoModuleDirectory(module.Root)
+	if err != nil || directory != module.Root {
+		return errors.New("portable Go inventory module root is invalid")
+	}
+	if _, duplicate := state.directories[directory]; duplicate {
+		return errors.New("portable Go inventory repeats a module root")
+	}
+	mapping, local, err := remoteWorkspaceModuleMapping(sources, directory)
+	if err != nil {
+		return err
+	}
+	if mapping.importPath != module.ModulePath {
+		return errors.New("portable Go inventory module path drifted from exact tree")
+	}
+	if _, duplicate := state.modulePaths[mapping.importPath]; duplicate {
+		return errors.New("portable Go inventory repeats a module path")
+	}
+	state.directories[directory] = struct{}{}
+	state.modulePaths[mapping.importPath] = struct{}{}
+	state.workspaceDirectories = append(state.workspaceDirectories, directory)
+	state.mappings = append(state.mappings, mapping)
+	state.mappings = append(state.mappings, local...)
+	return nil
+}
+
 // gitSymlinkPaths 按确定顺序返回已跟踪符号链接，运行时观察只解析精确 Git blob。
 func (snapshot *remoteGitTreeSnapshot) gitSymlinkPaths() []string {
 	paths := make([]string, 0)

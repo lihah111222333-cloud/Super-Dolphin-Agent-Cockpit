@@ -148,6 +148,17 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 	if err := os.WriteFile(marker, []byte(repositoryID), 0o644); err != nil {
 		t.Fatalf("write repository marker: %v", err)
 	}
+	goMod := filepath.Join(root, "go.mod")
+	if err := os.WriteFile(goMod, []byte("module example.invalid/"+repositoryID+"\n\ngo 1.24.0\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	sourceDir := filepath.Join(root, "example")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("create example package: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "example.go"), []byte("package example\n\nfunc Value() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatalf("write example source: %v", err)
+	}
 	commitDetectedFixture(t, root, "initial")
 	return root
 }

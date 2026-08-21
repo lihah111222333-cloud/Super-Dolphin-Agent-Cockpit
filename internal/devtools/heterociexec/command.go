@@ -15,6 +15,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
 
+const windowsCommandLineMaxUTF16CodeUnits = 32_766
+
 // Command 是部署端可消费的严格命令表示；Unix 保留 Argv，Windows 额外携带 UTF-16LE base64。
 type Command struct {
 	Platform      heteroci.Platform
@@ -53,6 +55,9 @@ func (StrictCommandEncoder) Encode(platform heteroci.Platform, argv []string) (C
 	encoded := Command{Platform: platform, Argv: slices.Clone(argv)}
 	if platform == heteroci.PlatformWindowsAMD64 {
 		encoded.CommandLine = joinWindowsCommandLine(argv)
+		if len(utf16.Encode([]rune(encoded.CommandLine))) > windowsCommandLineMaxUTF16CodeUnits {
+			return Command{}, fmt.Errorf("%w: Windows command line exceeds CreateProcess limit", ErrCommandEncoding)
+		}
 		encoded.CommandBase64 = base64.StdEncoding.EncodeToString(utf16LEBytes(encoded.CommandLine))
 	}
 	return encoded, nil

@@ -23,10 +23,11 @@ const (
 	RepositoryWorkloadManifestMaxBytes = 1 << 20
 	repositoryWorkloadManifestMaxBytes = RepositoryWorkloadManifestMaxBytes
 	// RepositoryWorkloadManifestEntryDigestDomain 与 manifest digest 使用不同密码学域。
-	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v3"
-	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v3"
-	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v3"
+	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v4"
+	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v4"
+	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v4"
 	RepositoryWorkloadKindGoTest                = "go_test"
+	RepositoryWorkloadKindGoPackage             = "go_package"
 	RepositoryWorkloadPlatformLinuxAMD64        = "linux/amd64"
 	RepositoryWorkloadPlatformWindowsAMD64      = "windows/amd64"
 	RepositoryWorkloadRuntimeUbuntuContainer    = "ubuntu_container"
@@ -50,8 +51,8 @@ const (
 	RepositoryWorkloadExecutionPolicyRace   RepositoryWorkloadExecutionPolicy = "race"
 )
 
-// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v3。
-// v3 只有 typed exact go_test workload，并显式携带 bootstrap 路由资源；wire 中没有 argv、shell 或命令字符串。
+// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v4。
+// v4 只允许 typed go_package/go_test workload，并显式携带 bootstrap 路由资源；wire 中没有 argv、shell 或命令字符串。
 type RepositoryWorkloadManifest struct {
 	SchemaVersion         string                     `json:"schema_version"`
 	RepositoryID          string                     `json:"repository_id"`
@@ -67,7 +68,7 @@ type RepositoryWorkloadModule struct {
 	ModulePath string `json:"module_path"`
 }
 
-// RepositoryWorkload 是唯一可执行的 v3 workload 形状。
+// RepositoryWorkload 是可执行的 v4 Go package 或 exact test workload 形状。
 type RepositoryWorkload struct {
 	ID                  string                            `json:"id"`
 	Kind                RepositoryWorkloadKind            `json:"kind"`
@@ -285,24 +286,12 @@ func validateRepositoryWorkloads(modules []RepositoryWorkloadModule, excluded []
 	return nil
 }
 
-// validateRepositoryWorkload 校验单个 typed exact Go test workload。
+// validateRepositoryWorkload 校验单个 typed Go package 或 exact test workload。
 func validateRepositoryWorkload(moduleRoots map[string]struct{}, excluded map[string]struct{}, workload RepositoryWorkload) error {
-	if err := validateRepositoryIdentifier(workload.ID, "workload id"); err != nil {
+	if err := validateRepositoryWorkloadTarget(moduleRoots, excluded, workload); err != nil {
 		return err
 	}
-	if workload.Kind != RepositoryWorkloadKindGoTest {
-		return errors.New("workload kind must be go_test")
-	}
-	if _, ok := moduleRoots[workload.ModuleRoot]; !ok {
-		return fmt.Errorf("module_root %q is not declared", workload.ModuleRoot)
-	}
-	if err := validatePackagePath(workload.Package); err != nil {
-		return err
-	}
-	if packageEntersExcludedModule(workload.ModuleRoot, workload.Package, excluded) {
-		return errors.New("workload package enters an excluded nested module")
-	}
-	if err := validateGoTestName(workload.Name); err != nil {
+	if err := validateRepositoryWorkloadKindName(workload); err != nil {
 		return err
 	}
 	if err := validateRepositoryWorkloadPlatformRuntime(workload.Platform, workload.Runtime); err != nil {
@@ -315,6 +304,38 @@ func validateRepositoryWorkload(moduleRoots map[string]struct{}, excluded map[st
 		return errors.New("workload execution_policy is unsupported")
 	}
 	return nil
+}
+
+// validateRepositoryWorkloadTarget 校验 workload identity、声明模块与 exact package 边界。
+func validateRepositoryWorkloadTarget(moduleRoots map[string]struct{}, excluded map[string]struct{}, workload RepositoryWorkload) error {
+	if err := validateRepositoryIdentifier(workload.ID, "workload id"); err != nil {
+		return err
+	}
+	if _, ok := moduleRoots[workload.ModuleRoot]; !ok {
+		return fmt.Errorf("module_root %q is not declared", workload.ModuleRoot)
+	}
+	if err := validatePackagePath(workload.Package); err != nil {
+		return err
+	}
+	if packageEntersExcludedModule(workload.ModuleRoot, workload.Package, excluded) {
+		return errors.New("workload package enters an excluded nested module")
+	}
+	return nil
+}
+
+// validateRepositoryWorkloadKindName 校验 go_test/go_package 的 kind 与 name 组合。
+func validateRepositoryWorkloadKindName(workload RepositoryWorkload) error {
+	switch workload.Kind {
+	case RepositoryWorkloadKindGoTest:
+		return validateGoTestName(workload.Name)
+	case RepositoryWorkloadKindGoPackage:
+		if workload.Name != "" {
+			return errors.New("go_package workload name must be empty")
+		}
+		return nil
+	default:
+		return errors.New("workload kind must be go_test or go_package")
+	}
 }
 
 // validateRepositoryWorkloadRoutingResources 校验首次规划所需估时、CPU 与内存均由仓库显式提供。
@@ -385,10 +406,10 @@ func validRelativePathShape(value string, allowDot bool) bool {
 		path.Clean(value) == value && !strings.Contains(value, "\\") && !hasControl(value)
 }
 
-// validatePackagePath 校验 module-relative exact package，不允许递归模式。
+// validatePackagePath 校验 module-relative exact package；`.` 代表 module root，且不允许递归模式。
 func validatePackagePath(value string) error {
 	if !validPackagePathShape(value) {
-		return errors.New("package must be a non-recursive ./ repository-relative package")
+		return errors.New("package must be dot or a non-recursive ./ module-relative package")
 	}
 	relative := strings.TrimPrefix(value, "./")
 	if relative != "" && path.Clean(relative) != relative {
@@ -404,7 +425,7 @@ func validatePackagePath(value string) error {
 
 // validPackagePathShape 判断 package 的前缀与字符集形状。
 func validPackagePathShape(value string) bool {
-	return strings.HasPrefix(value, "./") && !strings.Contains(value, "...") && value != "./" &&
+	return value == "." || strings.HasPrefix(value, "./") && !strings.Contains(value, "...") && value != "./" &&
 		!strings.Contains(value, "\\") && !hasControl(value)
 }
 

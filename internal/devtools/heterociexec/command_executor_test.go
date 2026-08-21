@@ -222,6 +222,16 @@ func TestCommandBatchExecutorAcceptsFrozenPlatformEncodings(t *testing.T) {
 	}
 }
 
+func TestStrictCommandEncoderRejectsWindowsCreateProcessOverflow(t *testing.T) {
+	exact := strings.Repeat("a", windowsCommandLineMaxUTF16CodeUnits-len("tool "))
+	if _, err := EncodeCommand(heteroci.PlatformWindowsAMD64, []string{"tool", exact}); err != nil {
+		t.Fatalf("exact boundary rejected: %v", err)
+	}
+	if _, err := EncodeCommand(heteroci.PlatformWindowsAMD64, []string{"tool", exact + "a"}); err == nil {
+		t.Fatal("Windows CreateProcess overflow was accepted")
+	}
+}
+
 func TestCommandBatchExecutorUsesOnlySameBatchReceiptAfterRunnerError(t *testing.T) {
 	batch := commandExecutorBatch()
 	runnerErr := errors.New("runner outcome is ambiguous")
