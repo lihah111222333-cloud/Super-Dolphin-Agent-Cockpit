@@ -469,9 +469,9 @@ func validateBatchExecutable(value string) error {
 	return nil
 }
 
-// validateBatchUnitID 校验可排序且不可用于路径逃逸的 unit identity。
+// validateBatchUnitID 与上游 ExecutionUnit 一致地校验非空、trimmed、无控制字符身份。
 func validateBatchUnitID(value string) error {
-	if value == "" || strings.TrimSpace(value) != value || len(value) > 256 || hasBatchControl(value) || strings.ContainsAny(value, "/\\") {
+	if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value || hasBatchControl(value) {
 		return errors.New("unit_id is invalid")
 	}
 	return nil

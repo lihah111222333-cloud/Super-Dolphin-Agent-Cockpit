@@ -102,6 +102,7 @@ func TestBatchRequestRejectsShellArgvCwdDefaultsAndUnsortedWorkloads(t *testing.
 		"empty executable": func() BatchRequest { request := base; request.GoExecutable = ""; return request }(),
 		"absolute module root": func() BatchRequest {
 			request := base
+			request.Workloads = append([]BatchWorkload(nil), base.Workloads...)
 			request.Workloads[0].ModuleRoot = filepath.Clean(t.TempDir())
 			return request
 		}(),
@@ -124,6 +125,12 @@ func TestBatchRequestRejectsShellArgvCwdDefaultsAndUnsortedWorkloads(t *testing.
 	})
 	if _, err := EncodeBatchRequest(unsorted); err == nil {
 		t.Fatal("EncodeBatchRequest() unexpectedly accepted unsorted workloads")
+	}
+	canonical := base
+	canonical.Workloads = append([]BatchWorkload(nil), base.Workloads...)
+	canonical.Workloads[0].UnitID = "go-test/internal/devtools/gate/TestExact"
+	if _, err := EncodeBatchRequest(canonical); err != nil {
+		t.Fatalf("canonical upstream unit ID was rejected: %v", err)
 	}
 }
 
