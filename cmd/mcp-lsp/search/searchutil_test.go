@@ -649,8 +649,13 @@ func writeFakeSG(t *testing.T, exitCode int, stdout, stderr string) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, fakeSGName())
 	if runtime.GOOS == "windows" {
+		psPath := filepath.Join(dir, "sg.ps1")
+		psScript := "[Console]::Out.Write(" + powershellSingleQuote(stdout) + ")\n[Console]::Error.Write(" + powershellSingleQuote(stderr) + ")\nexit " + strconv.Itoa(exitCode) + "\n"
+		if err := os.WriteFile(psPath, []byte(psScript), 0o755); err != nil {
+			t.Fatalf("write fake sg powershell: %v", err)
+		}
 		script := "@echo off\r\n" +
-			"powershell -NoProfile -ExecutionPolicy Bypass -Command \"[Console]::Out.Write(" + powershellSingleQuote(stdout) + "); [Console]::Error.Write(" + powershellSingleQuote(stderr) + "); exit " + strconv.Itoa(exitCode) + "\"\r\n" +
+			"powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0sg.ps1\"\r\n" +
 			"exit /b %ERRORLEVEL%\r\n"
 		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 			t.Fatalf("write fake sg: %v", err)

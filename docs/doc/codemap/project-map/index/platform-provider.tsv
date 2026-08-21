@@ -408,7 +408,7 @@ cmd/mcp-lsp/search/searchutil_cap.go	cmd	platform-provider	go-source	531	文件�
 cmd/mcp-lsp/search/searchutil_cap_test.go	cmd	platform-provider	go-test	2531	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,cap,test,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/searchutil_counted.go	cmd	platform-provider	go-source	2617	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,counted,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/searchutil_limit_test.go	cmd	platform-provider	go-test	3357	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,limit,test,文件搜索与,grep,搜索工具实现
-cmd/mcp-lsp/search/searchutil_test.go	cmd	platform-provider	go-test	28348	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,test,文件搜索与,grep,搜索工具实现
+cmd/mcp-lsp/search/searchutil_test.go	cmd	platform-provider	go-test	28541	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,test,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/windows_hidden_process_guard_test.go	cmd	platform-provider	go-test	1012	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,windows,hidden,process,guard,test,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/sidecar_runtime_inheritance_test.go	cmd	platform-provider	go-test	2195	代码智能/LSP MCP peer	cmd,mcp,lsp,sidecar,runtime,inheritance,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/sql_diagnostic_client.go	cmd	platform-provider	go-source	6081	代码智能/LSP MCP peer	cmd,mcp,lsp,sql,diagnostic,client,代码智能,LSP,MCP,peer

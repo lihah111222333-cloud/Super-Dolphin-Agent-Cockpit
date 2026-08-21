@@ -159,6 +159,9 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 	if err := os.WriteFile(filepath.Join(sourceDir, "example.go"), []byte("package example\n\nfunc Value() int { return 1 }\n"), 0o644); err != nil {
 		t.Fatalf("write example source: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "example_windows.go"), []byte("package example\n\nfunc WindowsValue() int { return 2 }\n"), 0o644); err != nil {
+		t.Fatalf("write Windows example source: %v", err)
+	}
 	commitDetectedFixture(t, root, "initial")
 	return root
 }

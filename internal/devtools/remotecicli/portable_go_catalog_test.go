@@ -50,7 +50,7 @@ func TestExpandDetectedRepositoryGoCatalogDerivesBothPlatformsFromExactTree(t *t
 	if err != nil {
 		t.Fatalf("expandDetectedRepositoryGoCatalog() error = %v", err)
 	}
-	if expanded.ManifestSHA256 == originalDigest || len(expanded.Manifest.Workloads) != 2 {
+	if expanded.ManifestSHA256 == originalDigest || len(expanded.Manifest.Workloads) != 3 {
 		t.Fatalf("expanded catalog identity/workloads = %q/%#v", expanded.ManifestSHA256, expanded.Manifest.Workloads)
 	}
 	if !slices.IsSortedFunc(expanded.Manifest.Workloads, func(left, right remoteci.RepositoryWorkload) int { return strings.Compare(left.ID, right.ID) }) {
@@ -58,6 +58,9 @@ func TestExpandDetectedRepositoryGoCatalogDerivesBothPlatformsFromExactTree(t *t
 	}
 	assertPortablePackageWorkload(t, expanded.Manifest.Workloads[0], remoteci.RepositoryWorkloadPlatformLinuxAMD64)
 	assertPortablePackageWorkload(t, expanded.Manifest.Workloads[1], remoteci.RepositoryWorkloadPlatformWindowsAMD64)
+	if expanded.Manifest.Workloads[2].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[2].ID != "go-test/example/TestFixture" {
+		t.Fatalf("explicit workload was not preserved: %#v", expanded.Manifest.Workloads[2])
+	}
 }
 
 func TestExpandDetectedRepositoryGoCatalogSupportsRootlessDeclaredModules(t *testing.T) {
@@ -72,7 +75,7 @@ func TestExpandDetectedRepositoryGoCatalogSupportsRootlessDeclaredModules(t *tes
 	}
 	assertPortablePackageCount(t, expanded.Manifest.Workloads, ".", "./example", 2)
 	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", ".", 2)
-	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", "./sub", 2)
+	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", "./sub", 1)
 	assertPortablePackageCount(t, expanded.Manifest.Workloads, "hidden", ".", 0)
 }
 
@@ -98,6 +101,7 @@ func newPortableMultiModuleFixture(t *testing.T) string {
 	}
 	writePortableFixtureFile(t, root, "nested/go.mod", "module example.invalid/portable-multi-module/nested\n\ngo 1.24.0\n")
 	writePortableFixtureFile(t, root, "nested/root.go", "package nested\n")
+	writePortableFixtureFile(t, root, "nested/root_windows_test.go", "package nested\n")
 	writePortableFixtureFile(t, root, "nested/sub/sub.go", "package sub\n")
 	writePortableFixtureFile(t, root, "hidden/go.mod", "module example.invalid/hidden\n\ngo 1.24.0\n")
 	writePortableFixtureFile(t, root, "hidden/root.go", "package hidden\n")
@@ -120,7 +124,7 @@ func assertPortablePackageCount(t *testing.T, workloads []remoteci.RepositoryWor
 	t.Helper()
 	got := 0
 	for _, workload := range workloads {
-		if workload.ModuleRoot == moduleRoot && workload.Package == packageTarget {
+		if workload.Kind == remoteci.RepositoryWorkloadKindGoPackage && workload.ModuleRoot == moduleRoot && workload.Package == packageTarget {
 			got++
 		}
 	}

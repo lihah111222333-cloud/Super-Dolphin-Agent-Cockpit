@@ -429,7 +429,7 @@ func (workflow *Workflow) prepareBatchSnapshot(ctx context.Context, manifest het
 }
 
 // startBatchUnitsLocked 在已持有 state 锁时顺序推进 owner Start 和 fence。
-func (workflow *Workflow) startBatchUnitsLocked(ctx context.Context, runID string, decision heteroci.RoutingDecision, ids operationIDs, plan BatchPlan, snapshot heteroci.SnapshotSet, now time.Time, state *executionState) ([]heteroci.StartedRoutingLease, error) {
+func (workflow *Workflow) startBatchUnitsLocked(ctx context.Context, runID string, decision heteroci.RoutingDecision, ids operationIDs, plan BatchPlan, snapshot heteroci.SnapshotSet, state *executionState) ([]heteroci.StartedRoutingLease, error) {
 	started := make([]heteroci.StartedRoutingLease, 0, len(plan.Batch.Units))
 	for _, unit := range plan.Batch.Units {
 		if err := ctx.Err(); err != nil {
@@ -440,8 +440,13 @@ func (workflow *Workflow) startBatchUnitsLocked(ctx context.Context, runID strin
 			state.uncertain[unit.UnitID] = struct{}{}
 			return nil, fmt.Errorf("%w: start unit: %w", ErrExecutionState, err)
 		}
+		validationNow, err := workflow.now()
+		if err != nil {
+			state.uncertain[unit.UnitID] = struct{}{}
+			return nil, err
+		}
 		expected := state.planned[unit.UnitID]
-		if err := validateStartedLease(state.fence, runID, unit.UnitID, expected, decision, start, now); err != nil {
+		if err := validateStartedLease(state.fence, runID, unit.UnitID, expected, decision, start, validationNow); err != nil {
 			state.uncertain[unit.UnitID] = struct{}{}
 			return nil, err
 		}

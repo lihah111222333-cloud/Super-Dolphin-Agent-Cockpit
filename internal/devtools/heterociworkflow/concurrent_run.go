@@ -136,11 +136,11 @@ type concurrentExecutionCoordinator struct {
 func (coordinator *concurrentExecutionCoordinator) prepareAndStart(ctx context.Context, workflow *Workflow, request RunRequest, prepared *preparedRun, plan BatchPlan) ([]heteroci.StartedRoutingLease, error) {
 	coordinator.state.mu.Lock()
 	defer coordinator.state.mu.Unlock()
-	snapshot, now, err := workflow.prepareBatchSnapshot(ctx, prepared.manifest, request.HeartbeatTTL, coordinator.state.fence)
+	snapshot, _, err := workflow.prepareBatchSnapshot(ctx, prepared.manifest, request.HeartbeatTTL, coordinator.state.fence)
 	if err != nil {
 		return nil, err
 	}
-	started, err := workflow.startBatchUnitsLocked(ctx, request.RunID, prepared.planned.Decision, prepared.ids, plan, snapshot, now, coordinator.state)
+	started, err := workflow.startBatchUnitsLocked(ctx, request.RunID, prepared.planned.Decision, prepared.ids, plan, snapshot, coordinator.state)
 	if err != nil {
 		return nil, err
 	}

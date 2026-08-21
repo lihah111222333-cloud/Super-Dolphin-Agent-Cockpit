@@ -136,20 +136,6 @@ function Assert-NodeLocalFixedPath {
     }
 }
 
-function Get-NodeScopedCacheRoot {
-    param(
-        [Parameter(Mandatory = $true)][string]$BaseRoot,
-        [Parameter(Mandatory = $true)][string]$NodeIdentity,
-        [Parameter(Mandatory = $true)][string]$RepositoryIdentity
-    )
-
-    $scopeRoot = Join-Path $BaseRoot 'windows-node-local-v1'
-    $scopeMaterial = $NodeIdentity + '|' + $RepositoryIdentity
-    $scopeIdentity = ConvertTo-Sha256Identity -Value $scopeMaterial
-    $repositoryRoot = Join-Path $scopeRoot ('scope-' + $scopeIdentity.Substring(7))
-    return Resolve-ExplicitDirectory -Path $repositoryRoot -Label 'node-local cache root' -Create
-}
-
 function Assert-RootsDisjoint {
     param([Parameter(Mandatory = $true)][string[]]$Roots)
 
@@ -298,7 +284,24 @@ $gitCommonRoot = Resolve-ExplicitDirectory -Path $gitCommonRaw -Label 'Git commo
 $objectFormat = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', '--show-object-format') -Label 'Git object format'
 Assert-GitObjectId -Value $SourceCommit -ObjectFormat $objectFormat -Label 'SourceCommit'
 Assert-GitObjectId -Value $SourceTree -ObjectFormat $objectFormat -Label 'SourceTree'
+$worktreeStatus = (& $gitExecutable -C $RepoPath status --porcelain=v1 --untracked-files=all --ignored=matching 2>$null | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { Stop-Fast 'Git worktree cleanliness could not be verified before exact commit materialization' }
+if (-not [string]::IsNullOrWhiteSpace($worktreeStatus)) { Stop-Fast 'Git worktree contains drift before exact commit materialization' }
 $actualCommit = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', 'HEAD') -Label 'Git source commit'
+if ($actualCommit -cne $SourceCommit) {
+    $checkoutErrorAction = $ErrorActionPreference
+    $checkoutExitCode = -1
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $gitExecutable -c 'advice.detachedHead=false' -C $RepoPath checkout --detach $SourceCommit 2>$null | Out-Null
+        $checkoutExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $checkoutErrorAction
+    }
+    if ($checkoutExitCode -ne 0) { Stop-Fast 'Exact source commit could not be materialized' }
+    $actualCommit = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', 'HEAD') -Label 'materialized Git source commit'
+}
 $actualTree = Get-GitValue -GitExecutable $gitExecutable -Worktree $RepoPath -Arguments @('rev-parse', 'HEAD^{tree}') -Label 'Git source tree'
 if ($actualCommit -cne $SourceCommit) { Stop-Fast 'SourceCommit does not match the explicit Git worktree HEAD' }
 if ($actualTree -cne $SourceTree) { Stop-Fast 'SourceTree does not match the explicit Git worktree tree' }
@@ -324,7 +327,7 @@ if ($nodeWorktreeRoot.TrimEnd('\', '/') -ine $gitRootCanonical.TrimEnd('\', '/')
 if ($nodeObjectStoreRoot.TrimEnd('\', '/') -ine $gitCommonRoot.TrimEnd('\', '/')) {
     Stop-Fast 'ObjectStoreRoot must equal the uniquely verified Git common directory'
 }
-$nodeCacheRoot = Get-NodeScopedCacheRoot -BaseRoot $CacheRoot -NodeIdentity $NodeId -RepositoryIdentity $RepositoryId
+$nodeCacheRoot = $CacheRoot
 Assert-RootsDisjoint -Roots @($nodeObjectStoreRoot, $nodeCacheRoot)
 Assert-RootsDisjoint -Roots @($nodeWorktreeRoot, $nodeCacheRoot)
 
@@ -342,7 +345,7 @@ $cacheIdentityMaterial = [ordered]@{
 }
 $cacheIdentityJson = [string]($cacheIdentityMaterial | ConvertTo-Json -Compress -Depth 3)
 $cacheIdentity = ConvertTo-Sha256Identity -Value $cacheIdentityJson
-$cacheIdentityRoot = Resolve-ExplicitDirectory -Path (Join-Path $nodeCacheRoot ('identity-' + $cacheIdentity.Substring(7))) -Label 'cache identity root' -Create
+$cacheIdentityRoot = Resolve-ExplicitDirectory -Path (Join-Path $nodeCacheRoot ('i-' + $cacheIdentity.Substring(7))) -Label 'cache identity root' -Create
 $goModCacheRoot = Resolve-ExplicitDirectory -Path (Join-Path $cacheIdentityRoot 'gomodcache') -Label 'GOMODCACHE root' -Create
 $goCacheRoot = Resolve-ExplicitDirectory -Path (Join-Path $cacheIdentityRoot 'gocache') -Label 'GOCACHE root' -Create
 $goTmpRoot = Resolve-ExplicitDirectory -Path (Join-Path $cacheIdentityRoot 'gotmp') -Label 'GOTMPDIR root' -Create
@@ -420,6 +423,7 @@ $env:SUPER_DOLPHIN_WORKLOAD_IDENTITY = $WorkloadIdentity
 $env:SUPER_DOLPHIN_OBJECT_STORE_ROOT = $nodeObjectStoreRoot
 $env:SUPER_DOLPHIN_WORKTREE_ROOT = $nodeWorktreeRoot
 $env:SUPER_DOLPHIN_CACHE_ROOT = $nodeCacheRoot
+$env:SUPER_DOLPHIN_GATE_GIT = $gitExecutable
 $env:GOMODCACHE = $goModCacheRoot
 $env:GOCACHE = $goCacheRoot
 $env:GOTMPDIR = $goTmpRoot

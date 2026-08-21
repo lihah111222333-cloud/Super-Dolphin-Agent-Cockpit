@@ -1,9 +1,11 @@
 package heterociworkflow
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
@@ -25,6 +27,37 @@ func TestWorkflowRunExecutesOneBoundBatchAndFinishesLocalNonAuthoritative(t *tes
 	}
 	assertSuccessfulWorkflowResult(t, result)
 	assertSuccessfulWorkflowTrace(t, fixture, executor)
+}
+
+func TestWorkflowValidatesStartedLeaseWithPostStartClock(t *testing.T) {
+	executor := &fakeExecutor{}
+	fixture := newWorkflowFixture(executor)
+	executor.events = &fixture.events
+	executor.result = BatchResult{Authority: heteroci.AuthorityLocalNonAuthoritative, Status: ResultStatusNotVerified, Outcomes: []BatchOutcome{{UnitID: "unit-1", State: heteroci.LeaseStateSucceeded}}}
+	clockCalls := 0
+	fixture.deps.Now = func() time.Time {
+		clockCalls++
+		if clockCalls < 3 {
+			return fixture.now
+		}
+		return fixture.now.Add(20 * time.Second)
+	}
+	snapshotCalls := 0
+	acquireSnapshot := fixture.deps.AcquireSnapshot
+	fixture.deps.AcquireSnapshot = func(ctx context.Context, manifest heteroci.Manifest, epoch heteroci.RoutingOwnerEpoch, transport heteroci.ProbeTransport, at time.Time, ttl time.Duration) (heteroci.SnapshotSet, error) {
+		snapshotCalls++
+		result, err := acquireSnapshot(ctx, manifest, epoch, transport, at, ttl)
+		if snapshotCalls == 2 {
+			fixture.owner.now = fixture.now.Add(10 * time.Second)
+		}
+		return result, err
+	}
+	if _, err := Execute(t.Context(), fixture.deps, fixture.request); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if clockCalls < 3 {
+		t.Fatalf("clock calls = %d, want post-Start validation read", clockCalls)
+	}
 }
 
 func assertSuccessfulWorkflowResult(t *testing.T, result RunResult) {

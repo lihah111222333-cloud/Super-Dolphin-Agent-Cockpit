@@ -12,6 +12,7 @@ import (
 // TestTrustedGitCommandIgnoresReplaceAndAmbientRepositoryRouting uses a real
 // replacement ref: the exact tree OID must still read its original content.
 func TestTrustedGitCommandIgnoresReplaceAndAmbientRepositoryRouting(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_GATE_GIT", trustedGitFixtureExecutable(t))
 	repository := t.TempDir()
 	trustedGitFixtureRun(t, repository, "init", "--quiet")
 	trustedGitFixtureRun(t, repository, "config", "user.name", "trusted git")
@@ -111,16 +112,29 @@ func trustedGitFixtureWrite(t *testing.T, repository, contents string) {
 
 func trustedGitFixtureRun(t *testing.T, repository string, args ...string) {
 	t.Helper()
-	if output, err := exec.Command("/usr/bin/git", append([]string{"-C", repository}, args...)...).CombinedOutput(); err != nil {
+	if output, err := exec.Command(trustedGitFixtureExecutable(t), append([]string{"-C", repository}, args...)...).CombinedOutput(); err != nil {
 		t.Fatalf("fixture git %v: %v: %s", args, err, output)
 	}
 }
 
 func trustedGitFixtureOutput(t *testing.T, repository string, args ...string) string {
 	t.Helper()
-	output, err := exec.Command("/usr/bin/git", append([]string{"-C", repository}, args...)...).Output()
+	output, err := exec.Command(trustedGitFixtureExecutable(t), append([]string{"-C", repository}, args...)...).Output()
 	if err != nil {
 		t.Fatalf("fixture git %v: %v", args, err)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func trustedGitFixtureExecutable(t *testing.T) string {
+	t.Helper()
+	executable, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	absolute, err := filepath.Abs(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return absolute
 }

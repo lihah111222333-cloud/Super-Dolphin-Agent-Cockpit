@@ -137,11 +137,34 @@ func BuildPortableGoWorkloadInventory(
 	if err != nil {
 		return gate.WorkloadInventory{}, err
 	}
+	if platform == string(RepositoryWorkloadPlatformWindowsAMD64) {
+		targets.goPackages = inventoryFilenamePlatformPackages(targets.files, targets.goPackages, "windows")
+	}
 	packages, err := inventoryPlatformGoPackagesWithSnapshot(ctx, snapshot, platform, targets.goPackages)
 	if err != nil {
 		return gate.WorkloadInventory{}, err
 	}
 	return gate.WorkloadInventory{GoPackages: packages, NestedGoModules: targets.nestedGoModules}, nil
+}
+
+// inventoryFilenamePlatformPackages 只保留含目标平台后缀源码或测试的 package。
+func inventoryFilenamePlatformPackages(files map[string]struct{}, packages []string, platform string) []string {
+	candidates := make(map[string]struct{})
+	for file := range files {
+		if !strings.HasSuffix(file, "_"+platform+".go") && !strings.HasSuffix(file, "_"+platform+"_test.go") {
+			continue
+		}
+		if packageTarget, ok := gate.GoPackageTargetForSource(file); ok {
+			candidates[packageTarget] = struct{}{}
+		}
+	}
+	selected := make([]string, 0, len(candidates))
+	for _, packageTarget := range packages {
+		if _, ok := candidates[packageTarget]; ok {
+			selected = append(selected, packageTarget)
+		}
+	}
+	return selected
 }
 
 // inventoryPortableGoTargets 只收集清单声明 module roots 内的 Go 包，并排除未声明的嵌套模块。

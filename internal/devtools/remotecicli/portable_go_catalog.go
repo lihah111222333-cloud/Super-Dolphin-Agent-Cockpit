@@ -31,7 +31,6 @@ func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedR
 		return DetectedRepository{}, errors.New("portable Go catalog repository identity is invalid")
 	}
 	manifest := repository.Manifest
-	manifest.Workloads = nil
 	for _, target := range portableGoCatalogPlatforms() {
 		inventory, err := remoteci.BuildPortableGoWorkloadInventory(ctx, repository.Root, repository.TreeSHA, string(target.platform), manifest.Modules)
 		if err != nil {

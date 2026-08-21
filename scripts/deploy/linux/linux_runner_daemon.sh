@@ -451,7 +451,13 @@ setup_ubuntu_shared_cache() {
   [[ "$target_top_level" == "$repo_path" ]] || die 'target worktree must be canonical and node-local'
   target_object_format=$(git -C "$repo_path" rev-parse --show-object-format 2>/dev/null) || die 'unable to resolve target Git object format'
   [[ "$target_object_format" == "$object_format" ]] || die 'target Git object format does not match --object-format'
+  target_status=$(git -C "$repo_path" status --porcelain=v1 --untracked-files=all --ignored=matching 2>/dev/null) || die 'unable to verify target worktree cleanliness'
+  [[ -z "$target_status" ]] || die 'target worktree must be clean before exact commit materialization'
   target_commit=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null) || die 'unable to resolve target commit'
+  if [[ "$target_commit" != "$source_commit" ]]; then
+    git -C "$repo_path" -c advice.detachedHead=false checkout --detach "$source_commit" >/dev/null 2>&1 || die 'unable to materialize exact source commit'
+    target_commit=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null) || die 'unable to resolve materialized target commit'
+  fi
   [[ "$target_commit" == "$source_commit" ]] || die 'target HEAD does not match --source-commit'
   target_tree=$(git -C "$repo_path" rev-parse "${source_commit}^{tree}" 2>/dev/null) || die 'unable to resolve target tree'
   [[ "$target_tree" == "$source_tree" ]] || die 'target tree does not match --source-tree'
@@ -534,9 +540,7 @@ setup_ubuntu_shared_cache() {
   validate_cache_tree "$node_gomodcache" 'node GOMODCACHE overlay'
   validate_cache_tree "$node_gocache" 'node GOCACHE overlay'
   sync_shared_cache_to_node
-  export GIT_OBJECT_DIRECTORY="$shared_objects"
-  export GIT_NO_REPLACE_OBJECTS=1
-  unset GIT_ALTERNATE_OBJECT_DIRECTORIES
+  unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NO_REPLACE_OBJECTS
   export GOMODCACHE="$node_gomodcache"
   export GOCACHE="$node_gocache"
   export TMPDIR="$run_tmp_root"
@@ -942,7 +946,7 @@ run_command() {
 	argv=(docker run --rm --platform linux/amd64 --cpus "$docker_cpu" --memory "$memory_bytes" -v "$repo_path:/workspace:rw" -w /workspace)
 	if ((shared_mode != 0)); then
 	  argv+=(
-	    -v "$shared_objects:/cache/git-objects:ro"
+	    -v "$shared_objects:$shared_objects:ro"
 	    -v "$node_gomodcache:/cache/gomodcache:rw"
 	    -v "$node_gocache:/cache/gocache:rw"
 	    -v "$run_tmp_root:/tmp:rw"
@@ -967,8 +971,6 @@ run_command() {
 	    -e "SUPER_DOLPHIN_CACHE_GENERATION=$cache_generation"
 	    -e "SUPER_DOLPHIN_WORKLOAD_IDENTITY=$workload_identity"
 	    -e SUPER_DOLPHIN_WRITE_OVERLAY=/cache/write
-	    -e GIT_OBJECT_DIRECTORY=/cache/git-objects
-	    -e GIT_NO_REPLACE_OBJECTS=1
 	    -e GOMODCACHE=/cache/gomodcache
 	    -e GOCACHE=/cache/gocache
 	    -e TMPDIR=/tmp

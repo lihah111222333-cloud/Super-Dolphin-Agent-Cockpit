@@ -384,11 +384,3 @@ func copyFile(source, target string, mode os.FileMode) (err error) {
 	}
 	return nil
 }
-
-func syncUpdaterDirectory(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open recovery capsule directory for fsync %s: %w", path, err)
-	}
-	return errors.Join(dir.Sync(), dir.Close())
-}
