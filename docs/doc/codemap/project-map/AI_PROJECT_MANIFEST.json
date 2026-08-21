@@ -4,16 +4,16 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:ca66e3a2f409147d9184405fcaefd6bbab18a96a0dc5fb86a22d9595a699edb0",
-    "entries_sha256": "sha256:865331497c23ea35f3aa170c0a4f138cbebb54786a375617ecae12343516ecac"
+    "source_sha256": "sha256:76d93d775b78f6206e4abea83d423caaaddb414060315748ce8838507908f8ed",
+    "entries_sha256": "sha256:260fd9bf63c6335f95595376284552305cf4455ec329209c99f92c5808b86b37"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5483,
+  "files": 5484,
   "domains": {
-    "other": 1460,
+    "other": 1461,
     "remote-ci": 323,
     "docs-agent": 99,
     "app-ui": 754,
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1460,
-        "size_kb": 293.3,
+        "file_count": 1461,
+        "size_kb": 293.6,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -87,7 +87,7 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1051,
+    "cmd": 1052,
     "config": 3,
     "docs": 92,
     "frontend-app": 746,

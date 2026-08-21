@@ -34,7 +34,8 @@ cmd/super-dolphin-updater/install_pre_journal_darwin_test.go	cmd	other	go-test	4
 cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	17574	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,test,Super-Dolphin,and,detach,command
 cmd/super-dolphin-updater/main.go	cmd	other	go-source	9948	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust.go	cmd	other	go-source	16626	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/package_trust_test.go	cmd	other	go-test	5711	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,test,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/package_trust_directory_test.go	cmd	other	go-test	1567	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,directory,test,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/package_trust_test.go	cmd	other	go-test	4223	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/pre_journal.go	cmd	other	go-source	2646	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/pre_journal_order_darwin_test.go	cmd	other	go-test	12173	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,order,darwin,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/pre_journal_test.go	cmd	other	go-test	11645	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,test,Super-Dolphin,install,and,detach,command
@@ -853,7 +854,7 @@ internal/devtools/gateprivate/trusted_executable_mount_other.go	internal	other	g
 internal/devtools/gateprivate/trusted_executable_owner_unix.go	internal	other	go-source	839	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,executable,owner,unix,开发工具与生成器辅助包
 internal/devtools/gateprivate/trusted_executable_owner_windows.go	internal	other	go-source	394	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,executable,owner,windows,开发工具与生成器辅助包
 internal/devtools/gateprivate/trusted_git.go	internal	other	go-source	7419	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,git,开发工具与生成器辅助包
-internal/devtools/gateprivate/trusted_git_test.go	internal	other	go-test	5144	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,git,test,开发工具与生成器辅助包
+internal/devtools/gateprivate/trusted_git_test.go	internal	other	go-test	5076	开发工具与生成器辅助包	internal,devtools,gateprivate,trusted,git,test,开发工具与生成器辅助包
 internal/devtools/godistribution/go-distribution.lock	internal	other	lock	569	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,开发工具与生成器辅助包
 internal/devtools/godistribution/go_distribution.go	internal	other	go-source	4168	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,开发工具与生成器辅助包
 internal/devtools/godistribution/go_distribution_test.go	internal	other	go-test	2391	开发工具与生成器辅助包	internal,devtools,godistribution,go,distribution,test,开发工具与生成器辅助包
@@ -1005,7 +1006,7 @@ internal/devtools/remotecicli/portable_go_catalog_test.go	internal	other	go-test
 internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	18555	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	13949	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect.go	internal	other	go-source	5718	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,开发工具与生成器辅助包
-internal/devtools/remotecicli/repository_detect_test.go	internal	other	go-test	7401	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/repository_detect_test.go	internal	other	go-test	7428	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_module_identity.go	internal	other	go-source	2750	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_module_identity_test.go	internal	other	go-test	1911	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,test,开发工具与生成器辅助包
 internal/devtools/shardresource/planner.go	internal	other	go-source	20508	开发工具与生成器辅助包	internal,devtools,shardresource,planner,开发工具与生成器辅助包
@@ -1275,7 +1276,7 @@ scripts/deploy/linux/linux_runner_daemon.sh	scripts	other	script	47758	工程自
 scripts/deploy/mac/deploy_mac_host.sh	scripts	other	script	7736	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,mac,host,工程自动化,测试守卫,代码地图与开发脚本
 scripts/deploy/mac/mac_runner_daemon.sh	scripts	other	script	28927	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,mac,runner,daemon,工程自动化,测试守卫,代码地图与开发脚本
 scripts/deploy/windows/deploy_windows_host.ps1	scripts	other	script	27964	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,host,工程自动化,测试守卫,代码地图与开发脚本
-scripts/deploy/windows/windows_runner.ps1	scripts	other	script	44226	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,runner,工程自动化,测试守卫,代码地图与开发脚本
+scripts/deploy/windows/windows_runner.ps1	scripts	other	script	44181	工程自动化、测试守卫、代码地图与开发脚本	scripts,deploy,windows,runner,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dispatch_remote_ci_imagecache_refresh.sh	scripts	other	script	2040	工程自动化、测试守卫、代码地图与开发脚本	scripts,dispatch,remote,ci,imagecache,refresh,工程自动化,测试守卫,代码地图与开发脚本
 scripts/docs_navigation_guard_test.go	scripts	other	go-test	1319	工程自动化、测试守卫、代码地图与开发脚本	scripts,docs,navigation,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本

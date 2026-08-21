@@ -423,7 +423,6 @@ $env:SUPER_DOLPHIN_WORKLOAD_IDENTITY = $WorkloadIdentity
 $env:SUPER_DOLPHIN_OBJECT_STORE_ROOT = $nodeObjectStoreRoot
 $env:SUPER_DOLPHIN_WORKTREE_ROOT = $nodeWorktreeRoot
 $env:SUPER_DOLPHIN_CACHE_ROOT = $nodeCacheRoot
-$env:SUPER_DOLPHIN_GATE_GIT = $gitExecutable
 $env:GOMODCACHE = $goModCacheRoot
 $env:GOCACHE = $goCacheRoot
 $env:GOTMPDIR = $goTmpRoot

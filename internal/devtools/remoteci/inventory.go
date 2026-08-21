@@ -147,11 +147,11 @@ func BuildPortableGoWorkloadInventory(
 	return gate.WorkloadInventory{GoPackages: packages, NestedGoModules: targets.nestedGoModules}, nil
 }
 
-// inventoryFilenamePlatformPackages 只保留含目标平台后缀源码或测试的 package。
+// inventoryFilenamePlatformPackages 只保留仓库显式提供目标平台测试文件的 package。
 func inventoryFilenamePlatformPackages(files map[string]struct{}, packages []string, platform string) []string {
 	candidates := make(map[string]struct{})
 	for file := range files {
-		if !strings.HasSuffix(file, "_"+platform+".go") && !strings.HasSuffix(file, "_"+platform+"_test.go") {
+		if !strings.HasSuffix(file, "_"+platform+"_test.go") {
 			continue
 		}
 		if packageTarget, ok := gate.GoPackageTargetForSource(file); ok {

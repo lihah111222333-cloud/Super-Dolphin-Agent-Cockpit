@@ -12,7 +12,6 @@ import (
 // TestTrustedGitCommandIgnoresReplaceAndAmbientRepositoryRouting uses a real
 // replacement ref: the exact tree OID must still read its original content.
 func TestTrustedGitCommandIgnoresReplaceAndAmbientRepositoryRouting(t *testing.T) {
-	t.Setenv("SUPER_DOLPHIN_GATE_GIT", trustedGitFixtureExecutable(t))
 	repository := t.TempDir()
 	trustedGitFixtureRun(t, repository, "init", "--quiet")
 	trustedGitFixtureRun(t, repository, "config", "user.name", "trusted git")
