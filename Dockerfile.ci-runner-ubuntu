@@ -42,14 +42,14 @@ RUN printf '%s  %s\n' \
       '/tmp/go1.26.5.linux-amd64.tar.gz' | sha256sum -c - \
     && tar -C /usr/local -xzf /tmp/go1.26.5.linux-amd64.tar.gz \
     && rm -f /tmp/go1.26.5.linux-amd64.tar.gz \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+      bash ca-certificates file git make procps ripgrep util-linux passwd xz-utils \
     && printf '%s  %s\n' \
       '3ff0d57063c33313d73d0bdcebc4c778ad6be948234584694a042c6fe57164f6' \
       '/tmp/node-v22.13.0-linux-x64.tar.xz' | sha256sum -c - \
     && tar -C /usr/local --strip-components=1 -xJf /tmp/node-v22.13.0-linux-x64.tar.xz \
     && rm -f /tmp/node-v22.13.0-linux-x64.tar.xz \
-    && apt-get update \
-    && apt-get install --no-install-recommends -y \
-      bash ca-certificates file git make procps ripgrep util-linux passwd \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 65532 ci-runner \
     && useradd --uid 65532 --gid 65532 --create-home --shell /bin/bash ci-runner \
