@@ -24,7 +24,7 @@ const (
 	// PortableBundleContractID 是 target source baseline 的唯一 bundle 合约。
 	PortableBundleContractID = "git-bundle-thin/v2"
 	// PortableWorkloadManifestSchemaVersion 是 workload manifest 的固定版本。
-	PortableWorkloadManifestSchemaVersion = "portable-workload-manifest/v2"
+	PortableWorkloadManifestSchemaVersion = "portable-workload-manifest/v3"
 )
 
 // GitObjectResolver 解析已绑定仓库中的 commit/tree，并读取指定 tree 下的 regular blob。

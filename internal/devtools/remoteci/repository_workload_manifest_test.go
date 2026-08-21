@@ -19,14 +19,17 @@ func repositoryWorkloadManifestFixture() RepositoryWorkloadManifest {
 		ExcludedNestedModules: []string{"vendor/example"},
 		Workloads: []RepositoryWorkload{
 			{
-				ID:              "go-test/internal/devtools/remoteci/TestPortableManifest",
-				Kind:            RepositoryWorkloadKindGoTest,
-				ModuleRoot:      ".",
-				Package:         "./internal/devtools/remoteci",
-				Name:            "TestPortableManifest",
-				Platform:        RepositoryWorkloadPlatformLinuxAMD64,
-				Runtime:         RepositoryWorkloadRuntimeUbuntuContainer,
-				ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal,
+				ID:                  "go-test/internal/devtools/remoteci/TestPortableManifest",
+				Kind:                RepositoryWorkloadKindGoTest,
+				ModuleRoot:          ".",
+				Package:             "./internal/devtools/remoteci",
+				Name:                "TestPortableManifest",
+				Platform:            RepositoryWorkloadPlatformLinuxAMD64,
+				Runtime:             RepositoryWorkloadRuntimeUbuntuContainer,
+				BootstrapEstimateMS: 1_000,
+				CPUMilli:            1_000,
+				MemoryBytes:         1 << 30,
+				ExecutionPolicy:     RepositoryWorkloadExecutionPolicyNormal,
 			},
 		},
 	}
@@ -37,6 +40,16 @@ func TestRepositoryWorkloadManifestRejectsMissingRuntime(t *testing.T) {
 	manifest.Workloads[0].Runtime = ""
 	if _, err := manifest.CanonicalEncode(); err == nil {
 		t.Fatal("v2 manifest without a canonical runtime was accepted")
+	}
+}
+
+func TestRepositoryWorkloadManifestRejectsMissingBootstrapRoutingResources(t *testing.T) {
+	manifest := repositoryWorkloadManifestFixture()
+	manifest.Workloads[0].BootstrapEstimateMS = 0
+	manifest.Workloads[0].CPUMilli = 0
+	manifest.Workloads[0].MemoryBytes = 0
+	if _, err := manifest.CanonicalEncode(); err == nil {
+		t.Fatal("manifest without explicit bootstrap routing resources was accepted")
 	}
 }
 
@@ -74,10 +87,10 @@ func assertRepositoryManifestRoundTrip(t *testing.T, decoded, want RepositoryWor
 	if decoded.ManifestDigest == "" || decoded.Workloads[0].ExecutionDigest == "" {
 		t.Fatal("canonical encoding did not freeze manifest and entry digests")
 	}
-	if decoded.Workloads[0].ExecutionDigest != "sha256:d1d1256fcf604b296002e855257036c1faf658ce389189890e8dd5fdb4270cba" {
+	if decoded.Workloads[0].ExecutionDigest != "sha256:7eeae4afa6c94b12644e7853052ab0f81ea955b68386275e810f914a196cac3d" {
 		t.Fatalf("entry digest changed: %s", decoded.Workloads[0].ExecutionDigest)
 	}
-	if decoded.ManifestDigest != "sha256:19e6c8795a8d0393d856faf8aa6827f6dee124441369419ad4b72abca2eb86f9" {
+	if decoded.ManifestDigest != "sha256:aa07d745d181ec5d56047802928d622ec38ed541ca56da11c6fe90849bd2f67d" {
 		t.Fatalf("manifest digest changed: %s", decoded.ManifestDigest)
 	}
 }
@@ -203,8 +216,7 @@ func TestRepositoryWorkloadManifestJSONFieldGuard(t *testing.T) {
 
 func assertRepositoryManifestJSONFieldCoverage(t *testing.T, typ reflect.Type, object map[string]json.RawMessage) {
 	t.Helper()
-	for index := 0; index < typ.NumField(); index++ {
-		field := typ.Field(index)
+	for field := range typ.Fields() {
 		name, options, hasOptions := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "" || name == "-" || hasOptions || options != "" {
 			t.Fatalf("%s.%s has an invalid JSON field tag", typ, field.Name)
@@ -225,7 +237,7 @@ func TestRepositoryWorkloadManifestABIDigestIsStableAndRoundTrips(t *testing.T) 
 	if digest == "" || !strings.HasPrefix(digest, "sha256:") {
 		t.Fatalf("ABI digest = %q, want canonical sha256 digest", digest)
 	}
-	if digest != "sha256:d2464bdd1317e816fae6e3b7ffd749f4497e55acab6f826b607a5d109bd9449c" {
+	if digest != "sha256:b69d5fc25279cddd382a676e701426bc5732bc9f56d2aaffef954151b0c8e285" {
 		t.Fatalf("ABI digest drifted: %s", digest)
 	}
 	manifest := repositoryWorkloadManifestFixture()

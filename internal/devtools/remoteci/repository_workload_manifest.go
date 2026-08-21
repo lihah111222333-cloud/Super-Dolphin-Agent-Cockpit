@@ -23,9 +23,9 @@ const (
 	RepositoryWorkloadManifestMaxBytes = 1 << 20
 	repositoryWorkloadManifestMaxBytes = RepositoryWorkloadManifestMaxBytes
 	// RepositoryWorkloadManifestEntryDigestDomain 与 manifest digest 使用不同密码学域。
-	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v2"
-	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v2"
-	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v2"
+	RepositoryWorkloadManifestEntryDigestDomain = "portable-workload-manifest-entry/v3"
+	RepositoryWorkloadManifestDigestDomain      = "portable-workload-manifest/v3"
+	RepositoryWorkloadManifestABIDigestDomain   = "portable-workload-manifest-abi/v3"
 	RepositoryWorkloadKindGoTest                = "go_test"
 	RepositoryWorkloadPlatformLinuxAMD64        = "linux/amd64"
 	RepositoryWorkloadPlatformWindowsAMD64      = "windows/amd64"
@@ -50,8 +50,8 @@ const (
 	RepositoryWorkloadExecutionPolicyRace   RepositoryWorkloadExecutionPolicy = "race"
 )
 
-// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v2。
-// v2 只有 typed exact go_test workload，故 wire 中没有 argv、shell 或命令字符串。
+// RepositoryWorkloadManifest 是 target tree 自有的 portable-workload-manifest/v3。
+// v3 只有 typed exact go_test workload，并显式携带 bootstrap 路由资源；wire 中没有 argv、shell 或命令字符串。
 type RepositoryWorkloadManifest struct {
 	SchemaVersion         string                     `json:"schema_version"`
 	RepositoryID          string                     `json:"repository_id"`
@@ -67,17 +67,20 @@ type RepositoryWorkloadModule struct {
 	ModulePath string `json:"module_path"`
 }
 
-// RepositoryWorkload 是唯一可执行的 v2 workload 形状。
+// RepositoryWorkload 是唯一可执行的 v3 workload 形状。
 type RepositoryWorkload struct {
-	ID              string                            `json:"id"`
-	Kind            RepositoryWorkloadKind            `json:"kind"`
-	ModuleRoot      string                            `json:"module_root"`
-	Package         string                            `json:"package"`
-	Name            string                            `json:"name"`
-	Platform        RepositoryWorkloadPlatform        `json:"platform"`
-	Runtime         RepositoryWorkloadRuntime         `json:"runtime"`
-	ExecutionPolicy RepositoryWorkloadExecutionPolicy `json:"execution_policy"`
-	ExecutionDigest string                            `json:"execution_digest"`
+	ID                  string                            `json:"id"`
+	Kind                RepositoryWorkloadKind            `json:"kind"`
+	ModuleRoot          string                            `json:"module_root"`
+	Package             string                            `json:"package"`
+	Name                string                            `json:"name"`
+	Platform            RepositoryWorkloadPlatform        `json:"platform"`
+	Runtime             RepositoryWorkloadRuntime         `json:"runtime"`
+	BootstrapEstimateMS int64                             `json:"bootstrap_estimate_ms"`
+	CPUMilli            int64                             `json:"cpu_milli"`
+	MemoryBytes         int64                             `json:"memory_bytes"`
+	ExecutionPolicy     RepositoryWorkloadExecutionPolicy `json:"execution_policy"`
+	ExecutionDigest     string                            `json:"execution_digest"`
 }
 
 // Validate 拒绝形状含糊、字段漂移或摘要不一致的仓库 workload manifest。
@@ -305,8 +308,19 @@ func validateRepositoryWorkload(moduleRoots map[string]struct{}, excluded map[st
 	if err := validateRepositoryWorkloadPlatformRuntime(workload.Platform, workload.Runtime); err != nil {
 		return err
 	}
+	if err := validateRepositoryWorkloadRoutingResources(workload); err != nil {
+		return err
+	}
 	if !validExecutionPolicy(workload.ExecutionPolicy) {
 		return errors.New("workload execution_policy is unsupported")
+	}
+	return nil
+}
+
+// validateRepositoryWorkloadRoutingResources 校验首次规划所需估时、CPU 与内存均由仓库显式提供。
+func validateRepositoryWorkloadRoutingResources(workload RepositoryWorkload) error {
+	if workload.BootstrapEstimateMS <= 0 || workload.CPUMilli <= 0 || workload.MemoryBytes <= 0 {
+		return errors.New("workload bootstrap routing resources must be positive")
 	}
 	return nil
 }
@@ -374,7 +388,7 @@ func validRelativePathShape(value string, allowDot bool) bool {
 // validatePackagePath 校验 module-relative exact package，不允许递归模式。
 func validatePackagePath(value string) error {
 	if !validPackagePathShape(value) {
-		return errors.New("package must be a ./ repository-relative package without ...")
+		return errors.New("package must be a non-recursive ./ repository-relative package")
 	}
 	relative := strings.TrimPrefix(value, "./")
 	if relative != "" && path.Clean(relative) != relative {
@@ -480,7 +494,7 @@ func repositoryWorkloadManifestABIMaterial() ([]byte, error) {
 			return nil, err
 		}
 		writeRepositoryFrame(&material, []byte(typ.Name()))
-		writeRepositoryFrame(&material, []byte(fmt.Sprintf("%d", len(fields))))
+		writeRepositoryFrame(&material, fmt.Appendf(nil, "%d", len(fields)))
 		for _, field := range fields {
 			writeRepositoryFrame(&material, []byte(field.goName))
 			writeRepositoryFrame(&material, []byte(field.jsonName))
@@ -499,8 +513,7 @@ func repositoryWorkloadManifestABIFields(typ reflect.Type) ([]repositoryWorkload
 	}
 	fields := make([]repositoryWorkloadManifestABIField, 0, typ.NumField())
 	seenJSONNames := make(map[string]struct{}, typ.NumField())
-	for index := 0; index < typ.NumField(); index++ {
-		field := typ.Field(index)
+	for field := range typ.Fields() {
 		abiField, err := repositoryWorkloadManifestABIFieldFor(typ, field, seenJSONNames)
 		if err != nil {
 			return nil, err

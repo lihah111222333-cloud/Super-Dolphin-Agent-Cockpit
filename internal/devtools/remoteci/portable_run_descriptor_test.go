@@ -65,6 +65,7 @@ func portableRunManifestFixture(t *testing.T) []byte {
 		Workloads: []RepositoryWorkload{{
 			ID: "go-test/example", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".",
 			Package: "./example", Name: "TestExample", Platform: RepositoryWorkloadPlatformLinuxAMD64, Runtime: RepositoryWorkloadRuntimeUbuntuContainer,
+			BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
 			ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal,
 		}},
 	}
@@ -300,8 +301,7 @@ func assertPortableWorkloadManifestDescriptorFields(t *testing.T, data []byte) {
 		t.Fatal(err)
 	}
 	typ := reflect.TypeFor[PortableWorkloadManifest]()
-	for index := 0; index < typ.NumField(); index++ {
-		field := typ.Field(index)
+	for field := range typ.Fields() {
 		name, options, hasOptions := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "" || name == "-" || hasOptions || options != "" {
 			t.Fatalf("%s.%s has an invalid JSON field tag", typ, field.Name)

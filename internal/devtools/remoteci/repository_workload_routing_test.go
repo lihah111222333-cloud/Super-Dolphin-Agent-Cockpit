@@ -8,6 +8,28 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
 
+func TestProjectRepositoryWorkloadBootstrapExecutionUnitsUsesManifestResources(t *testing.T) {
+	manifest := routingManifestFixture(t)
+	manifest.Workloads[0].BootstrapEstimateMS = 2_000
+	manifest.Workloads[0].CPUMilli = 1_500
+	manifest.Workloads[0].MemoryBytes = 2 << 30
+	encoded, err := manifest.CanonicalEncode()
+	if err != nil {
+		t.Fatalf("CanonicalEncode() error = %v", err)
+	}
+	manifest, err = DecodeRepositoryWorkloadManifest(encoded)
+	if err != nil {
+		t.Fatalf("DecodeRepositoryWorkloadManifest() error = %v", err)
+	}
+	units, err := ProjectRepositoryWorkloadBootstrapExecutionUnits(manifest)
+	if err != nil {
+		t.Fatalf("ProjectRepositoryWorkloadBootstrapExecutionUnits() error = %v", err)
+	}
+	if len(units) != 2 || units[0].EstimatedDurationMS != 2_000 || units[0].CPUMilli != 1_500 || units[0].MemoryBytes != 2<<30 {
+		t.Fatalf("bootstrap units = %#v", units)
+	}
+}
+
 func TestProjectRepositoryWorkloadExecutionUnitsBindsPlatformRuntimeAndDynamicResources(t *testing.T) {
 	manifest := routingManifestFixture(t)
 	planned := []gate.PlannedWorkload{
@@ -63,6 +85,7 @@ func routingManifestFixture(t *testing.T) RepositoryWorkloadManifest {
 		ID: "windows", Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".",
 		Package: "./internal/devtools/remoteci", Name: "TestWindows",
 		Platform: RepositoryWorkloadPlatformWindowsAMD64, Runtime: RepositoryWorkloadRuntimeWindowsNative,
+		BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
 		ExecutionPolicy: RepositoryWorkloadExecutionPolicyNormal,
 	})
 	encoded, err := manifest.CanonicalEncode()

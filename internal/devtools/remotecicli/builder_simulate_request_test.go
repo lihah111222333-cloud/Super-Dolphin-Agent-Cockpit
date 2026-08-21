@@ -229,7 +229,9 @@ func builderSimulationTestManifest(t *testing.T, repositoryID string) []byte {
 		Workloads: []remoteci.RepositoryWorkload{{
 			ID: "go-test/builder-simulation", Kind: remoteci.RepositoryWorkloadKindGoTest,
 			ModuleRoot: ".", Package: "./target", Name: "TestBuilderSimulation",
-			Platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64, ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
+			Platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64, Runtime: remoteci.RepositoryWorkloadRuntimeUbuntuContainer,
+			BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
+			ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
 		}},
 	}
 	encoded, err := manifest.CanonicalEncode()

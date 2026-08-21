@@ -11,6 +11,30 @@ import (
 
 const bytesPerGiB = int64(1024 * 1024 * 1024)
 
+// ProjectRepositoryWorkloadBootstrapExecutionUnits 从 target-tree manifest 的显式 bootstrap 资源生成首次自动路由单元。
+// 一旦同一 authority 存在可靠历史，调用方应改用 ProjectRepositoryWorkloadExecutionUnits 投影动态计划。
+func ProjectRepositoryWorkloadBootstrapExecutionUnits(manifest RepositoryWorkloadManifest) ([]heteroci.ExecutionUnit, error) {
+	if err := manifest.Validate(); err != nil {
+		return nil, fmt.Errorf("project repository workload bootstrap routing manifest: %w", err)
+	}
+	units := make([]heteroci.ExecutionUnit, 0, len(manifest.Workloads))
+	for index, workload := range manifest.Workloads {
+		platform, runtime, err := repositoryRoutingTarget(workload)
+		if err != nil {
+			return nil, fmt.Errorf("project bootstrap workload %d: %w", index, err)
+		}
+		unit := heteroci.ExecutionUnit{
+			UnitID: workload.ID, TargetPlatform: platform, RequiredRuntime: runtime,
+			EstimatedDurationMS: workload.BootstrapEstimateMS, CPUMilli: workload.CPUMilli, MemoryBytes: workload.MemoryBytes,
+		}
+		if err := unit.Validate(); err != nil {
+			return nil, fmt.Errorf("project bootstrap workload %q: %w", workload.ID, err)
+		}
+		units = append(units, unit)
+	}
+	return units, nil
+}
+
 // ProjectRepositoryWorkloadExecutionUnits 将 target-tree workload 身份与动态规划资源合成为自动路由单元。
 // manifest 与 planned 必须是同一精确 MISS 集合；调用方不能补默认平台、运行时、估时或资源。
 func ProjectRepositoryWorkloadExecutionUnits(
@@ -20,7 +44,7 @@ func ProjectRepositoryWorkloadExecutionUnits(
 	if err := manifest.Validate(); err != nil {
 		return nil, fmt.Errorf("project repository workload routing manifest: %w", err)
 	}
-	if planned == nil || len(planned) == 0 {
+	if len(planned) == 0 {
 		return nil, errors.New("project repository workload routing requires a non-empty planned workload set")
 	}
 	manifestByID, err := repositoryRoutingManifestIndex(manifest.Workloads)
