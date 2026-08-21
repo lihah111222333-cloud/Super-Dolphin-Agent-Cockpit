@@ -44,7 +44,13 @@ type nodeProviderFactory func(nodeRuntimeConfig) (heterocinode.FactsProvider, er
 
 // runNodeCLI 保持 stdout 为唯一 response 协议，并把 unavailable 固定映射为 SSH exit 255。
 func runNodeCLI(args []string, stdout, stderr io.Writer, factory nodeProviderFactory) int {
-	if len(args) == 0 || args[0] != "probe" || factory == nil {
+	if len(args) == 0 {
+		return writeNodeError(stderr, "probe or batch command is required", 2)
+	}
+	if args[0] == "batch" {
+		return runNodeBatchCLI(args[1:], stdout, stderr)
+	}
+	if args[0] != "probe" || factory == nil {
 		return writeNodeError(stderr, "probe command is required", 2)
 	}
 	configPath, requestToken, err := parseNodeProbeArgs(args[1:])
@@ -62,6 +68,63 @@ func runNodeCLI(args []string, stdout, stderr io.Writer, factory nodeProviderFac
 		return writeNodeError(stderr, "probe output failed", 3)
 	}
 	return 0
+}
+
+// runNodeBatchCLI 严格解码 base64 request，并让 worker 输出唯一 canonical batch result。
+func runNodeBatchCLI(args []string, stdout, stderr io.Writer) int {
+	requestToken, err := parseNodeBatchArgs(args)
+	if err != nil {
+		return writeNodeError(stderr, "batch arguments are invalid", 2)
+	}
+	requestBytes, err := decodeNodeBatchToken(requestToken)
+	if err != nil {
+		return writeNodeError(stderr, "batch request is invalid", 2)
+	}
+	request, err := heterocinode.DecodeBatchRequest(requestBytes)
+	if err != nil {
+		return writeNodeError(stderr, "batch request is invalid", 2)
+	}
+	result, err := heterocinode.RunBatch(context.Background(), request, stdout, stderr)
+	if err != nil {
+		return writeNodeError(stderr, "batch failed error_code=worker_invalid", 2)
+	}
+	if result.Outcome != heterocinode.BatchOutcomeSuccess {
+		return 1
+	}
+	return 0
+}
+
+// decodeNodeBatchToken 校验并解码 canonical base64 batch request。
+func decodeNodeBatchToken(token string) ([]byte, error) {
+	if token == "" || strings.TrimSpace(token) != token || len(token) > 2<<20 {
+		return nil, errors.New("batch request token is invalid")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil || len(decoded) == 0 || len(decoded) > 1<<20 || base64.StdEncoding.EncodeToString(decoded) != token {
+		return nil, errors.New("batch request token is not canonical")
+	}
+	return decoded, nil
+}
+
+// parseNodeBatchArgs 只接受一次 --request-base64 且拒绝位置参数。
+func parseNodeBatchArgs(args []string) (string, error) {
+	requestFlagCount := 0
+	for _, arg := range args {
+		if arg == "--request-base64" || strings.HasPrefix(arg, "--request-base64=") {
+			requestFlagCount++
+		}
+	}
+	if requestFlagCount != 1 {
+		return "", errors.New("node batch request-base64 flag must be provided exactly once")
+	}
+	flags := flag.NewFlagSet("heteroci-node batch", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var request string
+	flags.StringVar(&request, "request-base64", "", "canonical batch request")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || request == "" {
+		return "", errors.New("node batch arguments are invalid")
+	}
+	return request, nil
 }
 
 // executeNodeProbe 以稳定 error code 区分配置、请求、provider、facts 与 response 失败。

@@ -19,7 +19,8 @@ cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	7201	未
 cmd/mcp-schema-compiler-helper/main.go	cmd	other	go-source	2147	未细分职责：请结合路径、文件名和相邻代码判断	cmd,mcp,schema,compiler,helper,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main.go	cmd	other	go-source	15872	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	24984	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-heteroci-node/cli.go	cmd	other	go-source	7783	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-heteroci-node/batch_cli_test.go	cmd	other	go-test	1310	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,batch,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-heteroci-node/cli.go	cmd	other	go-source	10112	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/cli_test.go	cmd	other	go-test	4313	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/main.go	cmd	other	go-source	197	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14448	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
@@ -920,6 +921,10 @@ internal/devtools/heterociexec/registry_test.go	internal	other	go-test	16710	开
 internal/devtools/heterociexec/sqlite_receipt_schema.go	internal	other	go-source	10601	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store.go	internal	other	go-source	20083	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store_test.go	internal	other	go-test	10480	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,test,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch.go	internal	other	go-source	17538	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch_process_unix.go	internal	other	go-source	1062	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,process,unix,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch_process_windows.go	internal	other	go-source	4867	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,process,windows,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch_test.go	internal	other	go-test	5261	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/linux_facts.go	internal	other	go-source	10452	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,开发工具与生成器辅助包
 internal/devtools/heterocinode/linux_facts_test.go	internal	other	go-test	4419	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/probe.go	internal	other	go-source	5544	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,开发工具与生成器辅助包
