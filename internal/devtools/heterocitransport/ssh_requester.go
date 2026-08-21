@@ -95,7 +95,7 @@ func (requester *SSHRequester) Do(ctx context.Context, endpoint string, request 
 func (requester *SSHRequester) run(ctx context.Context, node sshProbeNode, request []byte) ([]byte, bool, error) {
 	runCtx, cancel := context.WithTimeout(ctx, requester.timeout)
 	defer cancel()
-	remoteCommand := sshRemoteProbeCommand(node.command, request)
+	remoteCommand := sshRemoteProbeCommand(node.config.Platform, node.command, request)
 	args := []string{"-o", "BatchMode=yes", "-o", fmt.Sprintf("ConnectTimeout=%d", requester.connectSeconds), "--", node.host, remoteCommand}
 	command := exec.CommandContext(runCtx, requester.executable, args...)
 	command.WaitDelay = requester.waitDelay
@@ -200,13 +200,35 @@ func validateSSHRemoteCommand(command []string) error {
 	return nil
 }
 
-func sshRemoteProbeCommand(command []string, request []byte) string {
+// sshRemoteProbeCommand 按目标平台生成唯一远端 probe command line。
+func sshRemoteProbeCommand(platform heteroci.Platform, command []string, request []byte) string {
 	parts := make([]string, 0, len(command)+2)
 	for _, argument := range command {
-		parts = append(parts, shellQuoteSSHArgument(argument))
+		parts = append(parts, sshRemoteArgument(platform, argument))
 	}
-	parts = append(parts, "--probe-request-base64", shellQuoteSSHArgument(base64.StdEncoding.EncodeToString(request)))
+	parts = append(parts, "--probe-request-base64", sshRemoteArgument(platform, base64.StdEncoding.EncodeToString(request)))
 	return strings.Join(parts, " ")
+}
+
+// sshRemoteArgument 对 Unix 始终引用，并只让 Windows 安全集合保持裸 argv。
+func sshRemoteArgument(platform heteroci.Platform, value string) string {
+	if platform == heteroci.PlatformWindowsAMD64 && windowsSSHArgumentIsSafe(value) {
+		return value
+	}
+	return shellQuoteSSHArgument(value)
+}
+
+// windowsSSHArgumentIsSafe 限制 Windows OpenSSH 不经引号传递的字符集合。
+func windowsSSHArgumentIsSafe(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:=+-", character) {
+			return false
+		}
+	}
+	return true
 }
 
 func shellQuoteSSHArgument(value string) string {

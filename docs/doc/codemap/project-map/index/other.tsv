@@ -19,6 +19,9 @@ cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	7201	未
 cmd/mcp-schema-compiler-helper/main.go	cmd	other	go-source	2147	未细分职责：请结合路径、文件名和相邻代码判断	cmd,mcp,schema,compiler,helper,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main.go	cmd	other	go-source	15872	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	24984	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-heteroci-node/cli.go	cmd	other	go-source	7783	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-heteroci-node/cli_test.go	cmd	other	go-test	4313	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-heteroci-node/main.go	cmd	other	go-source	197	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14448	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
 cmd/super-dolphin-remote-ci/main.go	cmd	other	go-source	336	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,remote,ci,main,未细分职责：请结合路径,文件名和相邻代码判断
@@ -156,7 +159,7 @@ internal/archtest/backend_boundary_guard_coverage_test.go	internal	other	go-test
 internal/archtest/backend_boundary_import_evaluator.go	internal	other	go-source	7396	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,import,evaluator,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_loader_parity_test.go	internal	other	go-test	5430	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,loader,parity,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_matrix_test.go	internal	other	go-test	10143	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,matrix,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/backend_boundary_registry.go	internal	other	go-source	51073	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/backend_boundary_registry.go	internal	other	go-source	51699	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_app_adapter.go	internal	other	go-source	8570	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,app,adapter,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_registry_clone.go	internal	other	go-source	2034	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,registry,clone,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/backend_boundary_single_source_extensions_test.go	internal	other	go-test	9635	架构守卫、baseline ratchet 与冻结规则	internal,archtest,backend,boundary,single,source,extensions,test,架构守卫,baseline,ratchet,与冻结规则
@@ -220,7 +223,7 @@ internal/archtest/heteroci_manifest_aggregate_ssa_guard_test.go	internal	other	g
 internal/archtest/heteroci_manifest_boundary_ssa_guard_test.go	internal	other	go-test	9184	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,boundary,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_file_contract_guard_test.go	internal	other	go-test	9514	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,file,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_file_ssa_guard_test.go	internal	other	go-test	26658	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,file,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/heteroci_probe_acquisition_contract_guard_test.go	internal	other	go-test	13115	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,probe,acquisition,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/heteroci_probe_acquisition_contract_guard_test.go	internal	other	go-test	13257	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,probe,acquisition,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_probe_acquisition_counterexample_guard_test.go	internal	other	go-test	23468	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,probe,acquisition,counterexample,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_probe_acquisition_ssa_guard_test.go	internal	other	go-test	25505	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,probe,acquisition,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_probe_dynamic_boundary_ssa_guard_test.go	internal	other	go-test	10930	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,probe,dynamic,boundary,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -869,19 +872,19 @@ internal/devtools/heteroci/packing_types.go	internal	other	go-source	1947	开发
 internal/devtools/heteroci/packing_types_test.go	internal	other	go-test	8416	开发工具与生成器辅助包	internal,devtools,heteroci,packing,types,test,开发工具与生成器辅助包
 internal/devtools/heteroci/packing_validation.go	internal	other	go-source	11651	开发工具与生成器辅助包	internal,devtools,heteroci,packing,validation,开发工具与生成器辅助包
 internal/devtools/heteroci/packing_validation_test.go	internal	other	go-test	18862	开发工具与生成器辅助包	internal,devtools,heteroci,packing,validation,test,开发工具与生成器辅助包
-internal/devtools/heteroci/probe_acquire.go	internal	other	go-source	18000	开发工具与生成器辅助包	internal,devtools,heteroci,probe,acquire,开发工具与生成器辅助包
+internal/devtools/heteroci/probe_acquire.go	internal	other	go-source	18116	开发工具与生成器辅助包	internal,devtools,heteroci,probe,acquire,开发工具与生成器辅助包
 internal/devtools/heteroci/probe_acquire_close_test.go	internal	other	go-test	8181	开发工具与生成器辅助包	internal,devtools,heteroci,probe,acquire,close,test,开发工具与生成器辅助包
 internal/devtools/heteroci/probe_acquire_context_test.go	internal	other	go-test	6477	开发工具与生成器辅助包	internal,devtools,heteroci,probe,acquire,context,test,开发工具与生成器辅助包
-internal/devtools/heteroci/probe_acquire_test.go	internal	other	go-test	34133	开发工具与生成器辅助包	internal,devtools,heteroci,probe,acquire,test,开发工具与生成器辅助包
+internal/devtools/heteroci/probe_acquire_test.go	internal	other	go-test	34232	开发工具与生成器辅助包	internal,devtools,heteroci,probe,acquire,test,开发工具与生成器辅助包
 internal/devtools/heteroci/probe_codec.go	internal	other	go-source	5993	开发工具与生成器辅助包	internal,devtools,heteroci,probe,codec,开发工具与生成器辅助包
 internal/devtools/heteroci/probe_codec_test.go	internal	other	go-test	22564	开发工具与生成器辅助包	internal,devtools,heteroci,probe,codec,test,开发工具与生成器辅助包
 internal/devtools/heteroci/probe_error_snapshot.go	internal	other	go-source	3788	开发工具与生成器辅助包	internal,devtools,heteroci,probe,error,snapshot,开发工具与生成器辅助包
 internal/devtools/heteroci/probe_error_snapshot_test.go	internal	other	go-test	13473	开发工具与生成器辅助包	internal,devtools,heteroci,probe,error,snapshot,test,开发工具与生成器辅助包
 internal/devtools/heteroci/probe_external_error_test.go	internal	other	go-test	19704	开发工具与生成器辅助包	internal,devtools,heteroci,probe,external,error,test,开发工具与生成器辅助包
-internal/devtools/heteroci/probe_request_codec.go	internal	other	go-source	1953	开发工具与生成器辅助包	internal,devtools,heteroci,probe,request,codec,开发工具与生成器辅助包
-internal/devtools/heteroci/probe_request_codec_test.go	internal	other	go-test	2242	开发工具与生成器辅助包	internal,devtools,heteroci,probe,request,codec,test,开发工具与生成器辅助包
-internal/devtools/heteroci/probe_types.go	internal	other	go-source	7055	开发工具与生成器辅助包	internal,devtools,heteroci,probe,types,开发工具与生成器辅助包
-internal/devtools/heteroci/probe_types_test.go	internal	other	go-test	8150	开发工具与生成器辅助包	internal,devtools,heteroci,probe,types,test,开发工具与生成器辅助包
+internal/devtools/heteroci/probe_request_codec.go	internal	other	go-source	2162	开发工具与生成器辅助包	internal,devtools,heteroci,probe,request,codec,开发工具与生成器辅助包
+internal/devtools/heteroci/probe_request_codec_test.go	internal	other	go-test	2568	开发工具与生成器辅助包	internal,devtools,heteroci,probe,request,codec,test,开发工具与生成器辅助包
+internal/devtools/heteroci/probe_types.go	internal	other	go-source	7206	开发工具与生成器辅助包	internal,devtools,heteroci,probe,types,开发工具与生成器辅助包
+internal/devtools/heteroci/probe_types_test.go	internal	other	go-test	8275	开发工具与生成器辅助包	internal,devtools,heteroci,probe,types,test,开发工具与生成器辅助包
 internal/devtools/heteroci/router.go	internal	other	go-source	6445	开发工具与生成器辅助包	internal,devtools,heteroci,router,开发工具与生成器辅助包
 internal/devtools/heteroci/router_test.go	internal	other	go-test	22862	开发工具与生成器辅助包	internal,devtools,heteroci,router,test,开发工具与生成器辅助包
 internal/devtools/heteroci/routing_digest.go	internal	other	go-source	542	开发工具与生成器辅助包	internal,devtools,heteroci,routing,digest,开发工具与生成器辅助包
@@ -917,8 +920,12 @@ internal/devtools/heterociexec/registry_test.go	internal	other	go-test	16710	开
 internal/devtools/heterociexec/sqlite_receipt_schema.go	internal	other	go-source	10601	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store.go	internal	other	go-source	20083	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store_test.go	internal	other	go-test	10480	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,test,开发工具与生成器辅助包
-internal/devtools/heterocinode/probe.go	internal	other	go-source	5094	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,开发工具与生成器辅助包
-internal/devtools/heterocinode/probe_test.go	internal	other	go-test	3648	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,test,开发工具与生成器辅助包
+internal/devtools/heterocinode/linux_facts.go	internal	other	go-source	10452	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,开发工具与生成器辅助包
+internal/devtools/heterocinode/linux_facts_test.go	internal	other	go-test	4419	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,test,开发工具与生成器辅助包
+internal/devtools/heterocinode/probe.go	internal	other	go-source	5544	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,开发工具与生成器辅助包
+internal/devtools/heterocinode/probe_test.go	internal	other	go-test	3858	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,test,开发工具与生成器辅助包
+internal/devtools/heterocinode/windows_facts.go	internal	other	go-source	6473	开发工具与生成器辅助包	internal,devtools,heterocinode,windows,facts,开发工具与生成器辅助包
+internal/devtools/heterocinode/windows_facts_test.go	internal	other	go-test	2396	开发工具与生成器辅助包	internal,devtools,heterocinode,windows,facts,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/immediate_tx.go	internal	other	go-source	652	开发工具与生成器辅助包	internal,devtools,heterociowner,immediate,tx,开发工具与生成器辅助包
 internal/devtools/heterociowner/immediate_tx_test.go	internal	other	go-test	1250	开发工具与生成器辅助包	internal,devtools,heterociowner,immediate,tx,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/operation_store.go	internal	other	go-source	14436	开发工具与生成器辅助包	internal,devtools,heterociowner,operation,store,开发工具与生成器辅助包
@@ -939,7 +946,7 @@ internal/devtools/heterociowner/schema_test.go	internal	other	go-test	3671	开�
 internal/devtools/heterocireceipt/verifier.go	internal	other	go-source	17751	开发工具与生成器辅助包	internal,devtools,heterocireceipt,verifier,开发工具与生成器辅助包
 internal/devtools/heterocireceipt/verifier_test.go	internal	other	go-test	8538	开发工具与生成器辅助包	internal,devtools,heterocireceipt,verifier,test,开发工具与生成器辅助包
 internal/devtools/heterocitransport/body.go	internal	other	go-source	892	开发工具与生成器辅助包	internal,devtools,heterocitransport,body,开发工具与生成器辅助包
-internal/devtools/heterocitransport/ssh_requester.go	internal	other	go-source	8681	开发工具与生成器辅助包	internal,devtools,heterocitransport,ssh,requester,开发工具与生成器辅助包
+internal/devtools/heterocitransport/ssh_requester.go	internal	other	go-source	9494	开发工具与生成器辅助包	internal,devtools,heterocitransport,ssh,requester,开发工具与生成器辅助包
 internal/devtools/heterocitransport/ssh_requester_test.go	internal	other	go-test	6528	开发工具与生成器辅助包	internal,devtools,heterocitransport,ssh,requester,test,开发工具与生成器辅助包
 internal/devtools/heterocitransport/transport.go	internal	other	go-source	5429	开发工具与生成器辅助包	internal,devtools,heterocitransport,transport,开发工具与生成器辅助包
 internal/devtools/heterocitransport/transport_test.go	internal	other	go-test	9458	开发工具与生成器辅助包	internal,devtools,heterocitransport,transport,test,开发工具与生成器辅助包

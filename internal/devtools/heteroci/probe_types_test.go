@@ -15,7 +15,7 @@ func TestProbeSchemaVersionsAreFrozen(t *testing.T) {
 		got  string
 		want string
 	}{
-		{name: "request", got: ProbeRequestSchemaVersion, want: "heteroci-probe-request/v1"},
+		{name: "request", got: ProbeRequestSchemaVersion, want: "heteroci-probe-request/v2"},
 		{name: "response", got: ProbeResponseSchemaVersion, want: "heteroci-probe-response/v1"},
 	}
 	for _, test := range tests {
@@ -40,6 +40,7 @@ func TestProbeRequestFieldLayoutAndJSONTagsAreFrozen(t *testing.T) {
 		{name: "NodeID", typ: reflect.TypeFor[string](), jsonTag: "node_id"},
 		{name: "ProbeIdentity", typ: reflect.TypeFor[string](), jsonTag: "probe_identity"},
 		{name: "OwnerEpoch", typ: reflect.TypeFor[RoutingOwnerEpoch](), jsonTag: "owner_epoch"},
+		{name: "CapturedAtUnixMilli", typ: reflect.TypeFor[int64](), jsonTag: "captured_at_unix_milli"},
 	})
 }
 
@@ -198,7 +199,7 @@ func TestProbeZeroValuesRemainExplicitInJSON(t *testing.T) {
 		keys  []string
 	}{
 		{name: "request", value: ProbeRequest{}, keys: []string{
-			"schema_version", "node_id", "probe_identity", "owner_epoch",
+			"schema_version", "node_id", "probe_identity", "owner_epoch", "captured_at_unix_milli",
 		}},
 		{name: "response", value: ProbeResponse{}, keys: []string{
 			"schema_version", "owner_epoch", "capacity_basis", "node_id", "endpoint", "platform",

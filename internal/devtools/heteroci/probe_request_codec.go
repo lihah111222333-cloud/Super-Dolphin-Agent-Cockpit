@@ -43,6 +43,7 @@ func ensureProbeRequestEOF(decoder *json.Decoder) error {
 	return errors.New("probe request has trailing JSON")
 }
 
+// validateDecodedProbeRequest 校验 schema、节点、探针、owner 与统一采集时间。
 func validateDecodedProbeRequest(request ProbeRequest) error {
 	if request.SchemaVersion != ProbeRequestSchemaVersion {
 		return errors.New("probe request schema_version is invalid")
@@ -55,6 +56,9 @@ func validateDecodedProbeRequest(request ProbeRequest) error {
 	}
 	if err := request.OwnerEpoch.Validate(); err != nil {
 		return errors.New("probe request owner_epoch is invalid")
+	}
+	if request.CapturedAtUnixMilli <= 0 {
+		return errors.New("probe request captured_at_unix_milli is invalid")
 	}
 	return nil
 }

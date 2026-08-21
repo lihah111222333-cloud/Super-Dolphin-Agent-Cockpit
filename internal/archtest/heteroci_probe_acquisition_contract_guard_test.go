@@ -18,7 +18,7 @@ import (
 // TestHeterociProbeWireContractsAreExact freezes the probe request/response
 // field order, Go types, JSON tags, and schema identities at the wire boundary.
 func TestHeterociProbeWireContractsAreExact(t *testing.T) {
-	if got, want := heteroci.ProbeRequestSchemaVersion, "heteroci-probe-request/v1"; got != want {
+	if got, want := heteroci.ProbeRequestSchemaVersion, "heteroci-probe-request/v2"; got != want {
 		t.Fatalf("ProbeRequestSchemaVersion = %q, want %q", got, want)
 	}
 	if got, want := heteroci.ProbeResponseSchemaVersion, "heteroci-probe-response/v1"; got != want {
@@ -32,6 +32,7 @@ func TestHeterociProbeWireContractsAreExact(t *testing.T) {
 		{name: "NodeID", typ: reflect.TypeFor[string](), tag: `json:"node_id"`},
 		{name: "ProbeIdentity", typ: reflect.TypeFor[string](), tag: `json:"probe_identity"`},
 		{name: "OwnerEpoch", typ: reflect.TypeFor[heteroci.RoutingOwnerEpoch](), tag: `json:"owner_epoch"`},
+		{name: "CapturedAtUnixMilli", typ: reflect.TypeFor[int64](), tag: `json:"captured_at_unix_milli"`},
 	})
 	assertHeterociProbeStructLayout(t, reflect.TypeFor[heteroci.ProbeResponse](), []heterociProbeFieldSpec{
 		{name: "SchemaVersion", typ: reflect.TypeFor[string](), tag: `json:"schema_version"`},
@@ -244,7 +245,7 @@ func assertHeterociProbeSortedCalls(t *testing.T, transport *heterociProbeTransp
 		if transport.calls[index].endpoint != config.Endpoint {
 			t.Fatalf("probe call %d endpoint = %q, want %q", index, transport.calls[index].endpoint, config.Endpoint)
 		}
-		want, err := json.Marshal(heteroci.ProbeRequest{SchemaVersion: heteroci.ProbeRequestSchemaVersion, NodeID: config.NodeID, ProbeIdentity: config.ProbeIdentity, OwnerEpoch: 9})
+		want, err := json.Marshal(heteroci.ProbeRequest{SchemaVersion: heteroci.ProbeRequestSchemaVersion, NodeID: config.NodeID, ProbeIdentity: config.ProbeIdentity, OwnerEpoch: 9, CapturedAtUnixMilli: 1_725_000_000_000})
 		if err != nil || !bytes.Equal(transport.calls[index].request, want) {
 			t.Fatalf("probe call %d request = %s, want %s", index, transport.calls[index].request, want)
 		}

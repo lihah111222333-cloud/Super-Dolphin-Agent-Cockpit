@@ -15,6 +15,13 @@ import (
 
 const ConfigSchemaVersion = "heteroci-node-probe-config/v1"
 
+// ErrFactsUnavailable 表示节点当前无法取得完整资格或容量事实，可由 transport 投影为 offline。
+var (
+	ErrFactsUnavailable = errors.New("node probe facts are unavailable")
+	ErrFactsInvalid     = errors.New("node probe facts are invalid")
+	ErrResponseInvalid  = errors.New("node probe response is invalid")
+)
+
 // Config 将一个远端 probe 进程固定绑定到唯一 manifest node。
 type Config struct {
 	SchemaVersion string              `json:"schema_version"`
@@ -31,7 +38,7 @@ type Facts struct {
 
 // FactsProvider 采集当前节点的实际平台事实，不得从 manifest 回显容量。
 type FactsProvider interface {
-	Collect(context.Context, Config) (Facts, error)
+	Collect(context.Context, Config, heteroci.ProbeRequest) (Facts, error)
 }
 
 // Probe 校验 request 与本机 config 身份后采集事实并输出 canonical response bytes。
@@ -40,14 +47,17 @@ func Probe(ctx context.Context, config Config, requestBytes []byte, provider Fac
 	if err != nil {
 		return nil, err
 	}
-	facts, err := provider.Collect(ctx, config)
+	if now.UnixMilli() <= 0 {
+		return nil, errors.New("node probe clock is invalid")
+	}
+	facts, err := provider.Collect(ctx, config, request)
 	if err != nil {
-		return nil, fmt.Errorf("collect node probe facts: %w", err)
+		return nil, fmt.Errorf("%w: collect platform facts", ErrFactsUnavailable)
 	}
 	if err := validateFacts(config, facts); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: validate platform facts", ErrFactsInvalid)
 	}
-	return encodeResponse(buildResponse(config, request, facts, now))
+	return encodeResponse(buildResponse(config, request, facts))
 }
 
 // prepareProbe 在采集平台事实前锁定依赖、context、config 和 request identity。
@@ -74,10 +84,10 @@ func prepareProbe(ctx context.Context, config Config, requestBytes []byte, provi
 func encodeResponse(response heteroci.ProbeResponse) ([]byte, error) {
 	encoded, err := json.Marshal(response)
 	if err != nil {
-		return nil, errors.New("encode node probe response failed")
+		return nil, ErrResponseInvalid
 	}
 	if _, err := heteroci.DecodeProbeResponse(bytes.NewReader(encoded)); err != nil {
-		return nil, errors.New("encoded node probe response is invalid")
+		return nil, ErrResponseInvalid
 	}
 	return encoded, nil
 }
@@ -121,13 +131,13 @@ func validateCapacity(capacity heteroci.ResourceCapacity, label string) error {
 	return nil
 }
 
-func buildResponse(config Config, request heteroci.ProbeRequest, facts Facts, now time.Time) heteroci.ProbeResponse {
+func buildResponse(config Config, request heteroci.ProbeRequest, facts Facts) heteroci.ProbeResponse {
 	return heteroci.ProbeResponse{
 		SchemaVersion: heteroci.ProbeResponseSchemaVersion, OwnerEpoch: request.OwnerEpoch,
 		CapacityBasis: heteroci.SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations,
 		NodeID:        config.Node.NodeID, Endpoint: config.Node.Endpoint, Platform: config.Node.Platform,
 		ProbeIdentity: config.Node.ProbeIdentity, ProbeBootID: facts.BootID,
 		ActiveCapabilities: slices.Clone(facts.Capabilities), Status: heteroci.NodeStatusLive,
-		HeartbeatUnixMilli: now.UnixMilli(), Total: facts.Total, Available: facts.Available,
+		HeartbeatUnixMilli: request.CapturedAtUnixMilli, Total: facts.Total, Available: facts.Available,
 	}
 }

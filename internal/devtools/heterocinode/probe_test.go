@@ -11,10 +11,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
 
-type factsProviderFunc func(context.Context, Config) (Facts, error)
+type factsProviderFunc func(context.Context, Config, heteroci.ProbeRequest) (Facts, error)
 
-func (function factsProviderFunc) Collect(ctx context.Context, config Config) (Facts, error) {
-	return function(ctx, config)
+func (function factsProviderFunc) Collect(ctx context.Context, config Config, request heteroci.ProbeRequest) (Facts, error) {
+	return function(ctx, config, request)
 }
 
 func TestProbeProducesCoreConsumableResponse(t *testing.T) {
@@ -42,12 +42,12 @@ func TestProbeRejectsIdentityCapacityAndProviderFailures(t *testing.T) {
 		provider FactsProvider
 	}{
 		{name: "node drift", request: testRequestForNode(t, "other", config.Node.ProbeIdentity, 1), provider: testFactsProvider(config)},
-		{name: "capacity drift", request: testRequest(t, config.Node, 1), provider: factsProviderFunc(func(context.Context, Config) (Facts, error) {
-			facts, _ := testFactsProvider(config).Collect(context.Background(), config)
+		{name: "capacity drift", request: testRequest(t, config.Node, 1), provider: factsProviderFunc(func(context.Context, Config, heteroci.ProbeRequest) (Facts, error) {
+			facts, _ := testFactsProvider(config).Collect(context.Background(), config, heteroci.ProbeRequest{OwnerEpoch: 1})
 			facts.Available.CPUMilli = facts.Total.CPUMilli + 1
 			return facts, nil
 		})},
-		{name: "provider", request: testRequest(t, config.Node, 1), provider: factsProviderFunc(func(context.Context, Config) (Facts, error) {
+		{name: "provider", request: testRequest(t, config.Node, 1), provider: factsProviderFunc(func(context.Context, Config, heteroci.ProbeRequest) (Facts, error) {
 			return Facts{}, errors.New("provider failed")
 		})},
 	}
@@ -75,7 +75,7 @@ func testConfig() Config {
 }
 
 func testFactsProvider(config Config) FactsProvider {
-	return factsProviderFunc(func(context.Context, Config) (Facts, error) {
+	return factsProviderFunc(func(context.Context, Config, heteroci.ProbeRequest) (Facts, error) {
 		return Facts{
 			BootID: "boot-a",
 			Capabilities: []heteroci.ActiveCapabilitySnapshot{{
@@ -96,7 +96,7 @@ func testRequestForNode(t *testing.T, nodeID, probeIdentity string, epoch hetero
 	t.Helper()
 	encoded, err := json.Marshal(heteroci.ProbeRequest{
 		SchemaVersion: heteroci.ProbeRequestSchemaVersion, NodeID: nodeID,
-		ProbeIdentity: probeIdentity, OwnerEpoch: epoch,
+		ProbeIdentity: probeIdentity, OwnerEpoch: epoch, CapturedAtUnixMilli: 1_780_000_000_000,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -656,7 +656,7 @@ func mustProbeResponseJSONNoTest(response ProbeResponse) []byte {
 }
 
 func acquireExpectedProbeRequest(config NodeConfig, epoch RoutingOwnerEpoch) []byte {
-	return fmt.Appendf(nil, `{"schema_version":"%s","node_id":"%s","probe_identity":"%s","owner_epoch":%d}`, ProbeRequestSchemaVersion, config.NodeID, config.ProbeIdentity, epoch)
+	return fmt.Appendf(nil, `{"schema_version":"%s","node_id":"%s","probe_identity":"%s","owner_epoch":%d,"captured_at_unix_milli":%d}`, ProbeRequestSchemaVersion, config.NodeID, config.ProbeIdentity, epoch, acquireTestNowUnixMilli)
 }
 
 func assertProbeRequestShape(t *testing.T, raw []byte, config NodeConfig, epoch RoutingOwnerEpoch) {
@@ -665,14 +665,14 @@ func assertProbeRequestShape(t *testing.T, raw []byte, config NodeConfig, epoch 
 	if err := json.Unmarshal(raw, &object); err != nil {
 		t.Fatalf("decode probe request: %v", err)
 	}
-	if len(object) != 4 {
-		t.Fatalf("probe request fields = %d, want exact 4: %s", len(object), raw)
+	if len(object) != 5 {
+		t.Fatalf("probe request fields = %d, want exact 5: %s", len(object), raw)
 	}
 	var request ProbeRequest
 	if err := json.Unmarshal(raw, &request); err != nil {
 		t.Fatalf("decode ProbeRequest: %v", err)
 	}
-	if request != (ProbeRequest{SchemaVersion: ProbeRequestSchemaVersion, NodeID: config.NodeID, ProbeIdentity: config.ProbeIdentity, OwnerEpoch: epoch}) {
+	if request != (ProbeRequest{SchemaVersion: ProbeRequestSchemaVersion, NodeID: config.NodeID, ProbeIdentity: config.ProbeIdentity, OwnerEpoch: epoch, CapturedAtUnixMilli: acquireTestNowUnixMilli}) {
 		t.Fatalf("decoded request = %#v, want exact owner/node identity", request)
 	}
 }

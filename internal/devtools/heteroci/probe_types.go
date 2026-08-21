@@ -8,7 +8,7 @@ import (
 
 const (
 	// ProbeRequestSchemaVersion 是探针请求使用的冻结 wire schema 版本。
-	ProbeRequestSchemaVersion = "heteroci-probe-request/v1"
+	ProbeRequestSchemaVersion = "heteroci-probe-request/v2"
 	// ProbeResponseSchemaVersion 是探针响应使用的冻结 wire schema 版本。
 	ProbeResponseSchemaVersion = "heteroci-probe-response/v1"
 )
@@ -23,6 +23,8 @@ type ProbeRequest struct {
 	ProbeIdentity string `json:"probe_identity"`
 	// OwnerEpoch 是发起请求的路由 owner 生命周期。
 	OwnerEpoch RoutingOwnerEpoch `json:"owner_epoch"`
+	// CapturedAtUnixMilli 是 controller 为整次 SnapshotSet 冻结的统一采集时间。
+	CapturedAtUnixMilli int64 `json:"captured_at_unix_milli"`
 }
 
 // ProbeResponse 是节点探针返回的严格响应载荷。

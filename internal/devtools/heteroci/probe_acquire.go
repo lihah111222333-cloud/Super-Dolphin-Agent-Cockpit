@@ -97,7 +97,7 @@ func acquireNodeSnapshot(ctx context.Context, config NodeConfig, ownerEpoch Rout
 	if err := ctx.Err(); err != nil {
 		return NodeSnapshot{}, ProbeTransportError{NodeID: config.NodeID, Cause: snapshotProbeExternalError(err).cause}
 	}
-	request, err := marshalProbeRequest(config, ownerEpoch)
+	request, err := marshalProbeRequest(config, ownerEpoch, capturedAtUnixMilli)
 	if err != nil {
 		return NodeSnapshot{}, err
 	}
@@ -230,12 +230,13 @@ func decodeProbeNode(ctx context.Context, config NodeConfig, ownerEpoch RoutingO
 }
 
 // marshalProbeRequest 由 core 以结构体字段顺序生成唯一探针请求字节。
-func marshalProbeRequest(config NodeConfig, ownerEpoch RoutingOwnerEpoch) ([]byte, error) {
+func marshalProbeRequest(config NodeConfig, ownerEpoch RoutingOwnerEpoch, capturedAtUnixMilli int64) ([]byte, error) {
 	request := ProbeRequest{
-		SchemaVersion: ProbeRequestSchemaVersion,
-		NodeID:        config.NodeID,
-		ProbeIdentity: config.ProbeIdentity,
-		OwnerEpoch:    ownerEpoch,
+		SchemaVersion:       ProbeRequestSchemaVersion,
+		NodeID:              config.NodeID,
+		ProbeIdentity:       config.ProbeIdentity,
+		OwnerEpoch:          ownerEpoch,
+		CapturedAtUnixMilli: capturedAtUnixMilli,
 	}
 	encoded, err := json.Marshal(request)
 	if err != nil {
