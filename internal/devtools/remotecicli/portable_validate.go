@@ -62,7 +62,13 @@ func dispatchValidate(args []string, stdout io.Writer) error {
 	if err != nil {
 		return newCLIFailure("bind portable run", err)
 	}
-	output, err := boundedBindingJSON(raw, binding)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	expanded, err := expandBoundPortableRepositoryCatalog(ctx, repositoryRoot, binding)
+	if err != nil {
+		return newCLIFailure("expand portable workload catalog", err)
+	}
+	output, err := boundedBindingJSON(raw, binding, expanded.Workloads)
 	if err != nil {
 		return newCLIFailure("render binding", err)
 	}
@@ -202,15 +208,24 @@ func sameFileIdentity(left, right os.FileInfo) bool {
 }
 
 // boundedBindingJSON 只投影 descriptor 与 identity 摘要，拒绝把 binding 原样写到 stdout。
-func boundedBindingJSON(descriptor []byte, binding remoteportable.BoundPortableRun) ([]byte, error) {
+func boundedBindingJSON(descriptor []byte, binding remoteportable.BoundPortableRun, workloads []remoteportable.PortableManifestWorkload) ([]byte, error) {
 	descriptorDigest := digestBytes(descriptor)
+	catalogFacts, err := remoteportable.DerivePortableWorkloadCatalogFacts(workloads)
+	if err != nil {
+		return nil, err
+	}
 	result := remoteportable.PortableValidationResult{
 		SchemaVersion: remoteportable.PortableValidationResultSchema, Status: remoteportable.PortableValidationResultStatusValidated,
 		ContractID: binding.Manifest.ContractID, Authority: remoteportable.PortableValidationResultAuthority,
 		ExecutionPoolContract: remoteportable.PortableManifestContractID, OperationID: binding.OperationID,
 		RepositoryID: binding.RepositoryID, ObjectFormat: binding.ObjectFormat, TargetCommitSHA: binding.CommitSHA,
 		TargetTreeSHA: binding.TreeSHA, ManifestPath: binding.ManifestPath, ManifestBlobSHA256: binding.ManifestBlobSHA256,
-		ManifestDigest: binding.ManifestDigest, EngineFacts: binding.EngineFacts, DescriptorSHA256: descriptorDigest, BindingSHA256: binding.BindingSHA256,
+		ManifestDigest: binding.ManifestDigest, CatalogDigest: catalogFacts.CatalogDigest,
+		WorkloadCount: catalogFacts.WorkloadCount, LinuxWorkloadCount: catalogFacts.LinuxWorkloadCount, WindowsWorkloadCount: catalogFacts.WindowsWorkloadCount,
+		EngineFacts: binding.EngineFacts, DescriptorSHA256: descriptorDigest, BindingSHA256: binding.BindingSHA256,
+	}
+	if err := remoteportable.ValidatePortableWorkloadCatalogProof(result, workloads); err != nil {
+		return nil, err
 	}
 	data, err := remoteportable.EncodePortableValidationResult(result)
 	if err != nil {

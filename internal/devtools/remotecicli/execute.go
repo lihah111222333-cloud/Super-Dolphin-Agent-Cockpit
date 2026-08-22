@@ -382,7 +382,7 @@ func remoteCIEngineABIComponents() []remoteCIEngineABIComponent {
 			remoteportable.PortableRunRequestSchemaVersion, remoteportable.PortableManifestSchemaVersion,
 			remoteportable.PortableManifestContractID, remoteportable.PortableRunBindingDigestDomain,
 			remoteportable.PortableManifestDigestDomain, remoteportable.PortableManifestABIDigestDomain,
-			remoteportable.PortableManifestWorkloadExecutionDigestDomain, remoteportable.PortableManifestCapacityPolicyDigestDomain,
+			remoteportable.PortableManifestWorkloadExecutionDigestDomain, remoteportable.PortableManifestCapacityPolicyDigestDomain, remoteportable.PortableWorkloadCatalogDigestDomain,
 			remoteportable.PortableBindingProtocolABIDigestDomain,
 		}, Digest: remoteportable.PortableBindingProtocolABIDigest},
 		{Name: "remoteruntime", Constants: []string{

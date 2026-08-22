@@ -172,10 +172,13 @@ func validatePortableValidationTarget(result PortableValidationResult) error {
 }
 
 func validatePortableValidationDigests(result PortableValidationResult) error {
-	for _, digest := range []string{result.ManifestBlobSHA256, result.ManifestDigest, result.DescriptorSHA256, result.BindingSHA256} {
+	for _, digest := range []string{result.ManifestBlobSHA256, result.ManifestDigest, result.CatalogDigest, result.DescriptorSHA256, result.BindingSHA256} {
 		if !validPortableDigest(digest) {
 			return errors.New("portable validation result digest is invalid")
 		}
 	}
-	return nil
+	return ValidatePortableWorkloadCatalogFacts(PortableWorkloadCatalogFacts{
+		CatalogDigest: result.CatalogDigest, WorkloadCount: result.WorkloadCount,
+		LinuxWorkloadCount: result.LinuxWorkloadCount, WindowsWorkloadCount: result.WindowsWorkloadCount,
+	})
 }

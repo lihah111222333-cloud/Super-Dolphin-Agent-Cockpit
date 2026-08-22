@@ -171,6 +171,11 @@ func TestPortableBindingCrossRepositoryV3WJFixturesUseSameEngineFacts(t *testing
 	manifestWJ := topManifestFixture(t)
 	manifestWJ.Target.RepositoryID = "wjboot-v2"
 	manifestWJ.Modules[0].ModulePath = "example.invalid/wjboot-v2"
+	extra := manifestWJ.Workloads[0]
+	extra.UnitID = "go-test/wj-extra"
+	extra.ExecutionDigest = mustPortableWorkloadExecutionDigest(t, extra)
+	manifestWJ.Workloads = append(manifestWJ.Workloads, extra)
+	manifestWJ.CapacityPolicyDigest = mustPortableCapacityPolicyDigest(t, manifestWJ)
 	assertPortableDualPlatformFixture(t, manifestV3)
 	assertPortableDualPlatformFixture(t, manifestWJ)
 	bytesV3 := mustPortableManifestBytes(t, manifestV3)
@@ -182,6 +187,51 @@ func TestPortableBindingCrossRepositoryV3WJFixturesUseSameEngineFacts(t *testing
 	if bindingV3.ManifestDigest == bindingWJ.ManifestDigest || bindingV3.BindingSHA256 == bindingWJ.BindingSHA256 {
 		t.Fatal("cross-repository V3/WJ fixtures collapsed distinct target identities")
 	}
+	if !reflect.DeepEqual(bindingV3.EngineFacts, bindingWJ.EngineFacts) {
+		t.Fatal("cross-repository V3/WJ fixtures did not use the same engine facts")
+	}
+	catalogV3 := mustPortableWorkloadCatalogFacts(t, bindingV3.Manifest.Workloads)
+	catalogWJ := mustPortableWorkloadCatalogFacts(t, bindingWJ.Manifest.Workloads)
+	if catalogV3.CatalogDigest == catalogWJ.CatalogDigest || catalogV3.WorkloadCount == catalogWJ.WorkloadCount {
+		t.Fatalf("cross-repository V3/WJ fixtures collapsed distinct workload catalogs: v3=%#v wj=%#v", catalogV3, catalogWJ)
+	}
+	t.Logf("same_engine=true binding_abi=%s v3_workloads=%d linux=%d windows=%d catalog=%s wj_workloads=%d linux=%d windows=%d catalog=%s", mustPortableBindingABIDigest(t), catalogV3.WorkloadCount, catalogV3.LinuxWorkloadCount, catalogV3.WindowsWorkloadCount, catalogV3.CatalogDigest, catalogWJ.WorkloadCount, catalogWJ.LinuxWorkloadCount, catalogWJ.WindowsWorkloadCount, catalogWJ.CatalogDigest)
+}
+
+func mustPortableWorkloadExecutionDigest(t testing.TB, workload PortableManifestWorkload) string {
+	t.Helper()
+	digest, err := DerivePortableWorkloadExecutionDigest(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
+func mustPortableWorkloadCatalogFacts(t testing.TB, workloads []PortableManifestWorkload) PortableWorkloadCatalogFacts {
+	t.Helper()
+	facts, err := DerivePortableWorkloadCatalogFacts(workloads)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return facts
+}
+
+func mustPortableCapacityPolicyDigest(t testing.TB, manifest PortableManifest) string {
+	t.Helper()
+	digest, err := DerivePortableCapacityPolicyDigest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
+func mustPortableBindingABIDigest(t testing.TB) string {
+	t.Helper()
+	digest, err := PortableBindingProtocolABIDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 
 func assertPortableDualPlatformFixture(t *testing.T, manifest PortableManifest) {
@@ -232,6 +282,7 @@ func TestPortableValidationResultStrictCanonicalAndFieldRegistry(t *testing.T) {
 		ExecutionPoolContract: PortableManifestContractID, OperationID: strings.Repeat("b", 64), RepositoryID: "fixture",
 		ObjectFormat: "sha1", TargetCommitSHA: strings.Repeat("1", 40), TargetTreeSHA: strings.Repeat("2", 40),
 		ManifestPath: ".super-dolphin/remote-ci-workloads.json", ManifestBlobSHA256: digest, ManifestDigest: digest,
+		CatalogDigest: digest, WorkloadCount: 1, LinuxWorkloadCount: 1, WindowsWorkloadCount: 0,
 		EngineFacts:      PortableEngineFacts{BinarySHA256: digest, ProtocolABIDigest: digest, ToolchainDigest: digest, Capabilities: []string{"go"}},
 		DescriptorSHA256: digest, BindingSHA256: digest,
 	}

@@ -41,7 +41,7 @@ manifest 必须声明：
 - schema_version、contract_id；operation_id 属于外部 request binding，不能写入 repository-owned manifest；
 - engine static policy：required_protocol_abi_digest、required_toolchain_digest 和 required engine capabilities；actual binary/protocol/toolchain facts 由 composition 从正在运行的独立 binary 与 runtime 计算，不能由 manifest 或 descriptor 冒充；
 - target repository_id、object_format 和 repo-relative worktree mount；exact commit_sha、tree_sha、manifest_path 与 manifest_blob_sha256 只由外部 binding 显式携带，不能写入 target tree manifest；
-- workload 的稳定 unit_id、命令摘要、target platform、runtime capability、CPU/内存需求、历史估时和 execution digest；
+- workload 的稳定 unit_id、命令摘要、target platform、runtime capability、CPU/内存需求、历史估时和 execution digest；validate 必须从 bound exact tree 派生完整 workload catalog，按 canonical wire fields 排序并输出 catalog_digest、workload_count、linux_workload_count、windows_workload_count proof；
 - Go catalog 的 modules 与 excluded_nested_modules 必须绑定 exact tree：composition 枚举全部 go.mod，逐项核对声明 module path；excluded_nested_modules 必须排序唯一、对应声明模块下未声明的 nested go.mod。未声明且未排除的 nested go.mod、stale/重复/包含 declared module 的排除项均 fail-fast，生成 package 不得穿透排除 subtree；
 - profile、capacity_policy_digest、required node capabilities 和日志策略。
 
@@ -82,7 +82,7 @@ Windows 节点不共享 object store、repository、worktree、cache、manifest 
 
 ## 6. Observable logs
 
-stdout 对每个可解析调用只能输出一个 bounded canonical JSON object。validate 只输出 named/canonical remote-ci-validation-result/v1（schema_version、status=validated、contract_id、authority=LOCAL_NON_AUTHORITATIVE、execution_pool_contract、operation_id、target facts、manifest digests、完整 actual engine facts 和 binding facts），validate 的 stderr 必须为空；未取得 PostgreSQL authority generation 前不得输出 remote-ci-event/v1。validate 不得冒充 terminal result 或声称已选择节点；只有 execute terminal 才输出 remote-ci-result/v1。terminal result 是一次 request 的唯一 aggregate，至少包含 status、operation_id、request_digest、manifest_digest、plan_digest、executor_binding_digest、node_set_digest、started_at、finished_at、exit_code、cleanup_state，以及按 node_id 排序且携带实际 node/executor/digest/终态/清理事实的 shards；CapacityBlocker 在未产生 plan 时 shards 必须为空并携带稳定 code。
+stdout 对每个可解析调用只能输出一个 bounded canonical JSON object。validate 只输出 named/canonical remote-ci-validation-result/v1（schema_version、status=validated、contract_id、authority=LOCAL_NON_AUTHORITATIVE、execution_pool_contract、operation_id、target facts、manifest digests、catalog_digest 与精确 workload/platform counts、完整 actual engine facts 和 binding facts），validate 的 stderr 必须为空；未取得 PostgreSQL authority generation 前不得输出 remote-ci-event/v1。validate 不得冒充 terminal result 或声称已选择节点；只有 execute terminal 才输出 remote-ci-result/v1。terminal result 是一次 request 的唯一 aggregate，至少包含 status、operation_id、request_digest、manifest_digest、plan_digest、executor_binding_digest、node_set_digest、started_at、finished_at、exit_code、cleanup_state，以及按 node_id 排序且携带实际 node/executor/digest/终态/清理事实的 shards；CapacityBlocker 在未产生 plan 时 shards 必须为空并携带稳定 code。
 
 stderr 只允许 JSONL remote-ci-event/v1。每行必须包含 operation_id、manifest_digest、plan_digest、executor_binding_digest、node_set_digest、严格递增 seq、RFC3339 时间、固定 stage、state、稳定 code 和按 node_id 排序的 shard 投影；request_validation、manifest_binding、capacity_snapshot 在 reservation 前使用空 shards，reservation 及后续阶段必须与 terminal aggregate 的实际 shard set exact 一致，CapacityBlocker 全链保持空 shards。允许阶段固定为 request_validation、manifest_binding、capacity_snapshot、reservation、materialize、execute、cleanup、terminal。禁止自由文本、凭据、token、绝对路径、raw command、raw provider response 和底层 error string。日志 channel 写失败必须阻断并在 PG 中保留 bounded failure code。
 

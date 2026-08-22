@@ -127,11 +127,22 @@ func assertPortableValidationTarget(t *testing.T, decoded remoteportable.Portabl
 	if decoded.EngineFacts.ProtocolABIDigest == "" || decoded.EngineFacts.ToolchainDigest == "" || len(decoded.EngineFacts.Capabilities) != 1 {
 		t.Fatalf("validation result omitted exact engine facts: %#v", decoded)
 	}
+	assertPortableValidationCatalogFacts(t, decoded)
+}
+
+func assertPortableValidationCatalogFacts(t *testing.T, decoded remoteportable.PortableValidationResult) {
+	t.Helper()
+	if decoded.CatalogDigest == "" || decoded.WorkloadCount != decoded.LinuxWorkloadCount+decoded.WindowsWorkloadCount {
+		t.Fatalf("validation result catalog counts drifted: %#v", decoded)
+	}
+	if decoded.LinuxWorkloadCount == 0 || decoded.WindowsWorkloadCount == 0 {
+		t.Fatalf("validation result omitted a target platform catalog: %#v", decoded)
+	}
 }
 
 func assertPortableValidationWire(t *testing.T, stdout string) {
 	t.Helper()
-	for _, required := range []string{`"schema_version":"remote-ci-validation-result/v1"`, `"binding_sha256":"sha256:`, `"contract_id":"remote-ci-four-node/v1"`, `"authority":"LOCAL_NON_AUTHORITATIVE"`, `"execution_pool_contract":"remote-ci-four-node/v1"`, `"repository_id":"fixture"`, `"object_format":"sha1"`, `"manifest_path":"ci/workloads.json"`, `"engine_facts"`, `"protocol_abi_digest":"sha256:`, `"toolchain_digest":"sha256:`, `"capabilities":["go"]`, `"status":"validated"`} {
+	for _, required := range []string{`"schema_version":"remote-ci-validation-result/v1"`, `"binding_sha256":"sha256:`, `"catalog_digest":"sha256:`, `"workload_count":`, `"linux_workload_count":`, `"windows_workload_count":`, `"contract_id":"remote-ci-four-node/v1"`, `"authority":"LOCAL_NON_AUTHORITATIVE"`, `"execution_pool_contract":"remote-ci-four-node/v1"`, `"repository_id":"fixture"`, `"object_format":"sha1"`, `"manifest_path":"ci/workloads.json"`, `"engine_facts"`, `"protocol_abi_digest":"sha256:`, `"toolchain_digest":"sha256:`, `"capabilities":["go"]`, `"status":"validated"`} {
 		if !strings.Contains(stdout, required) {
 			t.Fatalf("validation output omitted %q: %q", required, stdout)
 		}

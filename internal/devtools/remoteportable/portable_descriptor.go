@@ -87,6 +87,10 @@ type PortableValidationResult struct {
 	ManifestPath          string              `json:"manifest_path"`
 	ManifestBlobSHA256    string              `json:"manifest_blob_sha256"`
 	ManifestDigest        string              `json:"manifest_digest"`
+	CatalogDigest         string              `json:"catalog_digest"`
+	WorkloadCount         int                 `json:"workload_count"`
+	LinuxWorkloadCount    int                 `json:"linux_workload_count"`
+	WindowsWorkloadCount  int                 `json:"windows_workload_count"`
 	EngineFacts           PortableEngineFacts `json:"engine_facts"`
 	DescriptorSHA256      string              `json:"descriptor_sha256"`
 	BindingSHA256         string              `json:"binding_sha256"`

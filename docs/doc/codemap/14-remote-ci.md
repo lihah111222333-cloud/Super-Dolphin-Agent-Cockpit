@@ -14,9 +14,10 @@
 ## Coordinator、传输与 worker
 
 - `internal/devtools/remoteportable/`：portable manifest、external locator binding 与 exact target identity。
+- `internal/devtools/remoteportable/workload_catalog.go`：provider-neutral canonical workload catalog digest、平台计数和 result proof 校验。
 - `internal/devtools/heteroci/`：动态节点探针、容量规划、本地非权威路由与 CapacityBlocker。
 - `internal/devtools/heterociworkflow/`：单 executor binding 的通用工作流生命周期。
-- `internal/devtools/remotecicli/portable_validate.go`：只输出 strict validation result；不得执行 workload。
+- `internal/devtools/remotecicli/portable_validate.go`：只输出 strict validation result；不得执行 workload；validate 先从 bound exact tree 调用 `expandBoundPortableRepositoryCatalog`，输出 catalog digest 与 Linux/Windows workload proof。
 
 ## 契约、SQLite 与阿里云边界
 
