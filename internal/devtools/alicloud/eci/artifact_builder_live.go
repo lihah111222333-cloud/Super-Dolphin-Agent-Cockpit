@@ -115,6 +115,9 @@ func validateArtifactBuilderLiveInfrastructure(request ArtifactBuilderRequest, g
 type artifactBuilderParsedCommand struct {
 	provider     string
 	compilerPath string
+	subcommand   string
+	artifactKind string
+	artifactRef  string
 	input        ArtifactBuilderInput
 	bucket       string
 	endpoint     string
@@ -148,7 +151,7 @@ func mapArtifactBuilderGroup(live ContainerGroup) (ArtifactBuilderGroup, error) 
 	}
 	return ArtifactBuilderGroup{
 		ID: live.ID, Name: live.Name, Provider: parsed.provider, RegionID: live.RegionID,
-		Image: container.Image, ImageSnapshotID: live.ImageSnapshotID, CompilerPath: parsed.compilerPath, Command: artifactBuilderGroupCommand(container.Command, container.Args),
+		Image: container.Image, ImageSnapshotID: live.ImageSnapshotID, CompilerPath: parsed.compilerPath, Command: artifactBuilderGroupCommand(container.Command, parsed),
 		Input: parsed.input, EphemeralStorageGiB: live.EphemeralStorageGiB, CPU: live.CPU, MemoryGiB: live.MemoryGiB,
 		VSwitches: vSwitches, SecurityGroupID: live.SecurityGroupID, RAMRoleName: live.RAMRoleName,
 		OSSBucket: parsed.bucket, OSSInternalEndpoint: parsed.endpoint, Tags: tags, Status: status,
@@ -174,10 +177,10 @@ func artifactBuilderLiveStatus(status string) (string, error) {
 	}
 }
 
-func artifactBuilderGroupCommand(command, args []string) []string {
+func artifactBuilderGroupCommand(command []string, parsed artifactBuilderParsedCommand) []string {
 	result := append([]string(nil), command...)
-	if len(command) == 1 && len(args) > 0 && args[0] == ArtifactBuilderSubcommand {
-		result = append(result, ArtifactBuilderSubcommand)
+	if len(command) == 1 && validArtifactBuilderProtocolTuple(parsed.artifactKind, parsed.artifactRef, []string{command[0], parsed.subcommand}) {
+		result = append(result, parsed.subcommand)
 	}
 	return result
 }
@@ -217,7 +220,7 @@ func parseArtifactBuilderContainerCommand(command, args []string) (artifactBuild
 	if err != nil {
 		return artifactBuilderParsedCommand{}, err
 	}
-	if err := validateArtifactBuilderParsedFlags(values); err != nil {
+	if err := validateArtifactBuilderParsedFlags(args[0], values); err != nil {
 		return artifactBuilderParsedCommand{}, err
 	}
 	if err := validateArtifactBuilderCompilerPath(values["--compiler-path"]); err != nil {
@@ -235,7 +238,7 @@ func parseArtifactBuilderContainerCommand(command, args []string) (artifactBuild
 	if err := validateArtifactBuilderOSSIdentity(values["--oss-bucket"], values["--oss-endpoint"]); err != nil || !artifactBuilderTokenPattern.MatchString(values["--ram-role-name"]) {
 		return artifactBuilderParsedCommand{}, fmt.Errorf("%w: live builder OSS or RAM identity is invalid", ErrArtifactBuilderIdentityDrift)
 	}
-	return artifactBuilderParsedCommand{provider: values["--execution-provider"], compilerPath: values["--compiler-path"], input: input, bucket: values["--oss-bucket"], endpoint: values["--oss-endpoint"], role: values["--ram-role-name"]}, nil
+	return artifactBuilderParsedCommand{provider: values["--execution-provider"], compilerPath: values["--compiler-path"], subcommand: args[0], artifactKind: values["--artifact-kind"], artifactRef: values["--artifact-ref"], input: input, bucket: values["--oss-bucket"], endpoint: values["--oss-endpoint"], role: values["--ram-role-name"]}, nil
 }
 
 // validateArtifactBuilderContainerCommandShape 校验 provider 可选 command 与必需完整 args 的实时形状。
@@ -243,7 +246,7 @@ func validateArtifactBuilderContainerCommandShape(command, args []string) error 
 	if len(command) > 0 && (len(command) != 1 || command[0] != ArtifactBuilderCommand) {
 		return fmt.Errorf("%w: live builder command is missing or drifted", ErrArtifactBuilderIdentityDrift)
 	}
-	if len(args) < 2 || args[0] != ArtifactBuilderSubcommand {
+	if len(args) < 2 || args[0] != ArtifactBuilderSubcommand && args[0] != RuntimeArtifactBuilderSubcommand {
 		return fmt.Errorf("%w: live builder subcommand is missing or drifted", ErrArtifactBuilderIdentityDrift)
 	}
 	return nil
@@ -274,14 +277,15 @@ func parseArtifactBuilderFlags(args []string) (map[string]string, error) {
 }
 
 // validateArtifactBuilderParsedFlags 校验 live argv 的固定协议字段集合。
-func validateArtifactBuilderParsedFlags(values map[string]string) error {
+func validateArtifactBuilderParsedFlags(subcommand string, values map[string]string) error {
 	required := []string{"--compiler-path", "--execution-provider", "--artifact-kind", "--artifact-ref", "--artifact-prefix", "--input-key", "--input-sha256", "--input-size-bytes", "--repository-id", "--object-format", "--source-commit-sha", "--source-tree-sha", "--expected-builder-digest", "--expected-toolchain-digest", "--protocol-abi-digest", "--workload-manifest-abi-digest", "--oss-bucket", "--oss-endpoint", "--ram-role-name"}
 	for _, key := range required {
 		if strings.TrimSpace(values[key]) == "" {
 			return fmt.Errorf("%w: live builder command omitted %s", ErrArtifactBuilderIdentityDrift, key)
 		}
 	}
-	if values["--execution-provider"] != ArtifactBuilderProvider || values["--artifact-kind"] != ArtifactBuilderArtifactKind || values["--artifact-ref"] != ArtifactBuilderArtifactRef {
+	command := []string{ArtifactBuilderCommand, subcommand}
+	if values["--execution-provider"] != ArtifactBuilderProvider || !validArtifactBuilderProtocolTuple(values["--artifact-kind"], values["--artifact-ref"], command) {
 		return fmt.Errorf("%w: live builder artifact protocol drifted", ErrArtifactBuilderIdentityDrift)
 	}
 	return nil

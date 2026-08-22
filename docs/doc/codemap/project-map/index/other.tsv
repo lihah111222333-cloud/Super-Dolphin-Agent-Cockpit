@@ -1028,6 +1028,8 @@ internal/devtools/remotecicli/repository_module_identity.go	internal	other	go-so
 internal/devtools/remotecicli/repository_module_identity_test.go	internal	other	go-test	1911	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/runtime_artifact_build_output.go	internal	other	go-source	1053	开发工具与生成器辅助包	internal,devtools,remotecicli,runtime,artifact,build,output,开发工具与生成器辅助包
 internal/devtools/remotecicli/runtime_artifact_build_output_test.go	internal	other	go-test	1048	开发工具与生成器辅助包	internal,devtools,remotecicli,runtime,artifact,build,output,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/runtime_artifact_builder_runtime.go	internal	other	go-source	12552	开发工具与生成器辅助包	internal,devtools,remotecicli,runtime,artifact,builder,开发工具与生成器辅助包
+internal/devtools/remotecicli/runtime_artifact_builder_runtime_test.go	internal	other	go-test	7684	开发工具与生成器辅助包	internal,devtools,remotecicli,runtime,artifact,builder,test,开发工具与生成器辅助包
 internal/devtools/remoteciruntime/config.go	internal	other	go-source	4759	开发工具与生成器辅助包	internal,devtools,remoteciruntime,config,开发工具与生成器辅助包
 internal/devtools/remoteciruntime/config_test.go	internal	other	go-test	1120	开发工具与生成器辅助包	internal,devtools,remoteciruntime,config,test,开发工具与生成器辅助包
 internal/devtools/remoteciruntime/coordinator.go	internal	other	go-source	4333	开发工具与生成器辅助包	internal,devtools,remoteciruntime,coordinator,开发工具与生成器辅助包

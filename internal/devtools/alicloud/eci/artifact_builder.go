@@ -28,6 +28,12 @@ const (
 	ArtifactBuilderCommand = "/usr/local/bin/super-dolphin-remote-ci"
 	// ArtifactBuilderSubcommand 是同一独立远程 CI 二进制的内部 builder worker 入口。
 	ArtifactBuilderSubcommand = "_artifact-build"
+	// RuntimeArtifactBuilderArtifactKind 是 normal portable executable 的唯一 byte domain。
+	RuntimeArtifactBuilderArtifactKind = "portable-remote-ci-runtime/v1"
+	// RuntimeArtifactBuilderArtifactRef 固定 executable 的 linux/amd64 交付身份。
+	RuntimeArtifactBuilderArtifactRef = "super-dolphin-remote-ci-linux-amd64"
+	// RuntimeArtifactBuilderSubcommand 是同一独立远程 CI 二进制的 runtime worker 入口。
+	RuntimeArtifactBuilderSubcommand = "_runtime-artifact-build"
 	// ArtifactBuilderScheduleStrategy 是 builder 请求固定的多可用区调度策略。
 	ArtifactBuilderScheduleStrategy = cicontract.ECIMultiZoneScheduleStrategy
 	// ArtifactBuilderEphemeralStorageGiB 是每个 builder ECI group 的固定临时盘容量。
@@ -128,32 +134,38 @@ type ArtifactBuilderRequest struct {
 // NewArtifactBuilderRequest 构造并校验一个固定 source-baseline builder 请求。
 // 所有运行时身份来自 config；固定 kind/ref/command 不是可变默认值。
 func NewArtifactBuilderRequest(config ArtifactBuilderConfig) (ArtifactBuilderRequest, error) {
-	request := ArtifactBuilderRequest{
-		Provider:            config.Provider,
-		RegionID:            config.RegionID,
-		ContainerGroupName:  config.ContainerGroupName,
-		ContainerName:       config.ContainerName,
-		CompilerPath:        config.CompilerPath,
-		Image:               config.Image,
-		ImageSnapshotID:     config.ImageSnapshotID,
-		EphemeralStorageGiB: config.EphemeralStorageGiB,
-		CPU:                 config.CPU,
-		MemoryGiB:           config.MemoryGiB,
-		VSwitches:           append([]cicontract.ECIVSwitch(nil), config.VSwitches...),
-		ScheduleStrategy:    ArtifactBuilderScheduleStrategy,
-		SecurityGroupID:     config.SecurityGroupID,
-		RAMRoleName:         config.RAMRoleName,
-		OSSBucket:           config.OSSBucket,
-		OSSInternalEndpoint: config.OSSInternalEndpoint,
-		ArtifactKind:        ArtifactBuilderArtifactKind,
-		ArtifactRef:         ArtifactBuilderArtifactRef,
-		Command:             []string{ArtifactBuilderCommand, ArtifactBuilderSubcommand},
-		Input:               config.Input,
-	}
+	request := artifactBuilderRequestFromConfig(config)
+	request.ArtifactKind = ArtifactBuilderArtifactKind
+	request.ArtifactRef = ArtifactBuilderArtifactRef
+	request.Command = []string{ArtifactBuilderCommand, ArtifactBuilderSubcommand}
 	if err := request.Validate(); err != nil {
 		return ArtifactBuilderRequest{}, err
 	}
 	return request, nil
+}
+
+// NewRuntimeArtifactBuilderRequest 构造同一 aliyun-eci/v1 actor 使用的 normal runtime builder 请求。
+func NewRuntimeArtifactBuilderRequest(config ArtifactBuilderConfig) (ArtifactBuilderRequest, error) {
+	request := artifactBuilderRequestFromConfig(config)
+	request.ArtifactKind = RuntimeArtifactBuilderArtifactKind
+	request.ArtifactRef = RuntimeArtifactBuilderArtifactRef
+	request.Command = []string{ArtifactBuilderCommand, RuntimeArtifactBuilderSubcommand}
+	if err := request.Validate(); err != nil {
+		return ArtifactBuilderRequest{}, err
+	}
+	return request, nil
+}
+
+func artifactBuilderRequestFromConfig(config ArtifactBuilderConfig) ArtifactBuilderRequest {
+	return ArtifactBuilderRequest{
+		Provider: config.Provider, RegionID: config.RegionID, ContainerGroupName: config.ContainerGroupName,
+		ContainerName: config.ContainerName, CompilerPath: config.CompilerPath, Image: config.Image,
+		ImageSnapshotID: config.ImageSnapshotID, EphemeralStorageGiB: config.EphemeralStorageGiB,
+		CPU: config.CPU, MemoryGiB: config.MemoryGiB, VSwitches: append([]cicontract.ECIVSwitch(nil), config.VSwitches...),
+		ScheduleStrategy: ArtifactBuilderScheduleStrategy, SecurityGroupID: config.SecurityGroupID,
+		RAMRoleName: config.RAMRoleName, OSSBucket: config.OSSBucket, OSSInternalEndpoint: config.OSSInternalEndpoint,
+		Input: config.Input,
+	}
 }
 
 // BuildArtifactBuilderRequest 是 NewArtifactBuilderRequest 的语义化别名。
@@ -265,13 +277,25 @@ func (request ArtifactBuilderRequest) validateInfrastructureIdentity() error {
 
 // validateProtocol 校验同一独立 binary 的内部 builder 子命令与 artifact 协议。
 func (request ArtifactBuilderRequest) validateProtocol() error {
-	if request.ArtifactKind != ArtifactBuilderArtifactKind || request.ArtifactRef != ArtifactBuilderArtifactRef {
-		return errors.New("artifact builder kind or ref is not the portable source-baseline contract")
-	}
-	if len(request.Command) != 2 || request.Command[0] != ArtifactBuilderCommand || request.Command[1] != ArtifactBuilderSubcommand {
-		return errors.New("artifact builder command must be the fixed portable source-baseline builder")
+	if !validArtifactBuilderProtocolTuple(request.ArtifactKind, request.ArtifactRef, request.Command) {
+		return errors.New("artifact builder kind, ref, or command is not a registered portable builder contract")
 	}
 	return nil
+}
+
+// validArtifactBuilderProtocolTuple 只接受 source-baseline 或 normal runtime 两个固定 kind/ref/command tuple。
+func validArtifactBuilderProtocolTuple(kind, ref string, command []string) bool {
+	if len(command) != 2 || command[0] != ArtifactBuilderCommand {
+		return false
+	}
+	return validArtifactBuilderKindRef(kind, ref) &&
+		(kind == ArtifactBuilderArtifactKind && command[1] == ArtifactBuilderSubcommand ||
+			kind == RuntimeArtifactBuilderArtifactKind && command[1] == RuntimeArtifactBuilderSubcommand)
+}
+
+func validArtifactBuilderKindRef(kind, ref string) bool {
+	return kind == ArtifactBuilderArtifactKind && ref == ArtifactBuilderArtifactRef ||
+		kind == RuntimeArtifactBuilderArtifactKind && ref == RuntimeArtifactBuilderArtifactRef
 }
 
 // Validate 校验输入对象 key、Git object identity 与 producer/toolchain digest。

@@ -21,6 +21,44 @@ func TestArtifactBuilderRequestBindsPortableSourceBaseline(t *testing.T) {
 	assertArtifactBuilderCommand(t, request)
 }
 
+// TestRuntimeArtifactBuilderLiveTupleRejectsCrossPairs 锁定 runtime live tuple 与 source 域隔离。
+func TestRuntimeArtifactBuilderLiveTupleRejectsCrossPairs(t *testing.T) {
+	request, err := NewRuntimeArtifactBuilderRequest(testArtifactBuilderConfig())
+	if err != nil {
+		t.Fatalf("NewRuntimeArtifactBuilderRequest() error = %v", err)
+	}
+	command, err := request.CommandLine()
+	if err != nil {
+		t.Fatalf("CommandLine() error = %v", err)
+	}
+	parsed, err := parseArtifactBuilderContainerCommand(command[:1], command[1:])
+	if err != nil {
+		t.Fatalf("runtime live tuple rejected: %v", err)
+	}
+	if got := artifactBuilderGroupCommand(command[:1], parsed); !reflect.DeepEqual(got, request.Command) {
+		t.Fatalf("runtime live group command = %#v, want %#v", got, request.Command)
+	}
+	crossPairs := [][]string{append([]string{ArtifactBuilderSubcommand}, command[2:]...), append([]string{RuntimeArtifactBuilderSubcommand}, sourceBuilderArgsForTest(t)...)}
+	for _, args := range crossPairs {
+		if _, err := parseArtifactBuilderContainerCommand(command[:1], args); err == nil {
+			t.Fatalf("cross-pair live tuple accepted: %#v", args[:5])
+		}
+	}
+}
+
+func sourceBuilderArgsForTest(t *testing.T) []string {
+	t.Helper()
+	request, err := NewArtifactBuilderRequest(testArtifactBuilderConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, err := request.CommandLine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return command[2:]
+}
+
 // TestArtifactBuilderRequestAcceptsImmutableRegistryPort 验证 ImageCache 回执中的显式 registry 端口可进入唯一 builder 请求。
 func TestArtifactBuilderRequestAcceptsImmutableRegistryPort(t *testing.T) {
 	config := testArtifactBuilderConfig()
