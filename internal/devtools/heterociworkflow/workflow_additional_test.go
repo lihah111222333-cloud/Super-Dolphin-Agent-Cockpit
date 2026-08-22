@@ -121,11 +121,15 @@ func TestWorkflowRejectsBatchStatusOutsideNotVerified(t *testing.T) {
 
 func TestWorkflowOperationIDsAreDeterministicAndPhaseSeparated(t *testing.T) {
 	units := []heteroci.ExecutionUnit{{UnitID: "unit-1"}, {UnitID: "unit-2"}}
-	first, err := deriveRunOperationIDs("workflow-run-ids", units)
+	runIdentity, err := heteroci.DeriveTopologyRunIdentity("workflow-repository", strings.Repeat("a", 40), "workflow-run-ids")
+	if err != nil {
+		t.Fatalf("DeriveTopologyRunIdentity: %v", err)
+	}
+	first, err := deriveRunOperationIDs(runIdentity.DurableRunID, units)
 	if err != nil {
 		t.Fatalf("deriveRunOperationIDs first: %v", err)
 	}
-	second, err := deriveRunOperationIDs("workflow-run-ids", units)
+	second, err := deriveRunOperationIDs(runIdentity.DurableRunID, units)
 	if err != nil {
 		t.Fatalf("deriveRunOperationIDs second: %v", err)
 	}
@@ -146,6 +150,29 @@ func TestWorkflowOperationIDsAreDeterministicAndPhaseSeparated(t *testing.T) {
 	}
 }
 
+func TestWorkflowOperationIDsSeparateRepositoriesWithSameCallerRunID(t *testing.T) {
+	units := []heteroci.ExecutionUnit{{UnitID: "unit-1"}}
+	firstIdentity, err := heteroci.DeriveTopologyRunIdentity("workflow-repository", strings.Repeat("a", 40), "shared-run")
+	if err != nil {
+		t.Fatalf("DeriveTopologyRunIdentity first: %v", err)
+	}
+	secondIdentity, err := heteroci.DeriveTopologyRunIdentity("other-repository", strings.Repeat("a", 40), "shared-run")
+	if err != nil {
+		t.Fatalf("DeriveTopologyRunIdentity second: %v", err)
+	}
+	first, err := deriveRunOperationIDs(firstIdentity.DurableRunID, units)
+	if err != nil {
+		t.Fatalf("deriveRunOperationIDs first: %v", err)
+	}
+	second, err := deriveRunOperationIDs(secondIdentity.DurableRunID, units)
+	if err != nil {
+		t.Fatalf("deriveRunOperationIDs second: %v", err)
+	}
+	if first.plan == second.plan {
+		t.Fatal("same caller RunID across repositories produced the same plan operation identity")
+	}
+}
+
 func TestWorkflowBuildsOneDeterministicLocalWaveBatch(t *testing.T) {
 	fixture := newWorkflowFixture(&fakeExecutor{})
 	units := append([]heteroci.ExecutionUnit(nil), fixture.units...)
@@ -156,15 +183,16 @@ func TestWorkflowBuildsOneDeterministicLocalWaveBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	planID, err := DeriveOperationID(fixture.request.RunID, OperationPhasePlan, "")
+	runIdentity := workflowRunIdentity(t, fixture)
+	planID, err := DeriveOperationID(runIdentity.DurableRunID, OperationPhasePlan, "")
 	if err != nil {
 		t.Fatalf("DeriveOperationID: %v", err)
 	}
-	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, workflowPlanRequest(fixture, planID, units))
+	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, workflowPlanRequest(t, fixture, planID, units))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
-	batches, err := BuildBatches(fixture.request.RunID, fixture.manifest, planned, units, fixture.now, fixture.request.HeartbeatTTL)
+	batches, err := BuildBatches(string(runIdentity.DurableRunID), fixture.manifest, planned, units, fixture.now, fixture.request.HeartbeatTTL)
 	if err != nil {
 		t.Fatalf("BuildBatches: %v", err)
 	}
@@ -183,7 +211,7 @@ func assertSingleLocalWaveBatch(t *testing.T, fixture *workflowFixture, batches 
 	if len(batch.Units) != 2 || batch.Units[0].UnitID != "unit-1" || batch.Units[1].UnitID != "unit-2" || len(batch.Assignments) != 2 {
 		t.Fatalf("batch units/assignments = %#v/%#v", batch.Units, batch.Assignments)
 	}
-	wantID, err := DeriveBatchID(fixture.request.RunID, batch.Key, batch.Wave, []string{"unit-1", "unit-2"})
+	wantID, err := DeriveBatchID(batch.RunID, batch.Key, batch.Wave, []string{"unit-1", "unit-2"})
 	if err != nil {
 		t.Fatalf("DeriveBatchID: %v", err)
 	}
@@ -253,8 +281,12 @@ func TestWorkflowPlanRequestCarriesPerRunRepositoryAudit(t *testing.T) {
 	if _, err := Execute(t.Context(), fixture.deps, fixture.request); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if fixture.owner.planRequest.RepositoryID != fixture.request.RepositoryID || fixture.owner.planRequest.SourceTreeSHA != fixture.request.SourceTreeSHA {
-		t.Fatalf("owner plan audit = %q/%q, want %q/%q", fixture.owner.planRequest.RepositoryID, fixture.owner.planRequest.SourceTreeSHA, fixture.request.RepositoryID, fixture.request.SourceTreeSHA)
+	identity := fixture.owner.planRequest.RunIdentity
+	if identity.RepositoryID != fixture.request.RepositoryID || identity.SourceTreeSHA != fixture.request.SourceTreeSHA || identity.CallerRunID != fixture.request.RunID {
+		t.Fatalf("owner plan audit = %#v, want %q/%q/%q", identity, fixture.request.RepositoryID, fixture.request.SourceTreeSHA, fixture.request.RunID)
+	}
+	if err := identity.Validate(); err != nil {
+		t.Fatalf("owner plan durable identity: %v", err)
 	}
 }
 

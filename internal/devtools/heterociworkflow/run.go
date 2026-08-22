@@ -35,27 +35,32 @@ func (workflow *Workflow) Run(ctx context.Context, request RunRequest) (RunResul
 	}
 	prepared.state = newExecutionState(prepared.planned)
 	if err := workflow.prepareExecution(ctx, request, &prepared); err != nil {
-		return RunResult{}, workflow.failPlannedRun(ctx, request.RunID, &prepared, err)
+		return RunResult{}, workflow.failPlannedRun(ctx, string(prepared.runIdentity.DurableRunID), &prepared, err)
 	}
 	if err := workflow.executeRunBatches(ctx, request, &prepared); err != nil {
-		return RunResult{}, workflow.failPlannedRun(ctx, request.RunID, &prepared, err)
+		return RunResult{}, workflow.failPlannedRun(ctx, string(prepared.runIdentity.DurableRunID), &prepared, err)
 	}
 	return buildRunResult(prepared.manifest, prepared.planned, prepared.state), nil
 }
 
 type preparedRun struct {
-	acquired  heteroci.OwnerFence
-	ids       operationIDs
-	manifest  heteroci.Manifest
-	planned   heterociowner.DurableReservedRoutingPlan
-	state     *executionState
-	batches   []BatchPlan
-	executors map[ExecutorKey]BatchExecutor
+	acquired    heteroci.OwnerFence
+	runIdentity heteroci.TopologyRunIdentity
+	ids         operationIDs
+	manifest    heteroci.Manifest
+	planned     heterociowner.DurableReservedRoutingPlan
+	state       *executionState
+	batches     []BatchPlan
+	executors   map[ExecutorKey]BatchExecutor
 }
 
 // planRun 完成 strict load、owner acquire、initial snapshot 与 durable PlanAndReserve。
 func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (preparedRun, error) {
-	ids, err := deriveRunOperationIDs(request.RunID, request.Units)
+	runIdentity, err := heteroci.DeriveTopologyRunIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID)
+	if err != nil {
+		return preparedRun{}, fmt.Errorf("derive heteroci durable run identity: %w", err)
+	}
+	ids, err := deriveRunOperationIDs(runIdentity.DurableRunID, request.Units)
 	if err != nil {
 		return preparedRun{}, err
 	}
@@ -70,7 +75,7 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	if err := fence.Validate(); err != nil {
 		return preparedRun{}, fmt.Errorf("validate acquired heteroci owner fence: %w", err)
 	}
-	if err := workflow.rejectExistingRun(ctx, request.RunID); err != nil {
+	if err := workflow.rejectExistingRun(ctx, string(runIdentity.DurableRunID)); err != nil {
 		return preparedRun{}, err
 	}
 	now, err := workflow.now()
@@ -83,9 +88,7 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	}
 	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, heteroci.TopologyPlanRequest{
 		OperationID:    ids.plan,
-		RepositoryID:   request.RepositoryID,
-		SourceTreeSHA:  request.SourceTreeSHA,
-		RunID:          request.RunID,
+		RunIdentity:    runIdentity,
 		Manifest:       manifest,
 		SourceSnapshot: snapshot,
 		Units:          request.Units,
@@ -94,7 +97,7 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	if err != nil {
 		return preparedRun{}, fmt.Errorf("plan and reserve heteroci run: %w", err)
 	}
-	return preparedRun{acquired: fence, ids: ids, manifest: manifest, planned: planned}, nil
+	return preparedRun{acquired: fence, runIdentity: runIdentity, ids: ids, manifest: manifest, planned: planned}, nil
 }
 
 // prepareExecution 校验 durable read-back、构建批次并在首个 Start 前绑定全部 executor。
@@ -102,18 +105,18 @@ func (workflow *Workflow) prepareExecution(ctx context.Context, request RunReque
 	if err := validatePlannedProjection(prepared.acquired, prepared.ids.plan, request.Units, prepared.planned); err != nil {
 		return err
 	}
-	state, err := workflow.deps.Owner.ReadRun(ctx, request.RunID)
+	state, err := workflow.deps.Owner.ReadRun(ctx, string(prepared.runIdentity.DurableRunID))
 	if err != nil {
 		return fmt.Errorf("%w: read durable run before execution: %w", ErrExecutionState, err)
 	}
-	if err := validatePreExecutionRunState(prepared.acquired, request.RunID, prepared.manifest, request.Units, request.HeartbeatTTL, prepared.planned, state); err != nil {
+	if err := validatePreExecutionRunState(prepared.acquired, string(prepared.runIdentity.DurableRunID), prepared.manifest, request.Units, request.HeartbeatTTL, prepared.planned, state); err != nil {
 		return err
 	}
 	now, err := workflow.now()
 	if err != nil {
 		return err
 	}
-	prepared.batches, err = BuildBatches(request.RunID, prepared.manifest, prepared.planned, request.Units, now, request.HeartbeatTTL)
+	prepared.batches, err = BuildBatches(string(prepared.runIdentity.DurableRunID), prepared.manifest, prepared.planned, request.Units, now, request.HeartbeatTTL)
 	if err != nil {
 		return fmt.Errorf("%w: build execution batches: %w", ErrExecutionState, err)
 	}
@@ -204,7 +207,7 @@ func validateRunRequest(ctx context.Context, request RunRequest) error {
 }
 
 // deriveRunOperationIDs 在任何 owner mutation 前预计算整次运行的确定性 operation identity。
-func deriveRunOperationIDs(runID string, units []heteroci.ExecutionUnit) (operationIDs, error) {
+func deriveRunOperationIDs(runID heteroci.TopologyRunID, units []heteroci.ExecutionUnit) (operationIDs, error) {
 	plan, err := DeriveOperationID(runID, OperationPhasePlan, "")
 	if err != nil {
 		return operationIDs{}, err

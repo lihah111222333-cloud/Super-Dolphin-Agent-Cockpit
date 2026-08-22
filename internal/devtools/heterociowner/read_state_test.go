@@ -20,7 +20,7 @@ const (
 func TestOwnerReadStateCoversPlannedStartedAndTerminal(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
 	planID := operationID("a")
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, planID, readStateRunID, manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, planID, readStateRunID, manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestOwnerReadStateCoversPlannedStartedAndTerminal(t *testing.T) {
 
 	startAt := now.Add(time.Second)
 	owner.now = func() time.Time { return startAt }
-	started, err := owner.Start(context.Background(), plan.Fence, operationID("b"), readStateRunID, "unit-a", durableRoutingSnapshot(manifest, fence.OwnerEpoch, startAt))
+	started, err := owner.Start(context.Background(), plan.Fence, operationID("b"), topologyDurableRunID(t, readStateRunID), "unit-a", durableRoutingSnapshot(manifest, fence.OwnerEpoch, startAt))
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestOwnerReadStateCoversPlannedStartedAndTerminal(t *testing.T) {
 
 	finishAt := now.Add(2 * time.Second)
 	owner.now = func() time.Time { return finishAt }
-	finished, err := owner.Finish(context.Background(), started.Fence, operationID("c"), readStateRunID, "unit-a", heteroci.LeaseStateSucceeded)
+	finished, err := owner.Finish(context.Background(), started.Fence, operationID("c"), topologyDurableRunID(t, readStateRunID), "unit-a", heteroci.LeaseStateSucceeded)
 	if err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
@@ -47,12 +47,12 @@ func TestOwnerReadStateCoversPlannedStartedAndTerminal(t *testing.T) {
 func TestOwnerReadOperationDistinguishesMissingAndExactReplay(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
 	opID := operationID("d")
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
 	assertMissingReadOperation(t, owner, fence)
-	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second)); err != nil {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second)); err != nil {
 		t.Fatalf("exact PlanAndReserve replay: %v", err)
 	}
 	state, found, err := owner.ReadOperation(context.Background(), plan.Fence, opID)
@@ -121,16 +121,16 @@ func TestOwnerReadStateMissingIsExplicit(t *testing.T) {
 
 func TestOwnerReadRunRequiresRecoveryAfterTakeover(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID("f"), "run-recovery", manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID("f"), "run-recovery", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("old epoch PlanAndReserve: %v", err)
 	}
 	if _, err := owner.Acquire(context.Background()); err != nil {
 		t.Fatalf("takeover Acquire: %v", err)
 	}
-	history, err := owner.LocateRun(context.Background(), "run-recovery")
+	history, err := owner.LocateRun(context.Background(), topologyDurableRunID(t, "run-recovery"))
 	assertHistoricalRunState(t, history, err, plan.Fence)
-	state, err := owner.ReadRun(context.Background(), "run-recovery")
+	state, err := owner.ReadRun(context.Background(), topologyDurableRunID(t, "run-recovery"))
 	assertRecoveryRequired(t, state, err)
 }
 
@@ -160,7 +160,7 @@ func assertRecoveryRequired(t *testing.T, state DurableRunState, err error) {
 
 func TestOwnerLocateRunRejectsCrossEpochIdentityAmbiguity(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID("1"), "run-ambiguous", manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID("1"), "run-ambiguous", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("old epoch PlanAndReserve: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestOwnerLocateRunRejectsCrossEpochIdentityAmbiguity(t *testing.T) {
 	}
 	insertCrossEpochRunProjection(t, owner, fence.OwnerEpoch, newFence.OwnerEpoch, "run-ambiguous")
 	before := readReadStateMutationFingerprint(t, owner, fence, "run-ambiguous", plan.Fence.Revision)
-	history, err := owner.LocateRun(context.Background(), "run-ambiguous")
+	history, err := owner.LocateRun(context.Background(), topologyDurableRunID(t, "run-ambiguous"))
 	if err == nil {
 		t.Fatal("LocateRun accepted same-run projections from two owner epochs")
 	}
@@ -182,7 +182,7 @@ func TestOwnerLocateRunRejectsCrossEpochIdentityAmbiguity(t *testing.T) {
 		t.Fatalf("ambiguous LocateRun returned state: %#v", history)
 	}
 	assertReadStateErrorSafe(t, err)
-	state, err := owner.ReadRun(context.Background(), "run-ambiguous")
+	state, err := owner.ReadRun(context.Background(), topologyDurableRunID(t, "run-ambiguous"))
 	if err == nil || !errors.As(err, &ambiguous) || state.RunID != "" {
 		t.Fatalf("ReadRun ambiguity = %#v, err=%v", state, err)
 	}
@@ -245,13 +245,14 @@ func TestOwnerReadStateRejectsTamperingWithoutMutation(t *testing.T) {
 			snapshot.Nodes[0].Endpoint = readStateSecretURL
 			runID := "run-tamper"
 			operationID := operationID("2")
-			plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, runID, manifest, snapshot, units, 30*time.Second))
+			plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID, runID, manifest, snapshot, units, 30*time.Second))
 			if err != nil {
 				t.Fatalf("PlanAndReserve: %v", err)
 			}
-			tc.tamper(t, owner, fence, operationID, runID)
+			durableRunID := topologyDurableRunID(t, runID)
+			tc.tamper(t, owner, fence, operationID, durableRunID)
 			before := readReadStateMutationFingerprint(t, owner, fence, runID, plan.Fence.Revision)
-			err = tc.read(owner, plan.Fence, operationID, runID)
+			err = tc.read(owner, plan.Fence, operationID, durableRunID)
 			if err == nil {
 				t.Fatal("tampered durable state was accepted")
 			}
@@ -269,6 +270,7 @@ func TestOwnerReadStateRejectsTamperingWithoutMutation(t *testing.T) {
 
 func assertReadRunState(t *testing.T, owner *Owner, runID string, wantFence heteroci.OwnerFence, wantManifest heteroci.Manifest, wantUnits []heteroci.ExecutionUnit, wantDecision heteroci.RoutingDecision, wantLeases []heteroci.RoutingLease, wantTTL time.Duration, wantReleased bool, wantRevision heteroci.RoutingOwnerRevision) DurableRunState {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	got, err := owner.ReadRun(context.Background(), runID)
 	if err != nil {
 		t.Fatalf("ReadRun %s: %v", runID, err)
@@ -302,6 +304,7 @@ func assertReadRunLifecycle(t *testing.T, got DurableRunState, wantTTL time.Dura
 
 func assertLocateRunState(t *testing.T, owner *Owner, runID string, want DurableRunState) {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	got, err := owner.LocateRun(context.Background(), runID)
 	if err != nil || len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("LocateRun %s = %#v, err=%v; want %#v", runID, got, err, want)
@@ -321,6 +324,7 @@ func assertLocateRunState(t *testing.T, owner *Owner, runID string, want Durable
 
 func insertCrossEpochRunProjection(t *testing.T, owner *Owner, oldEpoch, newEpoch heteroci.RoutingOwnerEpoch, runID string) {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	var (
 		manifestBytes                                                 []byte
 		unitsBytes                                                    []byte
@@ -417,6 +421,7 @@ type readStateMutationFingerprint struct {
 
 func readReadStateMutationFingerprint(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, operationRevision heteroci.RoutingOwnerRevision) readStateMutationFingerprint {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	var state readStateMutationFingerprint
 	if err := owner.db.QueryRowContext(context.Background(), "SELECT revision, journal_digest FROM heteroci_owner_heads WHERE scope = ?", fence.Scope).Scan(&state.headRevision, &state.headJournal); err != nil {
 		t.Fatalf("read head fingerprint: %v", err)

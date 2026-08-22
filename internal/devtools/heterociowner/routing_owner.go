@@ -85,7 +85,7 @@ func (owner *Owner) planAndReserveTx(ctx context.Context, tx *sql.Tx, fence hete
 	if err := owner.requireCurrentFence(ctx, tx, fence); err != nil {
 		return err
 	}
-	planned, reservations, err := planFromCurrentDatabase(ctx, tx, fence, request.RunID, request.Manifest, request.SourceSnapshot, request.Units, request.HeartbeatTTL, now)
+	planned, reservations, err := planFromCurrentDatabase(ctx, tx, fence, string(request.RunIdentity.DurableRunID), request.Manifest, request.SourceSnapshot, request.Units, request.HeartbeatTTL, now)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (owner *Owner) planAndReserveTx(ctx context.Context, tx *sql.Tx, fence hete
 	if err != nil {
 		return fmt.Errorf("encode durable plan result: %w", err)
 	}
-	if err := insertPlanRows(ctx, tx, fence, request.RunID, request.Manifest, request.Units, request.HeartbeatTTL, *result, reservations, revision); err != nil {
+	if err := insertPlanRows(ctx, tx, fence, string(request.RunIdentity.DurableRunID), request.Manifest, request.Units, request.HeartbeatTTL, *result, reservations, revision); err != nil {
 		return err
 	}
 	_, err = commitOperationTx(ctx, tx, OperationRequest{Fence: fence, OperationID: request.OperationID, Kind: planAndReserveOperationKind, RequestBytes: requestBytes, ResultBytes: resultBytes, ProjectionDigest: digestBytes(resultBytes), CommittedAtUnixMilli: nowUnixMilli})
@@ -122,7 +122,7 @@ func replayPlanOperation(existing OperationRecord, requestBytes []byte, fence he
 
 // validatePlanAndReserveArguments 校验 durable 规划入口的身份、清单和时限。
 func validatePlanAndReserveArguments(owner *Owner, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest) error {
-	if err := validatePlanOwnerBinding(owner, fence, request.OperationID, request.RunID); err != nil {
+	if err := validatePlanOwnerBinding(owner, fence, request.OperationID, string(request.RunIdentity.DurableRunID)); err != nil {
 		return err
 	}
 	session := heteroci.TopologySession{Scope: fence.Scope, OwnerID: fence.OwnerID, OwnerEpoch: fence.OwnerEpoch}

@@ -125,7 +125,7 @@ func (workflow *Workflow) executeConcurrentBatch(ctx context.Context, request Ru
 	if err != nil {
 		return err
 	}
-	return coordinator.finish(ctx, workflow, request, prepared, plan.Batch, outcomes)
+	return coordinator.finish(ctx, workflow, prepared, plan.Batch, outcomes)
 }
 
 type concurrentExecutionCoordinator struct {
@@ -140,7 +140,7 @@ func (coordinator *concurrentExecutionCoordinator) prepareAndStart(ctx context.C
 	if err != nil {
 		return nil, err
 	}
-	started, err := workflow.startBatchUnitsLocked(ctx, request.RunID, prepared.planned.Decision, prepared.ids, plan, snapshot, coordinator.state)
+	started, err := workflow.startBatchUnitsLocked(ctx, string(prepared.runIdentity.DurableRunID), prepared.planned.Decision, prepared.ids, plan, snapshot, coordinator.state)
 	if err != nil {
 		return nil, err
 	}
@@ -148,8 +148,8 @@ func (coordinator *concurrentExecutionCoordinator) prepareAndStart(ctx context.C
 }
 
 // finish 串行完成 Finish mutation，并携带最新 owner fence。
-func (coordinator *concurrentExecutionCoordinator) finish(ctx context.Context, workflow *Workflow, request RunRequest, prepared *preparedRun, batch ExecutionBatch, outcomes map[string]heteroci.RoutingLeaseState) error {
+func (coordinator *concurrentExecutionCoordinator) finish(ctx context.Context, workflow *Workflow, prepared *preparedRun, batch ExecutionBatch, outcomes map[string]heteroci.RoutingLeaseState) error {
 	coordinator.state.mu.Lock()
 	defer coordinator.state.mu.Unlock()
-	return workflow.finishBatchUnitsLocked(ctx, request.RunID, prepared.planned.Decision, prepared.ids, batch, outcomes, coordinator.state)
+	return workflow.finishBatchUnitsLocked(ctx, string(prepared.runIdentity.DurableRunID), prepared.planned.Decision, prepared.ids, batch, outcomes, coordinator.state)
 }

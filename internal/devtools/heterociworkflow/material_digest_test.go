@@ -118,23 +118,24 @@ func materialDigestTestBatch(t *testing.T) ExecutionBatch {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	planID, err := DeriveOperationID(fixture.request.RunID, OperationPhasePlan, "")
+	runIdentity := workflowRunIdentity(t, fixture)
+	planID, err := DeriveOperationID(runIdentity.DurableRunID, OperationPhasePlan, "")
 	if err != nil {
 		t.Fatalf("DeriveOperationID: %v", err)
 	}
-	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, workflowPlanRequest(fixture, planID, fixture.units))
+	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, workflowPlanRequest(t, fixture, planID, fixture.units))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
-	batches, err := BuildBatches(fixture.request.RunID, fixture.manifest, planned, fixture.units, fixture.now, fixture.request.HeartbeatTTL)
+	batches, err := BuildBatches(string(runIdentity.DurableRunID), fixture.manifest, planned, fixture.units, fixture.now, fixture.request.HeartbeatTTL)
 	if err != nil {
 		t.Fatalf("BuildBatches: %v", err)
 	}
-	startID, err := DeriveOperationID(fixture.request.RunID, OperationPhaseStart, fixture.units[0].UnitID)
+	startID, err := DeriveOperationID(runIdentity.DurableRunID, OperationPhaseStart, fixture.units[0].UnitID)
 	if err != nil {
 		t.Fatalf("DeriveOperationID(start): %v", err)
 	}
-	started, err := fixture.owner.Start(t.Context(), planned.Fence, startID, fixture.request.RunID, fixture.units[0].UnitID, fixture.snapshot)
+	started, err := fixture.owner.Start(t.Context(), planned.Fence, startID, string(runIdentity.DurableRunID), fixture.units[0].UnitID, fixture.snapshot)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

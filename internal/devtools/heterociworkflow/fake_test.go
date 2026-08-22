@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
@@ -68,7 +69,8 @@ func (owner *fakeOwner) PlanAndReserve(_ context.Context, fence heteroci.OwnerFe
 	if err != nil {
 		return heterociowner.DurableReservedRoutingPlan{}, err
 	}
-	leases := fakePlannedLeases(request.RunID, decision, owner.now.UnixMilli())
+	durableRunID := string(request.RunIdentity.DurableRunID)
+	leases := fakePlannedLeases(durableRunID, decision, owner.now.UnixMilli())
 	owner.planned = heterociowner.DurableReservedRoutingPlan{
 		Fence:             nextFence,
 		OperationID:       request.OperationID,
@@ -80,7 +82,7 @@ func (owner *fakeOwner) PlanAndReserve(_ context.Context, fence heteroci.OwnerFe
 	}
 	owner.run = heterociowner.DurableRunState{
 		Fence:        nextFence,
-		RunID:        request.RunID,
+		RunID:        durableRunID,
 		Manifest:     request.Manifest,
 		Units:        append([]heteroci.ExecutionUnit(nil), request.Units...),
 		Decision:     decision,
@@ -350,17 +352,26 @@ func newWorkflowFixture(executor BatchExecutor) *workflowFixture {
 	return fixture
 }
 
-func workflowPlanRequest(fixture *workflowFixture, operationID heteroci.OperationID, units []heteroci.ExecutionUnit) heteroci.TopologyPlanRequest {
+func workflowPlanRequest(t *testing.T, fixture *workflowFixture, operationID heteroci.OperationID, units []heteroci.ExecutionUnit) heteroci.TopologyPlanRequest {
+	t.Helper()
+	runIdentity := workflowRunIdentity(t, fixture)
 	return heteroci.TopologyPlanRequest{
 		OperationID:    operationID,
-		RepositoryID:   fixture.request.RepositoryID,
-		SourceTreeSHA:  fixture.request.SourceTreeSHA,
-		RunID:          fixture.request.RunID,
+		RunIdentity:    runIdentity,
 		Manifest:       fixture.manifest,
 		SourceSnapshot: fixture.snapshot,
 		Units:          units,
 		HeartbeatTTL:   fixture.request.HeartbeatTTL,
 	}
+}
+
+func workflowRunIdentity(t *testing.T, fixture *workflowFixture) heteroci.TopologyRunIdentity {
+	t.Helper()
+	runIdentity, err := heteroci.DeriveTopologyRunIdentity(fixture.request.RepositoryID, fixture.request.SourceTreeSHA, fixture.request.RunID)
+	if err != nil {
+		t.Fatalf("DeriveTopologyRunIdentity: %v", err)
+	}
+	return runIdentity
 }
 
 func assertWorkflowEvents(got []string, want ...string) error {

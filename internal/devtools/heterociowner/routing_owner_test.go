@@ -21,13 +21,13 @@ const (
 func TestOwnerPlanAndReserveCommitsAndReplaysAtomically(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
 	operationID := heteroci.OperationID(strings.Repeat("a", heteroci.OperationIDHexLength))
-	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second))
+	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
 	assertDurablePlan(t, first, fence, operationID, now)
 	assertDurablePlanRows(t, owner, fence, "run-a", 1, 1)
-	replay, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second))
+	replay, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve replay: %v", err)
 	}
@@ -43,16 +43,16 @@ func TestOwnerPlanAndReserveCommitsAndReplaysAtomically(t *testing.T) {
 func TestOwnerPlanAndReserveRejectsOperationDriftAndStaleFence(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
 	operationID := heteroci.OperationID(strings.Repeat("b", heteroci.OperationIDHexLength))
-	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second)); err != nil {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second)); err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
 	drifted := append([]heteroci.ExecutionUnit(nil), units...)
 	drifted[0].EstimatedDurationMS++
-	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, drifted, 30*time.Second)); !errors.Is(err, ErrOperationConflict) {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID, "run-a", manifest, snapshot, drifted, 30*time.Second)); !errors.Is(err, ErrOperationConflict) {
 		t.Fatalf("operation drift error = %v, want ErrOperationConflict", err)
 	}
 	staleID := heteroci.OperationID(strings.Repeat("c", heteroci.OperationIDHexLength))
-	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, staleID, "run-b", manifest, snapshot, units, 30*time.Second)); err == nil {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, staleID, "run-b", manifest, snapshot, units, 30*time.Second)); err == nil {
 		t.Fatal("PlanAndReserve accepted stale owner fence")
 	}
 	assertDurablePlanRows(t, owner, fence, "run-a", 1, 1)
@@ -61,7 +61,7 @@ func TestOwnerPlanAndReserveRejectsOperationDriftAndStaleFence(t *testing.T) {
 func TestOwnerStartCommitsOccupancyAndReplaysExactly(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
 	planID := heteroci.OperationID(strings.Repeat("d", heteroci.OperationIDHexLength))
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, planID, "run-start", manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, planID, "run-start", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -69,12 +69,12 @@ func TestOwnerStartCommitsOccupancyAndReplaysExactly(t *testing.T) {
 	owner.now = func() time.Time { return startAt }
 	current := durableRoutingSnapshot(manifest, fence.OwnerEpoch, startAt)
 	startID := heteroci.OperationID(strings.Repeat("e", heteroci.OperationIDHexLength))
-	started, err := owner.Start(context.Background(), plan.Fence, startID, "run-start", "unit-a", current)
+	started, err := owner.Start(context.Background(), plan.Fence, startID, topologyDurableRunID(t, "run-start"), "unit-a", current)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	assertDurableStartedLease(t, started, plan, startAt)
-	replay, err := owner.Start(context.Background(), plan.Fence, startID, "run-start", "unit-a", current)
+	replay, err := owner.Start(context.Background(), plan.Fence, startID, topologyDurableRunID(t, "run-start"), "unit-a", current)
 	if err != nil {
 		t.Fatalf("Start replay: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestOwnerStartCommitsOccupancyAndReplaysExactly(t *testing.T) {
 
 func TestOwnerStartRejectsDriftAndStaleFenceWithoutMutation(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("3", 64)), "run-start", manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, heteroci.OperationID(strings.Repeat("3", 64)), "run-start", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -94,16 +94,16 @@ func TestOwnerStartRejectsDriftAndStaleFenceWithoutMutation(t *testing.T) {
 	owner.now = func() time.Time { return startAt }
 	current := durableRoutingSnapshot(manifest, fence.OwnerEpoch, startAt)
 	startID := heteroci.OperationID(strings.Repeat("4", 64))
-	if _, err := owner.Start(context.Background(), plan.Fence, startID, "run-start", "unit-a", current); err != nil {
+	if _, err := owner.Start(context.Background(), plan.Fence, startID, topologyDurableRunID(t, "run-start"), "unit-a", current); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	drifted := cloneSnapshot(current)
 	drifted.Nodes[0].ProbeBootID = "different-boot"
-	if _, err := owner.Start(context.Background(), plan.Fence, startID, "run-start", "unit-a", drifted); !errors.Is(err, ErrOperationConflict) {
+	if _, err := owner.Start(context.Background(), plan.Fence, startID, topologyDurableRunID(t, "run-start"), "unit-a", drifted); !errors.Is(err, ErrOperationConflict) {
 		t.Fatalf("Start drift error = %v, want ErrOperationConflict", err)
 	}
 	staleID := heteroci.OperationID(strings.Repeat("5", 64))
-	if _, err := owner.Start(context.Background(), plan.Fence, staleID, "run-start", "unit-a", current); err == nil {
+	if _, err := owner.Start(context.Background(), plan.Fence, staleID, topologyDurableRunID(t, "run-start"), "unit-a", current); err == nil {
 		t.Fatal("Start accepted stale fence after committed transition")
 	}
 	assertOwnerLeaseState(t, owner, fence, "run-start", "unit-a", heteroci.LeaseStateStarted, plan.Fence.Revision+1)
@@ -127,7 +127,7 @@ func TestOwnerStartRejectsLeaseJSONIdentitySwapWithoutMutation(t *testing.T) {
 	writeDurableLeaseJSON(t, owner, fence, "run-target", "unit-a", swappedLease)
 	startAt := now.Add(time.Second)
 	owner.now = func() time.Time { return startAt }
-	started, err := owner.Start(context.Background(), plan.Fence, operationID("c"), "run-target", "unit-a", durableRoutingSnapshot(manifest, fence.OwnerEpoch, startAt))
+	started, err := owner.Start(context.Background(), plan.Fence, operationID("c"), topologyDurableRunID(t, "run-target"), "unit-a", durableRoutingSnapshot(manifest, fence.OwnerEpoch, startAt))
 	if err == nil {
 		t.Fatal("Start accepted lease JSON whose run/unit identity differs from the SQL key")
 	}
@@ -144,7 +144,7 @@ func TestOwnerStartRejectsLeaseJSONIdentitySwapWithoutMutation(t *testing.T) {
 
 func mustDurablePlan(t *testing.T, owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, snapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit) DurableReservedRoutingPlan {
 	t.Helper()
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, runID, manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID, runID, manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve %s: %v", runID, err)
 	}
@@ -153,6 +153,7 @@ func mustDurablePlan(t *testing.T, owner *Owner, fence heteroci.OwnerFence, oper
 
 func readDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID, unitID string) []byte {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	var leaseBytes []byte
 	if err := owner.db.QueryRowContext(context.Background(), "SELECT lease_json FROM heteroci_routing_leases WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", fence.Scope, fence.OwnerEpoch, runID, unitID).Scan(&leaseBytes); err != nil {
 		t.Fatalf("read %s/%s lease JSON: %v", runID, unitID, err)
@@ -162,6 +163,7 @@ func readDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence,
 
 func writeDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID, unitID string, leaseBytes []byte) {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	result, err := owner.db.ExecContext(context.Background(), "UPDATE heteroci_routing_leases SET lease_json = ? WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", leaseBytes, fence.Scope, fence.OwnerEpoch, runID, unitID)
 	if err != nil {
 		t.Fatalf("swap %s/%s lease JSON: %v", runID, unitID, err)
@@ -177,6 +179,7 @@ func writeDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence
 
 func assertOwnerRunRevision(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, want heteroci.RoutingOwnerRevision) {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	var got int64
 	if err := owner.db.QueryRowContext(context.Background(), "SELECT last_revision FROM heteroci_routing_runs WHERE scope = ? AND owner_epoch = ? AND run_id = ?", fence.Scope, fence.OwnerEpoch, runID).Scan(&got); err != nil {
 		t.Fatalf("read %s run revision: %v", runID, err)
@@ -202,18 +205,18 @@ func TestOwnerStartAdvancesMultipleLeasesWithIndependentCAS(t *testing.T) {
 	second := units[0]
 	second.UnitID = "unit-b"
 	units = append(units, second)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("6", 64)), "run-multi", manifest, snapshot, units, 30*time.Second))
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, heteroci.OperationID(strings.Repeat("6", 64)), "run-multi", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
 	startAt := now.Add(time.Second)
 	owner.now = func() time.Time { return startAt }
 	current := durableRoutingSnapshot(manifest, fence.OwnerEpoch, startAt)
-	first, err := owner.Start(context.Background(), plan.Fence, heteroci.OperationID(strings.Repeat("7", 64)), "run-multi", "unit-a", current)
+	first, err := owner.Start(context.Background(), plan.Fence, heteroci.OperationID(strings.Repeat("7", 64)), topologyDurableRunID(t, "run-multi"), "unit-a", current)
 	if err != nil {
 		t.Fatalf("Start unit-a: %v", err)
 	}
-	secondStarted, err := owner.Start(context.Background(), first.Fence, heteroci.OperationID(strings.Repeat("8", 64)), "run-multi", "unit-b", current)
+	secondStarted, err := owner.Start(context.Background(), first.Fence, heteroci.OperationID(strings.Repeat("8", 64)), topologyDurableRunID(t, "run-multi"), "unit-b", current)
 	if err != nil {
 		t.Fatalf("Start unit-b: %v", err)
 	}
@@ -224,11 +227,11 @@ func TestOwnerStartAdvancesMultipleLeasesWithIndependentCAS(t *testing.T) {
 
 func TestOwnerPlanAndReserveSubtractsCurrentEpochReservationsExactlyOnce(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("9", 64)), "run-first", manifest, snapshot, units, 30*time.Second))
+	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, heteroci.OperationID(strings.Repeat("9", 64)), "run-first", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("first PlanAndReserve: %v", err)
 	}
-	second, err := owner.PlanAndReserve(context.Background(), first.Fence, topologyPlanRequest(first.Fence, heteroci.OperationID(strings.Repeat("a", 64)), "run-second", manifest, snapshot, units, 30*time.Second))
+	second, err := owner.PlanAndReserve(context.Background(), first.Fence, topologyPlanRequest(t, first.Fence, heteroci.OperationID(strings.Repeat("a", 64)), "run-second", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("second PlanAndReserve: %v", err)
 	}
@@ -247,7 +250,7 @@ func TestOwnerPlanAndReserveSubtractsCurrentEpochReservationsExactlyOnce(t *test
 
 func TestOwnerTakeoverDoesNotReloadOldEpochReservations(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
-	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("b", 64)), "run-old", manifest, snapshot, units, 30*time.Second))
+	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, heteroci.OperationID(strings.Repeat("b", 64)), "run-old", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("old epoch PlanAndReserve: %v", err)
 	}
@@ -259,7 +262,7 @@ func TestOwnerTakeoverDoesNotReloadOldEpochReservations(t *testing.T) {
 		t.Fatalf("takeover Acquire: %v", err)
 	}
 	newSnapshot := durableRoutingSnapshot(manifest, newFence.OwnerEpoch, now)
-	current, err := owner.PlanAndReserve(context.Background(), newFence, topologyPlanRequest(newFence, heteroci.OperationID(strings.Repeat("c", 64)), "run-new", manifest, newSnapshot, units, 30*time.Second))
+	current, err := owner.PlanAndReserve(context.Background(), newFence, topologyPlanRequest(t, newFence, heteroci.OperationID(strings.Repeat("c", 64)), "run-new", manifest, newSnapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("new epoch PlanAndReserve: %v", err)
 	}
@@ -270,9 +273,8 @@ func TestOwnerTakeoverDoesNotReloadOldEpochReservations(t *testing.T) {
 
 func TestOwnerPlanJournalBindsCanonicalPerRunRepositoryAudit(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	firstRequest := topologyPlanRequest(fence, operationID("7"), "run-repository-a", manifest, snapshot, units, 30*time.Second)
-	firstRequest.RepositoryID = "repository-a"
-	firstRequest.SourceTreeSHA = strings.Repeat("a", 40)
+	firstRequest := topologyPlanRequest(t, fence, operationID("7"), "run-repository-a", manifest, snapshot, units, 30*time.Second)
+	firstRequest.RunIdentity = topologyRunIdentity(t, "repository-a", strings.Repeat("a", 40), "shared-run")
 	first, err := owner.PlanAndReserve(context.Background(), fence, firstRequest)
 	if err != nil {
 		t.Fatalf("first PlanAndReserve: %v", err)
@@ -284,9 +286,8 @@ func TestOwnerPlanJournalBindsCanonicalPerRunRepositoryAudit(t *testing.T) {
 		t.Fatalf("canonical plan replay = %#v, %v; want %#v", replay, err, first)
 	}
 
-	secondRequest := topologyPlanRequest(first.Fence, operationID("8"), "run-repository-b", manifest, snapshot, units, 30*time.Second)
-	secondRequest.RepositoryID = "repository-b"
-	secondRequest.SourceTreeSHA = strings.Repeat("b", 40)
+	secondRequest := topologyPlanRequest(t, first.Fence, operationID("8"), "run-repository-b", manifest, snapshot, units, 30*time.Second)
+	secondRequest.RunIdentity = topologyRunIdentity(t, "repository-b", strings.Repeat("b", 40), "shared-run")
 	if _, err := owner.PlanAndReserve(context.Background(), first.Fence, secondRequest); err != nil {
 		t.Fatalf("second repository PlanAndReserve: %v", err)
 	}
@@ -299,14 +300,19 @@ func TestOwnerPlanJournalBindsCanonicalPerRunRepositoryAudit(t *testing.T) {
 
 func TestOwnerPlanRejectsMissingOrNonCanonicalRepositoryAudit(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	base := topologyPlanRequest(fence, operationID("9"), "run-invalid-audit", manifest, snapshot, units, 30*time.Second)
+	base := topologyPlanRequest(t, fence, operationID("9"), "run-invalid-audit", manifest, snapshot, units, 30*time.Second)
 	for _, test := range []struct {
 		name   string
 		mutate func(*heteroci.TopologyPlanRequest)
 	}{
-		{name: "empty repository", mutate: func(request *heteroci.TopologyPlanRequest) { request.RepositoryID = "" }},
-		{name: "empty tree", mutate: func(request *heteroci.TopologyPlanRequest) { request.SourceTreeSHA = "" }},
-		{name: "uppercase tree", mutate: func(request *heteroci.TopologyPlanRequest) { request.SourceTreeSHA = strings.Repeat("A", 40) }},
+		{name: "empty repository", mutate: func(request *heteroci.TopologyPlanRequest) { request.RunIdentity.RepositoryID = "" }},
+		{name: "empty tree", mutate: func(request *heteroci.TopologyPlanRequest) { request.RunIdentity.SourceTreeSHA = "" }},
+		{name: "uppercase tree", mutate: func(request *heteroci.TopologyPlanRequest) {
+			request.RunIdentity.SourceTreeSHA = strings.Repeat("A", 40)
+		}},
+		{name: "durable key drift", mutate: func(request *heteroci.TopologyPlanRequest) {
+			request.RunIdentity.DurableRunID = topologyRunIdentity(t, "other", strings.Repeat("b", 40), "shared-run").DurableRunID
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := base
@@ -339,9 +345,13 @@ func assertCanonicalPlanAuditRequest(t *testing.T, raw []byte, fence heteroci.Ow
 		t.Fatalf("decode topology plan request fields: %v", err)
 	}
 	assertExactPlanAuditJSONFields(t, requestFields,
-		"operation_id", "repository_id", "source_tree_sha", "run_id",
-		"manifest", "source_snapshot", "units", "heartbeat_ttl",
+		"operation_id", "run_identity", "manifest", "source_snapshot", "units", "heartbeat_ttl",
 	)
+	var identityFields map[string]json.RawMessage
+	if err := json.Unmarshal(requestFields["run_identity"], &identityFields); err != nil {
+		t.Fatalf("decode topology run identity fields: %v", err)
+	}
+	assertExactPlanAuditJSONFields(t, identityFields, "durable_run_id", "repository_id", "source_tree_sha", "caller_run_id")
 	var decoded planAndReserveRequest
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decode plan audit request: %v", err)
@@ -442,6 +452,7 @@ func assertDurablePlan(t *testing.T, plan DurableReservedRoutingPlan, fence hete
 
 func assertDurablePlanRows(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, wantLeases, wantReservations int) {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	assertOwnerRowCount(t, owner, "heteroci_routing_runs", "scope = ? AND owner_epoch = ? AND run_id = ?", []any{fence.Scope, fence.OwnerEpoch, runID}, 1)
 	assertOwnerRowCount(t, owner, "heteroci_routing_leases", "scope = ? AND owner_epoch = ? AND run_id = ?", []any{fence.Scope, fence.OwnerEpoch, runID}, wantLeases)
 	assertOwnerRowCount(t, owner, "heteroci_routing_reservations", "scope = ? AND owner_epoch = ? AND run_id = ?", []any{fence.Scope, fence.OwnerEpoch, runID}, wantReservations)
@@ -468,7 +479,7 @@ func assertDurableStartedLease(t *testing.T, started heteroci.StartedRoutingLeas
 	if started.Lease.State != heteroci.LeaseStateStarted || started.Lease.StartedAtUnixMilli != startAt.UnixMilli() {
 		t.Fatalf("started lease = %#v", started.Lease)
 	}
-	want := heteroci.StartedRoutingOccupancy{OwnerEpoch: plan.Fence.OwnerEpoch, RunID: "run-start", UnitID: "unit-a", DecisionDigest: plan.Decision.DecisionDigest}
+	want := heteroci.StartedRoutingOccupancy{OwnerEpoch: plan.Fence.OwnerEpoch, RunID: topologyDurableRunID(t, "run-start"), UnitID: "unit-a", DecisionDigest: plan.Decision.DecisionDigest}
 	if started.Occupancy != want {
 		t.Fatalf("started occupancy = %#v, want %#v", started.Occupancy, want)
 	}
@@ -476,6 +487,7 @@ func assertDurableStartedLease(t *testing.T, started heteroci.StartedRoutingLeas
 
 func assertOwnerLeaseState(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID, unitID string, want heteroci.RoutingLeaseState, wantRevision heteroci.RoutingOwnerRevision) {
 	t.Helper()
+	runID = topologyDurableRunID(t, runID)
 	var state string
 	var revision int64
 	err := owner.db.QueryRowContext(context.Background(), "SELECT state, last_revision FROM heteroci_routing_leases WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", fence.Scope, fence.OwnerEpoch, runID, unitID).Scan(&state, &revision)

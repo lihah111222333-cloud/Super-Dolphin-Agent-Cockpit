@@ -51,7 +51,7 @@ func createPlanBeforeRestart(t *testing.T, path string) restartPlanFixture {
 	snapshot := durableRoutingSnapshot(manifest, fence.OwnerEpoch, now)
 	units := []heteroci.ExecutionUnit{{UnitID: "unit-a", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer, EstimatedDurationMS: 1_000, CPUMilli: 500, MemoryBytes: 512 * 1024 * 1024}}
 	operationID := heteroci.OperationID(strings.Repeat("f", 64))
-	planned, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-restart", manifest, snapshot, units, 30*time.Second))
+	planned, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(t, fence, operationID, "run-restart", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -68,7 +68,7 @@ func assertRestartPlanReplay(t *testing.T, restarted *Owner, fixture restartPlan
 	if err != nil || current != fixture.planned.Fence {
 		t.Fatalf("restart CurrentFence = %#v, %v; want %#v", current, err, fixture.planned.Fence)
 	}
-	replay, err := restarted.PlanAndReserve(context.Background(), fixture.fence, topologyPlanRequest(fixture.fence, fixture.operation, "run-restart", fixture.manifest, fixture.snapshot, fixture.units, 30*time.Second))
+	replay, err := restarted.PlanAndReserve(context.Background(), fixture.fence, topologyPlanRequest(t, fixture.fence, fixture.operation, "run-restart", fixture.manifest, fixture.snapshot, fixture.units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("restart replay: %v", err)
 	}
@@ -82,11 +82,11 @@ func assertRestartStart(t *testing.T, restarted *Owner, fixture restartPlanFixtu
 	startAt := fixture.now.Add(time.Second)
 	restarted.now = func() time.Time { return startAt }
 	currentSnapshot := durableRoutingSnapshot(fixture.manifest, fixture.fence.OwnerEpoch, startAt)
-	started, err := restarted.Start(context.Background(), fixture.planned.Fence, heteroci.OperationID(strings.Repeat("e", 64)), "run-restart", "unit-a", currentSnapshot)
+	started, err := restarted.Start(context.Background(), fixture.planned.Fence, heteroci.OperationID(strings.Repeat("e", 64)), topologyDurableRunID(t, "run-restart"), "unit-a", currentSnapshot)
 	if err != nil {
 		t.Fatalf("restart Start: %v", err)
 	}
-	if started.Occupancy.OwnerEpoch != fixture.fence.OwnerEpoch || started.Occupancy.RunID != "run-restart" {
+	if started.Occupancy.OwnerEpoch != fixture.fence.OwnerEpoch || started.Occupancy.RunID != topologyDurableRunID(t, "run-restart") {
 		t.Fatalf("restart occupancy = %#v", started.Occupancy)
 	}
 }

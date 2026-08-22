@@ -12,34 +12,21 @@ import (
 )
 
 // OperationPhase 是 durable operation identity 的稳定阶段枚举。
-type OperationPhase string
+type OperationPhase = heteroci.TopologyOperationPhase
 
 const (
-	OperationPhasePlan          OperationPhase = "plan"
-	OperationPhaseStart         OperationPhase = "start"
-	OperationPhaseFinish        OperationPhase = "finish"
-	OperationPhaseCancelPlanned OperationPhase = "cancel_planned"
+	OperationPhasePlan          = heteroci.TopologyOperationPhasePlan
+	OperationPhaseStart         = heteroci.TopologyOperationPhaseStart
+	OperationPhaseFinish        = heteroci.TopologyOperationPhaseFinish
+	OperationPhaseCancelPlanned = heteroci.TopologyOperationPhaseCancelPlanned
 )
 
 // BatchID 是跨重启保持稳定的 execution batch identity。
 type BatchID string
 
-// DeriveOperationID 从 run、phase、unit 派生确定性 operation identity。
-func DeriveOperationID(runID string, phase OperationPhase, unitID string) (heteroci.OperationID, error) {
-	if err := validateWorkflowRunID(runID); err != nil {
-		return "", err
-	}
-	if !validOperationPhase(phase) {
-		return "", errors.New("heteroci workflow operation phase is invalid")
-	}
-	if phase == OperationPhasePlan && unitID != "" {
-		return "", errors.New("heteroci workflow plan operation must not carry unit")
-	}
-	if phase != OperationPhasePlan && !validWorkflowUnitID(unitID) {
-		return "", errors.New("heteroci workflow operation unit is invalid")
-	}
-	identity := workflowDigest("heteroci-workflow-operation/v1", runID, string(phase), unitID)
-	return heteroci.ParseOperationID(identity)
+// DeriveOperationID 从内部 durable run key、phase、unit 派生确定性 operation identity。
+func DeriveOperationID(durableRunID heteroci.TopologyRunID, phase OperationPhase, unitID string) (heteroci.OperationID, error) {
+	return heteroci.DeriveTopologyOperationID(durableRunID, phase, unitID)
 }
 
 // DeriveBatchID 从 run、executor lane、wave 和 unit 集合派生稳定 batch identity。
@@ -81,15 +68,6 @@ func (key ExecutorKey) Validate() error {
 		return errors.New("heteroci workflow executor kind is invalid")
 	}
 	return nil
-}
-
-func validOperationPhase(phase OperationPhase) bool {
-	switch phase {
-	case OperationPhasePlan, OperationPhaseStart, OperationPhaseFinish, OperationPhaseCancelPlanned:
-		return true
-	default:
-		return false
-	}
 }
 
 // validateWorkflowRunID 校验 run identity 的非空、长度、空白和控制字符边界。

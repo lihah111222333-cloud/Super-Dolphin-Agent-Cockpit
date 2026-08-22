@@ -218,7 +218,7 @@ func (owner *integrityPlanOwner) PlanAndReserve(ctx context.Context, fence heter
 	if err != nil {
 		return heterociowner.DurableReservedRoutingPlan{}, err
 	}
-	wrong, err := DeriveOperationID(request.RunID, OperationPhaseStart, request.Units[0].UnitID)
+	wrong, err := DeriveOperationID(request.RunIdentity.DurableRunID, OperationPhaseStart, request.Units[0].UnitID)
 	if err != nil {
 		return heterociowner.DurableReservedRoutingPlan{}, err
 	}

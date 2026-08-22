@@ -13,12 +13,16 @@ import (
 )
 
 type postgresqlOwnerTestData struct {
-	head      []driver.Value
-	operation []driver.Value
+	head       []driver.Value
+	operations map[string][]driver.Value
 }
 
 func (data postgresqlOwnerTestData) clone() postgresqlOwnerTestData {
-	return postgresqlOwnerTestData{head: append([]driver.Value(nil), data.head...), operation: append([]driver.Value(nil), data.operation...)}
+	clone := postgresqlOwnerTestData{head: append([]driver.Value(nil), data.head...), operations: make(map[string][]driver.Value, len(data.operations))}
+	for operationID, operation := range data.operations {
+		clone.operations[operationID] = append([]driver.Value(nil), operation...)
+	}
+	return clone
 }
 
 type postgresqlOwnerTestState struct {
@@ -99,7 +103,8 @@ func (conn *postgresqlOwnerTestConn) QueryContext(_ context.Context, query strin
 	case strings.Contains(query, "FROM heteroci_owner.operation_journal"):
 		conn.noteAuthorityRead()
 		data := conn.currentData()
-		return newPostgreSQLOwnerTestRows([]string{"owner_id", "owner_epoch", "revision", "kind", "request_bytes", "request_digest", "result_bytes", "result_digest", "previous_journal_digest", "journal_digest", "projection_digest", "committed_at_unix_milli"}, valuesAsRows(data.operation)), nil
+		operationID := fmt.Sprint(args[1].Value)
+		return newPostgreSQLOwnerTestRows([]string{"owner_id", "owner_epoch", "revision", "kind", "request_bytes", "request_digest", "result_bytes", "result_digest", "previous_journal_digest", "journal_digest", "projection_digest", "committed_at_unix_milli"}, valuesAsRows(data.operations[operationID])), nil
 	case strings.Contains(query, "FROM heteroci_owner.routing_reservations"):
 		conn.noteAuthorityRead()
 		return newPostgreSQLOwnerTestRows([]string{"node_id", "probe_identity", "probe_boot_id", "cpu_milli", "memory_bytes", "max_concurrency"}, nil), nil
@@ -166,7 +171,10 @@ func (conn *postgresqlOwnerTestConn) ExecContext(_ context.Context, query string
 	case strings.HasPrefix(query, "UPDATE heteroci_owner.owner_heads SET revision"):
 		data.head[2], data.head[3], data.head[4], data.head[5] = args[0].Value, args[1].Value, args[2].Value, args[3].Value
 	case strings.HasPrefix(query, "INSERT INTO heteroci_owner.operation_journal"):
-		data.operation = namedValues(args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13])
+		if data.operations == nil {
+			data.operations = make(map[string][]driver.Value)
+		}
+		data.operations[fmt.Sprint(args[1].Value)] = namedValues(args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13])
 	case strings.HasPrefix(query, "INSERT INTO heteroci_owner.owner_epochs"), strings.HasPrefix(query, "INSERT INTO heteroci_owner.routing_"), strings.HasPrefix(query, "UPDATE heteroci_owner.owner_epochs"):
 	default:
 		return nil, fmt.Errorf("unexpected PostgreSQL owner exec: %s", query)

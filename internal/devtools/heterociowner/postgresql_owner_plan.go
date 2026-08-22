@@ -129,7 +129,7 @@ func planPostgreSQLTopology(ctx context.Context, tx *sql.Tx, current heteroci.Ow
 	if err != nil {
 		return heteroci.TopologyReservedPlan{}, nil, err
 	}
-	planned, reservations, err := planFromReservations(current, request.RunID, request.Manifest, request.SourceSnapshot, request.Units, request.HeartbeatTTL, now, reserved)
+	planned, reservations, err := planFromReservations(current, string(request.RunIdentity.DurableRunID), request.Manifest, request.SourceSnapshot, request.Units, request.HeartbeatTTL, now, reserved)
 	if err != nil {
 		return heteroci.TopologyReservedPlan{}, nil, err
 	}
@@ -181,12 +181,12 @@ func persistPostgreSQLPlan(ctx context.Context, tx *sql.Tx, current heteroci.Own
 	if err != nil {
 		return fmt.Errorf("insert PostgreSQL topology operation: %w", err)
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO heteroci_owner.routing_runs (scope, owner_epoch, run_id, repository_id, source_tree_sha, plan_operation_id, heartbeat_ttl_milli, last_revision, created_at_unix_milli) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", current.Scope, current.OwnerEpoch, request.RunID, request.RepositoryID, request.SourceTreeSHA, request.OperationID, request.HeartbeatTTL.Milliseconds(), result.Fence.Revision, nowUnixMilli)
+	_, err = tx.ExecContext(ctx, "INSERT INTO heteroci_owner.routing_runs (scope, owner_epoch, run_id, repository_id, source_tree_sha, plan_operation_id, heartbeat_ttl_milli, last_revision, created_at_unix_milli) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)", current.Scope, current.OwnerEpoch, request.RunIdentity.DurableRunID, request.RunIdentity.RepositoryID, request.RunIdentity.SourceTreeSHA, request.OperationID, request.HeartbeatTTL.Milliseconds(), result.Fence.Revision, nowUnixMilli)
 	if err != nil {
 		return fmt.Errorf("insert PostgreSQL topology run: %w", err)
 	}
 	for _, reservation := range reservations {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_owner.routing_reservations (scope, owner_epoch, run_id, node_id, probe_identity, probe_boot_id, cpu_milli, memory_bytes, max_concurrency, state, last_revision) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)", current.Scope, current.OwnerEpoch, request.RunID, reservation.key.nodeID, reservation.key.probeIdentity, reservation.key.probeBootID, reservation.capacity.CPUMilli, reservation.capacity.MemoryBytes, reservation.capacity.MaxConcurrency, heteroci.LeaseStatePlanned, result.Fence.Revision); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_owner.routing_reservations (scope, owner_epoch, run_id, node_id, probe_identity, probe_boot_id, cpu_milli, memory_bytes, max_concurrency, state, last_revision) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)", current.Scope, current.OwnerEpoch, request.RunIdentity.DurableRunID, reservation.key.nodeID, reservation.key.probeIdentity, reservation.key.probeBootID, reservation.capacity.CPUMilli, reservation.capacity.MemoryBytes, reservation.capacity.MaxConcurrency, heteroci.LeaseStatePlanned, result.Fence.Revision); err != nil {
 			return fmt.Errorf("insert PostgreSQL topology reservation: %w", err)
 		}
 	}
@@ -195,7 +195,7 @@ func persistPostgreSQLPlan(ctx context.Context, tx *sql.Tx, current heteroci.Own
 		if err != nil {
 			return fmt.Errorf("encode PostgreSQL topology lease: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_owner.routing_leases (scope, owner_epoch, run_id, unit_id, state, lease_bytes, last_revision) VALUES ($1, $2, $3, $4, $5, $6, $7)", current.Scope, current.OwnerEpoch, request.RunID, lease.UnitID, heteroci.LeaseStatePlanned, leaseBytes, result.Fence.Revision); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_owner.routing_leases (scope, owner_epoch, run_id, unit_id, state, lease_bytes, last_revision) VALUES ($1, $2, $3, $4, $5, $6, $7)", current.Scope, current.OwnerEpoch, request.RunIdentity.DurableRunID, lease.UnitID, heteroci.LeaseStatePlanned, leaseBytes, result.Fence.Revision); err != nil {
 			return fmt.Errorf("insert PostgreSQL topology lease: %w", err)
 		}
 	}

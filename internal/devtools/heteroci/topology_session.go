@@ -23,14 +23,12 @@ type TopologySession struct {
 
 // TopologyPlanRequest 是 topology session mutation 的 storage-neutral 原始输入。
 type TopologyPlanRequest struct {
-	OperationID    OperationID     `json:"operation_id"`
-	RepositoryID   string          `json:"repository_id"`
-	SourceTreeSHA  string          `json:"source_tree_sha"`
-	RunID          string          `json:"run_id"`
-	Manifest       Manifest        `json:"manifest"`
-	SourceSnapshot SnapshotSet     `json:"source_snapshot"`
-	Units          []ExecutionUnit `json:"units"`
-	HeartbeatTTL   time.Duration   `json:"heartbeat_ttl"`
+	OperationID    OperationID         `json:"operation_id"`
+	RunIdentity    TopologyRunIdentity `json:"run_identity"`
+	Manifest       Manifest            `json:"manifest"`
+	SourceSnapshot SnapshotSet         `json:"source_snapshot"`
+	Units          []ExecutionUnit     `json:"units"`
+	HeartbeatTTL   time.Duration       `json:"heartbeat_ttl"`
 }
 
 // TopologyReservedPlan 是 topology mutation 提交后的 storage-neutral 投影。
@@ -111,7 +109,7 @@ func (request TopologyPlanRequest) Validate(session TopologySession) error {
 	if _, err := ParseOperationID(string(request.OperationID)); err != nil {
 		return err
 	}
-	if err := ValidateTopologyAuditIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID); err != nil {
+	if err := request.RunIdentity.Validate(); err != nil {
 		return err
 	}
 	if err := request.Manifest.Validate(); err != nil {

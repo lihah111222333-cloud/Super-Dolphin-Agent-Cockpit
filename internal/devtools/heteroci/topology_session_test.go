@@ -10,6 +10,7 @@ import (
 
 func TestTopologySessionContract(t *testing.T) {
 	t.Run("scope excludes target repository", testDeriveTopologyOwnerScopeDoesNotBindTargetRepository)
+	t.Run("durable run identity separates repositories", testTopologyRunIdentitySeparatesRepositories)
 	t.Run("revision is storage owned", testTopologySessionAcceptsCurrentRevisionWithinIncarnation)
 	t.Run("request field guard", testTopologyPlanRequestFieldGuardAndValidation)
 	t.Run("storage neutral port", testTopologySessionMutatorPortIsStorageNeutral)
@@ -19,8 +20,8 @@ func testDeriveTopologyOwnerScopeDoesNotBindTargetRepository(t *testing.T) {
 	manifest := topologySessionManifest()
 	session, firstRequest := topologyPlanFixture(t)
 	secondRequest := firstRequest
-	secondRequest.RepositoryID = "repo-b"
-	secondRequest.SourceTreeSHA = strings.Repeat("c", 40)
+	secondRequest.RunIdentity = topologyRunIdentity(t, "repo-b", strings.Repeat("c", 40), firstRequest.RunIdentity.CallerRunID)
+	secondRequest.OperationID = topologyOperationID(t, secondRequest.RunIdentity.DurableRunID, TopologyOperationPhasePlan, "")
 	if err := firstRequest.Validate(session); err != nil {
 		t.Fatalf("first target request: %v", err)
 	}
@@ -43,6 +44,25 @@ func testDeriveTopologyOwnerScopeDoesNotBindTargetRepository(t *testing.T) {
 	}
 }
 
+func testTopologyRunIdentitySeparatesRepositories(t *testing.T) {
+	first := topologyRunIdentity(t, "repo-a", strings.Repeat("a", 40), "shared-run")
+	second := topologyRunIdentity(t, "repo-b", strings.Repeat("a", 40), "shared-run")
+	third := topologyRunIdentity(t, "repo-a", strings.Repeat("b", 40), "shared-run")
+	if first.DurableRunID == second.DurableRunID || first.DurableRunID == third.DurableRunID || second.DurableRunID == third.DurableRunID {
+		t.Fatalf("cross-repository durable run identities collided: %#v %#v %#v", first, second, third)
+	}
+	for _, identity := range []TopologyRunIdentity{first, second, third} {
+		if err := identity.Validate(); err != nil {
+			t.Fatalf("Validate(%#v): %v", identity, err)
+		}
+	}
+	drifted := first
+	drifted.DurableRunID = second.DurableRunID
+	if err := drifted.Validate(); err == nil {
+		t.Fatal("Validate accepted a durable run key derived from another repository")
+	}
+}
+
 func testTopologySessionAcceptsCurrentRevisionWithinIncarnation(t *testing.T) {
 	acquired := topologySessionFence(t, 1, "1")
 	session, err := NewTopologySession(acquired)
@@ -59,7 +79,7 @@ func testTopologySessionAcceptsCurrentRevisionWithinIncarnation(t *testing.T) {
 
 func testTopologyPlanRequestFieldGuardAndValidation(t *testing.T) {
 	typeOf := reflect.TypeFor[TopologyPlanRequest]()
-	want := []string{"OperationID", "RepositoryID", "SourceTreeSHA", "RunID", "Manifest", "SourceSnapshot", "Units", "HeartbeatTTL"}
+	want := []string{"OperationID", "RunIdentity", "Manifest", "SourceSnapshot", "Units", "HeartbeatTTL"}
 	got := make([]string, 0, typeOf.NumField())
 	for field := range typeOf.Fields() {
 		got = append(got, field.Name)
@@ -71,7 +91,7 @@ func testTopologyPlanRequestFieldGuardAndValidation(t *testing.T) {
 	if err := request.Validate(session); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
-	request.RepositoryID = ""
+	request.RunIdentity.RepositoryID = ""
 	if err := request.Validate(session); err == nil {
 		t.Fatal("Validate accepted missing repository audit identity")
 	}
@@ -103,10 +123,11 @@ func topologyPlanFixture(t *testing.T) (TopologySession, TopologyPlanRequest) {
 	manifest := topologySessionManifest()
 	now := time.UnixMilli(1_700_000_000_000)
 	capacity := ResourceCapacity{CPUMilli: 1_000, MemoryBytes: 1 << 30, MaxConcurrency: 1}
+	runIdentity := topologyRunIdentity(t, "repo-a", strings.Repeat("b", 40), "repo-a/run")
 	request := TopologyPlanRequest{
-		OperationID:  OperationID(strings.Repeat("a", OperationIDHexLength)),
-		RepositoryID: "repo-a", SourceTreeSHA: strings.Repeat("b", 40), RunID: "repo-a/run",
-		Manifest: manifest,
+		OperationID: topologyOperationID(t, runIdentity.DurableRunID, TopologyOperationPhasePlan, ""),
+		RunIdentity: runIdentity,
+		Manifest:    manifest,
 		SourceSnapshot: SnapshotSet{
 			SchemaVersion: SnapshotSchemaVersion, Authority: AuthorityLocalNonAuthoritative, OwnerEpoch: session.OwnerEpoch,
 			CapacityBasis: SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations, CapturedAtUnixMilli: now.UnixMilli(),
@@ -121,6 +142,24 @@ func topologyPlanFixture(t *testing.T) (TopologySession, TopologyPlanRequest) {
 		HeartbeatTTL: 30 * time.Second,
 	}
 	return session, request
+}
+
+func topologyRunIdentity(t *testing.T, repositoryID, sourceTreeSHA, callerRunID string) TopologyRunIdentity {
+	t.Helper()
+	identity, err := DeriveTopologyRunIdentity(repositoryID, sourceTreeSHA, callerRunID)
+	if err != nil {
+		t.Fatalf("DeriveTopologyRunIdentity: %v", err)
+	}
+	return identity
+}
+
+func topologyOperationID(t *testing.T, durableRunID TopologyRunID, phase TopologyOperationPhase, unitID string) OperationID {
+	t.Helper()
+	operationID, err := DeriveTopologyOperationID(durableRunID, phase, unitID)
+	if err != nil {
+		t.Fatalf("DeriveTopologyOperationID: %v", err)
+	}
+	return operationID
 }
 
 func topologySessionFence(t *testing.T, revision RoutingOwnerRevision, ownerDigit string) OwnerFence {
