@@ -23,6 +23,7 @@ func TestPortableRepositoryWorkloadManifest(t *testing.T) {
 		RequiredNodeCapabilities: []string{"go"},
 		LogPolicy:                remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
 		Authority:                remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
+		CatalogLimits:            remoteportable.PortableManifestCatalogLimits{MaxTreeOutputBytes: 16 << 20, MaxTreeEntries: 100_000},
 		Modules:                  []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/root"}},
 		ExcludedNestedModules:    []string{},
 	}

@@ -362,9 +362,10 @@ func portableCLIManifest(t *testing.T) []byte {
 			{Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 500, MemoryBytes: 512 << 20, HistoricalEstimateMS: 750, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
 		},
 		Profile: remoteportable.ProfileLocalFast, CapacityPolicyDigest: "", RequiredNodeCapabilities: []string{"go1.26.5"},
-		LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
-		Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
-		Modules:   []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{},
+		LogPolicy:     remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
+		Authority:     remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
+		CatalogLimits: remoteportable.PortableManifestCatalogLimits{MaxTreeOutputBytes: 16 << 20, MaxTreeEntries: 100_000},
+		Modules:       []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{},
 	}
 	manifest.CapacityPolicyDigest = derivePortableCapacityPolicyDigestFixture(t, manifest)
 	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
@@ -601,6 +602,34 @@ func TestParseGitTreeEntryRejectsNonRegularOrAmbiguousEntries(t *testing.T) {
 		if parseErr == nil && parsedMode == "100644" && parsedType == "blob" {
 			t.Fatalf("parseGitTreeEntry() accepted ambiguous entry %q", raw)
 		}
+	}
+}
+
+func TestGitObjectResolverListTreeRequiresManifestBudgets(t *testing.T) {
+	root, err := os.MkdirTemp("/private/tmp", "portable-catalog-limits-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	runGitFixture(t, root, "init")
+	runGitFixture(t, root, "config", "user.email", "catalog@example.invalid")
+	runGitFixture(t, root, "config", "user.name", "Catalog Fixture")
+	mustWriteTestFile(t, filepath.Join(root, "one.txt"), []byte("one"))
+	mustWriteTestFile(t, filepath.Join(root, "two.txt"), []byte("two"))
+	runGitFixture(t, root, "add", ".")
+	runGitFixture(t, root, "commit", "-m", "catalog limits")
+	tree := runGitFixture(t, root, "rev-parse", "HEAD^{tree}")
+	if _, err := (gitObjectResolver{repositoryRoot: root}).ListTree(context.Background(), tree); err == nil || !strings.Contains(err.Error(), "limits") {
+		t.Fatalf("ListTree accepted missing budgets: %v", err)
+	}
+	resolver := gitObjectResolver{repositoryRoot: root, maxTreeOutputBytes: 16 << 20, maxTreeEntries: 1}
+	if _, err := resolver.ListTree(context.Background(), tree); err == nil || !strings.Contains(err.Error(), "entry count") {
+		t.Fatalf("ListTree accepted entry budget drift: %v", err)
+	}
+	resolver.maxTreeEntries = 100
+	resolver.maxTreeOutputBytes = 1
+	if _, err := resolver.ListTree(context.Background(), tree); err == nil {
+		t.Fatal("ListTree accepted byte budget drift")
 	}
 }
 

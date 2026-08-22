@@ -42,6 +42,7 @@ type PortableManifest struct {
 	RequiredNodeCapabilities []string                        `json:"required_node_capabilities"`
 	LogPolicy                PortableManifestLogPolicy       `json:"log_policy"`
 	Authority                PortableManifestAuthority       `json:"authority"`
+	CatalogLimits            PortableManifestCatalogLimits   `json:"catalog_limits"`
 	Modules                  []RepositoryWorkloadModule      `json:"modules"`
 	ExcludedNestedModules    []string                        `json:"excluded_nested_modules"`
 }
@@ -85,6 +86,27 @@ type PortableManifestCatalogPolicy struct {
 	MemoryBytes          int64  `json:"memory_bytes"`
 	HistoricalEstimateMS int64  `json:"historical_estimate_ms"`
 	ExecutionPolicy      string `json:"execution_policy"`
+}
+
+const (
+	// PortableManifestCatalogMaxTreeOutputBytes bounds caller-supplied exact-tree listing bytes.
+	PortableManifestCatalogMaxTreeOutputBytes = 64 << 20
+	// PortableManifestCatalogMaxTreeEntries bounds caller-supplied exact-tree listing entries.
+	PortableManifestCatalogMaxTreeEntries = 1_000_000
+)
+
+// PortableManifestCatalogLimits 是 manifest-owned exact-tree listing 的 typed resource budget。
+type PortableManifestCatalogLimits struct {
+	MaxTreeOutputBytes int64 `json:"max_tree_output_bytes"`
+	MaxTreeEntries     int   `json:"max_tree_entries"`
+}
+
+// Validate 校验 catalog limits 必须显式、正数且不超过安全上限。
+func (limits PortableManifestCatalogLimits) Validate() error {
+	if limits.MaxTreeOutputBytes <= 0 || limits.MaxTreeOutputBytes > PortableManifestCatalogMaxTreeOutputBytes || limits.MaxTreeEntries <= 0 || limits.MaxTreeEntries > PortableManifestCatalogMaxTreeEntries {
+		return errors.New("portable manifest catalog limits are invalid")
+	}
+	return nil
 }
 
 // PortableManifestLogPolicy 绑定 result/event schema 与输出边界。
@@ -296,6 +318,9 @@ func (manifest PortableManifest) validateStaticIdentity() error {
 
 func (manifest PortableManifest) validateStaticPolicy() error {
 	if err := validatePortableCapacityPolicyMaterial(manifest); err != nil {
+		return err
+	}
+	if err := manifest.CatalogLimits.Validate(); err != nil {
 		return err
 	}
 	expected, err := DerivePortableCapacityPolicyDigest(manifest)
@@ -549,7 +574,7 @@ func portableTopLevelABIMaterial() ([]byte, error) {
 func portableManifestWireTypes() []reflect.Type {
 	return []reflect.Type{
 		reflect.TypeFor[PortableManifest](), reflect.TypeFor[PortableManifestEngine](), reflect.TypeFor[PortableManifestTarget](),
-		reflect.TypeFor[PortableManifestWorkload](), reflect.TypeFor[PortableManifestCatalogPolicy](), reflect.TypeFor[PortableManifestLogPolicy](), reflect.TypeFor[PortableManifestAuthority](),
+		reflect.TypeFor[PortableManifestWorkload](), reflect.TypeFor[PortableManifestCatalogPolicy](), reflect.TypeFor[PortableManifestCatalogLimits](), reflect.TypeFor[PortableManifestLogPolicy](), reflect.TypeFor[PortableManifestAuthority](),
 		reflect.TypeFor[RepositoryWorkloadModule](),
 	}
 }

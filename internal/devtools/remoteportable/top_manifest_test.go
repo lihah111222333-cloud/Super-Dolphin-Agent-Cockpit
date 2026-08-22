@@ -29,6 +29,31 @@ func TestPortableManifestTopLevelStrictRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPortableManifestCatalogLimitsRejectMissingAndUnsafeBudgets(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*PortableManifest)
+	}{
+		{name: "missing", mutate: func(manifest *PortableManifest) { manifest.CatalogLimits = PortableManifestCatalogLimits{} }},
+		{name: "zero bytes", mutate: func(manifest *PortableManifest) { manifest.CatalogLimits.MaxTreeOutputBytes = 0 }},
+		{name: "bytes over ceiling", mutate: func(manifest *PortableManifest) {
+			manifest.CatalogLimits.MaxTreeOutputBytes = PortableManifestCatalogMaxTreeOutputBytes + 1
+		}},
+		{name: "entries over ceiling", mutate: func(manifest *PortableManifest) {
+			manifest.CatalogLimits.MaxTreeEntries = PortableManifestCatalogMaxTreeEntries + 1
+		}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			manifest := topManifestFixture(t)
+			testCase.mutate(&manifest)
+			if _, err := PortableManifestCanonicalEncode(manifest); err == nil {
+				t.Fatal("unsafe catalog limits were accepted")
+			}
+		})
+	}
+}
+
 func TestPortableManifestWorkloadExecutionDigestRoundTripAndTamperMatrix(t *testing.T) {
 	manifest := topManifestFixture(t)
 	workload := manifest.Workloads[0]
@@ -167,7 +192,7 @@ func TestPortableManifestFieldAndABIGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	fieldMaterial := strings.Join(fields, "\x00")
-	for _, field := range []string{"PortableManifest.modules", "PortableManifest.excluded_nested_modules", "PortableManifestWorkload.execution_digest", "RepositoryWorkloadModule.root", "RepositoryWorkloadModule.module_path", "PortableManifest.catalog_policies", "PortableManifestCatalogPolicy.platform", "PortableManifestCatalogPolicy.runtime", "PortableManifestCatalogPolicy.cpu_milli", "PortableManifestCatalogPolicy.memory_bytes", "PortableManifestCatalogPolicy.historical_estimate_ms", "PortableManifestCatalogPolicy.execution_policy"} {
+	for _, field := range []string{"PortableManifest.modules", "PortableManifest.excluded_nested_modules", "PortableManifest.catalog_limits", "PortableManifestWorkload.execution_digest", "RepositoryWorkloadModule.root", "RepositoryWorkloadModule.module_path", "PortableManifest.catalog_policies", "PortableManifestCatalogPolicy.platform", "PortableManifestCatalogPolicy.runtime", "PortableManifestCatalogPolicy.cpu_milli", "PortableManifestCatalogPolicy.memory_bytes", "PortableManifestCatalogPolicy.historical_estimate_ms", "PortableManifestCatalogPolicy.execution_policy", "PortableManifestCatalogLimits.max_tree_output_bytes", "PortableManifestCatalogLimits.max_tree_entries"} {
 		if !strings.Contains(fieldMaterial, field) {
 			t.Fatalf("manifest field %q is absent from dynamic ABI field registry", field)
 		}
@@ -315,9 +340,10 @@ func topManifestFixture(t testing.TB) PortableManifest {
 		Workloads:       workloads,
 		CatalogPolicies: []PortableManifestCatalogPolicy{{Platform: string(RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}, {Platform: string(RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 2_000, MemoryBytes: 2 << 30, HistoricalEstimateMS: 2_000, ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}},
 		Profile:         ProfileLocalFast, CapacityPolicyDigest: "", RequiredNodeCapabilities: []string{"go1.26.5"},
-		LogPolicy: PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
-		Authority: PortableManifestAuthority{ContractID: PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
-		Modules:   []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{},
+		LogPolicy:     PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
+		Authority:     PortableManifestAuthority{ContractID: PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
+		CatalogLimits: PortableManifestCatalogLimits{MaxTreeOutputBytes: 16 << 20, MaxTreeEntries: 100_000},
+		Modules:       []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{},
 	}
 	capacityDigest, err := DerivePortableCapacityPolicyDigest(manifest)
 	if err != nil {

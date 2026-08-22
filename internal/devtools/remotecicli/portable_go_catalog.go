@@ -34,11 +34,21 @@ func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedR
 	if err != nil {
 		return DetectedRepository{}, err
 	}
-	reader := gitObjectResolver{repositoryRoot: repository.Root}
+	reader, err := newPortableCatalogGitObjectResolver(repository.Root, repository.Manifest.CatalogLimits)
+	if err != nil {
+		return DetectedRepository{}, err
+	}
 	if len(repository.Manifest.CatalogPolicies) == 0 {
 		return validateExplicitPortableCatalog(ctx, reader, repository)
 	}
 	return expandGeneratedPortableCatalog(ctx, reader, repository, seenUnitIDs)
+}
+
+func newPortableCatalogGitObjectResolver(repositoryRoot string, limits remoteportable.PortableManifestCatalogLimits) (gitObjectResolver, error) {
+	if err := limits.Validate(); err != nil {
+		return gitObjectResolver{}, err
+	}
+	return gitObjectResolver{repositoryRoot: repositoryRoot, maxTreeOutputBytes: int(limits.MaxTreeOutputBytes), maxTreeEntries: limits.MaxTreeEntries}, nil
 }
 
 func validatePortableCatalogRepository(ctx context.Context, repository DetectedRepository) error {

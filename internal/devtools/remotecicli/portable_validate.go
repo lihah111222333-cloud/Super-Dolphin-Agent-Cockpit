@@ -245,7 +245,9 @@ func digestBytes(data []byte) string {
 
 // gitObjectResolver 通过 git object database 读取绑定 target tree，不读取当前工作树文件。
 type gitObjectResolver struct {
-	repositoryRoot string
+	repositoryRoot     string
+	maxTreeOutputBytes int
+	maxTreeEntries     int
 }
 
 // RepositoryFacts 返回 exact repository 的 semantic object format fact。
@@ -291,13 +293,23 @@ func (resolver gitObjectResolver) ReadTreeBlob(ctx context.Context, treeSHA, rep
 	return remoteportable.GitTreeBlob{Mode: mode, Data: output}, nil
 }
 
-// ListTree 返回 exact tree 的 regular blob 文件路径。
+// ListTree 返回 exact tree 的 regular blob 文件路径，并执行 manifest-owned 双重预算。
 func (resolver gitObjectResolver) ListTree(ctx context.Context, treeSHA string) ([]remoteportable.GitTreeEntry, error) {
-	output, err := runGitObjectCommand(ctx, resolver.repositoryRoot, "ls-tree", "-r", "-z", "--full-tree", treeSHA, "--")
+	if resolver.maxTreeOutputBytes <= 0 || resolver.maxTreeEntries <= 0 {
+		return nil, errors.New("exact tree catalog limits are missing")
+	}
+	output, err := runBoundedGitObjectCommand(ctx, resolver.repositoryRoot, resolver.maxTreeOutputBytes, "ls-tree", "-r", "-z", "--full-tree", treeSHA, "--")
 	if err != nil {
 		return nil, errors.New("list exact tree failed")
 	}
-	return remoteportable.ParseGitTreeEntries(output)
+	entries, err := remoteportable.ParseGitTreeEntries(output)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) > resolver.maxTreeEntries {
+		return nil, errors.New("exact tree entry count exceeds catalog limit")
+	}
+	return entries, nil
 }
 
 // ReadBlob 读取 exact tree 中的一个 regular blob。
