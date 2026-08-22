@@ -36,9 +36,6 @@ const (
 	// GenerationOneBootstrapPathID 标识 normal run/hook 在空 singleton 时消费配置 strict ECI receipt 的唯一首代路径。
 	// 非空 singleton 继续提供 correctness identity；执行物料可消费实时验证的有限期刷新 snapshot。
 	GenerationOneBootstrapPathID = "normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1"
-	// ImageCacheRefreshOperatorPathID 标识唯一候选缓存刷新入口；本地只上传内容寻址源码与依赖，编译和镜像加工只在 ECI 内执行。
-	// 该入口只创建有限期非权威加速物料，不读取或改写 SQLite；normal run 只在严格解码并实时复核 Ready 后消费。
-	ImageCacheRefreshOperatorPathID = "script-oss-handoff-aliyun-eci-offline-imagecache-runtime/v2"
 	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
 	// DurationLedgerSQLiteSchemaVersion 是 duration-ledger SQLite 物理 schema 的唯一版本 owner。
@@ -735,7 +732,7 @@ func Validate() error {
 
 // validateContractIdentity 校验代码契约的稳定身份与唯一 owner 路径均已定义。
 func validateContractIdentity() error {
-	values := []string{ID, DocumentPath, ExecutionPathID, ExecutionProviderID, CIExecutionBoundary, GenerationOneBootstrapPathID, ImageCacheRefreshOperatorPathID, SQLAuthorityID, CacheMaterialSchemaID, CacheMaterialAuthority, CompileGroupExecutionPathID}
+	values := []string{ID, DocumentPath, ExecutionPathID, ExecutionProviderID, CIExecutionBoundary, GenerationOneBootstrapPathID, SQLAuthorityID, CacheMaterialSchemaID, CacheMaterialAuthority, CompileGroupExecutionPathID}
 	if slices.Contains(values, "") {
 		return errors.New("remote CI contract identity is incomplete")
 	}
