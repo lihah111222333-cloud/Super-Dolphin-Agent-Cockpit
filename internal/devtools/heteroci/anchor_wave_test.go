@@ -192,12 +192,15 @@ func TestBuildAnchorWavePlanReturnsTypedCapacityBlocker(t *testing.T) {
 	snapshot.Nodes[0].Available = ResourceCapacity{}
 	snapshot.Nodes[1].Available = ResourceCapacity{}
 	plan, err := BuildAnchorWavePlan(manifest, snapshot, units, now, snapshotTestHeartbeatTTL)
-	if err == nil || !reflect.DeepEqual(plan, PackingPlan{}) {
-		t.Fatalf("BuildAnchorWavePlan() = plan:%#v err:%v, want zero plan and blocker", plan, err)
+	if err == nil || len(plan.UnassignedUnitIDs) != 1 || plan.UnassignedUnitIDs[0] != "saturated-ubuntu" {
+		t.Fatalf("BuildAnchorWavePlan() = plan:%#v err:%v, want replayable unassigned plan and blocker", plan, err)
 	}
 	var blocker *CapacityBlockerError
 	if !errors.As(err, &blocker) || len(blocker.Blockers) != 1 || blocker.Blockers[0].UnitID != "saturated-ubuntu" {
 		t.Fatalf("BuildAnchorWavePlan error = %T %v, want typed CapacityBlocker", err, err)
+	}
+	if blocker.ValidateAgainstPlan(plan) != nil {
+		t.Fatalf("capacity blocker plan digest does not replay against plan: %v", blocker)
 	}
 }
 

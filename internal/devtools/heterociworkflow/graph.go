@@ -43,7 +43,7 @@ func BuildBatches(
 	if err != nil {
 		return nil, err
 	}
-	if err := rejectUnassignedUnits(planned.Plan.UnassignedUnitIDs, unitIndex); err != nil {
+	if err := rejectUnassignedUnits(planned.Plan, unitIndex); err != nil {
 		return nil, err
 	}
 	if err := validateBatchCoverage(units, assignments, leases, seen); err != nil {
@@ -67,20 +67,24 @@ func buildLocalBatches(runID string, shards []heteroci.NodeShard, unitIndex map[
 	return batches, nil
 }
 
-// rejectUnassignedUnits 将规划中未装入的 unit 映射为 typed capacity blocker。
-func rejectUnassignedUnits(unitIDs []string, unitIndex map[string]heteroci.ExecutionUnit) error {
-	if len(unitIDs) == 0 {
+// rejectUnassignedUnits 将规划中未装入的 unit 映射为 typed capacity blocker，并由 NewCapacityBlockerError 绑定 PackingPlanDigest。
+func rejectUnassignedUnits(plan heteroci.PackingPlan, unitIndex map[string]heteroci.ExecutionUnit) error {
+	if len(plan.UnassignedUnitIDs) == 0 {
 		return nil
 	}
-	blockers := make([]heteroci.CapacityBlocker, 0, len(unitIDs))
-	for _, unitID := range unitIDs {
+	blockers := make([]heteroci.CapacityBlocker, 0, len(plan.UnassignedUnitIDs))
+	for _, unitID := range plan.UnassignedUnitIDs {
 		unit, exists := unitIndex[unitID]
 		if !exists {
 			return errors.New("heteroci workflow unassigned plan references unknown unit")
 		}
-		blockers = append(blockers, heteroci.CapacityBlocker{UnitID: unit.UnitID, TargetPlatform: unit.TargetPlatform, RequiredRuntime: unit.RequiredRuntime, Reason: heteroci.CapacityBlockerReasonCapacityUnavailable})
+		blockers = append(blockers, heteroci.CapacityBlocker{UnitID: unit.UnitID, TargetPlatform: unit.TargetPlatform, RequiredRuntime: unit.RequiredRuntime, ReasonCode: heteroci.CapacityBlockerReasonCapacityUnavailable})
 	}
-	return &heteroci.CapacityBlockerError{Blockers: blockers}
+	blockerErr, err := heteroci.NewCapacityBlockerError(plan, blockers)
+	if err != nil {
+		return err
+	}
+	return blockerErr
 }
 
 // validateBatchInputs 校验 batch graph 的 owner fence、快照、规划和路由投影。

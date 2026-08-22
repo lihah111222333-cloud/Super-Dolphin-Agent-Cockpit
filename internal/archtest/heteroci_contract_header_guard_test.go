@@ -121,10 +121,16 @@ func TestHeterociCapacitySnapshotReservationAndBindingBoundary(t *testing.T) {
 	}
 	sources := map[string][]string{
 		"internal/devtools/heteroci/anchor_wave.go": {
-			"BuildAnchorWavePlan", "chooseAnchorCandidate", "CapacityBlockerError", "sort.Slice",
+			"BuildAnchorWavePlan", "chooseAnchorCandidate", "CapacityBlockerError", "NewCapacityBlockerError", "UnassignedUnitIDs", "sort.Slice",
 		},
 		"internal/devtools/heteroci/router.go": {
-			"BuildRoutingDecision", "SnapshotCapturedAtUnixMilli", "CapacityBlockerError", "PackingPlanDigest",
+			"BuildRoutingDecision", "SnapshotCapturedAtUnixMilli", "CapacityBlockerError", "NewCapacityBlockerError", "PackingPlanDigest", "ReasonCode",
+		},
+		"internal/devtools/heteroci/routing_types.go": {
+			"CapacityBlockerProjection", "ValidateAgainstPlan", "ManifestDigest", "ReasonCode", "PackingPlanDigest", "func (projection CapacityBlockerProjection) Validate",
+		},
+		"internal/devtools/heterociworkflow/graph.go": {
+			"rejectUnassignedUnits", "NewCapacityBlockerError", "PackingPlanDigest",
 		},
 		"internal/devtools/heteroci/routing_lease_book.go": {
 			"PlanAndReserve", "SourceSnapshot", "EffectiveSnapshot", "commitRoutingLeaseReservation",

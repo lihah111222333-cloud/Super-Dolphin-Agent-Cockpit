@@ -34,16 +34,16 @@ func TestCapacityBlockerErrorIsStableAndSafe(t *testing.T) {
 		t.Fatalf("empty blocker slice error = %q, want stable empty error", got)
 	}
 	blockers := []CapacityBlocker{
-		{UnitID: "unit-z", TargetPlatform: PlatformWindowsAMD64, RequiredRuntime: RuntimeWindowsNative, Reason: CapacityBlockerReasonCapacityUnavailable},
-		{UnitID: "unit-a", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, Reason: CapacityBlockerReasonCapacityUnavailable},
-		{UnitID: "unit-m", TargetPlatform: PlatformDarwinAMD64, RequiredRuntime: RuntimeDarwinNative, Reason: CapacityBlockerReasonCapacityUnavailable},
+		{UnitID: "unit-z", TargetPlatform: PlatformWindowsAMD64, RequiredRuntime: RuntimeWindowsNative, ReasonCode: CapacityBlockerReasonCapacityUnavailable, PackingPlanDigest: "sha256:" + strings.Repeat("1", 64)},
+		{UnitID: "unit-a", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, ReasonCode: CapacityBlockerReasonCapacityUnavailable, PackingPlanDigest: "sha256:" + strings.Repeat("1", 64)},
+		{UnitID: "unit-m", TargetPlatform: PlatformDarwinAMD64, RequiredRuntime: RuntimeDarwinNative, ReasonCode: CapacityBlockerReasonCapacityUnavailable, PackingPlanDigest: "sha256:" + strings.Repeat("1", 64)},
 	}
 	reversed := append([]CapacityBlocker(nil), blockers...)
 	for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
 		reversed[left], reversed[right] = reversed[right], reversed[left]
 	}
-	got := (CapacityBlockerError{Blockers: blockers}).Error()
-	if reversedGot := (CapacityBlockerError{Blockers: reversed}).Error(); reversedGot != got {
+	got := (CapacityBlockerError{PackingPlanDigest: "sha256:" + strings.Repeat("1", 64), Blockers: blockers}).Error()
+	if reversedGot := (CapacityBlockerError{PackingPlanDigest: "sha256:" + strings.Repeat("1", 64), Blockers: reversed}).Error(); reversedGot != got {
 		t.Fatalf("blocker error depends on input order: forward=%q reverse=%q", got, reversedGot)
 	}
 	last := -1
@@ -58,6 +58,53 @@ func TestCapacityBlockerErrorIsStableAndSafe(t *testing.T) {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("blocker error leaks %q: %q", forbidden, got)
 		}
+	}
+}
+
+func TestCapacityBlockerErrorBindsPlanDigestAndExplicitManifestProjection(t *testing.T) {
+	plan := PackingPlan{
+		SchemaVersion: PackingPlanSchemaVersion, Authority: AuthorityLocalNonAuthoritative,
+		SnapshotCapturedAtUnixMilli: 1, NodeShards: []NodeShard{}, UnassignedUnitIDs: []string{"unit-a"},
+	}
+	blockerErr, err := NewCapacityBlockerError(plan, []CapacityBlocker{{
+		UnitID: "unit-a", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer,
+		ReasonCode: CapacityBlockerReasonCapacityUnavailable,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := blockerErr.ValidateAgainstPlan(plan); err != nil {
+		t.Fatal(err)
+	}
+	assertCapacityBlockerProjection(t, blockerErr, plan)
+}
+
+func assertCapacityBlockerProjection(t *testing.T, blockerErr *CapacityBlockerError, plan PackingPlan) {
+	t.Helper()
+	manifestDigest := "sha256:" + strings.Repeat("2", 64)
+	projection, err := blockerErr.Project(manifestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.ManifestDigest != manifestDigest || projection.PackingPlanDigest != blockerErr.PackingPlanDigest || len(projection.Blockers) != 1 {
+		t.Fatalf("unexpected blocker projection: %#v", projection)
+	}
+	if err := projection.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	tampered := *blockerErr
+	tampered.PackingPlanDigest = "sha256:" + strings.Repeat("0", 64)
+	if tampered.ValidateAgainstPlan(plan) == nil {
+		t.Fatal("tampered error digest unexpectedly validated")
+	}
+	tampered = *blockerErr
+	tampered.Blockers = append([]CapacityBlocker(nil), blockerErr.Blockers...)
+	tampered.Blockers[0].PackingPlanDigest = "sha256:" + strings.Repeat("0", 64)
+	if tampered.Validate() == nil {
+		t.Fatal("tampered blocker digest unexpectedly validated")
+	}
+	if _, err := blockerErr.Project("manifest-not-a-digest"); err == nil {
+		t.Fatal("projection accepted fabricated manifest digest")
 	}
 }
 
@@ -102,17 +149,29 @@ func TestRoutingWireTypesRetainAllJSONTagsAndFieldTypes(t *testing.T) {
 			name: "capacity blocker",
 			typ:  reflect.TypeFor[CapacityBlocker](),
 			fieldTypes: map[string]reflect.Type{
-				"UnitID":          reflect.TypeFor[string](),
-				"TargetPlatform":  reflect.TypeFor[Platform](),
-				"RequiredRuntime": reflect.TypeFor[RuntimeKind](),
-				"Reason":          reflect.TypeFor[string](),
+				"UnitID":            reflect.TypeFor[string](),
+				"TargetPlatform":    reflect.TypeFor[Platform](),
+				"RequiredRuntime":   reflect.TypeFor[RuntimeKind](),
+				"ReasonCode":        reflect.TypeFor[string](),
+				"PackingPlanDigest": reflect.TypeFor[string](),
 			},
 		},
 		{
 			name: "capacity blocker error",
 			typ:  reflect.TypeFor[CapacityBlockerError](),
 			fieldTypes: map[string]reflect.Type{
-				"Blockers": reflect.TypeFor[[]CapacityBlocker](),
+				"PackingPlanDigest": reflect.TypeFor[string](),
+				"Blockers":          reflect.TypeFor[[]CapacityBlocker](),
+			},
+			sliceFields: map[string]reflect.Type{"Blockers": reflect.TypeFor[CapacityBlocker]()},
+		},
+		{
+			name: "capacity blocker projection",
+			typ:  reflect.TypeFor[CapacityBlockerProjection](),
+			fieldTypes: map[string]reflect.Type{
+				"ManifestDigest":    reflect.TypeFor[string](),
+				"PackingPlanDigest": reflect.TypeFor[string](),
+				"Blockers":          reflect.TypeFor[[]CapacityBlocker](),
 			},
 			sliceFields: map[string]reflect.Type{"Blockers": reflect.TypeFor[CapacityBlocker]()},
 		},

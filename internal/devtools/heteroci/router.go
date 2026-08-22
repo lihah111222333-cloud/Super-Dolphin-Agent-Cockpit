@@ -22,13 +22,28 @@ func BuildRoutingDecision(
 	if err := plan.ValidateAgainst(manifest, snapshot, units, now, heartbeatTTL); err != nil {
 		return RoutingDecision{}, fmt.Errorf("validate routing plan: %w", err)
 	}
+	assignments, blockers, err := routingAssignmentsAndBlockers(manifest, snapshot, units, plan)
+	if err != nil {
+		return RoutingDecision{}, err
+	}
+	if len(blockers) != 0 {
+		blockerErr, err := NewCapacityBlockerError(plan, blockers)
+		if err != nil {
+			return RoutingDecision{}, err
+		}
+		return RoutingDecision{}, blockerErr
+	}
+	return buildRoutingDecision(manifest, snapshot, units, plan, assignments, now, heartbeatTTL)
+}
+
+func routingAssignmentsAndBlockers(manifest Manifest, snapshot SnapshotSet, units []ExecutionUnit, plan PackingPlan) ([]RouteAssignment, []CapacityBlocker, error) {
 	unitIndex, err := indexRoutingUnits(units)
 	if err != nil {
-		return RoutingDecision{}, fmt.Errorf("index routing units: %w", err)
+		return nil, nil, fmt.Errorf("index routing units: %w", err)
 	}
 	assignments, err := routingLocalAssignments(plan, snapshot)
 	if err != nil {
-		return RoutingDecision{}, fmt.Errorf("build local routing assignments: %w", err)
+		return nil, nil, fmt.Errorf("build local routing assignments: %w", err)
 	}
 	blockers := make([]CapacityBlocker, 0, len(plan.UnassignedUnitIDs))
 	for _, unitID := range plan.UnassignedUnitIDs {
@@ -40,26 +55,16 @@ func BuildRoutingDecision(
 		}
 		assignments = append(assignments, assignment)
 	}
-	if len(blockers) != 0 {
-		sort.Slice(blockers, func(left, right int) bool {
-			return capacityBlockerLess(blockers[left], blockers[right])
-		})
-		return RoutingDecision{}, &CapacityBlockerError{Blockers: blockers}
-	}
-	sort.Slice(assignments, func(left, right int) bool {
-		return assignments[left].UnitID < assignments[right].UnitID
-	})
+	return assignments, blockers, nil
+}
+
+func buildRoutingDecision(manifest Manifest, snapshot SnapshotSet, units []ExecutionUnit, plan PackingPlan, assignments []RouteAssignment, now time.Time, heartbeatTTL time.Duration) (RoutingDecision, error) {
+	sort.Slice(assignments, func(left, right int) bool { return assignments[left].UnitID < assignments[right].UnitID })
 	packingDigest, err := plan.CanonicalDigest()
 	if err != nil {
 		return RoutingDecision{}, fmt.Errorf("compute routing packing digest: %w", err)
 	}
-	decision := RoutingDecision{
-		SchemaVersion:               RoutingDecisionSchemaVersion,
-		Authority:                   AuthorityLocalNonAuthoritative,
-		SnapshotCapturedAtUnixMilli: snapshot.CapturedAtUnixMilli,
-		PackingPlanDigest:           packingDigest,
-		Assignments:                 assignments,
-	}
+	decision := RoutingDecision{SchemaVersion: RoutingDecisionSchemaVersion, Authority: AuthorityLocalNonAuthoritative, SnapshotCapturedAtUnixMilli: snapshot.CapturedAtUnixMilli, PackingPlanDigest: packingDigest, Assignments: assignments}
 	decision.DecisionDigest, err = decision.CanonicalDigest()
 	if err != nil {
 		return RoutingDecision{}, fmt.Errorf("compute routing decision digest: %w", err)
@@ -80,11 +85,11 @@ func PlanRoutingDecision(
 ) (PackingPlan, RoutingDecision, error) {
 	plan, err := BuildAnchorWavePlan(manifest, snapshot, units, now, heartbeatTTL)
 	if err != nil {
-		return PackingPlan{}, RoutingDecision{}, fmt.Errorf("build anchor wave plan for routing: %w", err)
+		return plan, RoutingDecision{}, fmt.Errorf("build anchor wave plan for routing: %w", err)
 	}
 	decision, err := BuildRoutingDecision(manifest, snapshot, units, plan, now, heartbeatTTL)
 	if err != nil {
-		return PackingPlan{}, RoutingDecision{}, err
+		return plan, RoutingDecision{}, err
 	}
 	return plan, decision, nil
 }
@@ -148,6 +153,6 @@ func newCapacityBlocker(unit ExecutionUnit, reason string) *CapacityBlocker {
 		UnitID:          unit.UnitID,
 		TargetPlatform:  unit.TargetPlatform,
 		RequiredRuntime: unit.RequiredRuntime,
-		Reason:          reason,
+		ReasonCode:      reason,
 	}
 }

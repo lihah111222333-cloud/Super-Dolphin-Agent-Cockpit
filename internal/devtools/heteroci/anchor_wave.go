@@ -35,47 +35,70 @@ type anchorCandidate struct {
 
 // BuildAnchorWavePlan 按实时节点容量为工作单元构造确定性的顺序波次规划。
 func BuildAnchorWavePlan(manifest Manifest, snapshot SnapshotSet, units []ExecutionUnit, now time.Time, heartbeatTTL time.Duration) (PackingPlan, error) {
-	if err := manifest.Validate(); err != nil {
-		return PackingPlan{}, fmt.Errorf("validate anchor wave manifest: %w", err)
-	}
-	if err := snapshot.ValidateAgainst(manifest, now, heartbeatTTL); err != nil {
-		return PackingPlan{}, fmt.Errorf("validate anchor wave snapshot: %w", err)
-	}
-	if err := ValidateExecutionUnits(units); err != nil {
-		return PackingPlan{}, fmt.Errorf("validate anchor wave units: %w", err)
+	if err := validateAnchorWaveInputs(manifest, snapshot, units, now, heartbeatTTL); err != nil {
+		return PackingPlan{}, err
 	}
 
 	states := newAnchorNodeStates(snapshot.Nodes)
 	orderedUnits := append([]ExecutionUnit(nil), units...)
-	sort.Slice(orderedUnits, func(i, j int) bool {
-		return anchorUnitLess(orderedUnits[i], orderedUnits[j])
-	})
+	sort.Slice(orderedUnits, func(i, j int) bool { return anchorUnitLess(orderedUnits[i], orderedUnits[j]) })
+	blockers, err := assignAnchorWaveUnits(states, orderedUnits)
+	if err != nil {
+		return PackingPlan{}, err
+	}
+	return finalizeAnchorWavePlan(manifest, snapshot, units, states, blockers, now, heartbeatTTL)
+}
+
+func validateAnchorWaveInputs(manifest Manifest, snapshot SnapshotSet, units []ExecutionUnit, now time.Time, heartbeatTTL time.Duration) error {
+	if err := manifest.Validate(); err != nil {
+		return fmt.Errorf("validate anchor wave manifest: %w", err)
+	}
+	if err := snapshot.ValidateAgainst(manifest, now, heartbeatTTL); err != nil {
+		return fmt.Errorf("validate anchor wave snapshot: %w", err)
+	}
+	if err := ValidateExecutionUnits(units); err != nil {
+		return fmt.Errorf("validate anchor wave units: %w", err)
+	}
+	return nil
+}
+
+func assignAnchorWaveUnits(states []anchorNodeState, units []ExecutionUnit) ([]CapacityBlocker, error) {
 	globalMakespan := int64(0)
 	blockers := make([]CapacityBlocker, 0)
-	for _, unit := range orderedUnits {
+	for _, unit := range units {
 		candidate, found, err := chooseAnchorCandidate(states, unit, globalMakespan)
 		if err != nil {
-			return PackingPlan{}, fmt.Errorf("choose anchor wave for unit %q: %w", unit.UnitID, err)
+			return nil, fmt.Errorf("choose anchor wave for unit %q: %w", unit.UnitID, err)
 		}
 		if !found {
 			blockers = append(blockers, *newCapacityBlocker(unit, routingBlockerCapacity))
 			continue
 		}
 		if err := applyAnchorCandidate(states, candidate, unit); err != nil {
-			return PackingPlan{}, fmt.Errorf("apply anchor wave for unit %q: %w", unit.UnitID, err)
+			return nil, fmt.Errorf("apply anchor wave for unit %q: %w", unit.UnitID, err)
 		}
 		globalMakespan = candidate.projectedGlobal
 	}
-	if len(blockers) != 0 {
-		sort.Slice(blockers, func(left, right int) bool { return capacityBlockerLess(blockers[left], blockers[right]) })
-		return PackingPlan{}, &CapacityBlockerError{Blockers: blockers}
-	}
+	return blockers, nil
+}
 
-	plan := anchorPlanFromStates(snapshot, states, nil)
+func finalizeAnchorWavePlan(manifest Manifest, snapshot SnapshotSet, units []ExecutionUnit, states []anchorNodeState, blockers []CapacityBlocker, now time.Time, heartbeatTTL time.Duration) (PackingPlan, error) {
+	unassigned := make([]string, len(blockers))
+	for index, blocker := range blockers {
+		unassigned[index] = blocker.UnitID
+	}
+	plan := anchorPlanFromStates(snapshot, states, unassigned)
 	if err := plan.ValidateAgainst(manifest, snapshot, units, now, heartbeatTTL); err != nil {
 		return PackingPlan{}, fmt.Errorf("validate anchor wave plan: %w", err)
 	}
-	return plan, nil
+	if len(blockers) == 0 {
+		return plan, nil
+	}
+	blockerErr, err := NewCapacityBlockerError(plan, blockers)
+	if err != nil {
+		return PackingPlan{}, err
+	}
+	return plan, blockerErr
 }
 
 // newAnchorNodeStates 复制节点观测并按稳定 ID 排序。

@@ -1,6 +1,7 @@
 package heteroci
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -52,22 +53,132 @@ type RoutingDecision struct {
 // CapacityBlockerReasonCapacityUnavailable 是稳定的容量不足 reason code。
 const CapacityBlockerReasonCapacityUnavailable = "CAPACITY_UNAVAILABLE"
 
-// CapacityBlocker 记录工作单元无法获得合规执行容量的原因。
+// CapacityBlocker 记录工作单元无法获得合规执行容量的可重放证据。
 type CapacityBlocker struct {
 	// UnitID 是被阻塞工作单元的稳定标识。
 	UnitID string `json:"unit_id"`
 	// TargetPlatform 是工作单元要求的规范目标平台。
 	TargetPlatform Platform `json:"target_platform"`
-	// RequiredRuntime 是工作单元要求的规范执行运行时。
+	// RequiredRuntime 是工作单元要求的规范执行运行时/能力。
 	RequiredRuntime RuntimeKind `json:"required_runtime"`
-	// Reason 是不包含节点端点的稳定阻塞原因。
-	Reason string `json:"reason"`
+	// ReasonCode 是不包含节点端点的稳定阻塞原因码。
+	ReasonCode string `json:"reason_code"`
+	// PackingPlanDigest 是产生该阻塞证据的 canonical plan 摘要。
+	PackingPlanDigest string `json:"packing_plan_digest"`
 }
 
 // CapacityBlockerError 表示一个或多个工作单元没有可用的合规容量。
 type CapacityBlockerError struct {
-	// Blockers 是按工作单元稳定标识排序的容量阻塞列表。
+	// PackingPlanDigest 是所有 blocker 共同绑定的 canonical plan 摘要。
+	PackingPlanDigest string `json:"packing_plan_digest"`
+	// Blockers 是按稳定完整键排序的容量阻塞列表。
 	Blockers []CapacityBlocker `json:"blockers"`
+}
+
+// CapacityBlockerProjection 是上层显式绑定 manifest digest 后的 remote blocker DTO。
+type CapacityBlockerProjection struct {
+	// ManifestDigest 是调用方显式提供的 manifest 摘要；core 不自行推导。
+	ManifestDigest string `json:"manifest_digest"`
+	// PackingPlanDigest 是 blocker 绑定的 canonical plan 摘要。
+	PackingPlanDigest string `json:"packing_plan_digest"`
+	// Blockers 是按稳定完整键排序的容量阻塞列表。
+	Blockers []CapacityBlocker `json:"blockers"`
+}
+
+// Validate 校验 projection 的显式 manifest digest 与 typed blocker 证据。
+func (projection CapacityBlockerProjection) Validate() error {
+	if !isSHA256Digest(projection.ManifestDigest) {
+		return errors.New("capacity blocker projection manifest digest is invalid")
+	}
+	return (CapacityBlockerError{PackingPlanDigest: projection.PackingPlanDigest, Blockers: projection.Blockers}).Validate()
+}
+
+// NewCapacityBlockerError 从 canonical plan 生成带 exact plan digest 的 typed blocker error。
+func NewCapacityBlockerError(plan PackingPlan, blockers []CapacityBlocker) (*CapacityBlockerError, error) {
+	digest, err := plan.CanonicalDigest()
+	if err != nil {
+		return nil, fmt.Errorf("compute capacity blocker plan digest: %w", err)
+	}
+	if !isSHA256Digest(digest) {
+		return nil, errors.New("capacity blocker plan digest is invalid")
+	}
+	bound := append([]CapacityBlocker(nil), blockers...)
+	for index := range bound {
+		if bound[index].PackingPlanDigest != "" && bound[index].PackingPlanDigest != digest {
+			return nil, errors.New("capacity blocker plan digest drifted")
+		}
+		bound[index].PackingPlanDigest = digest
+	}
+	sort.Slice(bound, func(left, right int) bool { return capacityBlockerLess(bound[left], bound[right]) })
+	result := &CapacityBlockerError{PackingPlanDigest: digest, Blockers: bound}
+	if err := result.Validate(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// Validate 校验 plan digest、typed blocker 字段和稳定排序。
+func (err CapacityBlockerError) Validate() error {
+	if !isSHA256Digest(err.PackingPlanDigest) {
+		return errors.New("capacity blocker error plan digest is invalid")
+	}
+	if len(err.Blockers) == 0 {
+		return errors.New("capacity blocker error has no blockers")
+	}
+	for index, blocker := range err.Blockers {
+		if validationErr := validateCapacityBlocker(blocker, err.PackingPlanDigest); validationErr != nil {
+			return validationErr
+		}
+		if index > 0 && !capacityBlockerLess(err.Blockers[index-1], blocker) {
+			return errors.New("capacity blockers must be strictly sorted")
+		}
+	}
+	return nil
+}
+
+// ValidateAgainstPlan 校验 error 携带的 digest 与给定 canonical plan exact 相等。
+func (err CapacityBlockerError) ValidateAgainstPlan(plan PackingPlan) error {
+	if validationErr := err.Validate(); validationErr != nil {
+		return validationErr
+	}
+	digest, digestErr := plan.CanonicalDigest()
+	if digestErr != nil {
+		return fmt.Errorf("compute capacity blocker plan digest: %w", digestErr)
+	}
+	if digest != err.PackingPlanDigest {
+		return errors.New("capacity blocker plan digest does not match plan")
+	}
+	return nil
+}
+
+// Project 将显式提供的 manifest digest 绑定到 typed blocker DTO，不在 core 伪造 manifest 身份。
+func (err CapacityBlockerError) Project(manifestDigest string) (CapacityBlockerProjection, error) {
+	if validationErr := err.Validate(); validationErr != nil {
+		return CapacityBlockerProjection{}, validationErr
+	}
+	if !isSHA256Digest(manifestDigest) {
+		return CapacityBlockerProjection{}, errors.New("capacity blocker manifest digest is invalid")
+	}
+	return CapacityBlockerProjection{
+		ManifestDigest: manifestDigest, PackingPlanDigest: err.PackingPlanDigest,
+		Blockers: append([]CapacityBlocker(nil), err.Blockers...),
+	}, nil
+}
+
+func validateCapacityBlocker(blocker CapacityBlocker, planDigest string) error {
+	if !validExecutionUnitID(blocker.UnitID) || !isCanonicalPlatform(blocker.TargetPlatform) || !isCanonicalRuntime(blocker.RequiredRuntime) {
+		return errors.New("capacity blocker identity is invalid")
+	}
+	if !executionUnitRuntimeSupportsPlatform(blocker.RequiredRuntime, blocker.TargetPlatform) {
+		return errors.New("capacity blocker runtime does not support target platform")
+	}
+	if blocker.ReasonCode != CapacityBlockerReasonCapacityUnavailable {
+		return errors.New("capacity blocker reason code is invalid")
+	}
+	if blocker.PackingPlanDigest != planDigest {
+		return errors.New("capacity blocker plan digest does not match error")
+	}
+	return nil
 }
 
 // Error 返回不包含节点端点且与输入顺序无关的容量阻塞描述。
@@ -76,17 +187,10 @@ func (err CapacityBlockerError) Error() string {
 		return "capacity blocker: no blocked units"
 	}
 	blockers := append([]CapacityBlocker(nil), err.Blockers...)
-	sort.SliceStable(blockers, func(left, right int) bool {
-		return capacityBlockerLess(blockers[left], blockers[right])
-	})
+	sort.SliceStable(blockers, func(left, right int) bool { return capacityBlockerLess(blockers[left], blockers[right]) })
 	parts := make([]string, len(blockers))
 	for index, blocker := range blockers {
-		parts[index] = fmt.Sprintf(
-			"unit_id=%q target_platform=%q required_runtime=%q: capacity unavailable",
-			blocker.UnitID,
-			blocker.TargetPlatform,
-			blocker.RequiredRuntime,
-		)
+		parts[index] = fmt.Sprintf("unit_id=%q target_platform=%q required_runtime=%q reason_code=%q packing_plan_digest=%q", blocker.UnitID, blocker.TargetPlatform, blocker.RequiredRuntime, blocker.ReasonCode, blocker.PackingPlanDigest)
 	}
 	return "capacity blocker: " + strings.Join(parts, "; ")
 }
@@ -102,5 +206,8 @@ func capacityBlockerLess(left, right CapacityBlocker) bool {
 	if left.RequiredRuntime != right.RequiredRuntime {
 		return left.RequiredRuntime < right.RequiredRuntime
 	}
-	return left.Reason < right.Reason
+	if left.ReasonCode != right.ReasonCode {
+		return left.ReasonCode < right.ReasonCode
+	}
+	return left.PackingPlanDigest < right.PackingPlanDigest
 }

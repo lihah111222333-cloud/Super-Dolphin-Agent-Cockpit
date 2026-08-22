@@ -693,11 +693,11 @@ func TestV2PortabilityFixtureStrictManifestAndCapacityBlocker(t *testing.T) {
 		MemoryBytes: 9 * 1024 * 1024 * 1024,
 	}}
 	plan, decision, err := PlanRoutingDecision(loaded, snapshot, units, now, snapshotTestHeartbeatTTL)
-	if err == nil || !reflect.DeepEqual(plan, PackingPlan{}) || !reflect.DeepEqual(decision, RoutingDecision{}) {
-		t.Fatalf("PlanRoutingDecision(capacity blocker) = plan:%#v decision:%#v err:%v; want zero values and blocker", plan, decision, err)
+	if err == nil || len(plan.UnassignedUnitIDs) != 1 || !reflect.DeepEqual(decision, RoutingDecision{}) {
+		t.Fatalf("PlanRoutingDecision(capacity blocker) = plan:%#v decision:%#v err:%v; want replayable plan, zero decision and blocker", plan, decision, err)
 	}
 	var blockerErr *CapacityBlockerError
-	if !errors.As(err, &blockerErr) || len(blockerErr.Blockers) != 1 || blockerErr.Blockers[0].Reason != CapacityBlockerReasonCapacityUnavailable {
+	if !errors.As(err, &blockerErr) || len(blockerErr.Blockers) != 1 || blockerErr.Blockers[0].ReasonCode != CapacityBlockerReasonCapacityUnavailable || blockerErr.ValidateAgainstPlan(plan) != nil {
 		t.Fatalf("capacity blocker error = %#v; want one explicit capacity blocker", err)
 	}
 }

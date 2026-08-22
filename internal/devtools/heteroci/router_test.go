@@ -81,18 +81,21 @@ func TestBuildRoutingDecisionRejectsOversizeAsCapacityBlocker(t *testing.T) {
 	oversize := []ExecutionUnit{routerTestLinuxUnit("too-large", 8_001, 16*1024*1024*1024)}
 	plan, decision, err := PlanRoutingDecision(manifest, snapshot, oversize, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, err, decision)
-	if !reflect.DeepEqual(plan, PackingPlan{}) {
-		t.Fatalf("oversize plan = %#v, want zero plan on blocker", plan)
+	if len(plan.UnassignedUnitIDs) != 1 || plan.UnassignedUnitIDs[0] != "too-large" {
+		t.Fatalf("oversize plan = %#v, want replayable unassigned plan", plan)
+	}
+	if blockerErr := routerTestCapacityBlockerError(t, err); blockerErr.ValidateAgainstPlan(plan) != nil {
+		t.Fatalf("oversize blocker digest does not replay against plan: %v", blockerErr)
 	}
 
 	plan, decision, err = PlanRoutingDecision(manifest, snapshot, []ExecutionUnit{routerTestLinuxUnit("linux", 5_000, 9*1024*1024*1024)}, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, err, decision)
-	if !reflect.DeepEqual(plan, PackingPlan{}) {
-		t.Fatalf("second capacity blocker plan = %#v, want zero plan on blocker", plan)
+	if len(plan.UnassignedUnitIDs) != 1 || plan.UnassignedUnitIDs[0] != "linux" {
+		t.Fatalf("second capacity blocker plan = %#v, want replayable unassigned plan", plan)
 	}
 }
 
-func TestBuildRoutingDecisionReturnsZeroForAnyCapacityBlocker(t *testing.T) {
+func TestBuildRoutingDecisionPreservesPlanForAnyCapacityBlocker(t *testing.T) {
 	manifest := anchorWaveRoutingManifest()
 	now := snapshotTestNow()
 	snapshot := snapshotForManifest(manifest, now)
@@ -108,10 +111,13 @@ func TestBuildRoutingDecisionReturnsZeroForAnyCapacityBlocker(t *testing.T) {
 
 	plan, decision, err := PlanRoutingDecision(manifest, snapshot, units, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, err, decision)
-	if !reflect.DeepEqual(plan, PackingPlan{}) {
-		t.Fatalf("partial-capacity plan = %#v, want zero plan", plan)
+	if len(plan.UnassignedUnitIDs) != 1 || plan.UnassignedUnitIDs[0] != "blocked-windows" || len(plan.NodeShards) == 0 {
+		t.Fatalf("partial-capacity plan = %#v, want assigned and unassigned replayable plan", plan)
 	}
 	blockerErr := routerTestCapacityBlockerError(t, err)
+	if blockerErr.ValidateAgainstPlan(plan) != nil {
+		t.Fatalf("partial blocker digest does not replay against plan: %v", blockerErr)
+	}
 	if len(blockerErr.Blockers) != 1 || blockerErr.Blockers[0].UnitID != "blocked-windows" {
 		t.Fatalf("capacity blocker error = %#v, want only blocked-windows", err)
 	}
@@ -124,12 +130,23 @@ func TestBuildRoutingDecisionCapacityBlockersAreSortedAndInputOrderIndependent(t
 		routerTestLinuxUnit("a-linux", 500, 256*1024*1024),
 	}
 	second := []ExecutionUnit{first[1], first[0]}
-	_, firstDecision, firstErr := PlanRoutingDecision(manifest, snapshot, first, now, snapshotTestHeartbeatTTL)
-	_, secondDecision, secondErr := PlanRoutingDecision(manifest, snapshot, second, now, snapshotTestHeartbeatTTL)
+	firstPlan, firstDecision, firstErr := PlanRoutingDecision(manifest, snapshot, first, now, snapshotTestHeartbeatTTL)
+	secondPlan, secondDecision, secondErr := PlanRoutingDecision(manifest, snapshot, second, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, firstErr, firstDecision)
 	routerTestAssertCapacityBlocker(t, secondErr, secondDecision)
 	if firstErr.Error() != secondErr.Error() {
 		t.Fatalf("capacity blocker error changed with input order:\nfirst=%v\nsecond=%v", firstErr, secondErr)
+	}
+	firstDigest, err := firstPlan.CanonicalDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDigest, err := secondPlan.CanonicalDigest()
+	if err != nil || firstDigest != secondDigest {
+		t.Fatalf("capacity blocker plan digest changed with input order: %q/%q err=%v", firstDigest, secondDigest, err)
+	}
+	if blockerErr := routerTestCapacityBlockerError(t, firstErr); blockerErr.PackingPlanDigest != firstDigest || blockerErr.ValidateAgainstPlan(firstPlan) != nil {
+		t.Fatalf("first blocker does not bind canonical plan: %#v", blockerErr)
 	}
 	blockers := routerTestCapacityBlockerError(t, firstErr)
 	ids := []string{blockers.Blockers[0].UnitID, blockers.Blockers[1].UnitID}
@@ -207,8 +224,47 @@ func TestBuildRoutingDecisionOfflineCapacityReturnsBlockerWhenAllMatchingNodesOf
 	unit := []ExecutionUnit{routerTestLinuxUnit("linux", 500, 256*1024*1024)}
 	plan, decision, err := PlanRoutingDecision(manifest, snapshot, unit, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, err, decision)
-	if !reflect.DeepEqual(plan, PackingPlan{}) {
-		t.Fatalf("offline Linux plan = %#v, want zero plan", plan)
+	if len(plan.UnassignedUnitIDs) != 1 || plan.UnassignedUnitIDs[0] != "linux" {
+		t.Fatalf("offline Linux plan = %#v, want replayable unassigned plan", plan)
+	}
+	if blockerErr := routerTestCapacityBlockerError(t, err); blockerErr.ValidateAgainstPlan(plan) != nil {
+		t.Fatalf("offline blocker digest does not replay against plan: %v", blockerErr)
+	}
+}
+
+func TestCapacityBlockerPlanDigestReplaysAcrossResourceDimensions(t *testing.T) {
+	cases := []struct {
+		name     string
+		capacity ResourceCapacity
+		unit     ExecutionUnit
+	}{
+		{name: "cpu", capacity: ResourceCapacity{CPUMilli: 100, MemoryBytes: 1 << 30, MaxConcurrency: 1}, unit: routerTestLinuxUnit("cpu-blocked", 101, 256*1024*1024)},
+		{name: "memory", capacity: ResourceCapacity{CPUMilli: 1_000, MemoryBytes: 100, MaxConcurrency: 1}, unit: routerTestLinuxUnit("memory-blocked", 100, 101)},
+		{name: "concurrency", capacity: ResourceCapacity{CPUMilli: 1_000, MemoryBytes: 1 << 30, MaxConcurrency: 0}, unit: routerTestLinuxUnit("concurrency-blocked", 100, 256*1024*1024)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) { routerTestAssertResourceBlocker(t, tc.capacity, tc.unit) })
+	}
+}
+
+func routerTestAssertResourceBlocker(t *testing.T, capacity ResourceCapacity, unit ExecutionUnit) {
+	t.Helper()
+	manifest := testManifest(1)
+	now := snapshotTestNow()
+	snapshot := snapshotForManifest(manifest, now)
+	for index := range snapshot.Nodes {
+		if snapshot.Nodes[index].Platform == PlatformLinuxAMD64 {
+			snapshot.Nodes[index].Available = capacity
+		}
+	}
+	plan, decision, err := PlanRoutingDecision(manifest, snapshot, []ExecutionUnit{unit}, now, snapshotTestHeartbeatTTL)
+	routerTestAssertCapacityBlocker(t, err, decision)
+	if len(plan.UnassignedUnitIDs) != 1 || plan.UnassignedUnitIDs[0] != unit.UnitID {
+		t.Fatalf("resource blocker plan = %#v", plan)
+	}
+	blockerErr := routerTestCapacityBlockerError(t, err)
+	if blockerErr.ValidateAgainstPlan(plan) != nil {
+		t.Fatalf("resource blocker digest does not replay: %v", blockerErr)
 	}
 }
 
@@ -330,7 +386,7 @@ func routerTestAssertCapacityBlocker(t *testing.T, err error, decision RoutingDe
 		t.Fatalf("decision on blocker = %#v, want zero decision", decision)
 	}
 	for _, blocker := range blockerErr.Blockers {
-		if blocker.UnitID == "" || blocker.TargetPlatform == "" || blocker.RequiredRuntime == "" || blocker.Reason == "" {
+		if blocker.UnitID == "" || blocker.TargetPlatform == "" || blocker.RequiredRuntime == "" || blocker.ReasonCode == "" || blocker.PackingPlanDigest == "" {
 			t.Fatalf("incomplete capacity blocker: %#v", blocker)
 		}
 	}
