@@ -3,12 +3,16 @@ package remoteruntime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterocinode"
 )
 
 func TestTransportProbeUsesBoundedContextAndSeparateChannels(t *testing.T) {
@@ -27,7 +31,7 @@ func TestTransportProbeUsesBoundedContextAndSeparateChannels(t *testing.T) {
 		t.Fatalf("command calls = %d, want 1", calls.Load())
 	}
 	assertProbeCommand(t, config, gotSpec)
-	if !bytes.Equal(result.Bytes(), []byte(`{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`)) {
+	if !bytes.Equal(result.Bytes(), mustProbeResultJSON(t, config.Nodes[0])) {
 		t.Fatalf("result bytes changed: %s", result.Bytes())
 	}
 }
@@ -40,7 +44,7 @@ func probeTransportFixture(t *testing.T, specOut *CommandSpec, calls *atomic.Int
 		if _, ok := ctx.Deadline(); !ok {
 			t.Error("command context has no deadline")
 		}
-		mustWriteTestOutput(t, spec.Stdout, `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`)
+		mustWriteTestOutput(t, spec.Stdout, string(mustProbeResultJSON(t, runtimeFixture().Nodes[0])))
 		mustWriteTestOutput(t, spec.Stderr, "raw remote log must not be projected")
 		return CommandResult{}, nil
 	}))
@@ -68,15 +72,66 @@ func mustWriteTestOutput(t *testing.T, writer io.Writer, value string) {
 	}
 }
 
+func mustProbeResultJSON(t *testing.T, node NodeBinding) []byte {
+	t.Helper()
+	response := heteroci.ProbeResponse{
+		SchemaVersion: heteroci.ProbeResponseSchemaVersion, OwnerEpoch: 1,
+		CapacityBasis: heteroci.SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations,
+		NodeID:        node.NodeID, Endpoint: node.Endpoint, Platform: heteroci.Platform(node.Platform),
+		ProbeIdentity: node.ProbeIdentity, ProbeBootID: "boot-01", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{},
+		Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: 1,
+		Total:     heteroci.ResourceCapacity{CPUMilli: 1000, MemoryBytes: 1 << 20, MaxConcurrency: 1},
+		Available: heteroci.ResourceCapacity{CPUMilli: 1000, MemoryBytes: 1 << 20, MaxConcurrency: 1},
+	}
+	data, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func mustBatchResultJSON(t *testing.T) []byte {
+	t.Helper()
+	result := heterocinode.BatchResult{
+		SchemaVersion: heterocinode.BatchResultSchemaVersion, Authority: heterocinode.BatchAuthorityLocalNonAuthoritative,
+		Status: heterocinode.BatchStatusNotVerified, Outcome: heterocinode.BatchOutcomeSuccess,
+		Outcomes: []heterocinode.BatchOutcome{{UnitID: "unit-01", Status: heterocinode.BatchOutcomeSuccess, ExitCode: 0}},
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func mutateProbeJSON(t *testing.T, node NodeBinding, field string, value any) []byte {
+	t.Helper()
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(mustProbeResultJSON(t, node), &fields); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields[field] = encoded
+	data, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestTransportRejectsMultipleOrNonCanonicalResults(t *testing.T) {
 	config := runtimeFixture()
+	node := config.Nodes[0]
+	valid := string(mustProbeResultJSON(t, node))
 	cases := map[string]string{
-		"duplicate objects": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`,
-		"trailing newline": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}
-`,
-		"identity drift": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"wrong","status":"ok"}`,
-		"node drift":     `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-02","probe_identity":"Ubuntu-01-probe","status":"ok"}`,
-		"missing status": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe"}`,
+		"duplicate objects": valid + valid,
+		"trailing newline":  valid + "\n",
+		"endpoint drift":    string(mutateProbeJSON(t, node, "endpoint", "ssh://other-node")),
+		"identity drift":    string(mutateProbeJSON(t, node, "probe_identity", "wrong")),
+		"unknown root":      string(mutateProbeJSON(t, node, "repository_root", "/private")),
 	}
 	for name, output := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -158,31 +213,36 @@ func TestTransportLinuxRunnerUsesDaemonContract(t *testing.T) {
 
 func TestDecodeNodeResultRequiresBindingIdentity(t *testing.T) {
 	node := runtimeFixture().Nodes[0]
-	if _, err := DecodeNodeResult([]byte(`{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"wrong","status":"ok"}`), node, OperationProbe); !errors.Is(err, ErrNodeResultInvalid) {
+	if _, err := DecodeNodeResult(mutateProbeJSON(t, node, "probe_identity", "wrong"), node, OperationProbe); !errors.Is(err, ErrNodeResultInvalid) {
 		t.Fatalf("DecodeNodeResult() error = %v, want identity error", err)
 	}
 }
 
-func TestDecodeNodeResultUsesOperationSpecificAllowlist(t *testing.T) {
+func TestDecodeNodeResultUsesExistingNodeProtocols(t *testing.T) {
 	node := runtimeFixture().Nodes[0]
+	probe := mustProbeResultJSON(t, node)
+	batch := mustBatchResultJSON(t)
 	cases := []struct {
 		name  string
-		data  string
+		data  []byte
 		op    Operation
 		valid bool
+		want  string
 	}{
-		{name: "probe valid", data: `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`, op: OperationProbe, valid: true},
-		{name: "run valid", data: `{"schema_version":"remote-ci-node-run-result/v1","node_id":"Ubuntu-01","runner_identity":"Ubuntu-01-runner","status":"ok"}`, op: OperationRun, valid: true},
-		{name: "worker valid", data: `{"schema_version":"remote-ci-node-worker-result/v1","node_id":"Ubuntu-01","worker_identity":"Ubuntu-01-worker","status":"ok"}`, op: OperationWorker, valid: true},
-		{name: "endpoint unknown", data: `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok","endpoint":"/private"}`, op: OperationProbe},
-		{name: "generic identity rejected", data: `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","identity":"Ubuntu-01-probe","status":"ok"}`, op: OperationProbe},
-		{name: "run identity drift", data: `{"schema_version":"remote-ci-node-run-result/v1","node_id":"Ubuntu-01","runner_identity":"Ubuntu-01-worker","status":"ok"}`, op: OperationRun},
+		{name: "probe", data: probe, op: OperationProbe, valid: true, want: node.ProbeIdentity},
+		{name: "run batch", data: batch, op: OperationRun, valid: true, want: node.RunnerIdentity},
+		{name: "worker batch", data: batch, op: OperationWorker, valid: true, want: node.WorkerIdentity},
+		{name: "probe endpoint drift", data: mutateProbeJSON(t, node, "endpoint", "ssh://other-node"), op: OperationProbe},
+		{name: "probe unknown field", data: mutateProbeJSON(t, node, "repository_root", "/private"), op: OperationProbe},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := DecodeNodeResult([]byte(tc.data), node, tc.op)
+			result, err := DecodeNodeResult(tc.data, node, tc.op)
 			if (err == nil) != tc.valid {
 				t.Fatalf("DecodeNodeResult() error = %v, valid=%v", err, tc.valid)
+			}
+			if tc.valid && result.Identity != tc.want {
+				t.Fatalf("identity = %q, want %q", result.Identity, tc.want)
 			}
 		})
 	}
