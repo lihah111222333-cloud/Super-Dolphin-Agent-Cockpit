@@ -21,7 +21,7 @@ cmd/super-dolphin-guard/main.go	cmd	other	go-source	15872	未细分职责：请�
 cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	24984	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/batch_cli_test.go	cmd	other	go-test	1327	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,batch,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/cli.go	cmd	other	go-source	10112	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-heteroci-node/cli_test.go	cmd	other	go-test	4313	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-heteroci-node/cli_test.go	cmd	other	go-test	4390	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/main.go	cmd	other	go-source	197	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14448	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
