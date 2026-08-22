@@ -224,7 +224,7 @@ func executeRuntimeFixture(topologyPath string, topology heteroci.Manifest) remo
 	config := remoteruntime.RuntimeConfig{
 		SchemaVersion: remoteruntime.ConfigSchemaVersion, TopologyManifestPath: topologyPath,
 		OwnerDSNEnv: "REMOTE_CI_OWNER_DSN", ReceiptDSNEnv: "REMOTE_CI_RECEIPT_DSN", OwnerNamespace: "remote-ci-fixture", SSHExecutable: "/usr/bin/ssh",
-		ProbeTimeoutMS: 1_700, HeartbeatTTLMS: 30_000, RunTimeoutMS: 45_000, CleanupTimeoutMS: 3_100, WorkerTimeoutMS: 90_000,
+		ProbeTimeoutMS: 1_700, HeartbeatTTLMS: 30_000, RequestTimeoutMS: 180_000, RunTimeoutMS: 45_000, CleanupTimeoutMS: 3_100, WorkerTimeoutMS: 90_000,
 	}
 	for index, node := range topology.Nodes {
 		config.Nodes = append(config.Nodes, executeRuntimeNode(node, index))
