@@ -190,6 +190,11 @@ func planFromCurrentDatabase(ctx context.Context, tx *sql.Tx, fence heteroci.Own
 	if err != nil {
 		return DurableReservedRoutingPlan{}, nil, err
 	}
+	return planFromReservations(fence, runID, manifest, sourceSnapshot, units, heartbeatTTL, now, current)
+}
+
+// planFromReservations 复用 storage-neutral effective snapshot 与 domain planner，不创建第二 planner。
+func planFromReservations(fence heteroci.OwnerFence, runID string, manifest heteroci.Manifest, sourceSnapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration, now time.Time, current map[durableReservationKey]heteroci.ResourceCapacity) (DurableReservedRoutingPlan, []durableReservation, error) {
 	effective, err := effectiveSnapshot(sourceSnapshot, current)
 	if err != nil {
 		return DurableReservedRoutingPlan{}, nil, err
