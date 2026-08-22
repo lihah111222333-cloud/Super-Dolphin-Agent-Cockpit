@@ -302,7 +302,7 @@ func TestRemoteCIPublicDispatchASTGuard(t *testing.T) {
 func assertRemoteCIDispatchAllowlist(t *testing.T, cases map[string]*ast.CaseClause) {
 	t.Helper()
 
-	want := map[string]bool{"validate": true, "_artifact-build": true, "_artifact-identity": true, "builder-simulate": true, "execute": true}
+	want := map[string]bool{"validate": true, "_artifact-build": true, "_runtime-artifact-build": true, "_artifact-identity": true, "builder-simulate": true, "execute": true}
 	if len(cases) != len(want) {
 		t.Fatalf("dispatch command count = %d, want %d: %v", len(cases), len(want), cases)
 	}
