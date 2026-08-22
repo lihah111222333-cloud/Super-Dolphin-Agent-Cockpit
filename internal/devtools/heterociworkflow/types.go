@@ -167,10 +167,12 @@ type Dependencies struct {
 	Executors      ExecutorBinder
 	// LifecycleObserver 在 production composition 中必须显式绑定；通用 domain tests 可省略。
 	LifecycleObserver LifecycleObserver
-	LoadManifest      ManifestLoader
-	AcquireSnapshot   SnapshotAcquirer
-	Now               func() time.Time
-	CleanupTimeout    time.Duration
+	// CapacityBlockedObserver 在 production composition 中必须显式绑定；通用 domain tests 可省略。
+	CapacityBlockedObserver CapacityBlockedObserver
+	LoadManifest            ManifestLoader
+	AcquireSnapshot         SnapshotAcquirer
+	Now                     func() time.Time
+	CleanupTimeout          time.Duration
 }
 
 // RunRequest 是一次异构 workflow 执行请求。

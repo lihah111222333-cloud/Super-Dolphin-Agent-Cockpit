@@ -218,21 +218,22 @@ func newHeterociRootFixture(t *testing.T) heterociRootFixture {
 	}}
 	return heterociRootFixture{
 		input: HeterociRootInput{
-			ManifestPath:        manifestPath,
-			OwnerDBPath:         filepath.Join(canonicalHeterociRootTestDir(t), "heteroci-owner.sqlite"),
-			Scope:               heteroci.RoutingOwnerScope("sha256:" + strings.Repeat("a", 64)),
-			RepositoryID:        "root-repository",
-			SourceTreeSHA:       strings.Repeat("b", 40),
-			ExternalOperationID: heteroci.OperationID(strings.Repeat("d", 64)),
-			ManifestDigest:      "sha256:" + strings.Repeat("9", 64),
-			RunID:               "root-run-1",
-			Units:               units,
-			HeartbeatTTL:        time.Minute,
-			ProbeTransport:      transport,
-			ExecutorBinder:      binder,
-			LifecycleObserver:   rootLifecycleObserver{},
-			CleanupTimeout:      time.Second,
-			Now:                 func() time.Time { return now },
+			ManifestPath:            manifestPath,
+			OwnerDBPath:             filepath.Join(canonicalHeterociRootTestDir(t), "heteroci-owner.sqlite"),
+			Scope:                   heteroci.RoutingOwnerScope("sha256:" + strings.Repeat("a", 64)),
+			RepositoryID:            "root-repository",
+			SourceTreeSHA:           strings.Repeat("b", 40),
+			ExternalOperationID:     heteroci.OperationID(strings.Repeat("d", 64)),
+			ManifestDigest:          "sha256:" + strings.Repeat("9", 64),
+			RunID:                   "root-run-1",
+			Units:                   units,
+			HeartbeatTTL:            time.Minute,
+			ProbeTransport:          transport,
+			ExecutorBinder:          binder,
+			LifecycleObserver:       rootLifecycleObserver{},
+			CapacityBlockedObserver: rootLifecycleObserver{},
+			CleanupTimeout:          time.Second,
+			Now:                     func() time.Time { return now },
 		},
 		transport: transport,
 		binder:    binder,
@@ -242,6 +243,10 @@ func newHeterociRootFixture(t *testing.T) heterociRootFixture {
 type rootLifecycleObserver struct{}
 
 func (rootLifecycleObserver) ObservePreparedRun(context.Context, heterociworkflow.PreparedRunSnapshot) error {
+	return nil
+}
+
+func (rootLifecycleObserver) ObserveCapacityBlocked(context.Context, heterociworkflow.CapacityBlockedRunSnapshot) error {
 	return nil
 }
 

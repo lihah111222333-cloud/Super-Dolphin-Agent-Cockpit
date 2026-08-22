@@ -86,6 +86,9 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	}
 	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, heteroci.TopologyPlanRequest{OperationID: ids.plan, ExternalOperationID: request.ExternalOperationID, RequestDigest: request.RequestDigest, ManifestDigest: request.ManifestDigest, ExternalBindingDigest: request.ExternalBindingDigest, ManifestBlobSHA256: request.ManifestBlobSHA256, RuntimePolicyDigest: request.RuntimePolicyDigest, TopologyManifestDigest: request.TopologyManifestDigest, RunIdentity: runIdentity, Manifest: manifest, SourceSnapshot: snapshot, Units: request.Units, HeartbeatTTL: request.HeartbeatTTL})
 	if err != nil {
+		if blocker, ok := capacityBlockerError(err); ok {
+			return preparedRun{}, workflow.observeCapacityBlocked(ctx, request, fence, manifest, snapshot, now, blocker)
+		}
 		return preparedRun{}, fmt.Errorf("plan and reserve heteroci run: %w", err)
 	}
 	return preparedRun{acquired: fence, runIdentity: runIdentity, ids: ids, manifest: manifest, sourceSnapshot: snapshot, planned: planned}, nil

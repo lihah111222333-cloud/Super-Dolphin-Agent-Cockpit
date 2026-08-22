@@ -50,6 +50,8 @@ type HeterociRootInput struct {
 	ExecutorBinder heterociworkflow.ExecutorBinder
 	// LifecycleObserver 是生产 lifecycle 事件持久化的显式注入端口。
 	LifecycleObserver heterociworkflow.LifecycleObserver
+	// CapacityBlockedObserver 是生产容量阻塞回执的显式注入端口。
+	CapacityBlockedObserver heterociworkflow.CapacityBlockedObserver
 	// CleanupTimeout 是 workflow bounded cleanup 的正超时。
 	CleanupTimeout time.Duration
 	// Now 是 workflow 使用的显式时钟。
@@ -91,14 +93,15 @@ func RunHeterociWorkflow(ctx context.Context, input HeterociRootInput) (result h
 		return result, fmt.Errorf("%w: derive topology manifest digest: %w", ErrHeterociRootInput, err)
 	}
 	dependencies := heterociworkflow.Dependencies{
-		Owner:             owner,
-		ProbeTransport:    input.ProbeTransport,
-		Executors:         input.ExecutorBinder,
-		LifecycleObserver: input.LifecycleObserver,
-		LoadManifest:      fixedHeterociRootManifestLoader(input.ManifestPath, manifestCopy),
-		AcquireSnapshot:   heteroci.AcquireSnapshot,
-		Now:               input.Now,
-		CleanupTimeout:    input.CleanupTimeout,
+		Owner:                   owner,
+		ProbeTransport:          input.ProbeTransport,
+		Executors:               input.ExecutorBinder,
+		LifecycleObserver:       input.LifecycleObserver,
+		CapacityBlockedObserver: input.CapacityBlockedObserver,
+		LoadManifest:            fixedHeterociRootManifestLoader(input.ManifestPath, manifestCopy),
+		AcquireSnapshot:         heteroci.AcquireSnapshot,
+		Now:                     input.Now,
+		CleanupTimeout:          input.CleanupTimeout,
 	}
 	request := heterociworkflow.RunRequest{
 		SchemaVersion:          heterociworkflow.RunRequestSchemaVersion,
@@ -176,8 +179,8 @@ func validateHeterociRootTiming(input HeterociRootInput) error {
 
 // validateHeterociRootDependencies 校验 probe 与 executor 的显式注入对象。
 func validateHeterociRootDependencies(input HeterociRootInput) error {
-	if isNilHeterociRootDependency(input.ProbeTransport) || isNilHeterociRootDependency(input.ExecutorBinder) || isNilHeterociRootDependency(input.LifecycleObserver) {
-		return fmt.Errorf("%w: probe transport, executor binder, and lifecycle observer are required", ErrHeterociRootInput)
+	if isNilHeterociRootDependency(input.ProbeTransport) || isNilHeterociRootDependency(input.ExecutorBinder) || isNilHeterociRootDependency(input.LifecycleObserver) || isNilHeterociRootDependency(input.CapacityBlockedObserver) {
+		return fmt.Errorf("%w: probe transport, executor binder, lifecycle observer, and capacity-blocked observer are required", ErrHeterociRootInput)
 	}
 	return nil
 }

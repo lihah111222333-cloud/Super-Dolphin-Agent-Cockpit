@@ -989,6 +989,8 @@ internal/devtools/heterocitransport/ssh_requester.go	internal	other	go-source	94
 internal/devtools/heterocitransport/ssh_requester_test.go	internal	other	go-test	6571	开发工具与生成器辅助包	internal,devtools,heterocitransport,ssh,requester,test,开发工具与生成器辅助包
 internal/devtools/heterocitransport/transport.go	internal	other	go-source	5429	开发工具与生成器辅助包	internal,devtools,heterocitransport,transport,开发工具与生成器辅助包
 internal/devtools/heterocitransport/transport_test.go	internal	other	go-test	9458	开发工具与生成器辅助包	internal,devtools,heterocitransport,transport,test,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/capacity_blocked_observer.go	internal	other	go-source	9882	开发工具与生成器辅助包	internal,devtools,heterociworkflow,capacity,blocked,observer,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/capacity_blocked_observer_test.go	internal	other	go-test	4816	开发工具与生成器辅助包	internal,devtools,heterociworkflow,capacity,blocked,observer,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/concurrent_run.go	internal	other	go-source	5441	开发工具与生成器辅助包	internal,devtools,heterociworkflow,concurrent,run,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/executor_binding.go	internal	other	go-source	25454	开发工具与生成器辅助包	internal,devtools,heterociworkflow,executor,binding,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/fake_test.go	internal	other	go-test	18986	开发工具与生成器辅助包	internal,devtools,heterociworkflow,fake,test,开发工具与生成器辅助包
@@ -1000,8 +1002,8 @@ internal/devtools/heterociworkflow/lifecycle_observer.go	internal	other	go-sourc
 internal/devtools/heterociworkflow/lifecycle_observer_test.go	internal	other	go-test	5476	开发工具与生成器辅助包	internal,devtools,heterociworkflow,lifecycle,observer,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/material_digest.go	internal	other	go-source	7031	开发工具与生成器辅助包	internal,devtools,heterociworkflow,material,digest,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/material_digest_test.go	internal	other	go-test	6089	开发工具与生成器辅助包	internal,devtools,heterociworkflow,material,digest,test,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/run.go	internal	other	go-source	38362	开发工具与生成器辅助包	internal,devtools,heterociworkflow,run,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/types.go	internal	other	go-source	11173	开发工具与生成器辅助包	internal,devtools,heterociworkflow,types,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/run.go	internal	other	go-source	38530	开发工具与生成器辅助包	internal,devtools,heterociworkflow,run,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/types.go	internal	other	go-source	11358	开发工具与生成器辅助包	internal,devtools,heterociworkflow,types,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/workflow_additional_test.go	internal	other	go-test	17734	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,additional,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/workflow_concurrency_test.go	internal	other	go-test	11130	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,concurrency,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/workflow_integrity_test.go	internal	other	go-test	12952	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,integrity,test,开发工具与生成器辅助包
