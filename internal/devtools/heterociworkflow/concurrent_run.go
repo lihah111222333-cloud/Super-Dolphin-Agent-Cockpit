@@ -140,7 +140,7 @@ func (coordinator *concurrentExecutionCoordinator) prepareAndStart(ctx context.C
 	if err != nil {
 		return nil, err
 	}
-	started, err := workflow.startBatchUnitsLocked(ctx, string(prepared.runIdentity.DurableRunID), prepared.planned.Decision, prepared.ids, plan, snapshot, coordinator.state)
+	started, err := workflow.startBatchUnitsLocked(ctx, prepared.runIdentity.DurableRunID, prepared.planned.Decision, prepared.ids, plan, snapshot, coordinator.state)
 	if err != nil {
 		return nil, err
 	}
@@ -151,5 +151,5 @@ func (coordinator *concurrentExecutionCoordinator) prepareAndStart(ctx context.C
 func (coordinator *concurrentExecutionCoordinator) finish(ctx context.Context, workflow *Workflow, prepared *preparedRun, batch ExecutionBatch, outcomes map[string]heteroci.RoutingLeaseState) error {
 	coordinator.state.mu.Lock()
 	defer coordinator.state.mu.Unlock()
-	return workflow.finishBatchUnitsLocked(ctx, string(prepared.runIdentity.DurableRunID), prepared.planned.Decision, prepared.ids, batch, outcomes, coordinator.state)
+	return workflow.finishBatchUnitsLocked(ctx, prepared.runIdentity.DurableRunID, prepared.planned.Decision, prepared.ids, batch, outcomes, coordinator.state)
 }

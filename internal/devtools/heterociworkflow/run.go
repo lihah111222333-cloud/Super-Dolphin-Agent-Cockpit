@@ -35,10 +35,10 @@ func (workflow *Workflow) Run(ctx context.Context, request RunRequest) (RunResul
 	}
 	prepared.state = newExecutionState(prepared.planned)
 	if err := workflow.prepareExecution(ctx, request, &prepared); err != nil {
-		return RunResult{}, workflow.failPlannedRun(ctx, string(prepared.runIdentity.DurableRunID), &prepared, err)
+		return RunResult{}, workflow.failPlannedRun(ctx, prepared.runIdentity.DurableRunID, &prepared, err)
 	}
 	if err := workflow.executeRunBatches(ctx, request, &prepared); err != nil {
-		return RunResult{}, workflow.failPlannedRun(ctx, string(prepared.runIdentity.DurableRunID), &prepared, err)
+		return RunResult{}, workflow.failPlannedRun(ctx, prepared.runIdentity.DurableRunID, &prepared, err)
 	}
 	return buildRunResult(prepared.manifest, prepared.planned, prepared.state), nil
 }
@@ -75,7 +75,7 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	if err := fence.Validate(); err != nil {
 		return preparedRun{}, fmt.Errorf("validate acquired heteroci owner fence: %w", err)
 	}
-	if err := workflow.rejectExistingRun(ctx, string(runIdentity.DurableRunID)); err != nil {
+	if err := workflow.rejectExistingRun(ctx, runIdentity.DurableRunID); err != nil {
 		return preparedRun{}, err
 	}
 	now, err := workflow.now()
@@ -105,7 +105,7 @@ func (workflow *Workflow) prepareExecution(ctx context.Context, request RunReque
 	if err := validatePlannedProjection(prepared.acquired, prepared.ids.plan, request.Units, prepared.planned); err != nil {
 		return err
 	}
-	state, err := workflow.deps.Owner.ReadRun(ctx, string(prepared.runIdentity.DurableRunID))
+	state, err := workflow.deps.Owner.ReadRun(ctx, prepared.runIdentity.DurableRunID)
 	if err != nil {
 		return fmt.Errorf("%w: read durable run before execution: %w", ErrExecutionState, err)
 	}
@@ -130,7 +130,7 @@ func (workflow *Workflow) executeRunBatches(ctx context.Context, request RunRequ
 }
 
 // failPlannedRun 对 PlanAndReserve 之后的失败执行统一 bounded cleanup。
-func (workflow *Workflow) failPlannedRun(ctx context.Context, runID string, prepared *preparedRun, primary error) error {
+func (workflow *Workflow) failPlannedRun(ctx context.Context, runID heteroci.TopologyRunID, prepared *preparedRun, primary error) error {
 	cleanupErr := workflow.cleanup(ctx, runID, prepared.planned.Leases, prepared.state, prepared.ids)
 	return joinWorkflowFailure(primary, cleanupErr)
 }
@@ -249,7 +249,7 @@ func (workflow *Workflow) loadRunManifest(path string) (heteroci.Manifest, error
 }
 
 // rejectExistingRun 防止 takeover 后同一 run identity 在新 epoch 被再次规划。
-func (workflow *Workflow) rejectExistingRun(ctx context.Context, runID string) error {
+func (workflow *Workflow) rejectExistingRun(ctx context.Context, runID heteroci.TopologyRunID) error {
 	states, err := workflow.deps.Owner.LocateRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("%w: locate durable run before planning: %w", ErrExecutionState, err)
@@ -444,7 +444,7 @@ func (workflow *Workflow) prepareBatchSnapshot(ctx context.Context, manifest het
 }
 
 // startBatchUnitsLocked 在已持有 state 锁时顺序推进 owner Start 和 fence。
-func (workflow *Workflow) startBatchUnitsLocked(ctx context.Context, runID string, decision heteroci.RoutingDecision, ids operationIDs, plan BatchPlan, snapshot heteroci.SnapshotSet, state *executionState) ([]heteroci.StartedRoutingLease, error) {
+func (workflow *Workflow) startBatchUnitsLocked(ctx context.Context, runID heteroci.TopologyRunID, decision heteroci.RoutingDecision, ids operationIDs, plan BatchPlan, snapshot heteroci.SnapshotSet, state *executionState) ([]heteroci.StartedRoutingLease, error) {
 	started := make([]heteroci.StartedRoutingLease, 0, len(plan.Batch.Units))
 	for _, unit := range plan.Batch.Units {
 		if err := ctx.Err(); err != nil {
@@ -461,7 +461,7 @@ func (workflow *Workflow) startBatchUnitsLocked(ctx context.Context, runID strin
 			return nil, err
 		}
 		expected := state.planned[unit.UnitID]
-		if err := validateStartedLease(state.fence, runID, unit.UnitID, expected, decision, start, validationNow); err != nil {
+		if err := validateStartedLease(state.fence, string(runID), unit.UnitID, expected, decision, start, validationNow); err != nil {
 			state.uncertain[unit.UnitID] = struct{}{}
 			return nil, err
 		}
@@ -494,7 +494,7 @@ func (workflow *Workflow) executeBoundBatch(ctx context.Context, batch Execution
 }
 
 // finishBatchUnitsLocked 在已持有 state 锁时顺序推进 owner Finish 和终态。
-func (workflow *Workflow) finishBatchUnitsLocked(ctx context.Context, runID string, decision heteroci.RoutingDecision, ids operationIDs, batch ExecutionBatch, outcomes map[string]heteroci.RoutingLeaseState, state *executionState) error {
+func (workflow *Workflow) finishBatchUnitsLocked(ctx context.Context, runID heteroci.TopologyRunID, decision heteroci.RoutingDecision, ids operationIDs, batch ExecutionBatch, outcomes map[string]heteroci.RoutingLeaseState, state *executionState) error {
 	var outcomeFailures []error
 	for _, unit := range batch.Units {
 		terminal := outcomes[unit.UnitID]
@@ -728,7 +728,7 @@ func newExecutionState(planned heterociowner.DurableReservedRoutingPlan) *execut
 }
 
 // cleanup 收敛本次已启动 lease 和剩余 planned lease；使用 bounded detached context 且不重试 executor。
-func (workflow *Workflow) cleanup(ctx context.Context, runID string, planned []heteroci.RoutingLease, state *executionState, ids operationIDs) error {
+func (workflow *Workflow) cleanup(ctx context.Context, runID heteroci.TopologyRunID, planned []heteroci.RoutingLease, state *executionState, ids operationIDs) error {
 	if state == nil {
 		return nil
 	}
@@ -743,7 +743,7 @@ func (workflow *Workflow) cleanup(ctx context.Context, runID string, planned []h
 }
 
 // cleanupStarted 将 outcome 已知未执行的 started lease 收敛为 failed；未知 receipt 必须保留。
-func (workflow *Workflow) cleanupStarted(ctx context.Context, runID string, state *executionState, ids operationIDs) []error {
+func (workflow *Workflow) cleanupStarted(ctx context.Context, runID heteroci.TopologyRunID, state *executionState, ids operationIDs) []error {
 	var cleanupErrors []error
 	for _, unitID := range sortedStartedIDs(state.started) {
 		if _, uncertain := state.uncertain[unitID]; uncertain {
@@ -765,7 +765,7 @@ func (workflow *Workflow) cleanupStarted(ctx context.Context, runID string, stat
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("finish started unit cleanup: %w", err))
 			continue
 		}
-		if err := validateFinishedLease(state.fence, runID, unitID, startedLease, state.decision, transition, now); err != nil {
+		if err := validateFinishedLease(state.fence, string(runID), unitID, startedLease, state.decision, transition, now); err != nil {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("validate finished unit cleanup: %w", err))
 			continue
 		}
@@ -777,7 +777,7 @@ func (workflow *Workflow) cleanupStarted(ctx context.Context, runID string, stat
 }
 
 // cleanupPlanned 取消尚未 Start 的 leases，并跳过已 terminal 或仍 started 的 unit。
-func (workflow *Workflow) cleanupPlanned(ctx context.Context, runID string, planned []heteroci.RoutingLease, state *executionState, ids operationIDs) []error {
+func (workflow *Workflow) cleanupPlanned(ctx context.Context, runID heteroci.TopologyRunID, planned []heteroci.RoutingLease, state *executionState, ids operationIDs) []error {
 	var cleanupErrors []error
 	for _, lease := range sortedPlannedLeases(planned) {
 		if _, done := state.terminal[lease.UnitID]; done {
@@ -804,7 +804,7 @@ func (workflow *Workflow) cleanupPlanned(ctx context.Context, runID string, plan
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("cancel planned unit cleanup: %w", err))
 			continue
 		}
-		if err := validateCancelledLease(state.fence, runID, lease.UnitID, lease, state.decision, transition, now); err != nil {
+		if err := validateCancelledLease(state.fence, string(runID), lease.UnitID, lease, state.decision, transition, now); err != nil {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("validate cancelled unit cleanup: %w", err))
 			continue
 		}

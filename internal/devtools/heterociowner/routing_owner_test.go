@@ -153,7 +153,7 @@ func mustDurablePlan(t *testing.T, owner *Owner, fence heteroci.OwnerFence, oper
 
 func readDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID, unitID string) []byte {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	var leaseBytes []byte
 	if err := owner.db.QueryRowContext(context.Background(), "SELECT lease_json FROM heteroci_routing_leases WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", fence.Scope, fence.OwnerEpoch, runID, unitID).Scan(&leaseBytes); err != nil {
 		t.Fatalf("read %s/%s lease JSON: %v", runID, unitID, err)
@@ -163,7 +163,7 @@ func readDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence,
 
 func writeDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID, unitID string, leaseBytes []byte) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	result, err := owner.db.ExecContext(context.Background(), "UPDATE heteroci_routing_leases SET lease_json = ? WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", leaseBytes, fence.Scope, fence.OwnerEpoch, runID, unitID)
 	if err != nil {
 		t.Fatalf("swap %s/%s lease JSON: %v", runID, unitID, err)
@@ -179,7 +179,7 @@ func writeDurableLeaseJSON(t *testing.T, owner *Owner, fence heteroci.OwnerFence
 
 func assertOwnerRunRevision(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, want heteroci.RoutingOwnerRevision) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	var got int64
 	if err := owner.db.QueryRowContext(context.Background(), "SELECT last_revision FROM heteroci_routing_runs WHERE scope = ? AND owner_epoch = ? AND run_id = ?", fence.Scope, fence.OwnerEpoch, runID).Scan(&got); err != nil {
 		t.Fatalf("read %s run revision: %v", runID, err)
@@ -452,7 +452,7 @@ func assertDurablePlan(t *testing.T, plan DurableReservedRoutingPlan, fence hete
 
 func assertDurablePlanRows(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, wantLeases, wantReservations int) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	assertOwnerRowCount(t, owner, "heteroci_routing_runs", "scope = ? AND owner_epoch = ? AND run_id = ?", []any{fence.Scope, fence.OwnerEpoch, runID}, 1)
 	assertOwnerRowCount(t, owner, "heteroci_routing_leases", "scope = ? AND owner_epoch = ? AND run_id = ?", []any{fence.Scope, fence.OwnerEpoch, runID}, wantLeases)
 	assertOwnerRowCount(t, owner, "heteroci_routing_reservations", "scope = ? AND owner_epoch = ? AND run_id = ?", []any{fence.Scope, fence.OwnerEpoch, runID}, wantReservations)
@@ -479,7 +479,7 @@ func assertDurableStartedLease(t *testing.T, started heteroci.StartedRoutingLeas
 	if started.Lease.State != heteroci.LeaseStateStarted || started.Lease.StartedAtUnixMilli != startAt.UnixMilli() {
 		t.Fatalf("started lease = %#v", started.Lease)
 	}
-	want := heteroci.StartedRoutingOccupancy{OwnerEpoch: plan.Fence.OwnerEpoch, RunID: topologyDurableRunID(t, "run-start"), UnitID: "unit-a", DecisionDigest: plan.Decision.DecisionDigest}
+	want := heteroci.StartedRoutingOccupancy{OwnerEpoch: plan.Fence.OwnerEpoch, RunID: string(topologyDurableRunID(t, "run-start")), UnitID: "unit-a", DecisionDigest: plan.Decision.DecisionDigest}
 	if started.Occupancy != want {
 		t.Fatalf("started occupancy = %#v, want %#v", started.Occupancy, want)
 	}
@@ -487,7 +487,7 @@ func assertDurableStartedLease(t *testing.T, started heteroci.StartedRoutingLeas
 
 func assertOwnerLeaseState(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID, unitID string, want heteroci.RoutingLeaseState, wantRevision heteroci.RoutingOwnerRevision) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	var state string
 	var revision int64
 	err := owner.db.QueryRowContext(context.Background(), "SELECT state, last_revision FROM heteroci_routing_leases WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", fence.Scope, fence.OwnerEpoch, runID, unitID).Scan(&state, &revision)

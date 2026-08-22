@@ -86,7 +86,7 @@ func assertRestartStart(t *testing.T, restarted *Owner, fixture restartPlanFixtu
 	if err != nil {
 		t.Fatalf("restart Start: %v", err)
 	}
-	if started.Occupancy.OwnerEpoch != fixture.fence.OwnerEpoch || started.Occupancy.RunID != topologyDurableRunID(t, "run-restart") {
+	if started.Occupancy.OwnerEpoch != fixture.fence.OwnerEpoch || started.Occupancy.RunID != string(topologyDurableRunID(t, "run-restart")) {
 		t.Fatalf("restart occupancy = %#v", started.Occupancy)
 	}
 }

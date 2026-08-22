@@ -102,14 +102,15 @@ func assertReadOperationResultCopy(t *testing.T, owner *Owner, fence heteroci.Ow
 
 func TestOwnerReadStateMissingIsExplicit(t *testing.T) {
 	owner := newTestOwner(t)
-	history, err := owner.LocateRun(context.Background(), "run-missing")
+	missingRunID := topologyDurableRunID(t, "run-missing")
+	history, err := owner.LocateRun(context.Background(), missingRunID)
 	if err != nil {
 		t.Fatalf("LocateRun missing: %v", err)
 	}
 	if len(history) != 0 {
 		t.Fatalf("LocateRun missing returned %#v", history)
 	}
-	state, err := owner.ReadRun(context.Background(), "run-missing")
+	state, err := owner.ReadRun(context.Background(), missingRunID)
 	if err == nil {
 		t.Fatal("ReadRun missing returned nil error")
 	}
@@ -117,6 +118,17 @@ func TestOwnerReadStateMissingIsExplicit(t *testing.T) {
 		t.Fatalf("ReadRun missing leaked state: %#v", state)
 	}
 	assertReadStateErrorSafe(t, err)
+}
+
+func TestOwnerReadBoundaryRejectsCallerRunID(t *testing.T) {
+	owner := newTestOwner(t)
+	callerRunID := heteroci.TopologyRunID("caller-run-id")
+	if _, err := owner.LocateRun(context.Background(), callerRunID); err == nil {
+		t.Fatal("LocateRun accepted caller RunID as durable key")
+	}
+	if _, err := owner.ReadRun(context.Background(), callerRunID); err == nil {
+		t.Fatal("ReadRun accepted caller RunID as durable key")
+	}
 }
 
 func TestOwnerReadRunRequiresRecoveryAfterTakeover(t *testing.T) {
@@ -195,46 +207,46 @@ func TestOwnerLocateRunRejectsCrossEpochIdentityAmbiguity(t *testing.T) {
 func TestOwnerReadStateRejectsTamperingWithoutMutation(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		read   func(*Owner, heteroci.OwnerFence, heteroci.OperationID, string) error
-		tamper func(*testing.T, *Owner, heteroci.OwnerFence, heteroci.OperationID, string)
+		read   func(*Owner, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID) error
+		tamper func(*testing.T, *Owner, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID)
 	}{
 		{
 			name: "run manifest digest",
-			read: func(owner *Owner, _ heteroci.OwnerFence, _ heteroci.OperationID, runID string) error {
+			read: func(owner *Owner, _ heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID) error {
 				_, err := owner.ReadRun(context.Background(), runID)
 				return err
 			},
-			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, _ heteroci.OperationID, runID string) {
+			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID) {
 				tamperReadStateField(t, owner, "UPDATE heteroci_routing_runs SET manifest_digest = ? WHERE scope = ? AND owner_epoch = ? AND run_id = ?", testDigest("f"), fence.Scope, fence.OwnerEpoch, runID)
 			},
 		},
 		{
 			name: "lease json",
-			read: func(owner *Owner, _ heteroci.OwnerFence, _ heteroci.OperationID, runID string) error {
+			read: func(owner *Owner, _ heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID) error {
 				_, err := owner.ReadRun(context.Background(), runID)
 				return err
 			},
-			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, _ heteroci.OperationID, runID string) {
+			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID) {
 				tamperReadStateField(t, owner, "UPDATE heteroci_routing_leases SET lease_json = ? WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", []byte(`{"run_id":"secret-payload"}`), fence.Scope, fence.OwnerEpoch, runID, "unit-a")
 			},
 		},
 		{
 			name: "lease state",
-			read: func(owner *Owner, _ heteroci.OwnerFence, _ heteroci.OperationID, runID string) error {
+			read: func(owner *Owner, _ heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID) error {
 				_, err := owner.ReadRun(context.Background(), runID)
 				return err
 			},
-			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, _ heteroci.OperationID, runID string) {
+			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID) {
 				tamperReadStateField(t, owner, "UPDATE heteroci_routing_leases SET state = ? WHERE scope = ? AND owner_epoch = ? AND run_id = ? AND unit_id = ?", heteroci.LeaseStateStarted, fence.Scope, fence.OwnerEpoch, runID, "unit-a")
 			},
 		},
 		{
 			name: "operation digest",
-			read: func(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, _ string) error {
+			read: func(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, _ heteroci.TopologyRunID) error {
 				_, _, err := owner.ReadOperation(context.Background(), fence, operationID)
 				return err
 			},
-			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, _ string) {
+			tamper: func(t *testing.T, owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, _ heteroci.TopologyRunID) {
 				tamperReadStateField(t, owner, "UPDATE heteroci_routing_operations SET result_digest = ? WHERE scope = ? AND owner_epoch = ? AND operation_id = ?", testDigest("e"), fence.Scope, fence.OwnerEpoch, operationID)
 			},
 		},
@@ -270,12 +282,12 @@ func TestOwnerReadStateRejectsTamperingWithoutMutation(t *testing.T) {
 
 func assertReadRunState(t *testing.T, owner *Owner, runID string, wantFence heteroci.OwnerFence, wantManifest heteroci.Manifest, wantUnits []heteroci.ExecutionUnit, wantDecision heteroci.RoutingDecision, wantLeases []heteroci.RoutingLease, wantTTL time.Duration, wantReleased bool, wantRevision heteroci.RoutingOwnerRevision) DurableRunState {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
-	got, err := owner.ReadRun(context.Background(), runID)
+	durableRunID := topologyDurableRunID(t, runID)
+	got, err := owner.ReadRun(context.Background(), durableRunID)
 	if err != nil {
 		t.Fatalf("ReadRun %s: %v", runID, err)
 	}
-	assertReadRunIdentity(t, got, runID, wantFence)
+	assertReadRunIdentity(t, got, string(durableRunID), wantFence)
 	assertReadRunPayload(t, got, wantManifest, wantUnits, wantDecision, wantLeases)
 	assertReadRunLifecycle(t, got, wantTTL, wantReleased, wantRevision)
 	return got
@@ -304,8 +316,8 @@ func assertReadRunLifecycle(t *testing.T, got DurableRunState, wantTTL time.Dura
 
 func assertLocateRunState(t *testing.T, owner *Owner, runID string, want DurableRunState) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
-	got, err := owner.LocateRun(context.Background(), runID)
+	durableRunID := topologyDurableRunID(t, runID)
+	got, err := owner.LocateRun(context.Background(), durableRunID)
 	if err != nil || len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("LocateRun %s = %#v, err=%v; want %#v", runID, got, err, want)
 	}
@@ -313,7 +325,7 @@ func assertLocateRunState(t *testing.T, owner *Owner, runID string, want Durable
 	got[0].Units[0].UnitID = "mutated-unit"
 	got[0].Decision.Assignments[0].NodeID = "mutated-node"
 	got[0].Leases[0].UnitID = "mutated-lease-unit"
-	reloaded, err := owner.ReadRun(context.Background(), runID)
+	reloaded, err := owner.ReadRun(context.Background(), durableRunID)
 	if err != nil {
 		t.Fatalf("ReadRun after caller mutation: %v", err)
 	}
@@ -324,7 +336,7 @@ func assertLocateRunState(t *testing.T, owner *Owner, runID string, want Durable
 
 func insertCrossEpochRunProjection(t *testing.T, owner *Owner, oldEpoch, newEpoch heteroci.RoutingOwnerEpoch, runID string) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	var (
 		manifestBytes                                                 []byte
 		unitsBytes                                                    []byte
@@ -421,7 +433,7 @@ type readStateMutationFingerprint struct {
 
 func readReadStateMutationFingerprint(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, operationRevision heteroci.RoutingOwnerRevision) readStateMutationFingerprint {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	var state readStateMutationFingerprint
 	if err := owner.db.QueryRowContext(context.Background(), "SELECT revision, journal_digest FROM heteroci_owner_heads WHERE scope = ?", fence.Scope).Scan(&state.headRevision, &state.headJournal); err != nil {
 		t.Fatalf("read head fingerprint: %v", err)

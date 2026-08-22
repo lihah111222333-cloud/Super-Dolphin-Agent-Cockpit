@@ -32,7 +32,7 @@ type SnapshotAcquirer func(
 // DurableOwner 是 workflow 对 durable owner 的最小 mutation/read 端口。
 type DurableOwner interface {
 	Acquire(ctx context.Context) (heteroci.OwnerFence, error)
-	LocateRun(ctx context.Context, runID string) ([]heterociowner.DurableRunState, error)
+	LocateRun(ctx context.Context, runID heteroci.TopologyRunID) ([]heterociowner.DurableRunState, error)
 	PlanAndReserve(
 		ctx context.Context,
 		fence heteroci.OwnerFence,
@@ -42,7 +42,7 @@ type DurableOwner interface {
 		ctx context.Context,
 		fence heteroci.OwnerFence,
 		operationID heteroci.OperationID,
-		runID string,
+		runID heteroci.TopologyRunID,
 		unitID string,
 		currentSnapshot heteroci.SnapshotSet,
 	) (heteroci.StartedRoutingLease, error)
@@ -50,7 +50,7 @@ type DurableOwner interface {
 		ctx context.Context,
 		fence heteroci.OwnerFence,
 		operationID heteroci.OperationID,
-		runID string,
+		runID heteroci.TopologyRunID,
 		unitID string,
 		terminal heteroci.RoutingLeaseState,
 	) (heterociowner.DurableLeaseTransition, error)
@@ -58,10 +58,10 @@ type DurableOwner interface {
 		ctx context.Context,
 		fence heteroci.OwnerFence,
 		operationID heteroci.OperationID,
-		runID string,
+		runID heteroci.TopologyRunID,
 		unitID string,
 	) (heterociowner.DurableLeaseTransition, error)
-	ReadRun(ctx context.Context, runID string) (heterociowner.DurableRunState, error)
+	ReadRun(ctx context.Context, runID heteroci.TopologyRunID) (heterociowner.DurableRunState, error)
 }
 
 // BatchExecutor 是单个已绑定执行端的批次执行占位接口。
@@ -208,7 +208,7 @@ func New(deps Dependencies) (*Workflow, error) {
 		return nil, ErrInvalidDependencies
 	}
 	if _, ok := deps.Owner.(interface {
-		LocateRun(context.Context, string) ([]heterociowner.DurableRunState, error)
+		LocateRun(context.Context, heteroci.TopologyRunID) ([]heterociowner.DurableRunState, error)
 	}); !ok {
 		return nil, fmt.Errorf("%w: durable run locator is required", ErrInvalidDependencies)
 	}

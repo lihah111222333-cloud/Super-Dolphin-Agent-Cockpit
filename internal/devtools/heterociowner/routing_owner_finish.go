@@ -24,13 +24,13 @@ type DurableLeaseTransition struct {
 
 type terminalOperationRequest struct {
 	Fence  heteroci.OwnerFence        `json:"fence"`
-	RunID  string                     `json:"run_id"`
+	RunID  heteroci.TopologyRunID     `json:"run_id"`
 	UnitID string                     `json:"unit_id"`
 	State  heteroci.RoutingLeaseState `json:"state"`
 }
 
 // Finish 将 started lease 原子推进为 succeeded 或 failed，并在运行完成时释放预留。
-func (owner *Owner) Finish(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, terminal heteroci.RoutingLeaseState) (DurableLeaseTransition, error) {
+func (owner *Owner) Finish(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, terminal heteroci.RoutingLeaseState) (DurableLeaseTransition, error) {
 	if terminal != heteroci.LeaseStateSucceeded && terminal != heteroci.LeaseStateFailed {
 		return DurableLeaseTransition{}, fmt.Errorf("durable finish state must be succeeded or failed")
 	}
@@ -38,15 +38,16 @@ func (owner *Owner) Finish(ctx context.Context, fence heteroci.OwnerFence, opera
 }
 
 // CancelPlanned 将尚未启动的 lease 原子取消，并在运行完成时释放预留。
-func (owner *Owner) CancelPlanned(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string) (DurableLeaseTransition, error) {
+func (owner *Owner) CancelPlanned(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string) (DurableLeaseTransition, error) {
 	return owner.transitionLease(ctx, fence, operationID, runID, unitID, heteroci.LeaseStateCancelled, cancelPlannedOperationKind)
 }
 
 // transitionLease 执行终态入口校验、owner clock 取值和 immediate transaction。
-func (owner *Owner) transitionLease(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, target heteroci.RoutingLeaseState, kind string) (DurableLeaseTransition, error) {
+func (owner *Owner) transitionLease(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, target heteroci.RoutingLeaseState, kind string) (DurableLeaseTransition, error) {
 	if err := validateTerminalArguments(owner, fence, operationID, runID, unitID, target, kind); err != nil {
 		return DurableLeaseTransition{}, err
 	}
+	runIDText := string(runID)
 	nowUnixMilli, err := owner.nowUnixMilli()
 	if err != nil {
 		return DurableLeaseTransition{}, err
@@ -57,7 +58,7 @@ func (owner *Owner) transitionLease(ctx context.Context, fence heteroci.OwnerFen
 	}
 	var transition DurableLeaseTransition
 	err = WithImmediateTx(ctx, owner.db, func(tx *sql.Tx) error {
-		return owner.transitionLeaseTx(ctx, tx, fence, operationID, runID, unitID, target, kind, time.UnixMilli(nowUnixMilli), nowUnixMilli, requestBytes, &transition)
+		return owner.transitionLeaseTx(ctx, tx, fence, operationID, runIDText, unitID, target, kind, time.UnixMilli(nowUnixMilli), nowUnixMilli, requestBytes, &transition)
 	})
 	if err != nil {
 		return DurableLeaseTransition{}, err
@@ -66,8 +67,11 @@ func (owner *Owner) transitionLease(ctx context.Context, fence heteroci.OwnerFen
 }
 
 // validateTerminalArguments 校验 owner/fence/operation/run/unit 与目标状态矩阵。
-func validateTerminalArguments(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, target heteroci.RoutingLeaseState, kind string) error {
-	if err := validatePlanOwnerBinding(owner, fence, operationID, runID); err != nil {
+func validateTerminalArguments(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, target heteroci.RoutingLeaseState, kind string) error {
+	if err := runID.Validate(); err != nil {
+		return err
+	}
+	if err := validatePlanOwnerBinding(owner, fence, operationID, string(runID)); err != nil {
 		return err
 	}
 	if !validOwnerRunID(unitID) {

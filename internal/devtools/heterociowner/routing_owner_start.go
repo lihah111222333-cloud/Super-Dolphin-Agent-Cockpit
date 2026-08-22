@@ -14,10 +14,10 @@ import (
 const startOperationKind = "start"
 
 type startOperationRequest struct {
-	Fence           heteroci.OwnerFence  `json:"fence"`
-	RunID           string               `json:"run_id"`
-	UnitID          string               `json:"unit_id"`
-	CurrentSnapshot heteroci.SnapshotSet `json:"current_snapshot"`
+	Fence           heteroci.OwnerFence    `json:"fence"`
+	RunID           heteroci.TopologyRunID `json:"run_id"`
+	UnitID          string                 `json:"unit_id"`
+	CurrentSnapshot heteroci.SnapshotSet   `json:"current_snapshot"`
 }
 
 type durableRunRecord struct {
@@ -43,10 +43,11 @@ type durableRunColumns struct {
 
 // Start 在同一 immediate transaction 内校验当前快照并把 planned lease CAS 为 started。
 // 返回值包含 launcher 必须传给 daemon 的 owner_epoch/run_id/unit_id/decision_digest occupancy。
-func (owner *Owner) Start(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, currentSnapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
+func (owner *Owner) Start(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, currentSnapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
 	if err := validateStartArguments(owner, fence, operationID, runID, unitID, currentSnapshot); err != nil {
 		return heteroci.StartedRoutingLease{}, err
 	}
+	runIDText := string(runID)
 	nowUnixMilli, err := owner.nowUnixMilli()
 	if err != nil {
 		return heteroci.StartedRoutingLease{}, err
@@ -57,7 +58,7 @@ func (owner *Owner) Start(ctx context.Context, fence heteroci.OwnerFence, operat
 	}
 	var started heteroci.StartedRoutingLease
 	err = WithImmediateTx(ctx, owner.db, func(tx *sql.Tx) error {
-		return owner.startTx(ctx, tx, fence, operationID, runID, unitID, currentSnapshot, time.UnixMilli(nowUnixMilli), nowUnixMilli, requestBytes, &started)
+		return owner.startTx(ctx, tx, fence, operationID, runIDText, unitID, currentSnapshot, time.UnixMilli(nowUnixMilli), nowUnixMilli, requestBytes, &started)
 	})
 	if err != nil {
 		return heteroci.StartedRoutingLease{}, err
@@ -141,8 +142,11 @@ func loadAndBuildStarted(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFe
 }
 
 // validateStartArguments 校验 durable Start 的 owner/fence/operation/run/unit/snapshot 身份。
-func validateStartArguments(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, snapshot heteroci.SnapshotSet) error {
-	if err := validatePlanOwnerBinding(owner, fence, operationID, runID); err != nil {
+func validateStartArguments(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet) error {
+	if err := runID.Validate(); err != nil {
+		return err
+	}
+	if err := validatePlanOwnerBinding(owner, fence, operationID, string(runID)); err != nil {
 		return err
 	}
 	if !validOwnerRunID(unitID) {

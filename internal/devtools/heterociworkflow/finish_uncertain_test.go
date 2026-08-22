@@ -95,7 +95,7 @@ type finishCommitThenErrorOwner struct {
 	malformed          bool
 }
 
-func (owner *finishCommitThenErrorOwner) Finish(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, terminal heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
+func (owner *finishCommitThenErrorOwner) Finish(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, terminal heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
 	owner.finishCalls++
 	transition, err := owner.fakeOwner.Finish(ctx, fence, operationID, runID, unitID, terminal)
 	if owner.finishCalls != 1 {
@@ -130,10 +130,10 @@ func (owner *finishCommitThenErrorOwner) ReadOperation(_ context.Context, fence 
 	return owner.replay, owner.readFound, nil
 }
 
-func finishRequestDigest(fence heteroci.OwnerFence, runID, unitID string, state heteroci.RoutingLeaseState) string {
+func finishRequestDigest(fence heteroci.OwnerFence, runID heteroci.TopologyRunID, unitID string, state heteroci.RoutingLeaseState) string {
 	request, err := json.Marshal(struct {
 		Fence  heteroci.OwnerFence        `json:"fence"`
-		RunID  string                     `json:"run_id"`
+		RunID  heteroci.TopologyRunID     `json:"run_id"`
 		UnitID string                     `json:"unit_id"`
 		State  heteroci.RoutingLeaseState `json:"state"`
 	}{Fence: fence, RunID: runID, UnitID: unitID, State: state})

@@ -242,7 +242,7 @@ type integrityFinishOwner struct {
 }
 
 // Finish 返回不可接受的 transition，且不改变 fake owner 的 durable projection。
-func (owner *integrityFinishOwner) Finish(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID, unitID string, _ heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
+func (owner *integrityFinishOwner) Finish(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, _ heteroci.TopologyRunID, unitID string, _ heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
 	owner.fakeOwner.record("finish")
 	owner.calls++
 	lease := integrityLease(owner.fakeOwner, unitID)
@@ -279,7 +279,7 @@ type integrityCancelOwner struct {
 }
 
 // CancelPlanned 返回不可接受的 transition，且不改变 fake owner 的 durable projection。
-func (owner *integrityCancelOwner) CancelPlanned(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID, unitID string) (heterociowner.DurableLeaseTransition, error) {
+func (owner *integrityCancelOwner) CancelPlanned(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, _ heteroci.TopologyRunID, unitID string) (heterociowner.DurableLeaseTransition, error) {
 	owner.fakeOwner.record("cancel")
 	owner.calls++
 	lease := integrityLease(owner.fakeOwner, unitID)

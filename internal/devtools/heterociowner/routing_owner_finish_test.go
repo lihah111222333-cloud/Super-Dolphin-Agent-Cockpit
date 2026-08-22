@@ -106,14 +106,14 @@ func topologyRunIdentity(t *testing.T, repositoryID, sourceTreeSHA, callerRunID 
 	return runIdentity
 }
 
-func topologyDurableRunID(t *testing.T, runID string) string {
+func topologyDurableRunID(t *testing.T, runID string) heteroci.TopologyRunID {
 	t.Helper()
-	return string(topologyRunIdentity(t, "test-repository", strings.Repeat("d", 40), runID).DurableRunID)
+	return topologyRunIdentity(t, "test-repository", strings.Repeat("d", 40), runID).DurableRunID
 }
 
 func assertOwnerRunReleased(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, want bool) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	var released int
 	err := owner.db.QueryRowContext(context.Background(), "SELECT released FROM heteroci_routing_runs WHERE scope = ? AND owner_epoch = ? AND run_id = ?", fence.Scope, fence.OwnerEpoch, runID).Scan(&released)
 	if err != nil {
@@ -126,7 +126,7 @@ func assertOwnerRunReleased(t *testing.T, owner *Owner, fence heteroci.OwnerFenc
 
 func assertOwnerReservationsReleased(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, want bool) {
 	t.Helper()
-	runID = topologyDurableRunID(t, runID)
+	runID = string(topologyDurableRunID(t, runID))
 	var released int
 	err := owner.db.QueryRowContext(context.Background(), "SELECT released FROM heteroci_routing_reservations WHERE scope = ? AND owner_epoch = ? AND run_id = ?", fence.Scope, fence.OwnerEpoch, runID).Scan(&released)
 	if err != nil {

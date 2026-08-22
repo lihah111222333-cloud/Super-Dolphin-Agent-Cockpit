@@ -135,7 +135,7 @@ func materialDigestTestBatch(t *testing.T) ExecutionBatch {
 	if err != nil {
 		t.Fatalf("DeriveOperationID(start): %v", err)
 	}
-	started, err := fixture.owner.Start(t.Context(), planned.Fence, startID, string(runIdentity.DurableRunID), fixture.units[0].UnitID, fixture.snapshot)
+	started, err := fixture.owner.Start(t.Context(), planned.Fence, startID, runIdentity.DurableRunID, fixture.units[0].UnitID, fixture.snapshot)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

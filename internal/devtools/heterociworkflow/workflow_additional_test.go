@@ -232,7 +232,7 @@ type readDriftOwner struct {
 	*fakeOwner
 }
 
-func (owner *readDriftOwner) ReadRun(ctx context.Context, runID string) (heterociowner.DurableRunState, error) {
+func (owner *readDriftOwner) ReadRun(ctx context.Context, runID heteroci.TopologyRunID) (heterociowner.DurableRunState, error) {
 	state, err := owner.fakeOwner.ReadRun(ctx, runID)
 	if err != nil {
 		return heterociowner.DurableRunState{}, err

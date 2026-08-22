@@ -22,7 +22,7 @@ type durableOperationReader interface {
 
 type durableFinishOperationRequest struct {
 	Fence  heteroci.OwnerFence        `json:"fence"`
-	RunID  string                     `json:"run_id"`
+	RunID  heteroci.TopologyRunID     `json:"run_id"`
 	UnitID string                     `json:"unit_id"`
 	State  heteroci.RoutingLeaseState `json:"state"`
 }
@@ -42,10 +42,10 @@ func (err uncertainFinishError) Unwrap() error {
 }
 
 // finishUnitWithRecovery 校验 Finish 返回并在异常时读取 exact journal operation。
-func (workflow *Workflow) finishUnitWithRecovery(ctx context.Context, previousFence heteroci.OwnerFence, runID, unitID string, operationID heteroci.OperationID, terminal heteroci.RoutingLeaseState, started heteroci.RoutingLease, decision heteroci.RoutingDecision, transition heterociowner.DurableLeaseTransition, finishErr error, state *executionState) (heterociowner.DurableLeaseTransition, error) {
+func (workflow *Workflow) finishUnitWithRecovery(ctx context.Context, previousFence heteroci.OwnerFence, runID heteroci.TopologyRunID, unitID string, operationID heteroci.OperationID, terminal heteroci.RoutingLeaseState, started heteroci.RoutingLease, decision heteroci.RoutingDecision, transition heterociowner.DurableLeaseTransition, finishErr error, state *executionState) (heterociowner.DurableLeaseTransition, error) {
 	now, nowErr := workflow.now()
 	if finishErr == nil && nowErr == nil {
-		if err := validateFinishedLease(previousFence, runID, unitID, started, decision, transition, now); err == nil {
+		if err := validateFinishedLease(previousFence, string(runID), unitID, started, decision, transition, now); err == nil {
 			delete(state.uncertain, unitID)
 			return transition, nil
 		} else {
@@ -66,7 +66,7 @@ func (workflow *Workflow) finishUnitWithRecovery(ctx context.Context, previousFe
 }
 
 // replayFinishedOperation 通过 operation digest、kind、revision 和 lease projection 确认终态意图。
-func (workflow *Workflow) replayFinishedOperation(ctx context.Context, previousFence heteroci.OwnerFence, runID, unitID string, operationID heteroci.OperationID, terminal heteroci.RoutingLeaseState, started heteroci.RoutingLease, decision heteroci.RoutingDecision, now time.Time, nowErr error) (heterociowner.DurableLeaseTransition, error) {
+func (workflow *Workflow) replayFinishedOperation(ctx context.Context, previousFence heteroci.OwnerFence, runID heteroci.TopologyRunID, unitID string, operationID heteroci.OperationID, terminal heteroci.RoutingLeaseState, started heteroci.RoutingLease, decision heteroci.RoutingDecision, now time.Time, nowErr error) (heterociowner.DurableLeaseTransition, error) {
 	if nowErr != nil {
 		return heterociowner.DurableLeaseTransition{}, fmt.Errorf("%w: finish replay clock is unavailable", ErrBatchReceiptRequired)
 	}
@@ -85,7 +85,7 @@ func (workflow *Workflow) replayFinishedOperation(ctx context.Context, previousF
 	if err != nil {
 		return heterociowner.DurableLeaseTransition{}, err
 	}
-	if err := validateFinishReplay(previousFence, runID, unitID, terminal, started, decision, operation, replay, now); err != nil {
+	if err := validateFinishReplay(previousFence, string(runID), unitID, terminal, started, decision, operation, replay, now); err != nil {
 		return heterociowner.DurableLeaseTransition{}, err
 	}
 	return replay, nil

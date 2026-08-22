@@ -178,7 +178,7 @@ func (owner *concurrencyOwner) Acquire(ctx context.Context) (heteroci.OwnerFence
 	return owner.owner.Acquire(ctx)
 }
 
-func (owner *concurrencyOwner) LocateRun(ctx context.Context, runID string) ([]heterociowner.DurableRunState, error) {
+func (owner *concurrencyOwner) LocateRun(ctx context.Context, runID heteroci.TopologyRunID) ([]heterociowner.DurableRunState, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	return owner.owner.LocateRun(ctx, runID)
@@ -190,25 +190,25 @@ func (owner *concurrencyOwner) PlanAndReserve(ctx context.Context, fence heteroc
 	return owner.owner.PlanAndReserve(ctx, fence, request)
 }
 
-func (owner *concurrencyOwner) Start(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
+func (owner *concurrencyOwner) Start(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	return owner.owner.Start(ctx, fence, operationID, runID, unitID, snapshot)
 }
 
-func (owner *concurrencyOwner) Finish(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, terminal heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
+func (owner *concurrencyOwner) Finish(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, terminal heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	return owner.owner.Finish(ctx, fence, operationID, runID, unitID, terminal)
 }
 
-func (owner *concurrencyOwner) CancelPlanned(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string) (heterociowner.DurableLeaseTransition, error) {
+func (owner *concurrencyOwner) CancelPlanned(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string) (heterociowner.DurableLeaseTransition, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	return owner.owner.CancelPlanned(ctx, fence, operationID, runID, unitID)
 }
 
-func (owner *concurrencyOwner) ReadRun(ctx context.Context, runID string) (heterociowner.DurableRunState, error) {
+func (owner *concurrencyOwner) ReadRun(ctx context.Context, runID heteroci.TopologyRunID) (heterociowner.DurableRunState, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
 	return owner.owner.ReadRun(ctx, runID)

@@ -16,6 +16,11 @@ const (
 // TopologyRunID 是 repository、tree 与 caller RunID 域分离派生的内部运行键。
 type TopologyRunID string
 
+// Validate 校验内部 durable run key 的 canonical 小写十六进制边界。
+func (runID TopologyRunID) Validate() error {
+	return validateTopologyDurableRunID(runID)
+}
+
 // TopologyOperationPhase 是 topology authority 接受的 durable mutation 阶段。
 type TopologyOperationPhase string
 

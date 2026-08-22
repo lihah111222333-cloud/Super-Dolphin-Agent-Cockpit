@@ -98,7 +98,7 @@ type durableOwnerEpochRead struct {
 const maxDurableRunTTLMillis = int64((1<<63 - 1) / int64(time.Millisecond))
 
 // LocateRun 按 scope 和 run_id 查找唯一 durable 运行，允许返回唯一历史 epoch 供审计。
-func (owner *Owner) LocateRun(ctx context.Context, runID string) ([]DurableRunState, error) {
+func (owner *Owner) LocateRun(ctx context.Context, runID heteroci.TopologyRunID) ([]DurableRunState, error) {
 	if err := validateReadStateArguments(owner, runID); err != nil {
 		return nil, redactDurableReadError(err)
 	}
@@ -111,7 +111,7 @@ func (owner *Owner) LocateRun(ctx context.Context, runID string) ([]DurableRunSt
 		return nil, redactDurableReadError(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := readDurableRunRows(ctx, tx, owner.scope, runID)
+	rows, err := readDurableRunRows(ctx, tx, owner.scope, string(runID))
 	if err != nil {
 		return nil, redactDurableReadError(err)
 	}
@@ -135,7 +135,7 @@ func (owner *Owner) LocateRun(ctx context.Context, runID string) ([]DurableRunSt
 }
 
 // ReadRun 读取当前 owner epoch 中唯一的 durable 运行；历史运行必须显式恢复。
-func (owner *Owner) ReadRun(ctx context.Context, runID string) (DurableRunState, error) {
+func (owner *Owner) ReadRun(ctx context.Context, runID heteroci.TopologyRunID) (DurableRunState, error) {
 	if err := validateReadStateArguments(owner, runID); err != nil {
 		return DurableRunState{}, redactDurableReadError(err)
 	}
@@ -148,7 +148,7 @@ func (owner *Owner) ReadRun(ctx context.Context, runID string) (DurableRunState,
 		return DurableRunState{}, redactDurableReadError(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	rows, err := readDurableRunRows(ctx, tx, owner.scope, runID)
+	rows, err := readDurableRunRows(ctx, tx, owner.scope, string(runID))
 	if err != nil {
 		return DurableRunState{}, redactDurableReadError(err)
 	}
@@ -258,15 +258,15 @@ func buildDurableOperationState(record OperationRecord, scope heteroci.RoutingOw
 }
 
 // validateReadStateArguments 校验 owner、scope 与 run identity 的输入边界。
-func validateReadStateArguments(owner *Owner, runID string) error {
+func validateReadStateArguments(owner *Owner, runID heteroci.TopologyRunID) error {
 	if owner == nil || owner.db == nil {
 		return errors.New("heteroci owner is nil")
 	}
 	if err := owner.scope.Validate(); err != nil {
 		return err
 	}
-	if !validOwnerRunID(runID) {
-		return errors.New("heteroci owner run id is invalid")
+	if err := runID.Validate(); err != nil {
+		return err
 	}
 	return nil
 }

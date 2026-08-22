@@ -53,7 +53,7 @@ func (owner *fakeOwner) Acquire(context.Context) (heteroci.OwnerFence, error) {
 	return fence, nil
 }
 
-func (owner *fakeOwner) LocateRun(context.Context, string) ([]heterociowner.DurableRunState, error) {
+func (owner *fakeOwner) LocateRun(context.Context, heteroci.TopologyRunID) ([]heterociowner.DurableRunState, error) {
 	owner.record("locate")
 	return append([]heterociowner.DurableRunState(nil), owner.locateStates...), nil
 }
@@ -94,7 +94,7 @@ func (owner *fakeOwner) PlanAndReserve(_ context.Context, fence heteroci.OwnerFe
 	return owner.planned, nil
 }
 
-func (owner *fakeOwner) ReadRun(context.Context, string) (heterociowner.DurableRunState, error) {
+func (owner *fakeOwner) ReadRun(context.Context, heteroci.TopologyRunID) (heterociowner.DurableRunState, error) {
 	owner.record("read")
 	if owner.readErr != nil {
 		return heterociowner.DurableRunState{}, owner.readErr
@@ -102,13 +102,13 @@ func (owner *fakeOwner) ReadRun(context.Context, string) (heterociowner.DurableR
 	return owner.run, nil
 }
 
-func (owner *fakeOwner) Start(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
+func (owner *fakeOwner) Start(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
 	owner.record("start")
 	owner.startCount++
 	if snapshot.OwnerEpoch != fence.OwnerEpoch {
 		return heteroci.StartedRoutingLease{}, errors.New("fake start snapshot epoch drifted")
 	}
-	index, lease, err := owner.findLease(runID, unitID, heteroci.LeaseStatePlanned)
+	index, lease, err := owner.findLease(string(runID), unitID, heteroci.LeaseStatePlanned)
 	if err != nil {
 		return heteroci.StartedRoutingLease{}, err
 	}
@@ -126,19 +126,19 @@ func (owner *fakeOwner) Start(_ context.Context, fence heteroci.OwnerFence, _ he
 	return started, nil
 }
 
-func (owner *fakeOwner) Finish(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID, unitID string, terminal heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
+func (owner *fakeOwner) Finish(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, terminal heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
 	owner.record("finish")
 	owner.finishCount++
 	if terminal != heteroci.LeaseStateSucceeded && terminal != heteroci.LeaseStateFailed {
 		return heterociowner.DurableLeaseTransition{}, errors.New("fake terminal state is invalid")
 	}
-	return owner.transition(fence, runID, unitID, heteroci.LeaseStateStarted, terminal)
+	return owner.transition(fence, string(runID), unitID, heteroci.LeaseStateStarted, terminal)
 }
 
-func (owner *fakeOwner) CancelPlanned(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID, unitID string) (heterociowner.DurableLeaseTransition, error) {
+func (owner *fakeOwner) CancelPlanned(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID, unitID string) (heterociowner.DurableLeaseTransition, error) {
 	owner.record("cancel")
 	owner.cancelCount++
-	return owner.transition(fence, runID, unitID, heteroci.LeaseStatePlanned, heteroci.LeaseStateCancelled)
+	return owner.transition(fence, string(runID), unitID, heteroci.LeaseStatePlanned, heteroci.LeaseStateCancelled)
 }
 
 func (owner *fakeOwner) transition(fence heteroci.OwnerFence, runID, unitID string, from, to heteroci.RoutingLeaseState) (heterociowner.DurableLeaseTransition, error) {
