@@ -91,7 +91,7 @@ func NewCommandBatchExecutor(factory CommandFactory, runner Runner, receipts Rec
 	return &CommandBatchExecutor{factory: factory, runner: runner, receipts: receipts, executions: make(map[commandExecutionKey]*commandExecution)}, nil
 }
 
-// ExecuteBatch 对每个 BatchID 恰好运行一次，并在 runner 不确定时只读取同一 receipt。
+// ExecuteBatch 先原子占用本地 batch，再进行 receipt I/O，避免第二调用被阻塞 read 拖住。
 func (executor *CommandBatchExecutor) ExecuteBatch(ctx context.Context, batch heterociworkflow.ExecutionBatch) (heterociworkflow.BatchResult, error) {
 	batch = cloneCommandExecutionBatch(batch)
 	if err := executor.validateContextAndBatch(ctx, batch); err != nil {
@@ -101,24 +101,47 @@ func (executor *CommandBatchExecutor) ExecuteBatch(ctx context.Context, batch he
 	if err != nil {
 		return heterociworkflow.BatchResult{}, err
 	}
+	key := commandExecutionKey{batchID: batch.BatchID, materialDigest: batch.MaterialDigest}
+	record, owner, inFlight, err := executor.claim(key, commandDigest)
+	if err != nil {
+		return heterociworkflow.BatchResult{}, err
+	}
+	if inFlight {
+		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: batch %s", ErrCommandInFlight, batch.BatchID)
+	}
+	if !owner {
+		return executor.replayCompletedExecution(ctx, batch, commandDigest, record)
+	}
 	receipt, found, err := executor.readValidatedReceipt(ctx, batch, commandDigest)
 	if err != nil {
+		executor.complete(record, heterociworkflow.BatchResult{}, err)
+		return heterociworkflow.BatchResult{}, err
+	}
+	if found {
+		executor.complete(record, receipt, nil)
+		return receipt, nil
+	}
+	result, executeErr := executor.executeClaimed(ctx, batch, command, commandDigest)
+	executor.complete(record, result, executeErr)
+	return cloneBatchResult(result), executeErr
+}
+
+// replayCompletedExecution 允许已完成调用读取 exact receipt，但绝不重新 Claim 或 runner。
+func (executor *CommandBatchExecutor) replayCompletedExecution(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string, record *commandExecution) (heterociworkflow.BatchResult, error) {
+	receipt, found, err := executor.readValidatedReceipt(ctx, batch, commandDigest)
+	if err != nil {
+		if record.err != nil {
+			return cloneBatchResult(record.result), errors.Join(ErrCommandInFlight, record.err)
+		}
 		return heterociworkflow.BatchResult{}, err
 	}
 	if found {
 		return receipt, nil
 	}
-	key := commandExecutionKey{batchID: batch.BatchID, materialDigest: batch.MaterialDigest}
-	record, owner, err := executor.claim(key, commandDigest)
-	if err != nil {
-		return heterociworkflow.BatchResult{}, err
+	if record.err != nil {
+		return cloneBatchResult(record.result), errors.Join(ErrCommandInFlight, record.err)
 	}
-	if !owner {
-		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: batch %s", ErrCommandInFlight, batch.BatchID)
-	}
-	result, executeErr := executor.executeClaimed(ctx, batch, command, commandDigest)
-	executor.complete(record, result, executeErr)
-	return cloneBatchResult(result), executeErr
+	return cloneBatchResult(record.result), nil
 }
 
 // ReadBatchReceipt 实现 workflow.BatchReceiptReader，且严格按完整 expected batch 派生 digest 读取。
@@ -197,22 +220,27 @@ func (executor *CommandBatchExecutor) prepareCommand(batch heterociworkflow.Exec
 	return cloneCommand(command), digest, nil
 }
 
-// claim 建立 BatchID 的唯一执行记录；后续调用立即冲突，不能等待或重新 runner。
-func (executor *CommandBatchExecutor) claim(key commandExecutionKey, commandDigest string) (*commandExecution, bool, error) {
+// claim 原子建立或观察 BatchID 的本地执行记录；active 记录立即冲突，completed 记录只允许 replay。
+func (executor *CommandBatchExecutor) claim(key commandExecutionKey, commandDigest string) (*commandExecution, bool, bool, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
 	if executor.executions == nil {
-		return nil, false, ErrCommandExecutor
+		return nil, false, false, ErrCommandExecutor
 	}
 	if record, exists := executor.executions[key]; exists {
 		if record.commandDigest != commandDigest {
-			return nil, false, fmt.Errorf("%w: command digest drifted for in-flight batch", ErrCommandExecutor)
+			return nil, false, false, fmt.Errorf("%w: command digest drifted for in-flight batch", ErrCommandExecutor)
 		}
-		return record, false, nil
+		select {
+		case <-record.done:
+			return record, false, false, nil
+		default:
+			return record, false, true, nil
+		}
 	}
 	record := &commandExecution{done: make(chan struct{}), commandDigest: commandDigest}
 	executor.executions[key] = record
-	return record, true, nil
+	return record, true, false, nil
 }
 
 // complete 发布一次执行结果供同一实例的诊断读取。

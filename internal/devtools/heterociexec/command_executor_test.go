@@ -65,6 +65,23 @@ type commandExecutorReceiptStore struct {
 	persistResult *heterociworkflow.BatchResult
 }
 
+type blockingReceiptStore struct {
+	commandExecutorReceiptStore
+	readStarted chan struct{}
+	releaseRead chan struct{}
+	readOnce    sync.Once
+}
+
+func (store *blockingReceiptStore) Read(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (heterociworkflow.BatchResult, bool, error) {
+	store.readOnce.Do(func() { close(store.readStarted) })
+	select {
+	case <-store.releaseRead:
+		return store.commandExecutorReceiptStore.Read(ctx, batch, commandDigest)
+	case <-ctx.Done():
+		return heterociworkflow.BatchResult{}, false, ctx.Err()
+	}
+}
+
 func (store *commandExecutorReceiptStore) Claim(_ context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (bool, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -433,6 +450,51 @@ func TestCommandBatchExecutorConcurrentCallsExecuteOnce(t *testing.T) {
 	if firstErr := <-firstResult; firstErr != nil {
 		t.Fatalf("first ExecuteBatch error = %v", firstErr)
 	}
+	if runner.calls != 1 {
+		t.Fatalf("runner calls = %d, want exactly one", runner.calls)
+	}
+}
+
+func TestCommandBatchExecutorConflictsBeforeBlockedReceiptRead(t *testing.T) {
+	batch := commandExecutorBatch()
+	store := &blockingReceiptStore{readStarted: make(chan struct{}), releaseRead: make(chan struct{})}
+	runner := &commandExecutorRunner{outcome: RunOutcome{ExitCode: 0}}
+	executor, err := NewCommandBatchExecutor(commandExecutorFactory(), runner, store)
+	if err != nil {
+		t.Fatalf("NewCommandBatchExecutor() error = %v", err)
+	}
+	firstDone := make(chan error, 1)
+	var group sync.WaitGroup
+	group.Go(func() {
+		_, firstErr := executor.ExecuteBatch(context.Background(), batch)
+		firstDone <- firstErr
+	})
+	<-store.readStarted
+	secondDone := make(chan error, 1)
+	group.Go(func() {
+		_, secondErr := executor.ExecuteBatch(context.Background(), batch)
+		secondDone <- secondErr
+	})
+	select {
+	case secondErr := <-secondDone:
+		if !errors.Is(secondErr, ErrCommandInFlight) {
+			t.Fatalf("second ExecuteBatch error = %v, want ErrCommandInFlight", secondErr)
+		}
+	case <-time.After(500 * time.Millisecond):
+		close(store.releaseRead)
+		t.Fatal("second ExecuteBatch waited on the blocked receipt read")
+	}
+	store.commandExecutorReceiptStore.mu.Lock()
+	readCount := len(store.commandExecutorReceiptStore.reads)
+	store.commandExecutorReceiptStore.mu.Unlock()
+	if readCount != 0 {
+		t.Fatalf("receipt Read calls while first read blocked = %d, want zero delegated reads", readCount)
+	}
+	close(store.releaseRead)
+	if firstErr := <-firstDone; firstErr != nil {
+		t.Fatalf("first ExecuteBatch error = %v", firstErr)
+	}
+	group.Wait()
 	if runner.calls != 1 {
 		t.Fatalf("runner calls = %d, want exactly one", runner.calls)
 	}

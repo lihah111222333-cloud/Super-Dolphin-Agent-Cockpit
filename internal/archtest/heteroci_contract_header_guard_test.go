@@ -259,4 +259,9 @@ func assertHeterociNoCommandWaitGuard(t *testing.T, command string) {
 	if !strings.Contains(command, "ErrCommandInFlight") || strings.Count(command, "runner.Run(") != 1 {
 		t.Error("command executor does not prove immediate in-flight conflict and one runner call")
 	}
+	claimAt := strings.Index(command, "executor.claim(")
+	readAt := strings.Index(command, "executor.readValidatedReceipt(")
+	if claimAt < 0 || readAt < 0 || claimAt > readAt {
+		t.Error("command executor performs receipt read before local in-flight claim")
+	}
 }
