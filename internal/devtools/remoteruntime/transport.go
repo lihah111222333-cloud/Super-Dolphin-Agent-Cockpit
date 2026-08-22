@@ -261,6 +261,14 @@ func (transport *Transport) RunBytes(ctx context.Context, target TargetFacts, ex
 	return result.Bytes(), nil
 }
 
+func (transport *Transport) requestContext(ctx context.Context) (context.Context, context.CancelFunc, error) {
+	if transport == nil || ctx == nil || transport.config.RequestTimeoutMS <= 0 {
+		return nil, nil, ErrInvalidTransportDependencies
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(transport.config.RequestTimeoutMS)*time.Millisecond)
+	return requestCtx, cancel, nil
+}
+
 func (transport *Transport) execute(ctx context.Context, operation Operation, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeResult, error) {
 	node, err := transport.prepareExecution(ctx, operation, target, execution, nodeID, request)
 	if err != nil {

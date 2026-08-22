@@ -42,14 +42,15 @@ func TestRuntimeConfigRejectsNonCanonicalAndUnknownFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string][]byte{
-		"leading whitespace":    append([]byte{' '}, encoded...),
-		"trailing whitespace":   append(append([]byte(nil), encoded...), '\n'),
-		"trailing value":        append(append([]byte(nil), encoded...), []byte("{}")...),
-		"unknown field":         append(append(encoded[:len(encoded)-1], ','), []byte(`"sqlite_path":"bad"}`)...),
-		"duplicate field":       duplicateRuntimeField(encoded),
-		"null field":            bytes.Replace(encoded, []byte(`"owner_namespace":"remote-ci-fixture"`), []byte(`"owner_namespace":null`), 1),
-		"missing heartbeat TTL": bytes.Replace(encoded, []byte(`,"heartbeat_ttl_ms":30000`), nil, 1),
-		"missing node cgo":      bytes.Replace(encoded, []byte(`"cgo_enabled":"0",`), nil, 1),
+		"leading whitespace":      append([]byte{' '}, encoded...),
+		"trailing whitespace":     append(append([]byte(nil), encoded...), '\n'),
+		"trailing value":          append(append([]byte(nil), encoded...), []byte("{}")...),
+		"unknown field":           append(append(encoded[:len(encoded)-1], ','), []byte(`"sqlite_path":"bad"}`)...),
+		"duplicate field":         duplicateRuntimeField(encoded),
+		"null field":              bytes.Replace(encoded, []byte(`"owner_namespace":"remote-ci-fixture"`), []byte(`"owner_namespace":null`), 1),
+		"missing heartbeat TTL":   bytes.Replace(encoded, []byte(`,"heartbeat_ttl_ms":30000`), nil, 1),
+		"missing node cgo":        bytes.Replace(encoded, []byte(`"cgo_enabled":"0",`), nil, 1),
+		"missing request timeout": bytes.Replace(encoded, []byte(`,"request_timeout_ms":120000`), nil, 1),
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -60,7 +61,7 @@ func TestRuntimeConfigRejectsNonCanonicalAndUnknownFields(t *testing.T) {
 	}
 }
 
-func TestRuntimeConfigRequiresExplicitHeartbeatTTL(t *testing.T) {
+func TestRuntimeConfigRequiresExplicitPolicyTimeouts(t *testing.T) {
 	encoded, err := EncodeConfig(runtimeFixture())
 	if err != nil {
 		t.Fatal(err)
@@ -68,11 +69,28 @@ func TestRuntimeConfigRequiresExplicitHeartbeatTTL(t *testing.T) {
 	if !bytes.Contains(encoded, []byte(`"heartbeat_ttl_ms":30000`)) {
 		t.Fatalf("canonical config omitted caller-supplied heartbeat TTL: %s", encoded)
 	}
+	if !bytes.Contains(encoded, []byte(`"request_timeout_ms":120000`)) {
+		t.Fatalf("canonical config omitted caller-supplied request timeout: %s", encoded)
+	}
 	for _, value := range []int64{0, -1, int64(^uint64(0) >> 1)} {
 		config := runtimeFixture()
 		config.HeartbeatTTLMS = value
 		if _, err := EncodeConfig(config); err == nil {
 			t.Fatalf("EncodeConfig() accepted heartbeat_ttl_ms=%d", value)
+		}
+	}
+	for _, value := range []int64{0, -1, int64(^uint64(0) >> 1)} {
+		config := runtimeFixture()
+		config.RequestTimeoutMS = value
+		if _, err := EncodeConfig(config); err == nil {
+			t.Fatalf("EncodeConfig() accepted request_timeout_ms=%d", value)
+		}
+	}
+	for _, value := range []int64{1699, 44999, 3099, 89999} {
+		config := runtimeFixture()
+		config.RequestTimeoutMS = value
+		if _, err := EncodeConfig(config); err == nil {
+			t.Fatalf("EncodeConfig() accepted request timeout below operation timeout: %d", value)
 		}
 	}
 }
@@ -186,7 +204,7 @@ func runtimeFixture() RuntimeConfig {
 		SchemaVersion: ConfigSchemaVersion, TopologyManifestPath: "/etc/super-dolphin/topology.json",
 		OwnerDSNEnv: "REMOTE_CI_OWNER_DSN", ReceiptDSNEnv: "REMOTE_CI_RECEIPT_DSN",
 		OwnerNamespace: "remote-ci-fixture", SSHExecutable: "/usr/bin/ssh",
-		ProbeTimeoutMS: 1700, HeartbeatTTLMS: 30000, RunTimeoutMS: 45000, CleanupTimeoutMS: 3100, WorkerTimeoutMS: 90000,
+		ProbeTimeoutMS: 1700, HeartbeatTTLMS: 30000, RequestTimeoutMS: 120000, RunTimeoutMS: 45000, CleanupTimeoutMS: 3100, WorkerTimeoutMS: 90000,
 		Nodes: []NodeBinding{
 			runtimeUbuntuNode(Ubuntu01NodeID, "/srv/ci/u01"),
 			runtimeUbuntuNode(Ubuntu02NodeID, "/srv/ci/u02"),

@@ -62,7 +62,9 @@ type RuntimeConfig struct {
 	SSHExecutable        string `json:"ssh_executable"`
 	ProbeTimeoutMS       int64  `json:"probe_timeout_ms"`
 	// HeartbeatTTLMS 是 workflow RunRequest 必须显式采用的正 heartbeat TTL（毫秒）；不得从 probe timeout 推断。
-	HeartbeatTTLMS   int64         `json:"heartbeat_ttl_ms"`
+	HeartbeatTTLMS int64 `json:"heartbeat_ttl_ms"`
+	// RequestTimeoutMS 是一次 production execute 的 caller-supplied deadline（毫秒）；不得从单操作 timeout 推断。
+	RequestTimeoutMS int64         `json:"request_timeout_ms"`
 	RunTimeoutMS     int64         `json:"run_timeout_ms"`
 	CleanupTimeoutMS int64         `json:"cleanup_timeout_ms"`
 	WorkerTimeoutMS  int64         `json:"worker_timeout_ms"`
@@ -108,7 +110,7 @@ type LinuxContainerBinding struct {
 func ConfigFields() []string {
 	return []string{
 		"schema_version", "topology_manifest_path", "owner_dsn_env", "receipt_dsn_env",
-		"owner_namespace", "ssh_executable", "probe_timeout_ms", "heartbeat_ttl_ms", "run_timeout_ms",
+		"owner_namespace", "ssh_executable", "probe_timeout_ms", "heartbeat_ttl_ms", "request_timeout_ms", "run_timeout_ms",
 		"cleanup_timeout_ms", "worker_timeout_ms", "nodes",
 	}
 }
@@ -371,12 +373,24 @@ func PolicyDigest(config RuntimeConfig) (string, error) {
 
 func validateTimeouts(config RuntimeConfig) error {
 	for name, value := range map[string]int64{
-		"probe_timeout_ms": config.ProbeTimeoutMS, "heartbeat_ttl_ms": config.HeartbeatTTLMS,
+		"probe_timeout_ms": config.ProbeTimeoutMS, "heartbeat_ttl_ms": config.HeartbeatTTLMS, "request_timeout_ms": config.RequestTimeoutMS,
 		"run_timeout_ms":     config.RunTimeoutMS,
 		"cleanup_timeout_ms": config.CleanupTimeoutMS, "worker_timeout_ms": config.WorkerTimeoutMS,
 	} {
 		if value <= 0 || value > math.MaxInt64/int64(time.Millisecond) {
 			return fmt.Errorf("runtime config %s is invalid", name)
+		}
+	}
+	return validateRequestTimeout(config)
+}
+
+func validateRequestTimeout(config RuntimeConfig) error {
+	for name, value := range map[string]int64{
+		"probe_timeout_ms": config.ProbeTimeoutMS, "run_timeout_ms": config.RunTimeoutMS,
+		"cleanup_timeout_ms": config.CleanupTimeoutMS, "worker_timeout_ms": config.WorkerTimeoutMS,
+	} {
+		if config.RequestTimeoutMS < value {
+			return fmt.Errorf("runtime config request_timeout_ms must not be less than %s", name)
 		}
 	}
 	return nil

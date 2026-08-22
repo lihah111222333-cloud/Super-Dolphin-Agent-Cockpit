@@ -233,6 +233,29 @@ func TestTransportTimeoutDoesNotRetry(t *testing.T) {
 	}
 }
 
+func TestExecuteUsesExplicitRequestTimeout(t *testing.T) {
+	config := runtimeFixture()
+	config.ProbeTimeoutMS = 10
+	config.RequestTimeoutMS = 25
+	config.RunTimeoutMS = 20
+	config.CleanupTimeoutMS = 15
+	config.WorkerTimeoutMS = 22
+	transport, err := New(config, CommandRunnerFunc(func(ctx context.Context, _ CommandSpec) (CommandResult, error) {
+		<-ctx.Done()
+		return CommandResult{}, ctx.Err()
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := transport.Execute(context.Background(), targetFixture("target"), executionFixture(UbuntuPlatform), OperationRun, Ubuntu01NodeID, []byte(`{"request":"batch"}`))
+	if !errors.Is(err, ErrCommandTimedOut) {
+		t.Fatalf("Execute() error = %v, want request timeout", err)
+	}
+	if result.CleanupVerified {
+		t.Fatal("request-timeout result claimed cleanup verification")
+	}
+}
+
 func TestBatchFailuresDoNotClaimCleanup(t *testing.T) {
 	cases := []struct {
 		name   string

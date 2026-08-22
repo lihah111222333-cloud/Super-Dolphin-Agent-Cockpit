@@ -152,7 +152,12 @@ func (transport *Transport) Execute(ctx context.Context, target TargetFacts, exe
 	if _, err := transport.BindPortableRun(target); err != nil {
 		return NodeResult{}, err
 	}
-	return transport.execute(ctx, operation, target, execution, nodeID, request)
+	requestCtx, cancel, err := transport.requestContext(ctx)
+	if err != nil {
+		return NodeResult{}, err
+	}
+	defer cancel()
+	return transport.execute(requestCtx, operation, target, execution, nodeID, request)
 }
 
 // Execute 将已绑定 target 的 run/worker operation 投影到指定 transport；fresh probe 必须调用 Probe。
@@ -165,7 +170,12 @@ func (bound BoundPortableRun) Execute(ctx context.Context, transport *Transport,
 	if boundErr != nil || transportErr != nil || !bytes.Equal(boundPolicy, transportPolicy) {
 		return NodeResult{}, errors.New("bound runtime config drifted")
 	}
-	return transport.execute(ctx, operation, bound.Target, execution, nodeID, request)
+	requestCtx, cancel, err := transport.requestContext(ctx)
+	if err != nil {
+		return NodeResult{}, err
+	}
+	defer cancel()
+	return transport.execute(requestCtx, operation, bound.Target, execution, nodeID, request)
 }
 
 // DeriveOwnerNamespace 使用 repository_id、object format 和 exact target object 派生 namespace。
