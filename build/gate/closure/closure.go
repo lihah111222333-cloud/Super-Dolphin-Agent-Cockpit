@@ -1547,3 +1547,65 @@ func badGoEmbedName(name string) bool {
 func relativeEscapesRoot(relative string) bool {
 	return relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
+
+// CompileIdentityForTree 返回精确 Git 树上本地 Gate 编译闭包与锁定工具链的摘要。
+// 调用方只能用它绑定 trusted launcher；它不读取候选工作树中的未跟踪文件。
+func CompileIdentityForTree(repository, tree string) (sourceDigest, toolchainDigest string, err error) {
+	if strings.TrimSpace(repository) == "" || !filepath.IsAbs(repository) || filepath.Clean(repository) != repository {
+		return "", "", errors.New("compile identity repository must be a clean absolute path")
+	}
+	if strings.TrimSpace(tree) == "" {
+		return "", "", errors.New("compile identity tree is required")
+	}
+	treeSHA, err := resolveTreeSHA(repository, tree)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve compile identity tree: %w", err)
+	}
+	sourceRoot, cleanup, err := createTemporarySourceRoot()
+	if err != nil {
+		return "", "", err
+	}
+	defer cleanup()
+	if err := extractGitTree(repository, treeSHA, sourceRoot); err != nil {
+		return "", "", fmt.Errorf("extract compile identity tree: %w", err)
+	}
+	compileFiles, err := collectGateCompileFiles(sourceRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("collect local Gate compile identity: %w", err)
+	}
+	sourceDigest, err = digestCompileIdentityFiles(sourceRoot, compileFiles)
+	if err != nil {
+		return "", "", err
+	}
+	toolchain, err := os.ReadFile(filepath.Join(sourceRoot, gateToolchain))
+	if err != nil {
+		return "", "", fmt.Errorf("read locked Gate toolchain: %w", err)
+	}
+	toolchainDigest = digestCompileIdentityBytes(toolchain)
+	return sourceDigest, toolchainDigest, nil
+}
+
+func digestCompileIdentityFiles(sourceRoot string, paths []string) (string, error) {
+	hash := sha256.New()
+	for _, relative := range sortedUniqueStrings(paths) {
+		data, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(relative)))
+		if err != nil {
+			return "", fmt.Errorf("read local Gate compile input %q: %w", relative, err)
+		}
+		if _, err := fmt.Fprintf(hash, "%s\x00%d\x00", relative, len(data)); err != nil {
+			return "", fmt.Errorf("encode local Gate compile input %q: %w", relative, err)
+		}
+		if _, err := hash.Write(data); err != nil {
+			return "", fmt.Errorf("digest local Gate compile input %q: %w", relative, err)
+		}
+		if _, err := hash.Write([]byte{0}); err != nil {
+			return "", fmt.Errorf("finish local Gate compile input %q: %w", relative, err)
+		}
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
+}
+
+func digestCompileIdentityBytes(data []byte) string {
+	digest := sha256.Sum256(data)
+	return fmt.Sprintf("sha256:%x", digest[:])
+}

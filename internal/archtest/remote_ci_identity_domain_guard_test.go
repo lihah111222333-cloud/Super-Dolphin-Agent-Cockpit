@@ -9,7 +9,7 @@ import (
 )
 
 // TestRemoteCIIdentityAndFingerprintDomainsHaveSingleOwners guards protocol-domain
-// ownership and the field/material links consumed by gate and remoteci.
+// ownership and the field/material links consumed by the retained local Gate.
 func TestRemoteCIIdentityAndFingerprintDomainsHaveSingleOwners(t *testing.T) {
 	root := findRepoRoot(t)
 	assertRemoteCIIdentityDomainConstants(t)
@@ -53,30 +53,25 @@ func assertRemoteCIEnvironmentReplayDomainOwner(t *testing.T, root string) {
 	})
 }
 
-// assertRemoteCIIdentityDomainBindings 证明生产材料仅引用 cicontract 的域所有者。
+// assertRemoteCIIdentityDomainBindings 证明保留的 local Gate 材料仅引用 cicontract 的域所有者。
 func assertRemoteCIIdentityDomainBindings(t *testing.T, root string) map[string]string {
 	t.Helper()
 	identity := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_pass_evidence.go"))
 	if !strings.Contains(identity, "Domain:            cicontract.WorkloadPassIdentityDomain") {
 		t.Fatal("PASS identity material is not bound to cicontract.WorkloadPassIdentityDomain")
 	}
-	fingerprint := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint_git.go"))
-	if !strings.Contains(fingerprint, "cicontract.WorkloadInputFingerprintDomain") {
-		t.Fatal("input fingerprint material is not bound to cicontract.WorkloadInputFingerprintDomain")
-	}
-	owner := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/workload_fingerprint.go"))
-	if !strings.Contains(owner, "remoteWorkloadInputSchemaVersion = cicontract.WorkloadInputFingerprintSchemaVersion") {
-		t.Fatal("internal fingerprint schema 4 is not sourced from cicontract")
-	}
 	replay := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_pass_source_replay.go"))
 	if !strings.Contains(replay, "Domain:                   cicontract.WorkloadPassSourceReplayDomain") {
 		t.Fatal("PASS source replay material is not bound to cicontract.WorkloadPassSourceReplayDomain")
 	}
+	environment := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_pass_environment_replay.go"))
+	if !strings.Contains(environment, "cicontract.WorkloadPassEnvironmentReplayDomain") {
+		t.Fatal("PASS environment replay material is not bound to cicontract.WorkloadPassEnvironmentReplayDomain")
+	}
 	return map[string]string{
-		"internal/devtools/gate/workload_pass_evidence.go":       identity,
-		"internal/devtools/gate/workload_pass_source_replay.go":  replay,
-		"internal/devtools/remoteci/workload_fingerprint.go":     owner,
-		"internal/devtools/remoteci/workload_fingerprint_git.go": fingerprint,
+		"internal/devtools/gate/workload_pass_evidence.go":           identity,
+		"internal/devtools/gate/workload_pass_source_replay.go":      replay,
+		"internal/devtools/gate/workload_pass_environment_replay.go": environment,
 	}
 }
 

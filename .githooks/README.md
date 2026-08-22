@@ -6,15 +6,14 @@ pre-push launcher 的 builder 必须从 staged tree 通过 Git plumbing 读取�
 
 `pre-commit` 只允许受信 Gate 的 exact-tree `project-map check/refresh` 自动维护项目地图，不执行候选树的生成脚本、Makefile、closure、codemap、capability-contract 或其他完整门禁。项目地图目录存在未暂存或未跟踪内容时立即阻断，禁止自动刷新覆盖用户工作。不同 linked worktree 的 launcher 可在受限安装根中并存，hook 按当前 exact tree 从安装根选择并完整复验，不依赖最近一次安装路径。
 
-`pre-commit` 不启动 remote ECI 门禁，也不要求 remote config、duration ledger 或 agent token。它先把受信项目地图收敛到 exact staged tree fixed point，再在仓库根目录 `.worktrees/` 下物化最终 staged tree，只运行 `scripts/test_with_guard.sh --light-guard-only` 轻量代码守卫，并在结束后验证临时 worktree 已清理且 code guard 期间 index tree 未变化。`pre-push` 是 Git 交付路径唯一的完整 remote ECI 门禁；不存在本地 scheduler、Docker 容器执行或本地回退分支，并继续要求 `SUPER_DOLPHIN_GATE_REMOTE_CONFIG`、`SUPER_DOLPHIN_GATE_LEDGER` 与实际 agent token，缺失即 fail closed。
+`pre-commit` 与 `pre-push` 都只运行 trusted local Gate。它先把受信项目地图收敛到 exact staged tree fixed point，再在仓库根目录 `.worktrees/` 下物化最终 staged tree，运行 `scripts/test_with_guard.sh --light-guard-only` 轻量代码守卫，并对 pushed tree 执行 project-map 与 closure check；不读取远程配置、ledger、token 或外部执行器。
 
-远端 hook 不读取 `super-dolphin.remote.maxShards`，也不传递 `--max-shards`；分片调度不设本地上限，由远端协调器按当前工作负载决定。
+本地 hook 不读取远程分片、队列或凭据配置；所有检查都绑定 exact staged/pushed tree。
 
-在受信 launcher 可用后，`pre-push` 检查调用方继承的 `SUPER_DOLPHIN_CI_AGENT_TOKEN`：缺失时立即调用无参数 `remote hook pre-push`，只输出阶段一申请 guidance 并 fail closed；值为 `issue` 时同样立即调用，由 gate 明确拒绝。hook 不签发、缓存、改写或通过 argv 传递 token；实际 token 仅由调用 Git 的 agent 任务上下文继承到最终 remote hook。`pre-commit` 不读取该 token。
+trusted launcher 只验证本地 Gate 的 exact-tree receipt；hook 不签发、缓存、改写或传递外部 token。
 
-`pre-commit` 只调用受信 Gate CLI 的 project-map exact-tree 子命令；自动刷新后重新写入 tree、复验 launcher 与项目地图，再在隔离 worktree 中执行轻量代码守卫。它不会调用候选生成器或 `remote hook pre-commit`。持有实际 token 时，`pre-push` 将 Git stdin 的每条精确 ref update 交给 `remote hook pre-push`，统一执行完整门禁。远端结果必须绑定同一 pushed source tree、入口和清理证据；任何身份、权威性或状态缺失均拒绝 push。
+`pre-commit` 只调用受信 Gate CLI 的 project-map exact-tree 子命令；自动刷新后重新写入 tree、复验 launcher 与项目地图，再在隔离 worktree 中执行轻量代码守卫。`pre-push` 对每条精确 ref update 复用同一 trusted local Gate，验证 pushed tree 的项目地图与 closure；任何身份、权威性或状态缺失均拒绝 push。
 
-`make remote-ci-init` 会安装仓库本地 `git remote-ci` 别名。该别名调用版本化 `scripts/git_with_remote_ci_credentials.sh`，从 GitHub CLI 的系统凭据存储读取 GHCR 凭据，并在 hook 外通过受信 Gate 签发当前进程链的 agent token；随后只通过环境 `exec git`。原始凭据不进入 Git 配置、文件、SQLite、日志或 argv。启动器接受 `--repository`，因此同一版本化实现可服务其他已经安装 exact-tree Gate 的受信仓库；目标仓库不受信或任一凭据不完整时立即拒绝。
 
 `commit-msg` 仍要求中文提交信息和 fix-test evidence。hooks 不从调用方 PATH 解析 gate CLI；`pre-commit` 只执行 exact staged tree 中版本化的代码守卫入口，`pre-push` 不执行候选工作树脚本。
 

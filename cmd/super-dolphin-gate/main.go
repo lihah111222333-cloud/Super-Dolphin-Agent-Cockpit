@@ -38,7 +38,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "worker" {
 		return runWorkerCLI(args[1:], stdout, stderr)
 	}
-	err := dispatchCLI(args, stdout, stderr)
+	err := dispatchCLI(args, stdout)
 	if err == nil {
 		return int(gatecontract.ExitOK)
 	}
@@ -54,19 +54,19 @@ func topLevelHelpRequested(args []string) bool {
 	return len(args) > 0 && (args[0] == "--help" || args[0] == "-h")
 }
 
-// writeTopLevelUsage 在执行前给出最小 authority 入口，详细 test 参数由 test --help 说明。
+// writeTopLevelUsage 在执行前给出本地 Gate 的最小命令入口。
 func writeTopLevelUsage(stdout io.Writer) error {
 	_, err := fmt.Fprint(stdout, `Usage: super-dolphin-gate <command> [flags]
 
 Commands:
-  super-dolphin-gate test --target=remote --config <path> --ledger <path> --test <package#Test>
-      Run an explicit test through the Alibaba Cloud ECI authority.
-  super-dolphin-gate remote run --target=remote --config <path>
-      Run the canonical remote CI authority path.
-
-Use super-dolphin-gate test --help to discover local, auto, hybrid, remote,
-and --gate-workload selection. This help command does not read configuration,
-request an agent token, open a ledger, or create ECI work.
+  super-dolphin-gate codemap|capability-contract|project-map ...
+      Check or refresh the repository's generated maps and contracts.
+  super-dolphin-gate closure ...
+      Check or refresh the trusted local Gate closure.
+  super-dolphin-gate launcher ...
+      Build or verify a trusted local Gate launcher.
+  super-dolphin-gate worker ...
+      Run a bounded local Gate worker command.
 `)
 	return err
 }
@@ -251,35 +251,25 @@ func signalExitCode(caught os.Signal) int {
 }
 
 // dispatchCLI 将固定命令面分派到已接线的 scheduler 边界。
-func dispatchCLI(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
+func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (test, codemap, capability-contract, project-map, worker, remote run)")
+		return protocolError("subcommand is required (codemap, capability-contract, project-map, closure, frontend-code-size, launcher, worker)")
 	}
-	if handled, err := dispatchPrimaryCLI(args, stdout, progressWriters...); handled {
+	if handled, err := dispatchPrimaryCLI(args, stdout); handled {
 		return err
 	}
 	return protocolError("unknown subcommand %q", args[0])
 }
 
 // dispatchPrimaryCLI 分派 coordinator 命令空间之外的固定子命令。
-func dispatchPrimaryCLI(args []string, stdout io.Writer, progressWriters ...io.Writer) (bool, error) {
+func dispatchPrimaryCLI(args []string, stdout io.Writer) (bool, error) {
 	switch args[0] {
-	case "test":
-		return true, runTestInvocation(args[1:], stdout, progressWriters...)
 	case "codemap", "capability-contract", "project-map":
 		return true, runGeneratedMapCLI(args[0], args[1:], stdout)
 	case "closure", "frontend-code-size":
 		return true, runLocalGuardCLI(args, stdout)
-	case "remote":
-		return true, runRemote(args[1:], os.Stdin, stdout, progressWriters...)
 	case "launcher":
 		return true, runLauncherCLI(args[1:])
-	case "_remote-materialize":
-		return true, runRemoteMaterialize(args[1:], stdout)
-	case "_remote-install-manifest":
-		return true, runRemoteInstallManifest(args[1:], stdout)
-	case "_remote-install-workspace":
-		return true, runRemoteInstallWorkspace(args[1:], stdout)
 	default:
 		return false, nil
 	}

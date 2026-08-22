@@ -13,14 +13,10 @@ import (
 func TestRemoteCINormalRuntimeRejectsImplicitWorkloadPassMigration(t *testing.T) {
 	root := findRepoRoot(t)
 	seen := false
-	for _, path := range remoteCIProductionFiles(t, root) {
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			t.Fatalf("relativize remote CI production path %q: %v", path, err)
-		}
+	for _, relative := range remoteCIProductionFiles(t, root) {
+		path := filepath.Join(root, filepath.FromSlash(relative))
 		relativeSlash := filepath.ToSlash(relative)
-		if !strings.HasPrefix(relativeSlash, "internal/devtools/remoteci/") &&
-			!strings.HasPrefix(relativeSlash, "internal/devtools/gate/") {
+		if !strings.HasPrefix(relativeSlash, "internal/devtools/gate/") {
 			continue
 		}
 		seen = true
@@ -30,7 +26,7 @@ func TestRemoteCINormalRuntimeRejectsImplicitWorkloadPassMigration(t *testing.T)
 		}
 	}
 	if !seen {
-		t.Fatal("remote-CI normal runtime source snapshot did not include internal/devtools/remoteci")
+		t.Fatal("local Gate normal runtime source snapshot did not include gate production files")
 	}
 }
 

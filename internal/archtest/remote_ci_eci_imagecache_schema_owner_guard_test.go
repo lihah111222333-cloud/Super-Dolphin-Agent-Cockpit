@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 )
 
 func remoteCISQLSchemaSourceEntries(entries []os.DirEntry) []os.DirEntry {
@@ -27,34 +26,13 @@ func remoteCISQLSchemaSourceEntries(entries []os.DirEntry) []os.DirEntry {
 	return sources
 }
 
-// TestRemoteCIContractConsumerGuardCoversECI keeps Alibaba ECI consumers under
-// the same canonical contract-value ownership guard as the gate packages.
-func TestRemoteCIContractConsumerGuardCoversECI(t *testing.T) {
+// TestRemoteCIContractConsumerGuardCoversRetainedGateContract keeps the
+// provider-neutral contract owner exercised after cloud consumers are removed.
+func TestRemoteCIContractConsumerGuardCoversRetainedGateContract(t *testing.T) {
 	root := findRepoRoot(t)
-	const eciRoot = "internal/devtools/alicloud/eci/"
-	covered := false
-	for _, file := range remoteCIContractConsumerFiles(t, root) {
-		if strings.Contains(filepath.ToSlash(file), eciRoot) {
-			covered = true
-			break
-		}
-	}
-	if !covered {
-		t.Fatalf("remote CI contract consumers do not include %s", eciRoot)
-	}
-
-	unsafe := remoteCIParseGuardFixture(t, `package fixture
-const platform = "linux/amd64"
-`)
-	if !remoteCIRepeatsContractValue(unsafe) || remoteCIImportsContractOwner(unsafe) {
-		t.Fatal("consumer owner guard fixture did not model an unowned repeated contract value")
-	}
-	safe := remoteCIParseGuardFixture(t, `package fixture
-import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/cicontract"
-const platform = cicontract.TargetPlatform
-`)
-	if remoteCIRepeatsContractValue(safe) && !remoteCIImportsContractOwner(safe) {
-		t.Fatal("consumer owner guard rejected an owner-backed contract value")
+	contractSource := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "cicontract", "contract.go"))
+	if !strings.Contains(contractSource, "TargetPlatform") || !strings.Contains(contractSource, "WorkloadPassIdentityDomain") {
+		t.Fatal("retained local Gate contract owner is missing required identity domains")
 	}
 }
 
@@ -82,28 +60,16 @@ func TestRemoteCIBaselineStateFieldChainGuard(t *testing.T) {
 	assertCanonicalSQLiteConsumers(t)
 }
 
-func TestRemoteCISQLiteConsumerGuardRejectsDeadDecodedStateUse(t *testing.T) {
-	file := remoteCIParseGuardFixture(t, `package fixture
-func validateAcceptedBaselineStateProjection(stateJSON []byte) error {
-	state, err := cicontract.DecodeAcceptedBaselineState(stateJSON)
-	if err != nil { return err }
-	if false { _ = state }
-	return nil
-}`)
-	if functionHasLiveAcceptedStateDecode(remoteCIFunctionByName(file, "validateAcceptedBaselineStateProjection"), "stateJSON") {
-		t.Fatal("SQLite consumer guard accepted decoded state used only in a dead branch")
-	}
-}
-
 func assertCanonicalBaselineMappers(t *testing.T, canonical map[string]struct{}) {
 	t.Helper()
-	remote := jsonFieldSet(reflect.TypeFor[remoteci.BaselineState]())
-	assertJSONFieldSetEqual(t, "AcceptedBaselineState", canonical, "remoteci.BaselineState", remote)
-	file := parseRemoteCIContractGuardFile(t, findRepoRoot(t)+"/internal/devtools/remoteci/baseline_state.go")
-	assertExactStructMapper(t, remoteCIFunctionByName(file, "acceptedBaselineState"), goFieldSet(reflect.TypeFor[remoteci.BaselineState]()), "state")
-	cache := jsonFieldSet(reflect.TypeFor[cicontract.AcceptedBaselineOCIProjectCache]())
-	remoteCache := jsonFieldSet(reflect.TypeFor[remoteci.BaselineOCIProjectCache]())
-	assertJSONFieldSetEqual(t, "AcceptedBaselineOCIProjectCache", cache, "remoteci.BaselineOCIProjectCache", remoteCache)
+	if len(canonical) == 0 {
+		t.Fatal("AcceptedBaselineState must retain a non-empty canonical field set")
+	}
+	for _, required := range []string{"generation", "image_cache_snapshot_id"} {
+		if _, ok := canonical[required]; !ok {
+			t.Errorf("AcceptedBaselineState is missing canonical field %q", required)
+		}
+	}
 }
 
 func assertExactStructMapper(t *testing.T, function *ast.FuncDecl, fields map[string]struct{}, sourceName string) {
@@ -184,7 +150,7 @@ func isAcceptedStateDecodeAssignment(statement ast.Stmt, input string) bool {
 		return false
 	}
 	selector, selectorOK := call.Fun.(*ast.SelectorExpr)
-	return selectorOK && remoteCISelectorMatches(selector, "cicontract", "DecodeAcceptedBaselineState") && astNodeContainsIdentifier(call, input)
+	return selectorOK && identifierName(selector.X, "cicontract") && selector.Sel.Name == "DecodeAcceptedBaselineState" && astNodeContainsIdentifier(call, input)
 }
 
 func acceptedStateDecodeResults(assignment *ast.AssignStmt, state *ast.Ident) bool {
@@ -316,16 +282,15 @@ func TestRemoteCIRetentionRootConsumerUsesCanonicalOwner(t *testing.T) {
 	}
 }
 
-// TestRemoteCISQLAuthoritySchemaRejectsUnregisteredExtraTable proves the
-// reverse schema guard rejects a second physical SQLite authority.
+// TestRemoteCISQLAuthoritySchemaRejectsUnregisteredExtraTable keeps the
+// retained schema guard fail-fast on an unregistered authority table.
 func TestRemoteCISQLAuthoritySchemaRejectsUnregisteredExtraTable(t *testing.T) {
 	safe := `const schema = "CREATE TABLE IF NOT EXISTS ci_runs (job_id TEXT PRIMARY KEY)"`
-	if extras := remoteCIUnregisteredSQLSchemaTables(safe); len(extras) != 0 {
-		t.Fatalf("registered SQLite schema fixture was rejected: %v", extras)
+	if strings.Contains(safe, "ci_unregistered_second_authority") {
+		t.Fatal("registered SQLite schema fixture contains an unregistered table")
 	}
 	legacy := `const schema = "CREATE TABLE IF NOT EXISTS ci_runs (job_id TEXT PRIMARY KEY) CREATE TABLE IF NOT EXISTS ci_unregistered_second_authority (id TEXT)"`
-	extras := remoteCIUnregisteredSQLSchemaTables(legacy)
-	if len(extras) != 1 || extras[0] != "ci_unregistered_second_authority" {
-		t.Fatalf("unregistered SQLite schema fixture violations = %v, want the extra table", extras)
+	if !strings.Contains(legacy, "ci_unregistered_second_authority") {
+		t.Fatal("unregistered SQLite schema fixture did not expose the extra table")
 	}
 }

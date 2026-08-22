@@ -100,28 +100,28 @@ func TestSuperDolphinGateHelpersAreRemovedBeforeCatalogExpansion(t *testing.T) {
 	normalized, err := normalizeWorkloadInventory(WorkloadInventory{
 		GoPackages: []string{AtomicSuperDolphinGatePackageTarget},
 		GoTests: []GoTestTarget{
-			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessHelper"},
-			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"},
+			{Package: AtomicGatePackageTarget, Name: "TestCompileGroup"},
+			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestCurrentGate"},
 		},
 		GoRaceTests: []GoTestTarget{
-			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessHelper"},
-			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteCIAgentTokenActualValueContinuesPastHandshake"},
+			{Package: AtomicGatePackageTarget, Name: "TestCompileGroupSecond"},
+			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestCurrentGateRace"},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(normalized.GoTests, []GoTestTarget{{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"}}) {
+	if !slices.Equal(normalized.GoTests, []GoTestTarget{{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestCurrentGate"}}) {
 		t.Fatalf("normalized normal selectors = %#v", normalized.GoTests)
 	}
-	if !slices.Equal(normalized.GoRaceTests, []GoTestTarget{{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteCIAgentTokenActualValueContinuesPastHandshake"}}) {
+	if !slices.Equal(normalized.GoRaceTests, []GoTestTarget{{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestCurrentGateRace"}}) {
 		t.Fatalf("normalized race selectors = %#v", normalized.GoRaceTests)
 	}
 }
 
 func TestCanonicalGoTestHelperRegistryHasAllCurrentOwners(t *testing.T) {
-	if got := len(CanonicalGoTestHelperTargets()); got != 17 {
-		t.Fatalf("canonical helper registry count = %d, want 17", got)
+	if got := len(CanonicalGoTestHelperTargets()); got != 16 {
+		t.Fatalf("canonical helper registry count = %d, want 16", got)
 	}
 }
 

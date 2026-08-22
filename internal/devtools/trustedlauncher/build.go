@@ -17,7 +17,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/godistribution"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/projectmaptrusted"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/toolchainidentity"
 )
 
@@ -169,7 +168,7 @@ func resolveBuildIdentity(ctx context.Context, repositoryRoot, tree string) (Lin
 	if err != nil {
 		return LinkedIdentity{}, "", fmt.Errorf("digest locked Go toolchain closure: %w", err)
 	}
-	sourceDigest, toolchainDigest, _, err := remoteci.LoadTrustedGateLauncherCompileClosure(ctx, repositoryRoot, tree)
+	sourceDigest, toolchainDigest, err := gateclosure.CompileIdentityForTree(repositoryRoot, tree)
 	if err != nil {
 		return LinkedIdentity{}, "", fmt.Errorf("load exact-tree Gate compile closure: %w", err)
 	}

@@ -9,7 +9,6 @@ import (
 	"runtime"
 
 	gateclosure "github.com/lihah111222333-cloud/super-dolphin-agent/build/gate/closure"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/toolchainidentity"
 )
 
@@ -103,8 +102,8 @@ func verifyReceiptCompilerDigests(ctx context.Context, receipt Receipt) error {
 	return nil
 }
 
-func verifyReceiptCompileClosure(ctx context.Context, options VerifyOptions, receipt Receipt) error {
-	sourceDigest, toolchainDigest, _, err := remoteci.LoadTrustedGateLauncherCompileClosure(ctx, options.RepositoryRoot, options.Tree)
+func verifyReceiptCompileClosure(_ context.Context, options VerifyOptions, receipt Receipt) error {
+	sourceDigest, toolchainDigest, err := gateclosure.CompileIdentityForTree(options.RepositoryRoot, options.Tree)
 	if err != nil {
 		return fmt.Errorf("recompute trusted launcher compile closure: %w", err)
 	}

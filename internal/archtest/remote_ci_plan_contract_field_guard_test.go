@@ -2,7 +2,6 @@ package archtest
 
 import (
 	"encoding/json"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -138,20 +137,6 @@ func assertRemoteCIPlanContractConsumerMatrix(t *testing.T, root string) {
 			},
 		},
 		{
-			name:     "current request mapper",
-			relative: "internal/devtools/remoteci/protocol_shard_request.go",
-			markers: []string{
-				"ShardRequestSchemaVersion uint32 = cicontract.ShardRequestSchemaVersion",
-				"PlanDigest",
-				"SourceTreeSHA",
-			},
-		},
-		{
-			name:     "report binding",
-			relative: "internal/devtools/remoteci/coordinator_wait.go",
-			markers:  []string{"report.PlanDigest", "shard.PlanDigest"},
-		},
-		{
 			name:     "SQLite run projection",
 			relative: "internal/devtools/gate/ci_query_store_remote_run_write.go",
 			markers:  []string{"plan_digest", "catalog_digest", "source_tree_sha"},
@@ -190,8 +175,6 @@ func TestRemoteCIStrictPlanAndProtocolDecoderGuard(t *testing.T) {
 		name, relative, function, decoder string
 	}{
 		{"workload plan clone", "internal/devtools/gate/workload_container_shards.go", "cloneWorkloadExecutionPlan", "decodeStrictJSON"},
-		{"current shard request", "internal/devtools/remoteci/protocol_shard_request.go", "DecodeShardRequest", "DecodeCanonicalStrictJSON"},
-		{"accepted bootstrap request", "internal/devtools/remoteci/accepted_bootstrap_request.go", "DecodeBootstrapShardRequest", "DecodeCanonicalStrictJSON"},
 		{"worker manifest", "internal/devtools/gate/executor_shard_manifest.go", "LoadShardExecutionManifest", "decodeStrictJSON"},
 	}
 	for _, row := range rows {
@@ -214,15 +197,6 @@ func TestRemoteCIStrictPlanAndProtocolDecoderGuard(t *testing.T) {
 func assertRemoteCIProtocolVersionAliases(t *testing.T, root string) {
 	t.Helper()
 	markers := map[string][]string{
-		"internal/devtools/remoteci/protocol_shard_request.go": {
-			"ShardRequestSchemaVersion uint32 = cicontract.ShardRequestSchemaVersion",
-			"ShardRequestMaxBytes = cicontract.RemoteShardRequestMaxBytes",
-		},
-		"internal/devtools/remoteci/accepted_bootstrap_request.go": {
-			"acceptedBootstrapShardRequestSchemaVersion uint32 = cicontract.AcceptedBootstrapRequestSchemaVersion",
-			"acceptedBootstrapCompileGroupSchemaVersion uint32 = cicontract.AcceptedCompileGroupSchemaVersion",
-			"acceptedBootstrapManifestSchemaVersion uint32 = cicontract.AcceptedBootstrapManifestSchemaVersion",
-		},
 		"internal/devtools/gate/executor_shard_manifest.go": {
 			"ShardExecutionManifestSchemaVersion uint32 = cicontract.ShardExecutionManifestSchemaVersion",
 		},
@@ -242,40 +216,22 @@ func assertRemoteCIProtocolVersionAliases(t *testing.T, root string) {
 	}
 }
 
-// TestRemoteCIEnvironmentV10AndDynamicFieldsGuard requires every environment
-// field to enter the canonical hash material and keeps v10 as the only owner.
+// TestRemoteCIEnvironmentV10AndDynamicFieldsGuard keeps retained local Gate
+// environment replay identity bound to the cicontract owner.
 func TestRemoteCIEnvironmentV10AndDynamicFieldsGuard(t *testing.T) {
 	root := findRepoRoot(t)
-	relative := "internal/devtools/remoteci/workload_pass_reuse.go"
-	file := parseRemoteCIContractGuardFile(t, root+"/"+relative)
-	fields := remoteCIJSONFieldNames(file, "remoteWorkloadEnvironment")
-	if len(fields) == 0 {
-		t.Fatal("remoteWorkloadEnvironment has no JSON fields")
-	}
-	hashFunction := remoteCIFunctionByName(file, "remoteWorkloadEnvironmentDigestForGoFlags")
-	if hashFunction == nil {
-		t.Fatal("remoteWorkloadEnvironmentDigestForGoFlags is missing")
-	}
-	literalFields := remoteCICompositeLiteralJSONFieldNames(file, hashFunction, "remoteWorkloadEnvironment")
-	assertRemoteCIStringSetEqual(t, "remoteWorkloadEnvironment", fields, literalFields)
-	if !remoteCIFunctionCalls(file, "remoteWorkloadEnvironmentDigestForGoFlags", "Marshal") {
-		t.Fatal("remote workload environment digest must marshal the complete environment material")
-	}
-	source := readRemoteCIContractGuardFile(t, root+"/"+relative)
-	for _, marker := range []string{
-		"SchemaVersion:                 cicontract.WorkloadPassEnvironmentSchemaVersion",
-		"remoteWorkloadEnvironmentSHA256(payload)",
-		"SemanticEnvironmentSchema",
-	} {
+	source := readRemoteCIContractGuardFile(t, root+"/internal/devtools/gate/workload_pass_environment_replay.go")
+	for _, marker := range []string{"WorkloadPassEnvironmentReplayDomain", "SHA256"} {
 		if !strings.Contains(source, marker) {
-			t.Errorf("remote workload environment is missing canonical marker %q", marker)
+			t.Errorf("local environment replay is missing canonical marker %q", marker)
 		}
 	}
-	if strings.Contains(source, "remote-workload-pass-environment/v9") || strings.Contains(source, "remote-workload-pass-environment/v8") {
-		t.Fatal("retired PASS environment schema remains in the production hash path")
+	contract := readRemoteCIContractGuardFile(t, root+"/internal/devtools/cicontract/local_pass_contract.go")
+	if !strings.Contains(contract, "LocalWorkloadPassEnvironmentSchemaVersion") {
+		t.Error("local environment replay is missing cicontract schema owner")
 	}
 	if err := cicontract.ValidateWorkloadPassEnvironmentSchema(cicontract.WorkloadPassEnvironmentSchemaVersion); err != nil {
-		t.Fatalf("canonical PASS environment v10 rejected: %v", err)
+		t.Fatalf("canonical PASS environment schema rejected: %v", err)
 	}
 	if err := cicontract.ValidateWorkloadPassEnvironmentSchema("remote-workload-pass-environment/v9"); err == nil {
 		t.Fatal("retired PASS environment v9 was accepted")
@@ -345,7 +301,6 @@ func assertRemoteCIRunAuditTreeFields(t *testing.T, root string) {
 		name, relative, typeName, field string
 	}{
 		{"run record", "internal/devtools/gate/ci_query_store.go", "RemoteCIRunRecord", "SourceTreeSHA"},
-		{"unsigned run result", "internal/devtools/remoteci/coordinator.go", "RunResult", "SourceTreeSHA"},
 		{"check receipt", "internal/devtools/gate/remote_ci_authority_records.go", "CheckReceiptRecord", "CandidateTreeSHA"},
 	} {
 		file := parseRemoteCIContractGuardFile(t, root+"/"+row.relative)
@@ -429,75 +384,6 @@ func remoteCISelectorNameSet(file *ast.File) map[string]struct{} {
 	return selectors
 }
 
-// remoteCICompositeLiteralFieldNames 枚举函数内指定 composite literal 的 keyed fields。
-func remoteCICompositeLiteralFieldNames(function *ast.FuncDecl, typeName string) []string {
-	seen := make(map[string]struct{})
-	if function == nil {
-		return nil
-	}
-	ast.Inspect(function.Body, func(node ast.Node) bool {
-		literal, ok := node.(*ast.CompositeLit)
-		if !ok || remoteCICompositeLiteralTypeName(literal) != typeName {
-			return true
-		}
-		for _, element := range literal.Elts {
-			keyValue, ok := element.(*ast.KeyValueExpr)
-			if !ok {
-				continue
-			}
-			key, ok := keyValue.Key.(*ast.Ident)
-			if ok {
-				seen[key.Name] = struct{}{}
-			}
-		}
-		return true
-	})
-	fields := make([]string, 0, len(seen))
-	for field := range seen {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	return fields
-}
-
-// remoteCICompositeLiteralJSONFieldNames maps keyed Go fields to their JSON tags.
-func remoteCICompositeLiteralJSONFieldNames(file *ast.File, function *ast.FuncDecl, typeName string) []string {
-	goToJSON := make(map[string]string)
-	structure := remoteCIStructTypeByName(file, typeName)
-	if structure == nil {
-		return nil
-	}
-	for _, field := range structure.Fields.List {
-		if field.Tag == nil || len(field.Names) == 0 {
-			continue
-		}
-		for part := range strings.SplitSeq(strings.Trim(field.Tag.Value, "`"), " ") {
-			if name, ok := parseJSONFieldTag(part); ok {
-				goToJSON[field.Names[0].Name] = name
-			}
-		}
-	}
-	var jsonFields []string
-	for _, goField := range remoteCICompositeLiteralFieldNames(function, typeName) {
-		if jsonName, ok := goToJSON[goField]; ok {
-			jsonFields = append(jsonFields, jsonName)
-		}
-	}
-	sort.Strings(jsonFields)
-	return jsonFields
-}
-
-func remoteCICompositeLiteralTypeName(literal *ast.CompositeLit) string {
-	if literal == nil {
-		return ""
-	}
-	identifier, ok := literal.Type.(*ast.Ident)
-	if !ok {
-		return ""
-	}
-	return identifier.Name
-}
-
 func remoteCIPlanFunctionHasSelector(function *ast.FuncDecl, name string) bool {
 	if function == nil {
 		return false
@@ -516,16 +402,6 @@ func remoteCIPlanFunctionHasSelector(function *ast.FuncDecl, name string) bool {
 
 func remoteCIJSONFieldSetContains(fields []string, want string) bool {
 	return slices.Contains(fields, want)
-}
-
-func assertRemoteCIStringSetEqual(t *testing.T, name string, left, right []string) {
-	t.Helper()
-	leftCopy, rightCopy := append([]string(nil), left...), append([]string(nil), right...)
-	sort.Strings(leftCopy)
-	sort.Strings(rightCopy)
-	if fmt.Sprint(leftCopy) != fmt.Sprint(rightCopy) {
-		t.Fatalf("%s field sets differ: AST=%v reflection/composite=%v", name, leftCopy, rightCopy)
-	}
 }
 
 // parseRemoteCIContractSource returns a synthetic AST used only for guard red tests.

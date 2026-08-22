@@ -249,10 +249,7 @@ func heterociProductionGoFiles(t *testing.T, root string) []string {
 func heterociRemoteAuthorityViolations(file *ast.File) []string {
 	const modulePrefix = "github.com/lihah111222333-cloud/super-dolphin-agent/"
 	forbiddenImportPrefixes := []string{
-		modulePrefix + "internal/devtools/cicontract",
 		modulePrefix + "internal/devtools/gate",
-		modulePrefix + "internal/devtools/remoteci",
-		modulePrefix + "internal/devtools/alicloud",
 		modulePrefix + "internal/platform/db",
 		modulePrefix + "internal/store",
 		modulePrefix + "cmd/super-dolphin-gate",

@@ -411,8 +411,6 @@ func liveConsumerReferences(relative string, raw []byte) (map[string]int, error)
 		return ownedGateWorkloadReferences(file), nil
 	case "scripts/mcp_lsp_workload_runner/platform_windows.go":
 		return platformWorkloadReferences(file), nil
-	case "cmd/super-dolphin-gate/test_cli.go":
-		return workloadIDConstantReferences(file), nil
 	default:
 		return map[string]int{}, nil
 	}
@@ -452,30 +450,6 @@ func platformWorkloadReferences(file *ast.File) map[string]int {
 		addWorkloadIDLiteral(references, literal)
 		return true
 	})
-	return references
-}
-
-// workloadIDConstantReferences 读取 test_cli 的显式 workload 常量绑定。
-func workloadIDConstantReferences(file *ast.File) map[string]int {
-	references := make(map[string]int)
-	for _, declaration := range file.Decls {
-		gen, ok := declaration.(*ast.GenDecl)
-		if !ok || gen.Tok != token.CONST {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for index, name := range value.Names {
-				if !strings.HasSuffix(name.Name, "WorkloadID") || index >= len(value.Values) {
-					continue
-				}
-				addWorkloadIDLiteral(references, value.Values[index])
-			}
-		}
-	}
 	return references
 }
 

@@ -9,7 +9,6 @@ import (
 	"go/token"
 	"io"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
@@ -317,14 +316,6 @@ func validateGoConsumerExecution(relative string, file *ast.File) error {
 		return validateSchedulerRouteConsumer(relative, file)
 	case "scripts/ai_maintenance/gate_execution.go":
 		return validateSchedulerExecutionConsumer(relative, file)
-	case "cmd/super-dolphin-gate/test_cli.go":
-		if !hasLiveTestCLISelectorFlow(file) {
-			return fmt.Errorf("catalog consumer %q does not bind selector projection to the resolved candidate tree", relative)
-		}
-		if !hasExactWorkloadConstant(file, "mcpLSPDefault15mWorkloadID", "mcp-lsp-default-15m") {
-			return fmt.Errorf("catalog consumer %q changes the default-15m workload role binding", relative)
-		}
-		return nil
 	case "scripts/mcp_lsp_workload_runner/main.go":
 		return validateRunnerCatalogConsumer(relative, file)
 	case "scripts/mcp_lsp_workload_runner/platform_windows.go", "scripts/mcp_lsp_workload_runner/platform_other.go":
@@ -417,33 +408,6 @@ func validateOwnedGateConsumer(relative string, file *ast.File) error {
 		return fmt.Errorf("catalog consumer %q changes the idle-quick workload role binding", relative)
 	}
 	return nil
-}
-
-func hasExactWorkloadConstant(file *ast.File, name, value string) bool {
-	for _, declaration := range file.Decls {
-		gen, ok := declaration.(*ast.GenDecl)
-		if !ok || gen.Tok != token.CONST {
-			continue
-		}
-		for _, specification := range gen.Specs {
-			values, ok := specification.(*ast.ValueSpec)
-			if ok && exactWorkloadValueSpec(values, name, value) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func exactWorkloadValueSpec(values *ast.ValueSpec, name, value string) bool {
-	for index, identifier := range values.Names {
-		if identifier.Name != name || index >= len(values.Values) {
-			continue
-		}
-		literal, ok := values.Values[index].(*ast.BasicLit)
-		return ok && literal.Kind == token.STRING && literal.Value == strconv.Quote(value)
-	}
-	return false
 }
 
 // hasCopiedGoTestInvocation 在 AST 参数中检测真实 runCommand go test 调用。

@@ -717,13 +717,6 @@ func WorkloadConsumerPaths() []string {
 		"scripts/ai_maintenance/main.go",
 		"scripts/ai_maintenance/release_gate_rules.go",
 		"scripts/ai_maintenance/gate_execution.go",
-		"cmd/super-dolphin-gate/remote_baseline_source.go",
-		"cmd/super-dolphin-gate/remote_agent_token.go",
-		"cmd/super-dolphin-gate/remote_run_calibration_automation.go",
-		"cmd/super-dolphin-gate/remote_run_calibration_runs.go",
-		"cmd/super-dolphin-gate/remote_run_options.go",
-		"cmd/super-dolphin-gate/remote_run_source.go",
-		"cmd/super-dolphin-gate/test_cli.go",
 		"internal/devtools/gate/executor_mapping.go",
 		"internal/devtools/gate/executor.go",
 		"internal/devtools/gate/executor_catalog_tree.go",
@@ -735,9 +728,8 @@ func WorkloadConsumerPaths() []string {
 		"internal/devtools/mcplspguardcore/executor_ast_helpers.go",
 		"internal/devtools/mcplspguardcore/guard.go",
 		"internal/devtools/mcplspguardcore/receipt_ast_helpers.go",
+		"cmd/super-dolphin-gate/cli_common.go",
 		"cmd/super-dolphin-gate/main.go",
-		"internal/devtools/remoteci/go_test_inventory.go",
-		"internal/devtools/remoteci/workload_fingerprint_digests.go",
 	}
 }
 

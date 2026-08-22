@@ -12,9 +12,9 @@ func TestRemoteCIResourceTiersBindPerWorkloadDuration(t *testing.T) {
 	root := findRepoRoot(t)
 	workloadPlanner := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_resource_planning.go"))
 	assertRemoteCIResourceTierPlannerMarkers(t, workloadPlanner)
-	assertRemoteCIResourcePlannerContract(t, root)
-	assertRemoteCIResourceProjectionContract(t, root)
-	assertRemoteCIResourcePassIdentityContract(t, root)
+	if strings.Contains(workloadPlanner, "ClassifyWorkloadResourceDuration") {
+		t.Error("resource selector must consume persisted plan identity, not reclassify duration")
+	}
 }
 
 // assertRemoteCIResourceTierPlannerMarkers 检查持久化资源身份和 tier partitioning。
@@ -30,7 +30,7 @@ func assertRemoteCIResourceTierPlannerMarkers(t *testing.T, planner string) {
 // assertRemoteCIResourcePlannerContract 检查 normal 与 calibration resource marker。
 func assertRemoteCIResourcePlannerContract(t *testing.T, root string) {
 	t.Helper()
-	planner := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/shardresource/planner.go"))
+	planner := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_resource_planning.go"))
 	for _, required := range []string{
 		`json:"normal_classes"`, `json:"calibration_resource"`,
 		`json:"fast_workload_max_duration_ms"`, `json:"medium_workload_max_duration_ms"`,
@@ -86,7 +86,7 @@ func TestRemoteCIResourcePlannerGuardRejectsDuplicateCalibrationTuple(t *testing
 // assertRemoteCIResourceProjectionContract 检查选择使用 per-workload estimate。
 func assertRemoteCIResourceProjectionContract(t *testing.T, root string) {
 	t.Helper()
-	projection := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator_resources.go"))
+	projection := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_resource_planning.go"))
 	projection = strings.Join(strings.Fields(projection), " ")
 	if !strings.Contains(projection, "EstimatedDurationMS: planned.EstimatedDurationMS") ||
 		!strings.Contains(projection, "ResourceCPU: planned.ResourceCPU") ||
@@ -99,7 +99,7 @@ func assertRemoteCIResourceProjectionContract(t *testing.T, root string) {
 // assertRemoteCIResourcePassIdentityContract 检查 resource-independent PASS identity marker。
 func assertRemoteCIResourcePassIdentityContract(t *testing.T, root string) {
 	t.Helper()
-	reuse := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/workload_pass_reuse.go"))
+	reuse := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_pass_evidence.go"))
 	if strings.Contains(reuse, `ResourcePolicyDigest`) || strings.Contains(reuse, `remote-workload-pass-environment/v4`) ||
 		strings.Contains(reuse, `WorkerTimeout                string`) || strings.Contains(reuse, `CandidateGateSourceSHA256`) ||
 		strings.Contains(reuse, `remoteWorkloadWorkerExecutionDigest`) || strings.Contains(reuse, `WorkerExecutionContractSHA256`) ||

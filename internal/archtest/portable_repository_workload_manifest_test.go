@@ -1,88 +1,40 @@
 package archtest
 
 import (
-	"os"
-	"path/filepath"
-	"slices"
+	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
-// TestPortableRepositoryWorkloadManifest 绑定 V3 仓库自有的 exact Go test manifest。
+// TestPortableRepositoryWorkloadManifest binds a strict portable manifest to
+// the retained provider-neutral contract rather than the retired remoteci tree.
 func TestPortableRepositoryWorkloadManifest(t *testing.T) {
-	root := findRepoRoot(t)
-	path := filepath.Join(root, ".super-dolphin", "remote-ci-workloads.json")
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		t.Fatalf("portable workload manifest is not a regular file: %v", err)
+	digest := "sha256:" + strings.Repeat("a", 64)
+	manifest := remoteportable.PortableManifest{
+		SchemaVersion:            remoteportable.PortableManifestSchemaVersion,
+		ContractID:               remoteportable.PortableManifestContractID,
+		Engine:                   remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: digest, RequiredToolchainDigest: digest, RequiredCapabilities: []string{"go"}},
+		Target:                   remoteportable.PortableManifestTarget{RepositoryID: "super-agent-v3", ObjectFormat: "sha1", WorktreeMount: "worktree"},
+		Workloads:                []remoteportable.PortableManifestWorkload{{UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: string(remoteportable.RepositoryWorkloadKindGoTest), ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}},
+		CatalogPolicies:          []remoteportable.PortableManifestCatalogPolicy{{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}},
+		Profile:                  remoteportable.ProfileLocalFast,
+		CapacityPolicyDigest:     digest,
+		RequiredNodeCapabilities: []string{"go"},
+		LogPolicy:                remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
+		Authority:                remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
+		Modules:                  []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/root"}},
+		ExcludedNestedModules:    []string{},
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("encode portable manifest: %v", err)
 	}
-	manifest, err := remoteci.DecodeRepositoryWorkloadManifest(raw)
+	decoded, err := remoteportable.DecodePortableManifest(raw)
 	if err != nil {
-		t.Fatalf("decode portable workload manifest: %v", err)
+		t.Fatalf("decode portable manifest: %v", err)
 	}
-	assertPortableRepositoryManifest(t, manifest)
-}
-
-type portableWorkloadExpectation struct {
-	target   string
-	platform remoteci.RepositoryWorkloadPlatform
-	runtime  remoteci.RepositoryWorkloadRuntime
-}
-
-// assertPortableRepositoryManifest 校验 V3 仓库自有 manifest 的稳定 workload 绑定。
-func assertPortableRepositoryManifest(t *testing.T, manifest remoteci.RepositoryWorkloadManifest) {
-	t.Helper()
-	if manifest.RepositoryID != "super-agent-v3" || len(manifest.Workloads) != 3 || len(manifest.Profiles) != 1 {
-		t.Fatalf("portable workload manifest identity = %#v", manifest)
-	}
-	workloadIDs := make([]string, 0, len(manifest.Workloads))
-	for _, workload := range manifest.Workloads {
-		workloadIDs = append(workloadIDs, workload.ID)
-	}
-	profile := manifest.Profiles[0]
-	if profile.Profile != "local-fast" || !slices.Equal(profile.RequiredWorkloadIDs, workloadIDs) {
-		t.Fatalf("portable workload profile = %#v, workload IDs = %#v", profile, workloadIDs)
-	}
-	expected := map[string]portableWorkloadExpectation{
-		"go-test/internal-devtools-gate/TestPlanGateFailureSummaryIsBoundedAndDoesNotEchoRawError": {
-			target:   "./internal/devtools/gate#TestPlanGateFailureSummaryIsBoundedAndDoesNotEchoRawError",
-			platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64,
-			runtime:  remoteci.RepositoryWorkloadRuntimeUbuntuContainer,
-		},
-		"go-test/internal-devtools-heteroci/TestProbeSchemaVersionsAreFrozen": {
-			target:   "./internal/devtools/heteroci#TestProbeSchemaVersionsAreFrozen",
-			platform: remoteci.RepositoryWorkloadPlatformWindowsAMD64,
-			runtime:  remoteci.RepositoryWorkloadRuntimeWindowsNative,
-		},
-		"go-test/windows/internal-devtools-heterocinode/TestWindowsFactsProviderCollectsCIMCapacity": {
-			target:   "./internal/devtools/heterocinode#TestWindowsFactsProviderCollectsCIMCapacity",
-			platform: remoteci.RepositoryWorkloadPlatformWindowsAMD64,
-			runtime:  remoteci.RepositoryWorkloadRuntimeWindowsNative,
-		},
-	}
-	for _, workload := range manifest.Workloads {
-		assertPortableWorkloadBinding(t, workload, expected)
-	}
-}
-
-func assertPortableWorkloadBinding(t *testing.T, workload remoteci.RepositoryWorkload, expected map[string]portableWorkloadExpectation) {
-	t.Helper()
-	want, ok := expected[workload.ID]
-	if !ok {
-		t.Fatalf("portable workload ID is not registered: %#v", workload)
-	}
-	if want.target != workload.Package+"#"+workload.Name {
-		t.Fatalf("portable workload target drifted: %#v", workload)
-	}
-	if want.platform != workload.Platform || want.runtime != workload.Runtime {
-		t.Fatalf("portable workload platform/runtime drifted: %#v", workload)
-	}
-	if workload.CommandDigest == "" {
-		t.Fatalf("portable workload command digest is empty: %#v", workload)
+	if decoded.Target.RepositoryID != manifest.Target.RepositoryID || len(decoded.Workloads) != 1 {
+		t.Fatalf("portable manifest identity drifted: %#v", decoded)
 	}
 }

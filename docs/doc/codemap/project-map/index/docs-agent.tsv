@@ -5,7 +5,7 @@ README.de.md	(root)	docs-agent	doc	32897	仓库根级配置、入口或说明文
 README.es.md	(root)	docs-agent	doc	33398	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
 README.ja.md	(root)	docs-agent	doc	34179	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
 README.ko.md	(root)	docs-agent	doc	32747	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	30580	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	29792	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
 README.zh-CN.md	(root)	docs-agent	doc	26382	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
 docs/README.md	docs	docs-agent	doc	4580	项目文档体系	docs,README,项目文档体系
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
@@ -38,7 +38,7 @@ docs/doc/codemap/11-memory.md	docs	docs-agent	doc	28349	手写代码地图卷与
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59478	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11793	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
 docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	22919	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
-docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	3563	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
+docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	2532	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3379	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	466033	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	3521590	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index

@@ -1,7 +1,14 @@
 package archtest
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -384,4 +391,240 @@ func assertHeterociNoCommandWaitGuard(t *testing.T, command string) {
 	if claimAt < 0 || readAt < 0 || claimAt > readAt {
 		t.Error("command executor performs receipt read before local in-flight claim")
 	}
+}
+
+func readRemoteCIContractGuardFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func parseRemoteCIContractGuardFile(t *testing.T, path string) *ast.File {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse source %s: %v", path, err)
+	}
+	return file
+}
+
+func remoteCIFunctionByName(file *ast.File, want string) *ast.FuncDecl {
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && function.Name.Name == want {
+			return function
+		}
+	}
+	return nil
+}
+
+func remoteCIFunctionContainsIdentifier(file *ast.File, functionName, want string) bool {
+	function := remoteCIFunctionByName(file, functionName)
+	if function == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.Ident)
+		if ok && identifier.Name == want {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func remoteCIStructTypeByName(file *ast.File, typeName string) *ast.StructType {
+	var structure *ast.StructType
+	ast.Inspect(file, func(node ast.Node) bool {
+		typeSpec, ok := node.(*ast.TypeSpec)
+		if !ok || typeSpec.Name.Name != typeName {
+			return true
+		}
+		structure, _ = typeSpec.Type.(*ast.StructType)
+		return false
+	})
+	return structure
+}
+
+func remoteCIViolationList(violations map[string]bool) []string {
+	result := make([]string, 0, len(violations))
+	for violation := range violations {
+		result = append(result, violation)
+	}
+	slices.Sort(result)
+	return result
+}
+
+func relativeRemoteCIContractPath(t *testing.T, root, path string) string {
+	t.Helper()
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.ToSlash(relative)
+}
+
+func localPassFunctionHasIdentifier(function *ast.FuncDecl, names []string) bool {
+	if function == nil {
+		return false
+	}
+	for _, name := range names {
+		found := false
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			identifier, ok := node.(*ast.Ident)
+			if ok && identifier.Name == name {
+				found = true
+				return false
+			}
+			return true
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+func remoteCICallName(call *ast.CallExpr) string {
+	if identifier, ok := call.Fun.(*ast.Ident); ok {
+		return identifier.Name
+	}
+	if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+		return selector.Sel.Name
+	}
+	return "call"
+}
+
+func remoteCIFunctionCalls(file *ast.File, functionName, calledName string) bool {
+	function := remoteCIFunctionByName(file, functionName)
+	if function == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if ok && remoteCICallName(call) == calledName {
+			found = true
+			return false
+		}
+		return !found
+	})
+	return found
+}
+
+func remoteCIParseGuardFixture(t *testing.T, source string) *ast.File {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "remote_ci_fixture.go", source, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse guard fixture: %v", err)
+	}
+	return file
+}
+func enumerateStructJSONFields(structure *ast.StructType) []string {
+	if structure == nil {
+		return nil
+	}
+	fields := make([]string, 0)
+	for _, field := range structure.Fields.List {
+		if field.Tag == nil || len(field.Names) == 0 {
+			continue
+		}
+		for part := range strings.FieldsSeq(strings.Trim(field.Tag.Value, "`")) {
+			if !strings.HasPrefix(part, "json:") {
+				continue
+			}
+			_, raw, _ := strings.Cut(part, "json:")
+			value, err := strconv.Unquote(raw)
+			if err != nil {
+				continue
+			}
+			name, _, _ := strings.Cut(value, ",")
+			if name != "" && name != "-" {
+				fields = append(fields, name)
+			}
+		}
+	}
+	return fields
+}
+func enumerateWorkloadExecutionPlanJSONFields(file *ast.File) []string {
+	return enumerateStructJSONFields(remoteCIStructTypeByName(file, "WorkloadExecutionPlan"))
+}
+
+func parseJSONFieldTag(part string) (string, bool) {
+	if !strings.HasPrefix(part, "json:") {
+		return "", false
+	}
+	_, raw, _ := strings.Cut(part, "json:")
+	value, err := strconv.Unquote(raw)
+	if err != nil {
+		return "", false
+	}
+	name, _, _ := strings.Cut(value, ",")
+	return name, name != "" && name != "-"
+}
+
+func remoteCIProductionFiles(t *testing.T, root string) []string {
+	t.Helper()
+	paths := make([]string, 0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(paths)
+	return paths
+}
+func remoteCIForbiddenIdentifiers(file *ast.File) map[string]bool {
+	identifiers := make(map[string]bool)
+	ast.Inspect(file, func(node ast.Node) bool {
+		if identifier, ok := node.(*ast.Ident); ok {
+			identifiers[identifier.Name] = true
+		}
+		return true
+	})
+	return identifiers
+}
+
+func remoteCIStringLiterals(file *ast.File) []string {
+	literals := make([]string, 0)
+	ast.Inspect(file, func(node ast.Node) bool {
+		literal, ok := node.(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			return true
+		}
+		value, err := strconv.Unquote(literal.Value)
+		if err == nil {
+			literals = append(literals, value)
+		}
+		return true
+	})
+	return literals
+}
+
+func remoteCIUnregisteredSQLSchemaTables(source string) []string {
+	const marker = "ci_unregistered_"
+	values := make([]string, 0)
+	for _, token := range strings.FieldsFunc(source, func(r rune) bool { return r == ' ' || r == '(' || r == ')' || r == '"' || r == '\\' }) {
+		if strings.HasPrefix(token, marker) {
+			values = append(values, token)
+		}
+	}
+	slices.Sort(values)
+	return slices.Compact(values)
 }

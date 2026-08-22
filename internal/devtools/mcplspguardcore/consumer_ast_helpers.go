@@ -163,20 +163,6 @@ func hasRawCatalogCommandExecution(file *ast.File) bool {
 	return found
 }
 
-func hasLiveTestCLISelectorFlow(file *ast.File) bool {
-	function := namedConsumerFunction(file, "bindMcpLSPWorkloadSelectors")
-	alias, ok := canonicalImportAlias(file, canonicalCatalogImport, "catalog")
-	if function == nil || function.Body == nil || !ok || functionShadowsName(function, alias) || hasConditionalSuccessBypass(function) {
-		return false
-	}
-	statements := function.Body.List
-	load := statementIndexAfter(statements, 0, func(statement ast.Stmt) bool { return isTestCLILoadStatement(statement, alias) })
-	find := statementIndexAfter(statements, load+1, isTestCLIFindStatement)
-	project := statementIndexAfter(statements, find+1, isTestCLIProjectionStatement)
-	bind := statementIndexAfter(statements, project+1, isTestCLIBindingReturn)
-	return load >= 0 && find > load && project > find && bind > project
-}
-
 func statementIndexAfter(statements []ast.Stmt, start int, match func(ast.Stmt) bool) int {
 	if start < 0 {
 		return -1
@@ -189,13 +175,6 @@ func statementIndexAfter(statements []ast.Stmt, start int, match func(ast.Stmt) 
 	return -1
 }
 
-func isTestCLILoadStatement(statement ast.Stmt, alias string) bool {
-	assignment, ok := statement.(*ast.AssignStmt)
-	return ok && assignmentBindsName(assignment, "document") && assignmentCallsSelector(assignment, alias, "LoadAt", func(call *ast.CallExpr) bool {
-		return hasExactIdentifierArguments(call, "repository", "candidateTree")
-	})
-}
-
 func assignmentCallsSelector(statement *ast.AssignStmt, owner, name string, validate func(*ast.CallExpr) bool) bool {
 	for _, expression := range statement.Rhs {
 		call, ok := expression.(*ast.CallExpr)
@@ -205,27 +184,6 @@ func assignmentCallsSelector(statement *ast.AssignStmt, owner, name string, vali
 		}
 	}
 	return false
-}
-
-func isTestCLIFindStatement(statement ast.Stmt) bool {
-	assignment, ok := statement.(*ast.AssignStmt)
-	return ok && assignmentBindsName(assignment, "workload") && assignmentCalls(assignment, "Find", func(call *ast.CallExpr) bool {
-		return len(call.Args) == 1 && isSelector(call.Args[0], "options", "WorkloadID")
-	})
-}
-
-func isTestCLIProjectionStatement(statement ast.Stmt) bool {
-	assignment, ok := statement.(*ast.AssignStmt)
-	return ok && assignmentBindsName(assignment, "selectors") && assignmentCalls(assignment, "RemoteTestSelectorsAt", func(call *ast.CallExpr) bool {
-		return len(call.Args) == 3 && isIdentifier(call.Args[0], "repository") && isIdentifier(call.Args[1], "candidateTree") && isSelector(call.Args[2], "workload", "Command")
-	})
-}
-
-func isTestCLIBindingReturn(statement ast.Stmt) bool {
-	result, ok := statement.(*ast.ReturnStmt)
-	return ok && returnCalls(result, "applyMcpLSPWorkloadBinding", func(call *ast.CallExpr) bool {
-		return len(call.Args) == 4 && isIdentifier(call.Args[0], "options") && isIdentifier(call.Args[1], "candidateHead") && isIdentifier(call.Args[2], "candidateTree") && isIdentifier(call.Args[3], "selectors")
-	})
 }
 
 func assignmentBindsName(assignment *ast.AssignStmt, name string) bool {

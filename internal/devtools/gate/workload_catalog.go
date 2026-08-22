@@ -20,7 +20,7 @@ const (
 	// AtomicArchtestPackageTarget、AtomicCodexAppPackageTarget、AtomicAgentRuntimePackageTarget、
 	// AtomicAgentTerminalPackageTarget、AtomicAppPackageTarget、AtomicUpdaterPackageTarget、
 	// AtomicTaskDAGPackageTarget、AtomicSQLitePackageTarget、AtomicGatePackageTarget 与
-	// AtomicRemoteCIPackageTarget、AtomicMcpLSPPackageTarget、AtomicSuperDolphinGatePackageTarget、AtomicScriptsPackageTarget
+	// AtomicMcpLSPPackageTarget、AtomicSuperDolphinGatePackageTarget、AtomicScriptsPackageTarget
 	// 必须拆成顶层测试，
 	// 避免大型包形成超时整包 workload。
 	// 这些目标均保留同一 release/race gate 的完整覆盖，并由 compile group 共享一次测试二进制编译。
@@ -33,7 +33,6 @@ const (
 	AtomicTaskDAGPackageTarget          = "./cmd/mcp-orch/store/taskdag"
 	AtomicSQLitePackageTarget           = "./internal/platform/db/sqlite"
 	AtomicGatePackageTarget             = "./internal/devtools/gate"
-	AtomicRemoteCIPackageTarget         = "./internal/devtools/remoteci"
 	AtomicMcpLSPPackageTarget           = "./cmd/mcp-lsp"
 	AtomicSuperDolphinGatePackageTarget = "./cmd/super-dolphin-gate"
 	AtomicScriptsPackageTarget          = "./scripts"
@@ -52,7 +51,6 @@ func AtomicGoPackageTargets() []string {
 		AtomicTaskDAGPackageTarget,
 		AtomicSQLitePackageTarget,
 		AtomicGatePackageTarget,
-		AtomicRemoteCIPackageTarget,
 		AtomicMcpLSPPackageTarget,
 		AtomicSuperDolphinGatePackageTarget,
 		AtomicScriptsPackageTarget,

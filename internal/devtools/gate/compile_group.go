@@ -162,8 +162,7 @@ func CompileGroupSerialPackingEligible(group CompileGroup) bool {
 		AtomicUpdaterPackageTarget,
 		AtomicTaskDAGPackageTarget,
 		AtomicSQLitePackageTarget,
-		AtomicGatePackageTarget,
-		AtomicRemoteCIPackageTarget:
+		AtomicGatePackageTarget:
 		return true
 	default:
 		return false

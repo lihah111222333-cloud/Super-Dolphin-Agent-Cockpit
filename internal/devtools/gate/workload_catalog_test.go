@@ -404,12 +404,8 @@ func TestBuildExpandedWorkloadCatalogSplitsAtomicGoTopLevelTests(t *testing.T) {
 	assertAtomicSQLiteCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestSQLiteCommon", "TestSQLiteRace"})
 	assertAtomicGateCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestGateAtomicCommon", "TestGateAtomicNormal"})
 	assertAtomicGateCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestGateAtomicCommon", "TestGateAtomicRace"})
-	assertAtomicRemoteCICatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestRemoteCIAtomicCommon", "TestRemoteCIAtomicNormal"})
-	assertAtomicRemoteCICatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestRemoteCIAtomicCommon", "TestRemoteCIAtomicRace"})
 	assertAtomicMcpLSPCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestMcpLSPCommon", "TestMcpLSPProcess"})
 	assertAtomicMcpLSPCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestMcpLSPCommon", "TestMcpLSPRace"})
-	assertAtomicSuperDolphinGateCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"})
-	assertAtomicSuperDolphinGateCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestRemoteCIAgentTokenActualValueContinuesPastHandshake"})
 	assertAtomicScriptsCatalog(t, normal, GateIDBackendTestWithGuard, []string{"TestScriptsCommon", "TestScriptsNormal"})
 	assertAtomicScriptsCatalog(t, calibration, GateIDBackendTestGuardWithRace, []string{"TestScriptsCommon", "TestScriptsRace"})
 }
@@ -436,13 +432,11 @@ func atomicCatalogInventory() WorkloadInventory {
 			{Package: AtomicSQLitePackageTarget, Name: "TestSQLiteNormal"},
 			{Package: AtomicGatePackageTarget, Name: "TestGateAtomicCommon"},
 			{Package: AtomicGatePackageTarget, Name: "TestGateAtomicNormal"},
-			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicCommon"},
-			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicNormal"},
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPCommon"},
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPProcess"},
-			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessesKeepInheritedTokenAndDeliveryIsolated"},
 			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsCommon"},
 			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsNormal"},
+			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestTopLevelHelpIsLocalAndDocumentsAuthorityEntrypoints"},
 		},
 		GoRaceTests: []GoTestTarget{
 			{Package: AtomicArchtestPackageTarget, Name: "TestAlpha"},
@@ -463,13 +457,11 @@ func atomicCatalogInventory() WorkloadInventory {
 			{Package: AtomicSQLitePackageTarget, Name: "TestSQLiteRace"},
 			{Package: AtomicGatePackageTarget, Name: "TestGateAtomicCommon"},
 			{Package: AtomicGatePackageTarget, Name: "TestGateAtomicRace"},
-			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicCommon"},
-			{Package: AtomicRemoteCIPackageTarget, Name: "TestRemoteCIAtomicRace"},
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPCommon"},
 			{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPRace"},
-			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteCIAgentTokenActualValueContinuesPastHandshake"},
 			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsCommon"},
 			{Package: AtomicScriptsPackageTarget, Name: "TestScriptsRace"},
+			{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRunCLIDispatchesWorkerNamespace"},
 		},
 	}
 }
@@ -485,7 +477,6 @@ func TestAtomicGoPackageTargetsReturnsStableClone(t *testing.T) {
 		AtomicTaskDAGPackageTarget,
 		AtomicSQLitePackageTarget,
 		AtomicGatePackageTarget,
-		AtomicRemoteCIPackageTarget,
 		AtomicMcpLSPPackageTarget,
 		AtomicSuperDolphinGatePackageTarget,
 		AtomicScriptsPackageTarget,
@@ -557,27 +548,11 @@ func assertAtomicGateCatalog(t *testing.T, catalog WorkloadCatalog, parent GateI
 	}
 }
 
-func assertAtomicRemoteCICatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
-	t.Helper()
-	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicRemoteCIPackageTarget)
-	if !packageFound || !slices.Equal(got, want) {
-		t.Fatalf("parent %q remoteci=%v tests=%v want=%v", parent, packageFound, got, want)
-	}
-}
-
 func assertAtomicMcpLSPCatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
 	t.Helper()
 	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicMcpLSPPackageTarget)
 	if !packageFound || !slices.Equal(got, want) {
 		t.Fatalf("parent %q mcp-lsp=%v tests=%v want=%v", parent, packageFound, got, want)
-	}
-}
-
-func assertAtomicSuperDolphinGateCatalog(t *testing.T, catalog WorkloadCatalog, parent GateID, want []string) {
-	t.Helper()
-	packageFound, got := atomicPackageCatalogTargets(t, catalog, parent, AtomicSuperDolphinGatePackageTarget)
-	if !packageFound || !slices.Equal(got, want) {
-		t.Fatalf("parent %q super-dolphin-gate=%v tests=%v want=%v", parent, packageFound, got, want)
 	}
 }
 

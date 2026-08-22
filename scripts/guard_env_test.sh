@@ -99,7 +99,7 @@ test_real_go_bin_rejects_wrong_repo_version() {
   assert_contains "$stderr" "go1.26.5"
 }
 
-test_remote_worker_does_not_bypass_version_probe() {
+test_local_authority_does_not_bypass_version_probe() {
   local tmpdir worker_go stderr status
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' RETURN
@@ -109,10 +109,10 @@ test_remote_worker_does_not_bypass_version_probe() {
   write_fake_go "$worker_go" "1.26.4"
 
   set +e
-  GOROOT="$tmpdir/go-root" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go' 2>"$stderr" >/dev/null
+  GOROOT="$tmpdir/go-root" SUPER_DOLPHIN_TEST_BACKEND=local-authority "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go' 2>"$stderr" >/dev/null
   status=$?
   set -e
-  [[ "$status" -ne 0 ]] || fail "remote-worker caller environment bypassed the Go version probe"
+  [[ "$status" -ne 0 ]] || fail "local-authority caller environment bypassed the Go version probe"
   assert_contains "$stderr" "go1.26.5"
 }
 
@@ -122,7 +122,7 @@ test_repo_wrapper_is_not_real_go() {
   trap 'rm -f "$stderr"' RETURN
 
   set +e
-  GOROOT='' PATH="$ROOT_DIR/scripts" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
+  GOROOT='' PATH="$ROOT_DIR/scripts" SUPER_DOLPHIN_TEST_BACKEND=local-authority "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
   status=$?
   set -e
 
@@ -202,7 +202,7 @@ test_missing_go_fails_fast() {
   stderr="$tmpdir/stderr"
 
   set +e
-  GOROOT='' PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
+  GOROOT='' PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" SUPER_DOLPHIN_TEST_BACKEND=local-authority "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
   status=$?
   set -e
 
@@ -237,7 +237,7 @@ test_macos_distribution_selects_each_locked_architecture
 test_macos_distribution_rejects_unlocked_architecture
 test_resolve_real_go_prefers_matching_goroot_over_newer_path
 test_real_go_bin_rejects_wrong_repo_version
-test_remote_worker_does_not_bypass_version_probe
+test_local_authority_does_not_bypass_version_probe
 test_repo_wrapper_is_not_real_go
 test_real_go_bin_rejects_wrapper
 test_real_go_bin_rejects_normalized_wrapper

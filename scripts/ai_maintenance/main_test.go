@@ -404,8 +404,6 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 		{"internal/devtools/gate/executor_mapping.go", true},
 		{"internal/devtools/gate/executor.go", true},
 		{"internal/devtools/gate/executor_future_identity.go", true},
-		{"internal/devtools/cicontract/worker_execution_environment.go", true},
-		{"internal/devtools/cicontract/worker_execution_environment_sqlc_test.go", true},
 		{"internal/devtools/gateprivate/trusted_git.go", true},
 		{"internal/devtools/trustedgitpolicy/policy.go", true},
 		{"internal/devtools/trustedgitpolicy/future_helper.go", true},

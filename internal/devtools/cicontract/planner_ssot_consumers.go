@@ -21,10 +21,6 @@ func PlannerSSOTConsumerBindings() []PlannerSSOTConsumerBinding {
 		{"internal/devtools/gate/compile_group.go", "validateCompileGroupResourceClass", "ValidateResourceClassID", []string{"value"}, "func validateCompileGroupResourceClass(value string) error", true},
 		{"internal/devtools/gate/workload_duration_index.go", "normalResourceTierForTuple", "NormalResourceTierForResources", []string{"cpu", "memoryGiB"}, "func normalResourceTierForTuple(cpu, memoryGiB float64) (cicontract.WorkloadResourceTier, error)", true},
 		{"internal/devtools/gate/workload_resource_reserve.go", "resourceTierForReserve", "NormalResourceTierForIdentity", []string{"resources.ClassID", "resources.CPU", "resources.MemoryGiB"}, "func resourceTierForReserve(resources RemoteCIShardResources) (cicontract.WorkloadResourceTier, error)", true},
-		{"internal/devtools/shardresource/planner.go", "validateClass", "ValidateNormalResourceIdentity", []string{"class.ID", "class.VCPU", "class.MemoryGiB"}, "func validateClass(class Class) error", true},
-		{"internal/devtools/shardresource/planner.go", "validateCalibrationResource", "ValidateCalibrationResources", []string{"class.ID", "class.VCPU", "class.MemoryGiB"}, "func validateCalibrationResource(class Class) error", true},
-		{"internal/devtools/shardresource/planner.go", "canonicalFastNormalResourceIdentity", "FastNormalResourceIdentity", nil, "func canonicalFastNormalResourceIdentity() cicontract.NormalResourceIdentity", true},
-		{"internal/devtools/shardresource/planner.go", "validateCanonicalPolicyClass", "NormalResourceIdentityForTier", []string{"cicontract.WorkloadResourceTier(index + 1)"}, "func validateCanonicalPolicyClass(index int, class Class) error", false},
 	}
 	for index := range bindings {
 		bindings[index].ExpectedArguments = append([]string(nil), bindings[index].ExpectedArguments...)

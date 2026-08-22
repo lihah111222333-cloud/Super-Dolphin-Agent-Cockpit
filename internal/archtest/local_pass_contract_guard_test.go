@@ -358,7 +358,7 @@ func assertLocalProductionFilesDoNotUseRemoteAuthority(t *testing.T, root string
 func assertRemoteCoordinatorSourcesDoNotUseLocalAuthority(t *testing.T, root string) {
 	t.Helper()
 	const forbiddenLocalMarker = "ci_local_"
-	for _, relative := range productionFilesUnder(t, root, "internal/devtools/remoteci") {
+	for _, relative := range productionFilesUnder(t, root, "internal/devtools/heteroci") {
 		file := parseRemoteCIContractGuardFile(t, root+"/"+relative)
 		if strings.Contains(readRemoteCIContractGuardFile(t, root+"/"+relative), forbiddenLocalMarker) || localPassASTHasAnyIdentifier(file, localPassRemoteAuthorityIdentifiers()) {
 			t.Errorf("remote coordinator source %s references a local SQLite table", relative)
@@ -369,9 +369,6 @@ func assertRemoteCoordinatorSourcesDoNotUseLocalAuthority(t *testing.T, root str
 func assertRemoteCLISourcesDoNotUseLocalAuthority(t *testing.T, root string) {
 	t.Helper()
 	for _, relative := range productionFilesUnder(t, root, "cmd/super-dolphin-gate") {
-		if relative == "cmd/super-dolphin-gate/local_test_cli.go" {
-			continue
-		}
 		file := parseRemoteCIContractGuardFile(t, root+"/"+relative)
 		if localPassASTHasAnyIdentifier(file, localPassRemoteAuthorityIdentifiers()) {
 			t.Errorf("remote CLI source %s references a local PASS authority", relative)
@@ -384,10 +381,6 @@ func assertLocalExecutorProviderBoundary(t *testing.T, root string) {
 	for _, relative := range localPassProductionFiles() {
 		path := root + "/" + relative
 		file := parseRemoteCIContractGuardFile(t, path)
-		if relative == "cmd/super-dolphin-gate/local_test_cli.go" {
-			assertLocalCLIFrozenRemoteSubsetBoundary(t, file)
-			continue
-		}
 		for _, importPath := range localPassImportPaths(file) {
 			if strings.Contains(importPath, "/alicloud/") || strings.Contains(importPath, "/remoteci") {
 				t.Errorf("local PASS source %s imports remote provider package %q", relative, importPath)
@@ -414,30 +407,6 @@ func assertLocalVersionedMigrationBoundary(t *testing.T, file *ast.File) {
 		}
 		if !localPassVersionedMigrationTablesAllowed(function) {
 			t.Errorf("versioned SQLite migration %s touches an unregistered ci_* object", name)
-		}
-	}
-}
-
-// assertLocalCLIFrozenRemoteSubsetBoundary permits the one frozen remote
-// adapter only after a non-empty Remote selection; ordinary local CLI
-// functions remain unable to name remote capabilities or token material.
-func assertLocalCLIFrozenRemoteSubsetBoundary(t *testing.T, file *ast.File) {
-	t.Helper()
-	invoke := remoteCIFunctionByName(file, "runLocalTestInvocation")
-	subset := remoteCIFunctionByName(file, "runLocalRemoteSubset")
-	if invoke == nil || subset == nil ||
-		!localPassSequenceBefore(localPassFunctionCallSequence(invoke), "len", "runLocalRemoteSubset") ||
-		!localPassSequenceContains(localPassFunctionCallSequence(subset), "RequireRemoteToken") ||
-		!localPassSequenceContains(localPassFunctionCallSequence(subset), "RunSelectedRemoteWorkloads") {
-		t.Error("local CLI must reach frozen remote subset only after a non-empty Remote selection and token handshake")
-	}
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Name.Name == "runLocalRemoteSubset" {
-			continue
-		}
-		if localPassFunctionTouchesForbiddenRemoteCapability(function) {
-			t.Errorf("local CLI function %s touches remote provider or token material outside frozen subset adapter", function.Name.Name)
 		}
 	}
 }
@@ -515,18 +484,10 @@ func assertLocalAuthorityStateFailFast(t *testing.T, root string) {
 
 func assertLocalProductionAuthorityInitialization(t *testing.T, root string) {
 	t.Helper()
-	source := readRemoteCIContractGuardFile(t, root+"/cmd/super-dolphin-gate/local_test_cli_production.go")
-	if !strings.Contains(source, "store.InitializeLocalAuthority()") {
-		t.Fatal("production local plan must explicitly initialize the local SQLite authority")
-	}
-	for _, marker := range []string{"validateWorkloadAuthorityTarget(options.Target)", "scheduleTarget: gatecontract.LocalWorkloadScheduleTarget(options.Target)", "Target: inputs.scheduleTarget"} {
-		if !strings.Contains(source, marker) {
-			t.Errorf("production local plan target projection is missing %q", marker)
-		}
-	}
-	for _, forbidden := range []string{"LoadRemoteBaselineState", "baselineLedger", "ImageCache", "AgentToken"} {
+	source := readRemoteCIContractGuardFile(t, root+"/cmd/super-dolphin-gate/main.go")
+	for _, forbidden := range []string{"local_test_cli_production.go", "LoadRemoteBaselineState", "baselineLedger", "ImageCache", "AgentToken", "remote hook", "remote run"} {
 		if strings.Contains(source, forbidden) {
-			t.Errorf("production local authority initializer must not consume remote state %q", forbidden)
+			t.Errorf("trusted local Gate entry must not retain retired authority surface %q", forbidden)
 		}
 	}
 }
@@ -551,25 +512,15 @@ func assertLocalSQLiteSchemaGuardFailFast(t *testing.T, root string) {
 
 func assertLocalCLIWorkloadCompatibility(t *testing.T, root string) {
 	t.Helper()
-	options := readRemoteCIContractGuardFile(t, root+"/cmd/super-dolphin-gate/remote_run_options.go")
-	for _, marker := range []string{`flags.StringVar(&options.WorkloadID, "workload"`, `flags.Var(&gateWorkloads, "gate-workload"`, `flags.StringVar(&options.Target, "target", defaultTarget`} {
-		if !strings.Contains(options, marker) {
-			t.Errorf("CLI workload compatibility marker %q is missing", marker)
+	mainSource := readRemoteCIContractGuardFile(t, root+"/cmd/super-dolphin-gate/main.go")
+	for _, marker := range []string{`case "closure", "frontend-code-size":`, `case "launcher":`, `runWorkerCLI`} {
+		if !strings.Contains(mainSource, marker) {
+			t.Errorf("trusted local Gate command marker %q is missing", marker)
 		}
 	}
-	cliFile := parseRemoteCIContractGuardFile(t, root+"/cmd/super-dolphin-gate/test_cli.go")
-	for _, function := range []string{"parseAutoTestRunOptions", "bindOrValidateAutoTestSelectors", "bindMcpLSPWorkloadSelectors"} {
-		if remoteCIFunctionByName(cliFile, function) == nil {
-			t.Fatalf("legacy --workload CLI semantic function %s is missing", function)
-		}
-	}
-	if !strings.Contains(readRemoteCIContractGuardFile(t, root+"/cmd/super-dolphin-gate/test_cli.go"), `options.WorkloadID`) {
-		t.Fatal("test CLI no longer preserves catalog --workload binding")
-	}
-	localCLI := readRemoteCIContractGuardFile(t, root+"/cmd/super-dolphin-gate/local_test_cli.go")
-	for _, marker := range []string{"validateWorkloadAuthorityTarget", `case "local", "remote", "auto", "hybrid"`, "validateLocalWorkloadSelection"} {
-		if !strings.Contains(localCLI, marker) {
-			t.Errorf("local CLI authority boundary is missing marker %q", marker)
+	for _, retired := range []string{`case "test":`, `case "remote":`, `_remote-materialize`, `_remote-install-manifest`, `_remote-install-workspace`} {
+		if strings.Contains(mainSource, retired) {
+			t.Errorf("trusted local Gate retains retired dispatch %q", retired)
 		}
 	}
 }
@@ -586,7 +537,6 @@ func localPassProductionFiles() []string {
 		"internal/devtools/gate/local_workload_scheduler.go",
 		"internal/devtools/gate/ledger_store_sqlite_namespace_migration.go",
 		"internal/devtools/gate/ledger_store_sqlite_schema_workload_reuse.go",
-		"cmd/super-dolphin-gate/local_test_cli.go",
 	}
 }
 
@@ -688,27 +638,6 @@ func localPassGoJSONFields(structure *ast.StructType) []string {
 func localPassIdentityAuditField(field string) bool {
 	lower := strings.ToLower(field)
 	return strings.Contains(lower, "namespace") || strings.Contains(lower, "tree") || strings.Contains(lower, "path") || strings.Contains(lower, "commit") || strings.Contains(lower, "worktree")
-}
-
-func localPassFunctionHasIdentifier(function *ast.FuncDecl, forbidden []string) bool {
-	if function == nil {
-		return false
-	}
-	for _, name := range forbidden {
-		found := false
-		ast.Inspect(function.Body, func(node ast.Node) bool {
-			identifier, ok := node.(*ast.Ident)
-			if ok && identifier.Name == name {
-				found = true
-				return false
-			}
-			return !found
-		})
-		if found {
-			return true
-		}
-	}
-	return false
 }
 
 func localPassFunctionHasSelector(function *ast.FuncDecl, selectorName string) bool {

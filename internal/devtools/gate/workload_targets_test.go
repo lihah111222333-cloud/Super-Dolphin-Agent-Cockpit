@@ -46,7 +46,6 @@ func TestGoPackageTargetForSourceUsesModuleAgnosticCanonicalPaths(t *testing.T) 
 		{file: "build/gate/closure_test.go", want: "./build/gate"},
 		{file: "build/gate/closure/runtime_deps_test.go", want: "./build/gate/closure"},
 		{file: "cmd/super-dolphin-gate/main.go", want: "./cmd/super-dolphin-gate"},
-		{file: "internal/devtools/remoteci/inventory.go", want: "./internal/devtools/remoteci"},
 		{file: "new-root/worker/worker_test.go", want: "./new-root/worker"},
 		{file: "root_test.go", want: "./."},
 		{file: "build/gate/runtime-tools/tools.go", want: "./build/gate/runtime-tools"},

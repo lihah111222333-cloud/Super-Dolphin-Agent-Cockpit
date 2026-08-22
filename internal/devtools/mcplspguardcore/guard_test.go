@@ -105,9 +105,6 @@ func TestValidateConsumersRequiresExactLiveRegistryCoverage(t *testing.T) {
 	platformAdapter := "package main\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc runnerPlatformWorkload(workload catalog.Workload) catalog.Workload { return cloneRunnerWorkload(workload) }\n"
 	writeConsumerFixture("scripts/mcp_lsp_workload_runner/platform_other.go", platformAdapter)
 	writeConsumerFixture("scripts/mcp_lsp_workload_runner/platform_windows.go", platformAdapter)
-	writeConsumerFixture("cmd/super-dolphin-gate/test_cli.go", "package main\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nconst mcpLSPDefault15mWorkloadID = \"mcp-lsp-default-15m\"\nfunc bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error { repository := root; candidateHead, candidateTree := head, tree; document, err := catalog.LoadAt(repository, candidateTree); workload, err := document.Find(options.WorkloadID); selectors, err := catalog.RemoteTestSelectorsAt(repository, candidateTree, workload.Command); return applyMcpLSPWorkloadBinding(options, candidateHead, candidateTree, selectors) }\n")
-	writeConsumerFixture("cmd/super-dolphin-gate/remote_agent_token.go", "package main\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc token(args []string) { _, _ = catalog.CanonicalizeAuthorityFlags(args, \"agent-token\") }\n")
-	writeConsumerFixture("cmd/super-dolphin-gate/remote_run_options.go", "package main\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc options(args []string) { _, _ = catalog.CanonicalizeAuthorityFlags(args, \"tree\") }\n")
 	writeConsumerFixture("internal/devtools/gate/executor_mapping.go", "package main\nfunc splitSourceGoGuardExecutorProgram(target string) {\n\tswitch target {\n\tcase GoGuardTargetMcpLSPWorkloadCatalog:\n\t\tprogram := commandProgram([]string{ExecutorSelfCommandName, \"worker\", \"mcp-lsp-catalog-guard\"})\n\t\treturn program, true\n\t}\n}\n")
 	writeConsumerFixture("internal/devtools/gate/executor.go", "package main\nfunc resolveExecutorStepsWithCandidateTree(sourceCopy, candidateTree string) ([]step, error) { steps, err := resolve(); if err != nil { return nil, err }; for index := range steps { argv, err := injectMcpLSPCandidateTreeAt(steps[index].argv, candidateTree, sourceCopy); if err != nil { return nil, err }; steps[index].argv = argv }; return steps, nil }\n")
 	writeConsumerFixture("internal/devtools/gate/executor_catalog_tree.go", "package main\nimport \"slices\"\nfunc injectMcpLSPCandidateTree(candidateTree string) []string { return injectMcpLSPGuardTree([]string{\"guard\"}, candidateTree) }\nfunc injectMcpLSPGuardTree(argv []string, candidateTree string) []string { return append(slices.Clone(argv), \"--tree\", candidateTree) }\nfunc injectMcpLSPMakeTree(argv []string, candidateTree string) []string { return append(slices.Clone(argv), \"MCP_LSP_CANDIDATE_TREE=\"+candidateTree) }\n")
@@ -120,13 +117,9 @@ func TestValidateConsumersRequiresExactLiveRegistryCoverage(t *testing.T) {
 	writeConsumerFixture("internal/devtools/mcplspguardcore/receipt_ast_helpers.go", "package mcplspcatalogguard\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc receiptFlow() { _, _ = catalog.LoadAt(repository, tree) }\n")
 	writeConsumerFixture("internal/devtools/mcplspguardcore/scheduler_validation.go", "package mcplspcatalogguard\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc schedulerFlow(document catalog.Catalog) { _ = catalog.WorkloadGateInputPaths(document) }\n")
 	writeConsumerFixture("cmd/super-dolphin-gate/main.go", "package main\nimport mcplspcatalogguard \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/mcplspguardcore\"\nfunc runMcpLSPCatalogGuardWorker(args []string, stdout, stderr writer) int { if err := mcplspcatalogguard.Run(args, stdout); err != nil { return workerBuiltinErrorExitCode(stderr, err) }; return int(gatecontract.ExitOK) }\n")
-	writeConsumerFixture("internal/devtools/remoteci/go_test_inventory.go", "package remoteci\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc inventoryName(name string) bool { return catalog.GoTestNameMatches(name, \"Test\") }\n")
-	writeConsumerFixture("internal/devtools/remoteci/workload_fingerprint_digests.go", "package remoteci\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc fingerprintCatalog(raw []byte) { _, _ = catalog.ParseImplementedRemoteTestsFromRaw(raw) }\n")
 	writeConsumerFixture("scripts/ai_maintenance/owned_gate_execution.go", ownedGateFixtureSource("mcp-lsp-idle-quick"))
 	for _, relative := range []string{
 		"scripts/ai_maintenance/main.go", "scripts/ai_maintenance/release_gate_rules.go", "scripts/ai_maintenance/gate_execution.go",
-		"cmd/super-dolphin-gate/remote_baseline_source.go", "cmd/super-dolphin-gate/remote_run_calibration_automation.go",
-		"cmd/super-dolphin-gate/remote_run_calibration_runs.go", "cmd/super-dolphin-gate/remote_run_source.go",
 	} {
 		writeConsumerFixture(relative, string(readGuardCandidateBlob(t, relative)))
 	}
@@ -283,21 +276,6 @@ func TestValidateRunnerPlatformConsumerRejectsSemanticRewrite(t *testing.T) {
 		}
 		if err := validateRunnerPlatformConsumer("platform_windows.go", file); err == nil {
 			t.Fatalf("validateRunnerPlatformConsumer accepted rewrite: %s", source)
-		}
-	}
-}
-
-func TestLiveTestCLISelectorFlowRejectsDeadHelperAndWrongTree(t *testing.T) {
-	for _, source := range []string{
-		`package main; func bindMcpLSPWorkloadSelectors(options *options) error { return nil }; func dead() { document, _ := catalog.LoadAt(repository, candidateTree); workload, _ := document.Find(options.WorkloadID); selectors, _ := catalog.RemoteTestSelectorsAt(repository, candidateTree, workload.Command); _ = applyMcpLSPWorkloadBinding(options, candidateHead, candidateTree, selectors) }`,
-		`package main; func bindMcpLSPWorkloadSelectors(options *options) error { document, _ := catalog.LoadAt(repository, candidateTree); workload, _ := document.Find(options.WorkloadID); selectors, _ := catalog.RemoteTestSelectorsAt(repository, otherTree, workload.Command); return applyMcpLSPWorkloadBinding(options, candidateHead, candidateTree, selectors) }`,
-	} {
-		file, err := parser.ParseFile(token.NewFileSet(), "test_cli.go", []byte(source), 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if hasLiveTestCLISelectorFlow(file) {
-			t.Fatalf("hasLiveTestCLISelectorFlow accepted invalid flow: %s", source)
 		}
 	}
 }
@@ -514,7 +492,6 @@ func TestCatalogFlowsRejectLocalImportAliasShadow(t *testing.T) {
 		validate    func(*ast.File) bool
 	}{
 		{path: "scripts/mcp_lsp_workload_runner/main.go", declaration: "func loadRunnerWorkload(repoRoot, tree, id string) (catalog.Catalog, catalog.Workload, error) {", validate: hasLiveRunnerCatalogFlow},
-		{path: "cmd/super-dolphin-gate/test_cli.go", declaration: "func bindMcpLSPWorkloadSelectors(options *remoteRunOptions) error {", validate: hasLiveTestCLISelectorFlow},
 	} {
 		raw := readGuardCandidateBlob(t, test.path)
 		mutated := strings.Replace(string(raw), test.declaration, test.declaration+"\n\tcatalog := fakeCatalog{}", 1)

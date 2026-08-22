@@ -311,13 +311,12 @@ func prepareTrackedProjectMapFixtures(t *testing.T, root string) {
 	writeFixTestGuardFile(t, root, "internal/module/thread/thread.go", "package thread\n")
 	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
 	writeFixTestGuardFile(t, root, "cmd/super-dolphin-gate/main.go", "package main\n")
-	writeFixTestGuardFile(t, root, "internal/devtools/remoteci/coordinator.go", "package remoteci\n")
-	writeFixTestGuardFile(t, root, "internal/devtools/cicontract/contract.go", "package cicontract\n")
-	writeFixTestGuardFile(t, root, "internal/devtools/alicloud/eci/client.go", "package eci\n")
-	writeFixTestGuardFile(t, root, "internal/devtools/alicloud/oss/client.go", "package oss\n")
-	writeFixTestGuardFile(t, root, "config/remote-ci/aliyun.json", "{}\n")
+	writeFixTestGuardFile(t, root, "cmd/super-dolphin-remote-ci/main.go", "package main\n")
+	writeFixTestGuardFile(t, root, "internal/devtools/heteroci/manifest.go", "package heteroci\n")
+	writeFixTestGuardFile(t, root, "internal/devtools/remoteportable/core_types.go", "package remoteportable\n")
+	writeFixTestGuardFile(t, root, "internal/devtools/remotecicli/portable_validate.go", "package remotecicli\n")
 	writeFixTestGuardFile(t, root, ".githooks/pre-commit", "#!/usr/bin/env bash\n")
-	writeFixTestGuardFile(t, root, "scripts/remote_ci_git_credentials_test.go", "package main\n")
+	writeFixTestGuardFile(t, root, "scripts/mcp_lsp_workload_catalog/catalog.go", "package catalog\n")
 	writeFixTestGuardFile(t, root, "docs/契约/remote-ci-eci-imagecache-contract.md", "# Remote CI contract\n")
 	historicalFixtures := make([]string, 0)
 	for _, historicalRoot := range codemapHistoricalRoots(t) {
@@ -337,13 +336,12 @@ func prepareTrackedProjectMapFixtures(t *testing.T, root string) {
 		"internal/module/thread/thread.go",
 		"internal/provider/codexapp/provider.go",
 		"cmd/super-dolphin-gate/main.go",
-		"internal/devtools/remoteci/coordinator.go",
-		"internal/devtools/cicontract/contract.go",
-		"internal/devtools/alicloud/eci/client.go",
-		"internal/devtools/alicloud/oss/client.go",
-		"config/remote-ci/aliyun.json",
+		"cmd/super-dolphin-remote-ci/main.go",
+		"internal/devtools/heteroci/manifest.go",
+		"internal/devtools/remoteportable/core_types.go",
+		"internal/devtools/remotecicli/portable_validate.go",
 		".githooks/pre-commit",
-		"scripts/remote_ci_git_credentials_test.go",
+		"scripts/mcp_lsp_workload_catalog/catalog.go",
 		"docs/契约/remote-ci-eci-imagecache-contract.md",
 	}
 	runFixTestGuardGit(t, root, append([]string{"add"}, append(addPaths, historicalFixtures...)...)...)
@@ -353,13 +351,12 @@ func assertRemoteCIProjectMapRoutes(t *testing.T, generated string) {
 	t.Helper()
 	for _, file := range []string{
 		"cmd/super-dolphin-gate/main.go",
-		"internal/devtools/remoteci/coordinator.go",
-		"internal/devtools/cicontract/contract.go",
-		"internal/devtools/alicloud/eci/client.go",
-		"internal/devtools/alicloud/oss/client.go",
-		"config/remote-ci/aliyun.json",
+		"cmd/super-dolphin-remote-ci/main.go",
+		"internal/devtools/heteroci/manifest.go",
+		"internal/devtools/remoteportable/core_types.go",
+		"internal/devtools/remotecicli/portable_validate.go",
 		".githooks/pre-commit",
-		"scripts/remote_ci_git_credentials_test.go",
+		"scripts/mcp_lsp_workload_catalog/catalog.go",
 		"docs/契约/remote-ci-eci-imagecache-contract.md",
 	} {
 		assertOutputContainsAll(t, generated, file)
@@ -367,7 +364,7 @@ func assertRemoteCIProjectMapRoutes(t *testing.T, generated string) {
 	assertOutputContainsAll(t, generated,
 		"\tremote-ci\t",
 		"remote-ci.tsv",
-		"修改远程 CI/ECI/ImageCache",
+		"独立 remote-ci validation、portable manifest 与异构节点契约",
 		"### remote CI",
 	)
 }

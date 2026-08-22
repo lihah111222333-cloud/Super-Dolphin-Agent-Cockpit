@@ -136,7 +136,7 @@ func assertLocalSQLiteSchemaTables(t *testing.T, localSchema string) {
 
 func localPassForbiddenImportFixture(file *ast.File) bool {
 	for _, path := range localPassImportPaths(file) {
-		if strings.Contains(path, "/alicloud/") || strings.Contains(path, "/remoteci") {
+		if strings.Contains(path, "/remotecicli") {
 			return true
 		}
 	}
@@ -145,7 +145,7 @@ func localPassForbiddenImportFixture(file *ast.File) bool {
 
 func localPassFunctionTouchesForbiddenRemoteCapability(function *ast.FuncDecl) bool {
 	return localPassFunctionHasIdentifier(function, []string{
-		"remoteci", "AgentToken", "AgentTokenDigest", "CreateContainerGroup",
+		"remotecicli", "AgentToken", "AgentTokenDigest", "CreateContainerGroup",
 		"ImageCache", "ImageCacheSnapshot", "OSS", "ECI", "NewECIClient",
 		"RemoteCIAgentToken",
 	})
@@ -198,10 +198,10 @@ func localPassFunctionStringLiterals(function *ast.FuncDecl) []string {
 func TestLocalPassContractGuardCounterexamples(t *testing.T) {
 	assertLocalPassEnvironmentDigestCounterexamples(t)
 	forbidden := parseRemoteCIContractSource(t, `package fixture
-import "example/internal/devtools/alicloud/eci"
-func localPath() { _ = eci.CreateContainerGroup }
+import "example/internal/devtools/remotecicli"
+func localPath() { _ = remotecicli.Run }
 `)
-	if !localPassForbiddenImportFixture(forbidden) || !localPassASTHasIdentifier(forbidden, "CreateContainerGroup") {
+	if !localPassForbiddenImportFixture(forbidden) || !localPassASTHasIdentifier(forbidden, "Run") {
 		t.Fatal("local provider boundary counterexample was not observable")
 	}
 	identity := parseRemoteCIContractSource(t, `package fixture
@@ -226,8 +226,8 @@ func observeLocalSchedulerHost() {}
 	}
 
 	localRemoteCapability := parseRemoteCIContractSource(t, `package fixture
-import "example/internal/devtools/remoteci"
-func localPath() { _ = remoteci.RunInput{} }
+import "example/internal/devtools/remotecicli"
+func localPath() { _ = remotecicli.Run }
 `)
 	if !localPassFunctionTouchesForbiddenRemoteCapability(remoteCIFunctionByName(localRemoteCapability, "localPath")) {
 		t.Fatal("ordinary local function remote-provider counterexample was not rejected")

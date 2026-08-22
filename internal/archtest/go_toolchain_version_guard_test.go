@@ -91,22 +91,22 @@ func compareGoToolchainConsumers(
 
 func registeredGoToolchainConsumers() map[string]goToolchainConsumer {
 	return map[string]goToolchainConsumer{
-		"CONTRIBUTING.md":                              {Path: "CONTRIBUTING.md", Reason: "贡献者规范基线"},
-		"README.de.md":                                 {Path: "README.de.md", Reason: "德语安装前置条件"},
-		"README.es.md":                                 {Path: "README.es.md", Reason: "西语安装前置条件"},
-		"README.ja.md":                                 {Path: "README.ja.md", Reason: "日语安装前置条件"},
-		"README.ko.md":                                 {Path: "README.ko.md", Reason: "韩语安装前置条件"},
-		"README.md":                                    {Path: "README.md", Reason: "规范安装前置条件"},
-		"README.zh-CN.md":                              {Path: "README.zh-CN.md", Reason: "中文安装前置条件"},
-		"build/gate/closure/closure.go":                {Path: "build/gate/closure/closure.go", Reason: "闭包生成器运行时工具链锁定"},
-		"build/gate/runtime-deps.Dockerfile":           {Path: "build/gate/runtime-deps.Dockerfile", Reason: "运行时依赖镜像工具链探针"},
-		"build/gate/runtime-proxy/go.mod":              {Path: "build/gate/runtime-proxy/go.mod", Reason: "truth image proxy 模块"},
-		"build/gate/runtime-tools/go.mod":              {Path: "build/gate/runtime-tools/go.mod", Reason: "truth image tools 模块"},
-		"build/gate/toolchain.lock":                    {Path: "build/gate/toolchain.lock", Reason: "远程门禁工具链锁定"},
-		"docs/契约/jrpc2-convention.md":                  {Path: "docs/契约/jrpc2-convention.md", Reason: "当前 Go 契约版本"},
-		"internal/devtools/gate/go_distribution.go":    {Path: "internal/devtools/gate/go_distribution.go", Reason: "远程 Go 分发锁定"},
-		"scripts/go_distribution_lock.sh":              {Path: "scripts/go_distribution_lock.sh", Reason: "Go 官方分发锁校验"},
-		"scripts/verify_packaged_app_macos.sh":         {Path: "scripts/verify_packaged_app_macos.sh", Reason: "macOS 发布包验证模块"},
+		"CONTRIBUTING.md":                           {Path: "CONTRIBUTING.md", Reason: "贡献者规范基线"},
+		"README.de.md":                              {Path: "README.de.md", Reason: "德语安装前置条件"},
+		"README.es.md":                              {Path: "README.es.md", Reason: "西语安装前置条件"},
+		"README.ja.md":                              {Path: "README.ja.md", Reason: "日语安装前置条件"},
+		"README.ko.md":                              {Path: "README.ko.md", Reason: "韩语安装前置条件"},
+		"README.md":                                 {Path: "README.md", Reason: "规范安装前置条件"},
+		"README.zh-CN.md":                           {Path: "README.zh-CN.md", Reason: "中文安装前置条件"},
+		"build/gate/closure/closure.go":             {Path: "build/gate/closure/closure.go", Reason: "闭包生成器运行时工具链锁定"},
+		"build/gate/runtime-deps.Dockerfile":        {Path: "build/gate/runtime-deps.Dockerfile", Reason: "运行时依赖镜像工具链探针"},
+		"build/gate/runtime-proxy/go.mod":           {Path: "build/gate/runtime-proxy/go.mod", Reason: "truth image proxy 模块"},
+		"build/gate/runtime-tools/go.mod":           {Path: "build/gate/runtime-tools/go.mod", Reason: "truth image tools 模块"},
+		"build/gate/toolchain.lock":                 {Path: "build/gate/toolchain.lock", Reason: "远程门禁工具链锁定"},
+		"docs/契约/jrpc2-convention.md":               {Path: "docs/契约/jrpc2-convention.md", Reason: "当前 Go 契约版本"},
+		"internal/devtools/gate/go_distribution.go": {Path: "internal/devtools/gate/go_distribution.go", Reason: "远程 Go 分发锁定"},
+		"scripts/go_distribution_lock.sh":           {Path: "scripts/go_distribution_lock.sh", Reason: "Go 官方分发锁校验"},
+		"scripts/verify_packaged_app_macos.sh":      {Path: "scripts/verify_packaged_app_macos.sh", Reason: "macOS 发布包验证模块"},
 	}
 }
 
@@ -128,7 +128,7 @@ func registeredGoToolchainConsumerPaths() map[string]struct{} {
 
 func collectGoToolchainConsumerPaths(t *testing.T, repository string, paths map[string]struct{}) {
 	t.Helper()
-	for _, root := range []string{".github/workflows", "build/gate", "cmd/super-dolphin-gate", "internal/devtools/gate", "internal/devtools/remoteci", "scripts"} {
+	for _, root := range []string{".github/workflows", "build/gate", "cmd/super-dolphin-gate", "internal/devtools/gate", "scripts"} {
 		err := filepath.WalkDir(filepath.Join(repository, root), func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr

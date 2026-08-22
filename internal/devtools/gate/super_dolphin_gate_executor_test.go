@@ -9,7 +9,7 @@ func TestExecutorRejectsCanonicalSubprocessHelper(t *testing.T) {
 	workloadID, err := targetWorkloadID(
 		GateIDBackendTestWithGuard,
 		workloadTargetGoTest,
-		encodeTestTargetForExecutor(t, GoTestTarget{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessHelper"}),
+		encodeTestTargetForExecutor(t, GoTestTarget{Package: AtomicGatePackageTarget, Name: "TestCompileGroup"}),
 	)
 	if err != nil {
 		t.Fatal(err)

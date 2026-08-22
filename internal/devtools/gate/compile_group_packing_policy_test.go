@@ -11,7 +11,6 @@ func TestCompileGroupSerialPackingEligibleUsesExplicitFailClosedPolicy(t *testin
 		AtomicTaskDAGPackageTarget,
 		AtomicSQLitePackageTarget,
 		AtomicGatePackageTarget,
-		AtomicRemoteCIPackageTarget,
 	}
 	for _, packageTarget := range eligiblePackages {
 		t.Run(packageTarget, func(t *testing.T) {

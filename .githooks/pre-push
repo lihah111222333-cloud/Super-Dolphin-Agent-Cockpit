@@ -14,15 +14,6 @@ repo_root=$(git rev-parse --show-toplevel) || {
 # shellcheck disable=SC1091
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 
-# 首次身份协商不得读取远程配置或规范化 ref；hook 不签发或保存 token。
-if [[ "${SUPER_DOLPHIN_CI_AGENT_TOKEN-}" == "issue" || -z "${SUPER_DOLPHIN_CI_AGENT_TOKEN+x}" ]]; then
-  if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
-    printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the push.' >&2
-    exit 1
-  fi
-  exec "$gate_bin" remote hook pre-push
-fi
-
 umask 077
 push_input_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-prepush.XXXXXX")
 cleanup_push_input() {
@@ -125,16 +116,22 @@ else
   fi
 fi
 
-remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
-remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
-  printf '%s\n' 'pre-push blocked: remote CI requires remote config and duration ledger paths.' >&2
-  exit 1
+if [[ -n "$selected_push_tree" ]]; then
+  if ! "$gate_bin" project-map check --tree "$selected_push_tree"; then
+    printf '%s\n' 'pre-push blocked: trusted project-map check failed for the pushed tree.' >&2
+    exit 1
+  fi
+  if ! "$gate_bin" closure check --tree "$selected_push_tree"; then
+    printf '%s\n' 'pre-push blocked: trusted local Gate closure check failed for the pushed tree.' >&2
+    exit 1
+  fi
+else
+  current_tree=$(git -C "$repo_root" write-tree) || {
+    printf '%s\n' 'pre-push blocked: current staged tree is unavailable for local Gate checks.' >&2
+    exit 1
+  }
+  if ! "$gate_bin" project-map check --tree "$current_tree" || ! "$gate_bin" closure check --tree "$current_tree"; then
+    printf '%s\n' 'pre-push blocked: trusted local Gate checks failed for the current tree.' >&2
+    exit 1
+  fi
 fi
-remote_args=(
-  remote hook pre-push
-  --config "$remote_config"
-  --ledger "$remote_ledger"
-  --repository "$repo_root"
-)
-exec "$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"

@@ -306,7 +306,7 @@ func idleQuickCommandDigest(command []string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// RequireRemoteCompletionAuthority 在执行前拒绝缺少 ECI artifact owner 的
+// RequireRemoteCompletionAuthority 在执行前拒绝缺少 canonical artifact owner 的
 // 远程 workload；本地 host workload 仍可运行，但其结果不是发布回执。
 func RequireRemoteCompletionAuthority(workload Workload) error {
 	if !IsRemoteAuthoritativeWorkload(workload) {

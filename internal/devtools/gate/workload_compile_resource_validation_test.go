@@ -55,7 +55,7 @@ func rebindStoredCompileGroupID(t *testing.T, plan *WorkloadExecutionPlan, group
 func storedEligibleMultiGroupFixture(t *testing.T) (WorkloadExecutionPlan, WorkloadCatalog) {
 	t.Helper()
 	firstInput := compileTestInput(AtomicGatePackageTarget, "sha256:"+strings.Repeat("4", 64))
-	secondInput := compileTestInput(AtomicRemoteCIPackageTarget, "sha256:"+strings.Repeat("5", 64))
+	secondInput := compileTestInput(AtomicGatePackageTarget, "sha256:"+strings.Repeat("5", 64))
 	first, firstInputs := compileTestWorkloads(t, firstInput.PackageTarget, []string{"TestStoredEligibleFirst"}, 1_000, firstInput)
 	second, secondInputs := compileTestWorkloads(t, secondInput.PackageTarget, []string{"TestStoredEligibleSecond"}, 1_000, secondInput)
 	workloads := append(first, second...)

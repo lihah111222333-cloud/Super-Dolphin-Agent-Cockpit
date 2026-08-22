@@ -38,7 +38,7 @@ main() {
       exit 0
       ;;
     test|build|vet)
-      require_remote_test_execution
+      require_local_gate_execution
       ;;
   esac
 

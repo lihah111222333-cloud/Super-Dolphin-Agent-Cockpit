@@ -23,7 +23,6 @@ func TestGateRetiredActionPromotionProtocolStaysAbsent(t *testing.T) {
 	scanRetiredGateProductionRoots(t, root, []string{
 		"internal/devtools/gate",
 		"internal/devtools/gatehook",
-		"internal/devtools/remoteci",
 		"cmd/super-dolphin-gate",
 	})
 }

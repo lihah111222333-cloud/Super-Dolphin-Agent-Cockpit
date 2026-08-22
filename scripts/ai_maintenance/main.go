@@ -462,8 +462,6 @@ func sqlcRelevant(file string) bool {
 		"sqlc.yaml",
 		"cmd/mcp-orch/sqlc.yaml",
 		"internal/devtools/gate/executor_mapping.go",
-		"internal/devtools/cicontract/worker_execution_environment.go",
-		"internal/devtools/cicontract/worker_execution_environment_sqlc_test.go",
 		"internal/archtest/backend_boundary_evaluator.go",
 		"internal/archtest/backend_boundary_sqlc.go",
 		"internal/archtest/backend_boundary_registry.go",

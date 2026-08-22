@@ -184,7 +184,7 @@ func executeLocalHostCommand(repoRoot, workloadID string, hostCommand []string, 
 	if runErr != nil {
 		return fmt.Errorf("local host workload %q failed: %w", workloadID, runErr)
 	}
-	return fmt.Errorf("local host workload %q is LOCAL_NON_AUTHORITATIVE NOT_VERIFIED; authoritative PASS requires ECI", workloadID)
+	return fmt.Errorf("local host workload %q is LOCAL_NON_AUTHORITATIVE NOT_VERIFIED; trusted four-node Gate evidence is required", workloadID)
 }
 
 func configureRunnerCommand(command *exec.Cmd, environment []string) error {

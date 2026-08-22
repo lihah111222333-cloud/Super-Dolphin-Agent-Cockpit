@@ -22,7 +22,6 @@ func CanonicalGoTestHelperTargets() []GoTestTarget {
 		{Package: AtomicMcpLSPPackageTarget, Name: "TestMcpLSPBinaryWindowsGoplsProvisionalParentExitHelper"},
 		{Package: AtomicMcpLSPPackageTarget, Name: "TestResourceCohortE2ELanguageServerHelper"},
 		{Package: AtomicMcpLSPPackageTarget, Name: "TestStrictTextProtocolFakeGoplsHelper"},
-		{Package: AtomicSuperDolphinGatePackageTarget, Name: "TestRemoteHookConcurrentProcessHelper"},
 		{Package: AtomicSQLitePackageTarget, Name: "TestSQLiteMixedWritePressureChild"},
 	})
 }

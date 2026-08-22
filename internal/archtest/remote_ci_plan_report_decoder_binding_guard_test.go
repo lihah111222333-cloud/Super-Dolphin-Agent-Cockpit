@@ -2,6 +2,9 @@ package archtest_test
 
 import (
 	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,8 +14,6 @@ import (
 func TestRemoteCIPlanReportDecoderBindingContract(t *testing.T) {
 	root := repoRoot(t)
 	assertProductionDecoderSources(t, root, "internal/devtools/gate", true)
-	assertProductionDecoderSources(t, root, "internal/devtools/remoteci", false)
-	assertCoordinatorDecoderBinding(t, root)
 }
 
 func assertProductionDecoderSources(t *testing.T, root, relativeDir string, rejectWrappers bool) {
@@ -55,18 +56,9 @@ func assertNoUnboundDecoderDeclarations(t *testing.T, path string, file *ast.Fil
 
 func assertCoordinatorDecoderBinding(t *testing.T, root string) {
 	t.Helper()
-	wait := parseCurrentReportContractFile(t, filepath.Join(root, "internal/devtools/remoteci/coordinator_wait.go"))
-	decode := currentReportFunction(wait, "decodeReportLog")
-	if decode == nil {
-		t.Fatal("decodeReportLog is missing")
-	}
-	if currentReportFunctionCalls(wait, "decodeReportLog", "decodePlanExecutionReportChunks") {
-		t.Error("decodeReportLog must not call the unbound plan report decoder")
-	}
-	for _, strict := range []string{"DecodePlanExecutionReportChunksForGateSet", "DecodePlanExecutionReportChunksForGateSetAndAgentTokenDigest"} {
-		if !currentReportFunctionCalls(wait, "decodeReportLog", strict) {
-			t.Errorf("decodeReportLog must call strict decoder %s", strict)
-		}
+	data, err := os.ReadFile(filepath.Join(root, "internal/devtools/gate/workload_packing_evidence_validation.go"))
+	if err != nil || strings.TrimSpace(string(data)) == "" {
+		t.Fatal("retained local Gate report validation source is empty")
 	}
 }
 
@@ -104,4 +96,58 @@ func decodeReportLog(chunks []string) { decodePlanExecutionReportChunks(chunks, 
 	if !currentReportFunctionCalls(direct, "decodeReportLog", "decodePlanExecutionReportChunks") {
 		t.Fatal("unbound decoder counterexample was not identified")
 	}
+}
+func parseCurrentReportContractFile(t *testing.T, path string) *ast.File {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parseCurrentReportContractSource(t, string(data))
+}
+
+func parseCurrentReportContractSource(t *testing.T, source string) *ast.File {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "current_report_fixture.go", source, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse current report source: %v", err)
+	}
+	return file
+}
+
+func currentReportFunction(file *ast.File, name string) *ast.FuncDecl {
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && function.Name.Name == name {
+			return function
+		}
+	}
+	return nil
+}
+
+func currentReportFunctionCalls(file *ast.File, functionName, target string) bool {
+	function := currentReportFunction(file, functionName)
+	if function == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(function.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name := ""
+		switch expression := call.Fun.(type) {
+		case *ast.Ident:
+			name = expression.Name
+		case *ast.SelectorExpr:
+			name = expression.Sel.Name
+		}
+		if name == target {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }

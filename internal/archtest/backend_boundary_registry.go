@@ -842,10 +842,7 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/devtools/trustedlauncher",
 	}, "trusted gate launcher build primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
-		"internal/devtools/alicloud/eci",
-		"internal/devtools/alicloud/oss",
 		"internal/devtools/capcontract",
-		"internal/devtools/cicontract",
 		"internal/devtools/codemapindex",
 		"internal/devtools/coordinatoradmission",
 		"internal/devtools/frontendcodesizetrusted",
@@ -854,11 +851,8 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/devtools/gatehook",
 		"internal/devtools/mcplspguardcore",
 		"internal/devtools/projectmaptrusted",
-		"internal/devtools/remoteci",
-		"internal/devtools/shardresource",
-		"internal/devtools/sourceexport",
 		"internal/devtools/trustedlauncher",
-	}, "standalone gate coordinator, worker, hook, persistence, and remote CI runtime")...)
+	}, "standalone trusted local Gate coordinator, worker, hook, persistence, and map runtime")...)
 	policies = append(policies, boundaryPolicies(owner, []string{"cmd/super-dolphin-heteroci-node/**/*.go"}, []string{"internal/devtools/heteroci", "internal/devtools/heterocinode"}, "repository-neutral heterogeneous CI node probe")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.remoteCI, []string{"internal/devtools/remotecicli"}, "repository-neutral remote CI composition root")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{

@@ -2161,22 +2161,6 @@
         "empty_funcs": 0,
         "todo_count": 0
       },
-      "internal/devtools/alicloud/eci/client.go": {
-        "lines": 791,
-        "max_func_len": 44,
-        "max_nesting": 3,
-        "max_complexity": 9,
-        "max_params": 3,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 1,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 18,
-        "max_struct_methods": 4
-      },
       "internal/devtools/codemapindex/source_scan.go": {
         "lines": 100,
         "max_func_len": 23,
@@ -2332,49 +2316,6 @@
         "empty_funcs": 0,
         "todo_count": 0,
         "max_struct_fields": 6
-      },
-      "internal/devtools/remoteci/gate_cli_compile_closure.go": {
-        "lines": 225,
-        "max_func_len": 61,
-        "max_nesting": 4,
-        "max_complexity": 16,
-        "max_params": 4,
-        "max_returns": 4,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
-      "internal/devtools/remoteci/materialization_timing.go": {
-        "lines": 94,
-        "max_func_len": 52,
-        "max_nesting": 2,
-        "max_complexity": 20,
-        "max_params": 2,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
-      "internal/devtools/remoteci/worker_execution_contract.go": {
-        "lines": 361,
-        "max_func_len": 34,
-        "max_nesting": 3,
-        "max_complexity": 9,
-        "max_params": 3,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 1,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 16
       },
       "internal/devtools/sqlitereleasegate/gates.go": {
         "lines": 347,
@@ -3380,20 +3321,6 @@
         "empty_funcs": 0,
         "todo_count": 0
       },
-      "internal/archtest/remote_ci_source_bundle_guard_helpers_test.go": {
-        "lines": 58,
-        "max_func_len": 14,
-        "max_nesting": 2,
-        "max_complexity": 9,
-        "max_params": 1,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 1,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
       "internal/archtest/shared_budget_test.go": {
         "lines": 75,
         "max_func_len": 35,
@@ -3478,34 +3405,6 @@
         "empty_funcs": 0,
         "todo_count": 0,
         "max_struct_fields": 4
-      },
-      "internal/devtools/remoteci/coordinator_shard_timing_test.go": {
-        "lines": 580,
-        "max_func_len": 73,
-        "max_nesting": 3,
-        "max_complexity": 24,
-        "max_params": 3,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
-      "internal/devtools/remoteci/gate_cli_compile_closure_test.go": {
-        "lines": 333,
-        "max_func_len": 48,
-        "max_nesting": 2,
-        "max_complexity": 12,
-        "max_params": 6,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
       },
       "internal/dto/turn/contract_field_guard_test.go": {
         "lines": 719,

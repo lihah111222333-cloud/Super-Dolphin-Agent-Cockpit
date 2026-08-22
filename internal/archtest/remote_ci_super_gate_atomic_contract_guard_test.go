@@ -23,15 +23,15 @@ func TestRemoteCISuperDolphinGateAtomicContract(t *testing.T) {
 	sources := map[string]string{
 		"catalog":    readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_catalog.go")),
 		"helpers":    readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/go_test_helpers.go")),
-		"inventory":  readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/remoteci/inventory.go")),
+		"inventory":  readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_catalog.go")),
 		"executor":   readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/executor_mapping.go")),
 		"planner":    readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_compile_planning.go")),
 		"validation": readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/compile_group.go")),
 		"manifest":   readRemoteCIContractGuardFile(t, filepath.Join(root, "internal/devtools/gate/workload_planning.go")),
 	}
 	assertSuperGateMarkers(t, "catalog", sources["catalog"], []string{"AtomicSuperDolphinGatePackageTarget", "func AtomicGoPackageTargets() []string", "splitAtomicGoTestTargets"})
-	assertSuperGateMarkers(t, "helpers", sources["helpers"], []string{"CanonicalGoTestHelperTargets", "TestRemoteHookConcurrentProcessHelper", "IsCanonicalGoTestHelper"})
-	assertSuperGateMarkers(t, "inventory", sources["inventory"], []string{"gate.IsCanonicalGoTestHelper", "inventoryGoTestTargets"})
+	assertSuperGateMarkers(t, "helpers", sources["helpers"], []string{"CanonicalGoTestHelperTargets", "IsCanonicalGoTestHelper"})
+	assertSuperGateMarkers(t, "inventory", sources["inventory"], []string{"AtomicGoPackageTargets", "isAtomicGoPackageTarget"})
 	assertSuperGateMarkers(t, "executor", sources["executor"], []string{"IsCanonicalGoTestHelper", "canonical subprocess helper"})
 	assertSuperGateMarkers(t, "planner", sources["planner"], []string{"CompileGroupMaxSelectors", "isAtomicGoPackageTarget", "AtomicSuperDolphinGatePackageTarget"})
 	assertSuperGateMarkers(t, "compile validation", sources["validation"], []string{"AtomicSuperDolphinGatePackageTarget", "len(group.BatchPlan) != 1", "CompileGroupMaxSelectors"})

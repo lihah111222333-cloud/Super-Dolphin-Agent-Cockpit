@@ -17,9 +17,6 @@ func assertRaceSensitiveRegistries(t *testing.T, patterns, prefixes []string) {
 	if slices.Contains(patterns, "./cmd/...") || slices.Contains(patterns, "./cmd/agent-terminal/...") {
 		t.Fatalf("race registry includes agent-terminal through an unbounded command pattern: %v", patterns)
 	}
-	if !slices.Contains(patterns, "./internal/devtools/remoteci/...") {
-		t.Fatalf("race registry omits the remote CI coordinator: %v", patterns)
-	}
 }
 
 func assertRaceRegistryEntry(t *testing.T, pattern, prefix string, index int) {

@@ -266,11 +266,9 @@ func TestSQLCVerificationModesStaySeparatedByWorkflow(t *testing.T) {
 	}
 
 	prePush := readRepoFile(t, "../.githooks/pre-push")
-	assertScriptContains(t, prePush, `remote hook pre-push`)
-	assertScriptContains(t, prePush, `--config "$remote_config"`)
-	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
-	assertScriptContains(t, prePush, `--repository "$repo_root"`)
-	assertScriptContains(t, prePush, `exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`)
+	assertScriptContains(t, prePush, `project-map check --tree "$selected_push_tree"`)
+	assertScriptContains(t, prePush, `closure check --tree "$selected_push_tree"`)
+	assertScriptContains(t, prePush, `current_tree=$(git -C "$repo_root" write-tree)`)
 	assertScriptDoesNotContain(t, prePush, "run_ai_maintenance_push_gate")
 	assertScriptDoesNotContain(t, prePush, "make sqlc-verify")
 	assertScriptDoesNotContain(t, prePush, "make sqlc-verify-worktree")

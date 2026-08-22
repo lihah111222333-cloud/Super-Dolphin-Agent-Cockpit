@@ -95,7 +95,7 @@ func reviewPlanNeedsFrontendDependencies(gates []string) bool {
 func reviewFrontendDependencySeed(executionRoot string) (string, func() error, error) {
 	configured, ok := os.LookupEnv("SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED")
 	if !ok {
-		return "", nil, errors.New("SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED is required; use a verified seed or canonical remote ECI")
+		return "", nil, errors.New("SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED is required; no implicit dependency fallback is allowed")
 	}
 	if strings.TrimSpace(configured) == "" {
 		return "", nil, errors.New("SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED is blank")
@@ -199,7 +199,7 @@ func cleanWindowsReviewFrontendDependencySeed(sourceRoot string) (string, func()
 	}
 	for _, entry := range entries {
 		if entry.Name() == ".vite" || entry.Name() == ".vite-temp" {
-			return "", nil, errors.New("Windows frontend dependency seed contains reserved cache; use a canonical clean seed or remote ECI")
+			return "", nil, errors.New("Windows frontend dependency seed contains reserved cache; provide a canonical clean seed")
 		}
 	}
 	return sourceRoot, func() error { return nil }, nil

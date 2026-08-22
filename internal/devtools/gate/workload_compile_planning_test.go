@@ -275,11 +275,6 @@ func TestCompileGroupBatchPlanKeepsAtomicDevtoolsPackagesOnOneBinary(t *testing.
 			packageTarget: AtomicGatePackageTarget,
 			names:         []string{"TestGateAtomicCommon", "TestGateAtomicNormal", "TestGateAtomicThird"},
 		},
-		{
-			name:          "remoteci",
-			packageTarget: AtomicRemoteCIPackageTarget,
-			names:         []string{"TestRemoteCIAtomicCommon", "TestRemoteCIAtomicNormal", "TestRemoteCIAtomicThird"},
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			selectors := testCompilePlanningSelectors(t, test.packageTarget, test.names, []int64{60_000, 60_000, 60_000})
@@ -573,7 +568,7 @@ func assertHeuristicDomainsSeparated(t *testing.T, shards []ShardPlan) {
 
 func TestCompilePackingKeepsDifferentResourceClassesIsolated(t *testing.T) {
 	firstSelectors := testCompilePlanningSelectors(t, AtomicGatePackageTarget, []string{"TestResourceSmall"}, []int64{10_000})
-	secondSelectors := testCompilePlanningSelectors(t, AtomicRemoteCIPackageTarget, []string{"TestResourceMedium"}, []int64{10_000})
+	secondSelectors := testCompilePlanningSelectors(t, AtomicGatePackageTarget, []string{"TestResourceMedium"}, []int64{10_000})
 	first := testCompileGroupFromPlanningSelectors(t, firstSelectors, 1_000, "small")
 	second := testCompileGroupFromPlanningSelectors(t, secondSelectors, 1_000, "medium")
 	units := []compilePlanningUnit{

@@ -134,34 +134,15 @@ func plannerSSOTIndependentArguments(sourceFile, functionName, canonicalCall str
 		"internal/devtools/gate/compile_group.go:validateCompileGroupResourceClass->ValidateResourceClassID":                     {"value"},
 		"internal/devtools/gate/workload_duration_index.go:normalResourceTierForTuple->NormalResourceTierForResources":           {"cpu", "memoryGiB"},
 		"internal/devtools/gate/workload_resource_reserve.go:resourceTierForReserve->NormalResourceTierForIdentity":              {"resources.ClassID", "resources.CPU", "resources.MemoryGiB"},
-		"internal/devtools/shardresource/planner.go:validateClass->ValidateNormalResourceIdentity":                               {"class.ID", "class.VCPU", "class.MemoryGiB"},
-		"internal/devtools/shardresource/planner.go:validateCalibrationResource->ValidateCalibrationResources":                   {"class.ID", "class.VCPU", "class.MemoryGiB"},
-		"internal/devtools/shardresource/planner.go:canonicalFastNormalResourceIdentity->FastNormalResourceIdentity":             nil,
-		"internal/devtools/shardresource/planner.go:validateCanonicalPolicyClass->NormalResourceIdentityForTier":                 {"cicontract.WorkloadResourceTier(index + 1)"},
 	}
 	return append([]string(nil), arguments[key]...)
 }
 
 func TestPlannerSSOTBaselineStateMutationsAreLive(t *testing.T) {
-	root := findRepoRoot(t)
-	file := parsePlannerSSOTProductionFile(t, filepath.Join(root, "internal/devtools/shardresource/planner.go"))
-	function, err := plannerSSOTMapperFunction(file, "baselineClassIndex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := plannerSSOTRejectConstantDeadBaselineMutations(function); err != nil {
-		t.Fatal(err)
-	}
-	fixture, err := parser.ParseFile(token.NewFileSet(), "fixture.go", "package shardresource\nfunc baselineClassIndex() { memoryFloor := 1; if false { memoryFloor = 2 }; _ = memoryFloor }", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixtureFunction, err := plannerSSOTMapperFunction(fixture, "baselineClassIndex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := plannerSSOTRejectConstantDeadBaselineMutations(fixtureFunction); err == nil {
-		t.Fatal("constant-dead baseline mutation fixture was accepted")
+	for _, binding := range cicontract.PlannerSSOTConsumerBindings() {
+		if strings.Contains(binding.SourceFile, "shardresource") {
+			t.Fatalf("planner SSOT registry retains deleted shardresource consumer: %#v", binding)
+		}
 	}
 }
 
@@ -185,25 +166,11 @@ func TestPlannerSSOTMappersUseCanonicalDirectCalls(t *testing.T) {
 	}
 }
 
-func TestPlannerSSOTValidateCanonicalPolicyClassRequiresUniqueCall(t *testing.T) {
-	var spec plannerSSOTMapperSpec
-	for _, candidate := range plannerSSOTMapperSpecs() {
-		if candidate.functionName == "validateCanonicalPolicyClass" {
-			spec = candidate
-			break
+func TestPlannerSSOTRegistryHasNoRetiredShardResourceEntries(t *testing.T) {
+	for _, binding := range cicontract.PlannerSSOTConsumerBindings() {
+		if strings.Contains(binding.SourceFile, "shardresource") {
+			t.Fatalf("planner SSOT registry retains deleted shardresource consumer: %#v", binding)
 		}
-	}
-	if spec.functionName == "" {
-		t.Fatal("validateCanonicalPolicyClass registry entry is missing")
-	}
-	source := plannerSSOTMapperFixture(spec, strings.Join(spec.expectedArgs, ", "))
-	source = strings.Replace(source, "\t_ = expected", "\t_, _ = cicontract.NormalResourceIdentityForTier(cicontract.WorkloadResourceTier(index + 1))\n\t_ = expected", 1)
-	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", source, 0)
-	if err != nil {
-		t.Fatalf("parse duplicate canonical call fixture: %v", err)
-	}
-	if err := validatePlannerSSOTMapper(file, spec); err == nil || !containsPlannerSSOTError(err, "one live value/error dataflow") {
-		t.Fatalf("duplicate canonical call fixture error = %v, want unique live dataflow rejection", err)
 	}
 }
 
@@ -307,7 +274,7 @@ func discoverPlannerSSOTProductionConsumers(t *testing.T, root string) map[strin
 }
 
 func plannerSSOTProductionPath(path string) bool {
-	return strings.HasPrefix(path, "internal/devtools/gate/") || strings.HasPrefix(path, "internal/devtools/shardresource/")
+	return strings.HasPrefix(path, "internal/devtools/gate/")
 }
 
 func parsePlannerSSOTProductionFile(t *testing.T, path string) *ast.File {

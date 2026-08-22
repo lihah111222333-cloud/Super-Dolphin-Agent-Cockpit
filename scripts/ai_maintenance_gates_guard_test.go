@@ -28,11 +28,9 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		}
 	}
 	for _, required := range []string{
-		`remote hook pre-push`,
-		`--config "$remote_config"`,
-		`--ledger "$remote_ledger"`,
-		`--repository "$repo_root"`,
-		`"$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"`,
+		`project-map check --tree "$selected_push_tree"`,
+		`closure check --tree "$selected_push_tree"`,
+		`current_tree=$(git -C "$repo_root" write-tree)`,
 	} {
 		if !strings.Contains(prePush, required) {
 			return fmt.Errorf("pre-push must route through trusted gate CLI command %q", required)
@@ -77,11 +75,9 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, testWithGuard, `[ "$1" != "--light-guard-only" ]`)
 	assertScriptDoesNotContain(t, preCommit, `remote hook pre-commit`)
 	assertScriptDoesNotContain(t, preCommit, `SUPER_DOLPHIN_CI_AGENT_TOKEN`)
-	assertScriptContains(t, prePush, `remote hook pre-push`)
-	assertScriptContains(t, prePush, `--config "$remote_config"`)
-	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
-	assertScriptContains(t, prePush, `--repository "$repo_root"`)
-	assertScriptContains(t, prePush, `"$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"`)
+	assertScriptContains(t, prePush, `project-map check --tree "$selected_push_tree"`)
+	assertScriptContains(t, prePush, `closure check --tree "$selected_push_tree"`)
+	assertScriptContains(t, prePush, `current_tree=$(git -C "$repo_root" write-tree)`)
 	for name, hook := range map[string]string{"pre-push": prePush} {
 		for line := range strings.SplitSeq(hook, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "printf ") {
@@ -139,9 +135,9 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 			},
 		},
 		{
-			name: "pre-push remote hook command",
+			name: "pre-push local Gate commands",
 			mutate: func(_, prePush, _ *string) {
-				*prePush = strings.ReplaceAll(*prePush, `remote hook pre-push`, "")
+				*prePush = strings.ReplaceAll(*prePush, `closure check --tree "$selected_push_tree"`, "")
 			},
 		},
 		{

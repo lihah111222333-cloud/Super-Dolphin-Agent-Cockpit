@@ -8,7 +8,7 @@ main() {
     case "$1" in
       test|build|vet)
         local replacement
-        replacement="super-dolphin-gate test --target=remote  # 由受信 launcher 补齐配置，并传入精确 --test 选择器"
+        replacement="scripts/test_with_guard.sh --ci-guard  # 由受信本地 Gate 绑定精确候选树"
         cat >&2 <<EOF_MSG
 ❌ 禁止裸跑 go $1
 
@@ -19,8 +19,8 @@ main() {
   $replacement
 
 说明:
-  - 所有测试均由远程 ECI coordinator 执行；共享依赖与编译缓存只能加速，每次测试仍实际执行
-  - 内部测试脚本的进程退出码本身不构成 remote 或 release authority
+  - 所有测试先经过受信本地 Gate 与四节点离线编排；共享依赖与编译缓存只能加速，每次测试仍实际执行
+  - 内部测试脚本的进程退出码本身不构成候选树或 release authority
   - build / vet 若包含测试守卫，同样必须通过受信 CI 入口
 EOF_MSG
         exit 1

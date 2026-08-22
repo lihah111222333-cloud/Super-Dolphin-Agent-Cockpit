@@ -36,14 +36,15 @@ function Write-Stderr {
     [Console]::Error.WriteLine($Message)
 }
 
-function Assert-RemoteTestExecution {
-    if ($env:SUPER_DOLPHIN_TEST_BACKEND -eq 'remote-worker') {
+function Assert-LocalGateExecution {
+    if ($env:SUPER_DOLPHIN_TEST_BACKEND -eq 'local-authority') {
         return
     }
     Write-Stderr @'
-Host test execution is forbidden.
-Every test request must pass through super-dolphin-gate test --target=remote and run through the remote ECI coordinator.
-Build and dependency caches may accelerate execution but never authorize skipping a test or running it on the host.
+Unclassified host test execution is forbidden.
+Light/medium tests must use --host-test with exact selectors and live resource admission.
+Heavy, race, benchmark, fuzz, full-package, and unknown workloads require the trusted four-node offline Gate.
+This script never starts or forwards remote/ECI workloads.
 '@
     exit 2
 }
@@ -406,7 +407,7 @@ function Main {
         $argsForRun[0] -notin @('--help', '-h') -and
         -not (Test-AllArgsAreGoFiles -Args $argsForRun)
     ) {
-        Assert-RemoteTestExecution
+        Assert-LocalGateExecution
     }
 
     switch ($argsForRun[0]) {

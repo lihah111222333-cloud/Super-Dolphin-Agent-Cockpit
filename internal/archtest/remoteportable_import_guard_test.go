@@ -14,9 +14,9 @@ import (
 func TestRemotePortableCoreRejectsLegacyImports(t *testing.T) {
 	root := repositoryRootForPortableGuard(t)
 	portableDir := filepath.Join(root, "internal", "devtools", "remoteportable")
-	forbidden := []string{"internal/devtools/alicloud", "alicloud/", "internal/devtools/gate", "gateprivate", "cicontract", "shardresource", "sourceexport", "platform/db/sqlite", "internal/devtools/remoteciruntime", "scripts/mcp_lsp_workload_catalog", "remoteci"}
+	forbidden := []string{"internal/devtools/gate", "gateprivate", "platform/db/sqlite", "scripts/mcp_lsp_workload_catalog", "heterociowner", "heterociexec", "heterocitransport", "heterociworkflow"}
 	assertPortableDirectoryImports(t, portableDir, forbidden)
-	cliForbidden := []string{"internal/devtools/remoteci", "internal/devtools/gate", "gateprivate", "internal/devtools/alicloud", "alicloud/", "cicontract", "shardresource", "sourceexport", "platform/db/sqlite", "internal/devtools/remoteciruntime", "scripts/mcp_lsp_workload_catalog"}
+	cliForbidden := []string{"internal/devtools/gate", "gateprivate", "platform/db/sqlite", "scripts/mcp_lsp_workload_catalog"}
 	assertPortableDirectoryImports(t, filepath.Join(root, "internal", "devtools", "remotecicli"), cliForbidden, map[string][]string{"automatic_run.go": {"platform/db/sqlite"}})
 }
 

@@ -24,19 +24,17 @@ func TestGuardWrappersRefuseGeneratedBaselineDrift(t *testing.T) {
 	}
 }
 
-func TestRemoteECITestGuidanceUsesExplicitAuthorityTarget(t *testing.T) {
-	for file, required := range map[string]string{
-		"test_with_guard.sh":    `test --target=remote --config`,
-		"go":                    `super-dolphin-gate test --target=remote`,
-		"real_go_resolver.sh":   `super-dolphin-gate test --target=remote`,
-		"forbid_raw_go_test.sh": `super-dolphin-gate test --target=remote`,
-		"activate_guard_env.sh": `super-dolphin-gate test --target=remote`,
-	} {
-		assertScriptContains(t, readScript(t, file), required)
+func TestGuardScriptsUseLocalGateAndOfflineHeavyGuidance(t *testing.T) {
+	for _, file := range []string{"test_with_guard.sh", "real_go_resolver.sh", "forbid_raw_go_test.sh", "activate_guard_env.sh", "test_with_guard.ps1"} {
+		script := readScript(t, file)
+		if strings.Contains(script, "--target=remote") || strings.Contains(script, "ECI coordinator") || strings.Contains(script, "remote-worker") {
+			t.Fatalf("%s retains a remote/ECI execution branch", file)
+		}
 	}
+	assertScriptContains(t, readScript(t, "test_with_guard.sh"), "trusted four-node offline Gate")
 }
 
-func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
+func TestHostTestWrappersRequireLocalGateAdmission(t *testing.T) {
 	for _, command := range [][]string{
 		{"scripts/test_with_guard.sh", "--ci-package-test", "./internal/devtools/gate", "TestBoundary"},
 		{"scripts/test_with_guard.sh", "--ci-compile-package", "./internal/devtools/gate"},
@@ -50,8 +48,11 @@ func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s unexpectedly admitted an unfiltered host test", command[0])
 		}
-		if !strings.Contains(string(output), "super-dolphin-gate test") {
-			t.Fatalf("%s rejection omitted the trusted test entrypoint:\n%s", command[0], output)
+		if !strings.Contains(string(output), "受信四节点离线 Gate") {
+			t.Fatalf("%s rejection omitted the local heavy-workload boundary:\n%s", command[0], output)
+		}
+		if strings.Contains(string(output), "--target=remote") || strings.Contains(string(output), "ECI coordinator") {
+			t.Fatalf("%s rejection retained a remote execution suggestion:\n%s", command[0], output)
 		}
 	}
 }
@@ -60,7 +61,7 @@ func TestCallerEnvironmentCannotBypassRawGoOrToolchainProbe(t *testing.T) {
 	assertScriptDoesNotContain(t, readScript(t, "go"), "GO_GUARD_ALLOW_RAW")
 	resolver := readScript(t, "real_go_resolver.sh")
 	assertScriptContains(t, resolver, `real_go_resolver_probe "$candidate_abs" "$required_version"`)
-	assertScriptDoesNotContain(t, resolver, `if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then`)
+	assertScriptContains(t, resolver, "require_local_gate_execution")
 
 	goRoot := t.TempDir()
 	fakeGo := filepath.Join(goRoot, "bin", "go")
@@ -73,11 +74,11 @@ func TestCallerEnvironmentCannotBypassRawGoOrToolchainProbe(t *testing.T) {
 	cmd := exec.Command("bash", "-c", "source scripts/real_go_resolver.sh; resolve_real_go")
 	cmd.Dir = ".."
 	environment := upsertEnv(os.Environ(), "GOROOT", bashAbsolutePath(goRoot))
-	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "local-authority")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "GOROOT", "SUPER_DOLPHIN_TEST_BACKEND")
 	output, err := cmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(output), "GOROOT 未提供仓库要求的 go1.26.5 工具链") {
-		t.Fatalf("remote-worker caller environment bypassed toolchain probe: err=%v output=%q", err, output)
+		t.Fatalf("local-authority caller environment bypassed toolchain probe: err=%v output=%q", err, output)
 	}
 }
 
@@ -97,7 +98,7 @@ func TestRawGoCallerEnvironmentDoesNotBypassWrapper(t *testing.T) {
 	environment = upsertEnv(environment, "FAKE_GO_LOG", bashAbsolutePath(invocations))
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "REAL_GO_BIN", "GO_GUARD_ALLOW_RAW", "FAKE_GO_LOG")
 	output, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(output), "super-dolphin-gate test --target=remote") {
+	if err == nil || !strings.Contains(string(output), "禁止裸跑 go test") || strings.Contains(string(output), "--target=remote") || strings.Contains(string(output), "ECI coordinator") {
 		t.Fatalf("caller raw-Go environment changed authority: err=%v output=%q", err, output)
 	}
 	if data, readErr := os.ReadFile(invocations); readErr == nil && len(data) != 0 {
@@ -158,7 +159,7 @@ func TestHostTestModeRejectsEmptySelectionAndHeavyFlag(t *testing.T) {
 			t, "--host-test", "light", "./scripts",
 			"-run", "^TestBoundary$", "-timeout=120s", "-count=1",
 		)
-		assertTestWithGuardRemoteRejection(t, result, "host_tier=high")
+		assertTestWithGuardLocalGateRejection(t, result, "host_tier=high")
 	})
 	t.Run("unavailable host load", func(t *testing.T) {
 		t.Setenv("FAKE_HOST_IDLE", "not-a-number")
@@ -166,7 +167,7 @@ func TestHostTestModeRejectsEmptySelectionAndHeavyFlag(t *testing.T) {
 			t, "--host-test", "light", "./scripts",
 			"-run=^TestBoundary$", "-timeout=120s", "-count=1",
 		)
-		assertTestWithGuardRemoteRejection(t, result, "host resource evidence is unavailable")
+		assertTestWithGuardLocalGateRejection(t, result, "host resource evidence is unavailable")
 	})
 }
 
@@ -529,7 +530,7 @@ func bad_identifier_with_too_many_underscores() {}
 	cmd := exec.Command("bash", "scripts/test_with_guard.sh", filepath.ToSlash(path))
 	cmd.Dir = ".."
 	environment := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(fakeGo))
-	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "local-authority")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "REAL_GO_BIN", "SUPER_DOLPHIN_TEST_BACKEND")
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -560,8 +561,8 @@ func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
 		"$ErrorActionPreference = 'Stop'",
 		"Set-StrictMode -Version Latest",
 		"function Resolve-RealGo",
-		"function Assert-RemoteTestExecution",
-		"$env:SUPER_DOLPHIN_TEST_BACKEND -eq 'remote-worker'",
+		"function Assert-LocalGateExecution",
+		"$env:SUPER_DOLPHIN_TEST_BACKEND -eq 'local-authority'",
 		"$env:REAL_GO_BIN",
 		"Get-Command go -All",
 		"function Invoke-RawGoTestGuard",
@@ -671,21 +672,14 @@ func assertTestWithGuardRejected(t *testing.T, result testWithGuardFakeGoResult,
 	}
 }
 
-func assertTestWithGuardRemoteRejection(t *testing.T, result testWithGuardFakeGoResult, reason string) {
+func assertTestWithGuardLocalGateRejection(t *testing.T, result testWithGuardFakeGoResult, reason string) {
 	t.Helper()
 	assertTestWithGuardRejected(t, result,
 		reason,
-		"remote CI exact test: source .githooks/trusted-gate-launcher.sh",
-		`"$(trusted_gate_launcher_for_tree "$(git rev-parse --show-toplevel)"`,
-		`)" test`,
-		"--target=remote",
-		`--config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}"`,
-		`--ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}"`,
-		"--test ./scripts#TestBoundary",
-		"remote CI setup: make remote-ci-init",
+		"受信四节点离线 Gate",
 	)
-	if strings.Contains(result.invocations, "super-dolphin-gate") {
-		t.Fatalf("host admission rejection launched ECI instead of only printing guidance:\n%s", result.invocations)
+	if strings.Contains(result.output, "--target=remote") || strings.Contains(result.output, "ECI coordinator") || strings.Contains(result.invocations, "super-dolphin-gate") {
+		t.Fatalf("host admission rejection retained a remote execution suggestion:\noutput=%s\ninvocations=%s", result.output, result.invocations)
 	}
 }
 
@@ -742,7 +736,7 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment = upsertEnv(environment, "FAKE_HOST_IDLE", os.Getenv("FAKE_HOST_IDLE"))
 	environment = upsertEnv(environment, "GIT_INDEX_FILE", bashAbsolutePath(candidateIndex))
 	environment = upsertEnv(environment, "GOFLAGS", "")
-	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "local-authority")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
 		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "FAKE_GO_TEST_OUTPUT", "FAKE_GO_TOOL_DIR", "FAKE_HOST_IDLE",
 		"GIT_INDEX_FILE", "SUPER_DOLPHIN_TEST_BACKEND",

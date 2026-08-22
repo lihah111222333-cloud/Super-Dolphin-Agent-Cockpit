@@ -6,29 +6,31 @@ import (
 	"testing"
 )
 
-// TestRemoteCIGateUsesSharedExecutionOwner 锁定 Gate 只能通过共享 owner 串联
-// Coordinator 执行与 SQLite authority finalizer，禁止调用方重新拆成两条路径。
-func TestRemoteCIGateUsesSharedExecutionOwner(t *testing.T) {
+// TestLocalGateExecutorRemainsSingleEntry locks the retained local Gate
+// executor as the only production execution owner after remote dispatch removal.
+func TestLocalGateExecutorRemainsSingleEntry(t *testing.T) {
 	root := findRepoRoot(t)
-	parsed := parseRemoteCIContractGuardFile(t, filepath.Join(root, "cmd", "super-dolphin-gate", "remote_run.go"))
-	defaults := remoteCIFunctionByName(parsed, "defaultRemotePreparedRunDependencies")
-	if defaults == nil {
-		t.Fatal("defaultRemotePreparedRunDependencies is missing")
+	path := filepath.Join(root, "internal", "devtools", "gate", "executor.go")
+	file := parseRemoteCIContractGuardFile(t, path)
+	if remoteCIFunctionByName(file, "ExecuteExecutor") == nil {
+		t.Fatal("local Gate executor entry is missing")
 	}
-	if got := remoteCIFunctionCallCount(&ast.File{Decls: []ast.Decl{defaults}}, "NewExecutionOwner"); got != 1 {
-		t.Fatalf("shared execution owner constructor calls = %d, want 1", got)
+	if count := localGateDeclarationCount(file, "ExecuteExecutor"); count != 1 {
+		t.Fatalf("local Gate executor declaration count = %d, want 1", count)
 	}
-	execute := remoteCIFunctionByName(parsed, "executePreparedRemoteRun")
-	if execute == nil {
-		t.Fatal("executePreparedRemoteRun is missing")
-	}
-	file := &ast.File{Decls: []ast.Decl{execute}}
-	if got := remoteCIFunctionCallCount(file, "ExecutePrepared"); got != 1 {
-		t.Fatalf("shared execution owner calls = %d, want 1", got)
-	}
-	for _, forbidden := range []string{"runPrepared", "finalizeEvidence", "RunPrepared", "finalizeRemoteRunEvidence"} {
-		if got := remoteCIFunctionCallCount(file, forbidden); got != 0 {
-			t.Fatalf("executePreparedRemoteRun directly calls %s %d times", forbidden, got)
+}
+
+func localGateDeclarationCount(file *ast.File, name string) int {
+	count := 0
+	ast.Inspect(file, func(node ast.Node) bool {
+		declaration, ok := node.(*ast.FuncDecl)
+		if !ok {
+			return true
 		}
-	}
+		if declaration.Recv == nil && declaration.Name != nil && declaration.Name.Name == name {
+			count++
+		}
+		return true
+	})
+	return count
 }

@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer declaration: 100% AI-written original code and project-authored documentation, human-directed, repository-guarded.** Product code, test code, and project-owned documentation are written or refactored by AI agents. Humans retain ownership of product intent, architecture decisions, credentials, and releases. Authorship does not imply infallibility: every accepted change remains subject to repository-owned evidence and gates. Upstream legal and community texts retain their original attribution.
 
-**Truth-image delivery enforcement.** Versioned [Git hooks](.githooks/README.md), manual `make ci-l0`, `make ci-l1`, and release validation enforce two distinct boundaries. `pre-commit` runs the repository code guard against the exact staged tree without starting remote CI. `pre-push`, the manual L0-L1 commands, and release validation use the fail-closed remote ECI gate against the exact pushed tree or commit. GitHub is only the Git remote; it does not provide a CI runner. Missing remote configuration, provenance, result authority, cleanup evidence, or a failed push/release gate rejects delivery. `commit-msg` continues to require Chinese commit text and fix-test evidence.
+**Trusted local delivery enforcement.** Versioned [Git hooks](.githooks/README.md), manual `make ci-l0`, `make ci-l1`, and release validation bind checks to the exact staged/pushed tree. `pre-commit`, `pre-push`, and the manual wrappers use the trusted local Gate for project-map, closure, and code-guard validation; they do not start remote hooks, cloud workloads, or external executors. Missing provenance, local Gate identity, cleanup evidence, or a failed validation rejects delivery. `commit-msg` continues to require Chinese commit text and fix-test evidence.
 
 Super Dolphin Agent is a **production-grade, AI-native vibe-coding engineering system and multi-agent development control plane**. It combines a local desktop runtime, MCP orchestration, multi-language LSP navigation, provider integrations, persistent workflows, and machine-enforced engineering boundaries in one working reference implementation.
 
@@ -207,16 +207,13 @@ The clone command below targets the canonical public repository and will work af
 git clone https://github.com/lihah111222333-cloud/super-dolphin-agent.git
 cd super-dolphin-agent
 make install-hooks
-make remote-ci-init
 
 go install golang.org/x/tools/gopls@latest
 npm install -g typescript-language-server typescript@5.9.3
 ( cd frontend-app && npm ci )
 ```
 
-For maintainers running the private remote ECI gate, authenticate GitHub CLI once and use `git remote-ci commit ...` / `git remote-ci push`. The repository-owned launcher reads GHCR credentials from the operating-system credential store and keeps both GHCR and agent tokens in the current Git process chain only. It can target another initialized trusted checkout with `./scripts/git_with_remote_ci_credentials.sh --repository /absolute/path -- <git arguments>`; no raw credential is stored in Git or repository files.
-
-For one exact test that must execute in ECI, use the trusted launcher with an explicit authority target: `"$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --target=remote --config "$SUPER_DOLPHIN_GATE_REMOTE_CONFIG" --ledger "$SUPER_DOLPHIN_GATE_LEDGER" --test './package#TestName'`. `test` otherwise defaults to `auto`; `super-dolphin-gate test --help` documents `local`, `auto`, `hybrid`, `remote`, and `--gate-workload`. A host admission rejection only prints this command and never creates ECI work itself.
+The trusted launcher is local-only: it binds the Gate binary to an exact Git tree and runs project-map, closure, and code-guard checks without remote credentials, cloud configuration, or external workload execution. The independent `super-dolphin-remote-ci` binary is limited to strict portable descriptor validation; `execute` fails closed until an independently verified executor contract is supplied.
 
 Run the current desktop development flow:
 
@@ -275,10 +272,10 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 569 runnable `Test*` functions across 200 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 525 runnable `Test*` functions across 183 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
-| CI | [Alibaba Cloud ECI contract](docs/契约/remote-ci-eci-imagecache-contract.md) |
+| CI | Independent portable validation contract and trusted local Gate checks |
 
 <!-- sd:security -->
 ## Security
