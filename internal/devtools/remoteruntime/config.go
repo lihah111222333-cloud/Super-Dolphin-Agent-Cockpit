@@ -220,11 +220,12 @@ func loadConfigWithOps(path string, ops configFileOps) (RuntimeConfig, error) {
 	}
 	data, readErr := readStableConfigHandle(handle, initial)
 	closeErr := handle.Close()
-	if readErr != nil {
-		return RuntimeConfig{}, readErr
-	}
-	if closeErr != nil {
-		return RuntimeConfig{}, fmt.Errorf("close runtime config: %w", closeErr)
+	if readErr != nil || closeErr != nil {
+		var wrappedClose error
+		if closeErr != nil {
+			wrappedClose = fmt.Errorf("close runtime config: %w", closeErr)
+		}
+		return RuntimeConfig{}, errors.Join(readErr, wrappedClose)
 	}
 	return DecodeConfig(data)
 }
