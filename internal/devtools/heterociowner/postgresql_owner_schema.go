@@ -1,5 +1,7 @@
 package heterociowner
 
+import "strings"
+
 // PostgreSQLOwnerRuntimeSchemaVersion 是 remote PostgreSQL-only owner schema 的冻结版本。
 const PostgreSQLOwnerRuntimeSchemaVersion = "heteroci-owner-postgresql/v1"
 
@@ -22,6 +24,12 @@ func postgresqlOwnerSchemaStatements() []string {
 		statements = append(statements, "REVOKE ALL ON TABLE "+PostgreSQLOwnerSchema+"."+table+" FROM PUBLIC")
 	}
 	return statements
+}
+
+// PostgreSQLOwnerDDL 返回由受信管理员一次性应用的 clean create-only DDL。
+// backend 不调用本函数；重复应用必须由 PostgreSQL 原子拒绝。
+func PostgreSQLOwnerDDL() string {
+	return strings.Join(postgresqlOwnerSchemaStatements(), ";\n") + ";"
 }
 
 func postgresqlOwnerTableNames() []string {

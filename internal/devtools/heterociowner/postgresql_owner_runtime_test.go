@@ -104,7 +104,10 @@ func TestPostgreSQLOwnerDDLIsIndependentCanonicalBYTEASchema(t *testing.T) {
 	if len(statements) < 2 || statements[0] != "CREATE SCHEMA "+PostgreSQLOwnerSchema+" AUTHORIZATION "+PostgreSQLOwnerRole {
 		t.Fatalf("PostgreSQL owner DDL does not create %s first: %#v", PostgreSQLOwnerSchema, statements)
 	}
-	joined := strings.Join(statements, "\n")
+	joined := PostgreSQLOwnerDDL()
+	if !strings.HasSuffix(joined, ";") {
+		t.Fatal("PostgreSQL owner operator DDL is not statement terminated")
+	}
 	for _, required := range []string{
 		PostgreSQLOwnerSchema + ".owner_heads",
 		PostgreSQLOwnerSchema + ".owner_epochs",

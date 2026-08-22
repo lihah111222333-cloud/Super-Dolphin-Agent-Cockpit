@@ -953,8 +953,8 @@ internal/devtools/heterociowner/owner_fence_test.go	internal	other	go-test	2876	
 internal/devtools/heterociowner/postgresql_owner.go	internal	other	go-source	12012	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_plan.go	internal	other	go-source	16352	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_plan_test.go	internal	other	go-test	2745	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,test,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_runtime_test.go	internal	other	go-test	5568	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,runtime,test,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_schema.go	internal	other	go-source	5690	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,schema,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_runtime_test.go	internal	other	go-test	5670	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,runtime,test,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_schema.go	internal	other	go-source	5986	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,schema,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_test_driver_test.go	internal	other	go-test	9907	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,test,driver,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_protocol.go	internal	other	go-source	15462	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,protocol,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_protocol_test.go	internal	other	go-test	13224	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,protocol,test,开发工具与生成器辅助包
