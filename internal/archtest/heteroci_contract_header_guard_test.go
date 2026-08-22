@@ -239,6 +239,28 @@ func TestHeterociExternalBindingFieldsStayOnEveryIdentityBoundary(t *testing.T) 
 	}
 }
 
+func TestHeterociEngineProtocolCompositeOwnerGuard(t *testing.T) {
+	root := findRepoRoot(t)
+	source := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "remotecicli", "execute.go"))
+	for _, marker := range []string{
+		"RemoteCIEngineProtocolABIDigest",
+		"RemoteCIEngineProtocolABIDigestDomain",
+		"remoteCIEngineABIComponents",
+		"remote-ci-engine-protocol-abi/v1",
+		"reflect.TypeFor[heteroci.ProbeRequest]()",
+		"reflect.TypeFor[heterociworkflow.RunRequest]()",
+		"reflect.TypeFor[heterocinode.BatchRequest]()",
+		"reflect.TypeFor[heterociexec.PostgreSQLReceiptEvent]()",
+		"reflect.TypeFor[remoteruntime.RuntimeConfig]()",
+		"remoteportable.PortableBindingProtocolABIDigest",
+		"protocolDigest, err := RemoteCIEngineProtocolABIDigest()",
+	} {
+		if !strings.Contains(source, marker) {
+			t.Errorf("remote-ci engine ABI composite owner is missing %q", marker)
+		}
+	}
+}
+
 // assertHeterociSourceMarkers keeps each production boundary tied to its own source file.
 func assertHeterociSourceMarkers(t *testing.T, sourceName, source string, markers []string) {
 	t.Helper()

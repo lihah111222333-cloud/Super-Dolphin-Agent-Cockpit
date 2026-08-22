@@ -21,6 +21,8 @@ import (
 const (
 	// ConfigSchemaVersion 是 runtime config 的稳定 ABI 版本。
 	ConfigSchemaVersion = "remote-ci-runtime-config/v1"
+	// RuntimePolicyDigestDomain 绑定 runtime policy 的 canonical digest 域。
+	RuntimePolicyDigestDomain = "remote-ci-runtime-policy/v1"
 	// FourNodeContractID 是四节点 runtime 所属的 accepted contract。
 	FourNodeContractID = "remote-ci-four-node/v1"
 	// MaxConfigBytes 限制 runtime config 的 canonical JSON 大小。
@@ -363,7 +365,7 @@ func PolicyDigest(config RuntimeConfig) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode runtime policy: %w", err)
 	}
-	digest := sha256.Sum256(append([]byte("remote-ci-runtime-policy/v1\x00"), encoded...))
+	digest := sha256.Sum256(append([]byte(RuntimePolicyDigestDomain+"\x00"), encoded...))
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 

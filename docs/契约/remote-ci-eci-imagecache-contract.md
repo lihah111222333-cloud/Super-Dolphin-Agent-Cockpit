@@ -25,7 +25,7 @@ super-dolphin-remote-ci 是独立构建、独立发布、独立运行的二进�
 
 每次请求必须显式绑定：
 
-- engine：composition 从独立 binary/runtime 计算的二进制 SHA-256、协议 ABI 摘要、工具链摘要和能力；
+- engine：composition 从独立 binary/runtime 计算的二进制 SHA-256、协议 ABI 摘要、工具链摘要和能力；协议 ABI 摘要必须由单一 composite owner 绑定 portable、runtime、probe/planner、node batch、workflow binding、event/receipt 的 schema 常量与 reflect wire descriptors，任一字段或 schema 漂移都必须改变摘要；
 - target：repository_id、object_format、exact commit_sha、exact tree_sha；
 - workload：manifest content/raw blob 摘要、profile、capacity policy 摘要和 operation_id；
 - authority：本合同的 contract_id 与 PostgreSQL authority identity。

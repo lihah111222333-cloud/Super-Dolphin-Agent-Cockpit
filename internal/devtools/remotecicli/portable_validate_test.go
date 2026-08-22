@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -147,6 +148,10 @@ func assertPreparedExecuteIdentity(t *testing.T, prepared executePreparedInputs)
 	}
 	if prepared.Runtime.HeartbeatTTLMS != 30_000 || prepared.RunRequest.HeartbeatTTL != 30*time.Second || len(prepared.Topology.Nodes) != 4 {
 		t.Fatalf("execute runtime binding drifted: runtime=%#v topology=%#v", prepared.Runtime, prepared.Topology)
+	}
+	protocolDigest, err := RemoteCIEngineProtocolABIDigest()
+	if err != nil || prepared.Portable.EngineFacts.ProtocolABIDigest != protocolDigest {
+		t.Fatalf("execute engine protocol ABI drifted: got=%q want=%q err=%v", prepared.Portable.EngineFacts.ProtocolABIDigest, protocolDigest, err)
 	}
 }
 
@@ -632,4 +637,53 @@ func TestValidateEventFailureBlocksStdoutPublication(t *testing.T) {
 	if err == nil || stdout.Len() != 0 {
 		t.Fatalf("validation event failure published result: err=%v stdout=%q", err, stdout.String())
 	}
+}
+
+func TestRemoteCIEngineProtocolABIDigestIsStableAndBindsComponentDrift(t *testing.T) {
+	first, err := RemoteCIEngineProtocolABIDigest()
+	if err != nil {
+		t.Fatalf("RemoteCIEngineProtocolABIDigest: %v", err)
+	}
+	second, err := RemoteCIEngineProtocolABIDigest()
+	if err != nil || first != second || !strings.HasPrefix(first, "sha256:") {
+		t.Fatalf("composite ABI digest is unstable or malformed: first=%q second=%q err=%v", first, second, err)
+	}
+	components := remoteCIEngineABIComponents()
+	if len(components) != 6 {
+		t.Fatalf("ABI component registry count = %d, want 6", len(components))
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func([]remoteCIEngineABIComponent)
+	}{
+		{name: "schema constant", mutate: func(value []remoteCIEngineABIComponent) {
+			value[0].Constants = append(value[0].Constants, "schema-drift/v1")
+		}},
+		{name: "wire field", mutate: func(value []remoteCIEngineABIComponent) {
+			drifted := reflect.StructOf([]reflect.StructField{{Name: "SchemaVersion", Type: reflect.TypeFor[string](), Tag: `json:"schema_version"`}, {Name: "NewField", Type: reflect.TypeFor[string](), Tag: `json:"new_field"`}})
+			value[0].Types = append(value[0].Types, drifted)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := cloneRemoteCIEngineABIComponents(components)
+			test.mutate(mutated)
+			drifted, err := deriveRemoteCIEngineProtocolABIDigest(mutated)
+			if err != nil {
+				t.Fatalf("derive drifted ABI: %v", err)
+			}
+			if drifted == first {
+				t.Fatal("ABI drift did not change composite digest")
+			}
+		})
+	}
+}
+
+func cloneRemoteCIEngineABIComponents(source []remoteCIEngineABIComponent) []remoteCIEngineABIComponent {
+	clone := make([]remoteCIEngineABIComponent, len(source))
+	for index, component := range source {
+		clone[index] = component
+		clone[index].Constants = append([]string(nil), component.Constants...)
+		clone[index].Types = append([]reflect.Type(nil), component.Types...)
+	}
+	return clone
 }

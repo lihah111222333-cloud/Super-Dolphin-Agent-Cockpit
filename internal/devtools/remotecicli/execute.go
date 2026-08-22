@@ -3,15 +3,21 @@ package remotecicli
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterocinode"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteruntime"
@@ -31,7 +37,7 @@ func currentPortableEngineFacts() (remoteportable.PortableEngineFacts, error) {
 	if err != nil {
 		return remoteportable.PortableEngineFacts{}, err
 	}
-	protocolDigest, err := remoteportable.PortableBindingProtocolABIDigest()
+	protocolDigest, err := RemoteCIEngineProtocolABIDigest()
 	if err != nil {
 		return remoteportable.PortableEngineFacts{}, err
 	}
@@ -281,4 +287,166 @@ func expandBoundPortableRepositoryCatalog(ctx context.Context, repositoryRoot st
 		Workloads: append([]remoteportable.PortableManifestWorkload(nil), portable.Manifest.Workloads...),
 	}
 	return expandDetectedRepositoryGoCatalog(ctx, repository)
+}
+
+// RemoteCIEngineProtocolABIDigestDomain separates the complete engine protocol ABI.
+const RemoteCIEngineProtocolABIDigestDomain = "remote-ci-engine-protocol-abi/v1"
+
+type remoteCIEngineABIComponent struct {
+	Name      string
+	Constants []string
+	Types     []reflect.Type
+	Digest    func() (string, error)
+}
+
+// RemoteCIEngineProtocolABIDigest 绑定 remote-ci engine 所有跨组件 wire ABI 与关键协议常量。
+func RemoteCIEngineProtocolABIDigest() (string, error) {
+	return deriveRemoteCIEngineProtocolABIDigest(remoteCIEngineABIComponents())
+}
+
+func deriveRemoteCIEngineProtocolABIDigest(components []remoteCIEngineABIComponent) (string, error) {
+	sort.Slice(components, func(left, right int) bool { return components[left].Name < components[right].Name })
+	material := make([]byte, 0, 4096)
+	for _, component := range components {
+		if component.Name == "" {
+			return "", errors.New("remote-ci engine ABI component name is empty")
+		}
+		material = appendRemoteCIEngineFrame(material, component.Name)
+		constants := append([]string(nil), component.Constants...)
+		sort.Strings(constants)
+		for _, constant := range constants {
+			material = appendRemoteCIEngineFrame(material, constant)
+		}
+		if component.Digest != nil {
+			digest, err := component.Digest()
+			if err != nil {
+				return "", fmt.Errorf("derive %s ABI: %w", component.Name, err)
+			}
+			material = appendRemoteCIEngineFrame(material, digest)
+		}
+		types := append([]reflect.Type(nil), component.Types...)
+		sort.Slice(types, func(left, right int) bool {
+			return remoteCIEngineTypeName(types[left]) < remoteCIEngineTypeName(types[right])
+		})
+		for _, typ := range types {
+			descriptor, err := remoteCIEngineTypeDescriptor(typ)
+			if err != nil {
+				return "", fmt.Errorf("describe %s ABI: %w", component.Name, err)
+			}
+			for _, field := range descriptor {
+				material = appendRemoteCIEngineFrame(material, field)
+			}
+		}
+	}
+	return remoteCIEngineFramedDigest(RemoteCIEngineProtocolABIDigestDomain, material), nil
+}
+
+func remoteCIEngineABIComponents() []remoteCIEngineABIComponent {
+	return []remoteCIEngineABIComponent{
+		{Name: "heteroci", Constants: []string{
+			heteroci.ManifestSchemaVersion, heteroci.ProbeRequestSchemaVersion, heteroci.ProbeResponseSchemaVersion,
+			heteroci.SnapshotSchemaVersion, heteroci.PackingPlanSchemaVersion, heteroci.RoutingDecisionSchemaVersion,
+			heteroci.RoutingLeaseSchemaVersion, heteroci.CapabilityQualificationSchemaVersion, heteroci.AuthorityLocalNonAuthoritative,
+			heteroci.ResultStatusNotVerified, string(heteroci.ExecutorKindLocalNode), heteroci.CapacityBlockerReasonCapacityUnavailable,
+			string(heteroci.SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations),
+		}, Types: []reflect.Type{
+			reflect.TypeFor[heteroci.Manifest](), reflect.TypeFor[heteroci.NodeConfig](), reflect.TypeFor[heteroci.CapabilityConfig](),
+			reflect.TypeFor[heteroci.ProbeRequest](), reflect.TypeFor[heteroci.ProbeResponse](), reflect.TypeFor[heteroci.SnapshotSet](),
+			reflect.TypeFor[heteroci.NodeSnapshot](), reflect.TypeFor[heteroci.ActiveCapabilitySnapshot](), reflect.TypeFor[heteroci.CapabilityQualificationReceipt](),
+			reflect.TypeFor[heteroci.ResourceCapacity](), reflect.TypeFor[heteroci.PackingPlan](), reflect.TypeFor[heteroci.NodeShard](),
+			reflect.TypeFor[heteroci.ExecutionWave](), reflect.TypeFor[heteroci.RouteAssignment](), reflect.TypeFor[heteroci.RoutingDecision](),
+			reflect.TypeFor[heteroci.CapacityBlocker](), reflect.TypeFor[heteroci.RoutingLease](), reflect.TypeFor[heteroci.OwnerFence](),
+			reflect.TypeFor[heteroci.TopologyRunIdentity](), reflect.TypeFor[heteroci.TopologyPlanRequest](), reflect.TypeFor[heteroci.ExecutorBindingPlan](),
+			reflect.TypeFor[heteroci.ExecutorBinding](),
+		}},
+		{Name: "heterociexec", Constants: remoteCIEngineReceiptConstants(), Types: []reflect.Type{
+			reflect.TypeFor[heterociexec.PostgreSQLReceiptEvent](), reflect.TypeFor[heterociexec.PostgreSQLReceiptEventShard](),
+			reflect.TypeFor[heterociexec.PostgreSQLTerminalReceipt](), reflect.TypeFor[heterociexec.PostgreSQLTerminalShard](),
+		}},
+		{Name: "heterocinode", Constants: []string{
+			heterocinode.ConfigSchemaVersion, heterocinode.BatchRequestSchemaVersion, heterocinode.BatchResultSchemaVersion,
+			heterocinode.BatchAuthorityLocalNonAuthoritative, heterocinode.BatchStatusNotVerified, heterocinode.BatchOutcomeSuccess, heterocinode.BatchOutcomeFailed,
+		}, Types: []reflect.Type{
+			reflect.TypeFor[heterocinode.Config](), reflect.TypeFor[heterocinode.BatchRequest](), reflect.TypeFor[heterocinode.BatchWorkload](),
+			reflect.TypeFor[heterocinode.BatchOutcome](), reflect.TypeFor[heterocinode.BatchResult](),
+		}},
+		{Name: "heterociworkflow", Constants: []string{
+			heterociworkflow.RunRequestSchemaVersion, heterociworkflow.ExecutorBindingPlanSchemaVersion,
+			heterociworkflow.ExecutorBindingSchemaVersion, heterociworkflow.ResultStatusNotVerified,
+		}, Types: []reflect.Type{
+			reflect.TypeFor[heterociworkflow.RunRequest](), reflect.TypeFor[heterociworkflow.ExecutorBindingPlan](),
+			reflect.TypeFor[heterociworkflow.ExecutorBinding](), reflect.TypeFor[heterociworkflow.ExecutionBatch](),
+			reflect.TypeFor[heterociworkflow.ExecutorKey](), reflect.TypeFor[heterociworkflow.BatchResult](), reflect.TypeFor[heterociworkflow.BatchOutcome](),
+		}},
+		{Name: "remoteportable", Constants: []string{
+			remoteportable.PortableRunRequestSchemaVersion, remoteportable.PortableManifestSchemaVersion,
+			remoteportable.PortableManifestContractID, remoteportable.PortableRunBindingDigestDomain,
+			remoteportable.PortableManifestDigestDomain, remoteportable.PortableManifestABIDigestDomain,
+			remoteportable.PortableManifestWorkloadExecutionDigestDomain, remoteportable.PortableManifestCapacityPolicyDigestDomain,
+			remoteportable.PortableBindingProtocolABIDigestDomain,
+		}, Digest: remoteportable.PortableBindingProtocolABIDigest},
+		{Name: "remoteruntime", Constants: []string{
+			remoteruntime.ConfigSchemaVersion, remoteruntime.RuntimePolicyDigestDomain, remoteruntime.FourNodeContractID,
+			string(remoteruntime.UbuntuPlatform), string(remoteruntime.WindowsPlatform), remoteruntime.Ubuntu01NodeID, remoteruntime.Ubuntu02NodeID,
+			remoteruntime.Windows01NodeID, remoteruntime.Windows02NodeID,
+		}, Types: []reflect.Type{
+			reflect.TypeFor[remoteruntime.RuntimeConfig](), reflect.TypeFor[remoteruntime.NodeBinding](),
+			reflect.TypeFor[remoteruntime.LinuxContainerBinding](), reflect.TypeFor[remoteruntime.TargetFacts](),
+			reflect.TypeFor[remoteruntime.ExecutionFacts](), reflect.TypeFor[remoteruntime.BoundPortableRun](),
+		}},
+	}
+}
+
+func remoteCIEngineReceiptConstants() []string {
+	return []string{
+		heterociexec.PostgreSQLTerminalReceiptSchema, heterociexec.PostgreSQLReceiptEventSchema, heterociexec.PostgreSQLReceiptNodeSetDigestDomain,
+		heterociexec.PostgreSQLReceiptStatusSucceeded, heterociexec.PostgreSQLReceiptStatusFailed, heterociexec.PostgreSQLReceiptStatusBlocked,
+		heterociexec.PostgreSQLReceiptCleanupVerified, heterociexec.PostgreSQLReceiptCleanupIncomplete,
+		string(heterociexec.PostgreSQLReceiptEventStageRequestValidation), string(heterociexec.PostgreSQLReceiptEventStageManifestBinding),
+		string(heterociexec.PostgreSQLReceiptEventStageCapacitySnapshot), string(heterociexec.PostgreSQLReceiptEventStageReservation),
+		string(heterociexec.PostgreSQLReceiptEventStageMaterialize), string(heterociexec.PostgreSQLReceiptEventStageExecute),
+		string(heterociexec.PostgreSQLReceiptEventStageCleanup), string(heterociexec.PostgreSQLReceiptEventStageTerminal),
+		string(heterociexec.PostgreSQLReceiptEventStateStarted), string(heterociexec.PostgreSQLReceiptEventStateSucceeded),
+		string(heterociexec.PostgreSQLReceiptEventStateCompleted), string(heterociexec.PostgreSQLReceiptEventStateFailed),
+		string(heterociexec.PostgreSQLReceiptEventStateBlocked), string(heterociexec.PostgreSQLReceiptEventStateSkipped),
+	}
+}
+
+func remoteCIEngineTypeDescriptor(typ reflect.Type) ([]string, error) {
+	if typ == nil || typ.Kind() != reflect.Struct {
+		return nil, errors.New("wire ABI type must be a struct")
+	}
+	fields := make([]string, 0, typ.NumField())
+	for field := range typ.Fields() {
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" {
+			jsonTag = field.Name
+		}
+		fields = append(fields, field.Name+"|"+jsonTag+"|"+field.Type.String())
+	}
+	return append([]string{remoteCIEngineTypeName(typ)}, fields...), nil
+}
+
+func remoteCIEngineTypeName(typ reflect.Type) string {
+	if typ == nil {
+		return ""
+	}
+	if typ.PkgPath() != "" {
+		return typ.PkgPath() + "." + typ.Name()
+	}
+	return typ.String()
+}
+
+func appendRemoteCIEngineFrame(dst []byte, value string) []byte {
+	var length [8]byte
+	binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+	dst = append(dst, length[:]...)
+	return append(dst, value...)
+}
+
+func remoteCIEngineFramedDigest(domain string, material []byte) string {
+	hash := sha256.New()
+	_, _ = hash.Write(appendRemoteCIEngineFrame(nil, domain))
+	_, _ = hash.Write(material)
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
 }

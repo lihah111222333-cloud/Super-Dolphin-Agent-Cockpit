@@ -18,6 +18,8 @@ const (
 	PostgreSQLTerminalReceiptSchema = "remote-ci-result/v1"
 	// PostgreSQLReceiptEventSchema 是 remote-ci observable event 的冻结 wire schema。
 	PostgreSQLReceiptEventSchema = "remote-ci-event/v1"
+	// PostgreSQLReceiptNodeSetDigestDomain 绑定事件/receipt 节点集合摘要域。
+	PostgreSQLReceiptNodeSetDigestDomain = "remote-ci-node-set/v1"
 
 	// PostgreSQLReceiptStatusSucceeded 表示 workload 以 exit code 0 完成。
 	PostgreSQLReceiptStatusSucceeded = "succeeded"
@@ -386,7 +388,7 @@ func postgreSQLReceiptEventNodeSetDigest(shards []PostgreSQLReceiptEventShard) (
 	if err != nil {
 		return "", ErrPostgreSQLReceiptStore
 	}
-	return digestPostgreSQLReceiptBytes(append([]byte("remote-ci-node-set/v1\x00"), encoded...)), nil
+	return digestPostgreSQLReceiptBytes(append([]byte(PostgreSQLReceiptNodeSetDigestDomain+"\x00"), encoded...)), nil
 }
 
 func validatePostgreSQLReceiptEventShard(index int, shards []PostgreSQLReceiptEventShard) error {
