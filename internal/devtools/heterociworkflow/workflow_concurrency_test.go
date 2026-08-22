@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -183,10 +184,10 @@ func (owner *concurrencyOwner) LocateRun(ctx context.Context, runID string) ([]h
 	return owner.owner.LocateRun(ctx, runID)
 }
 
-func (owner *concurrencyOwner) PlanAndReserve(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, snapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, ttl time.Duration) (heterociowner.DurableReservedRoutingPlan, error) {
+func (owner *concurrencyOwner) PlanAndReserve(ctx context.Context, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest) (heterociowner.DurableReservedRoutingPlan, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
-	return owner.owner.PlanAndReserve(ctx, fence, operationID, runID, manifest, snapshot, units, ttl)
+	return owner.owner.PlanAndReserve(ctx, fence, request)
 }
 
 func (owner *concurrencyOwner) Start(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
@@ -265,7 +266,7 @@ func newWorkflowConcurrencyFixture(nodeCount int, mode batchHarnessMode) *workfl
 		Now:            func() time.Time { return base.now },
 		CleanupTimeout: time.Second,
 	}
-	return &workflowConcurrencyFixture{deps: deps, request: RunRequest{ManifestPath: "manifest.json", RunID: fmt.Sprintf("workflow-concurrency-%d", nodeCount), Units: units, HeartbeatTTL: time.Minute}, harness: harness}
+	return &workflowConcurrencyFixture{deps: deps, request: RunRequest{ManifestPath: "manifest.json", RepositoryID: "workflow-concurrency-repository", SourceTreeSHA: strings.Repeat("a", 40), RunID: fmt.Sprintf("workflow-concurrency-%d", nodeCount), Units: units, HeartbeatTTL: time.Minute}, harness: harness}
 }
 
 func cloneConcurrencySnapshot(source heteroci.SnapshotSet, epoch heteroci.RoutingOwnerEpoch, at time.Time) heteroci.SnapshotSet {

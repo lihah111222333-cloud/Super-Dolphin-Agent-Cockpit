@@ -30,6 +30,10 @@ type HeterociRootInput struct {
 	OwnerDBPath string
 	// Scope 是本次 owner 生命周期绑定的 routing scope。
 	Scope heteroci.RoutingOwnerScope
+	// RepositoryID 是本次 run 显式审计绑定的目标仓库身份。
+	RepositoryID string
+	// SourceTreeSHA 是本次 run 显式审计绑定的 canonical Git tree OID。
+	SourceTreeSHA string
 	// RunID 是本次 workflow 的稳定运行 identity。
 	RunID string
 	// Units 是待规划的异构 execution units。
@@ -82,10 +86,12 @@ func RunHeterociWorkflow(ctx context.Context, input HeterociRootInput) (result h
 		CleanupTimeout:  input.CleanupTimeout,
 	}
 	request := heterociworkflow.RunRequest{
-		ManifestPath: input.ManifestPath,
-		RunID:        input.RunID,
-		Units:        cloneHeterociRootUnits(input.Units),
-		HeartbeatTTL: input.HeartbeatTTL,
+		ManifestPath:  input.ManifestPath,
+		RepositoryID:  input.RepositoryID,
+		SourceTreeSHA: input.SourceTreeSHA,
+		RunID:         input.RunID,
+		Units:         cloneHeterociRootUnits(input.Units),
+		HeartbeatTTL:  input.HeartbeatTTL,
 	}
 	return heterociworkflow.Execute(ctx, dependencies, request)
 }
@@ -113,13 +119,16 @@ func validateHeterociRootInput(ctx context.Context, input HeterociRootInput) err
 	return validateHeterociRootClock(input.Now)
 }
 
-// validateHeterociRootRouting 校验 scope、run identity 与执行单元的显式边界。
+// validateHeterociRootRouting 校验 scope、run audit 与执行单元的显式边界。
 func validateHeterociRootRouting(input HeterociRootInput) error {
 	if err := input.Scope.Validate(); err != nil {
 		return fmt.Errorf("%w: scope is invalid", ErrHeterociRootInput)
 	}
 	if err := validateHeterociRootRunID(input.RunID); err != nil {
 		return err
+	}
+	if err := heteroci.ValidateTopologyAuditIdentity(input.RepositoryID, input.SourceTreeSHA, input.RunID); err != nil {
+		return fmt.Errorf("%w: run audit identity is invalid: %w", ErrHeterociRootInput, err)
 	}
 	if err := heteroci.ValidateExecutionUnits(input.Units); err != nil {
 		return fmt.Errorf("%w: execution units are invalid: %w", ErrHeterociRootInput, err)

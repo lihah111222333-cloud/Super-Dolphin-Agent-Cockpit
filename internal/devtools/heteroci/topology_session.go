@@ -23,14 +23,14 @@ type TopologySession struct {
 
 // TopologyPlanRequest 是 topology session mutation 的 storage-neutral 原始输入。
 type TopologyPlanRequest struct {
-	OperationID    OperationID
-	RepositoryID   string
-	SourceTreeSHA  string
-	RunID          string
-	Manifest       Manifest
-	SourceSnapshot SnapshotSet
-	Units          []ExecutionUnit
-	HeartbeatTTL   time.Duration
+	OperationID    OperationID     `json:"operation_id"`
+	RepositoryID   string          `json:"repository_id"`
+	SourceTreeSHA  string          `json:"source_tree_sha"`
+	RunID          string          `json:"run_id"`
+	Manifest       Manifest        `json:"manifest"`
+	SourceSnapshot SnapshotSet     `json:"source_snapshot"`
+	Units          []ExecutionUnit `json:"units"`
+	HeartbeatTTL   time.Duration   `json:"heartbeat_ttl"`
 }
 
 // TopologyReservedPlan 是 topology mutation 提交后的 storage-neutral 投影。
@@ -111,7 +111,7 @@ func (request TopologyPlanRequest) Validate(session TopologySession) error {
 	if _, err := ParseOperationID(string(request.OperationID)); err != nil {
 		return err
 	}
-	if err := validateTopologyAuditIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID); err != nil {
+	if err := ValidateTopologyAuditIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID); err != nil {
 		return err
 	}
 	if err := request.Manifest.Validate(); err != nil {
@@ -136,7 +136,8 @@ func validateTopologyOwnerNamespace(value string) error {
 	return nil
 }
 
-func validateTopologyAuditIdentity(repositoryID, sourceTree, runID string) error {
+// ValidateTopologyAuditIdentity 校验每次 plan 必须显式绑定的 repository、source tree 与 run identity。
+func ValidateTopologyAuditIdentity(repositoryID, sourceTree, runID string) error {
 	if !validTopologyIdentity(repositoryID) || !validTopologyIdentity(runID) {
 		return fmt.Errorf("heteroci topology run audit identity is invalid")
 	}

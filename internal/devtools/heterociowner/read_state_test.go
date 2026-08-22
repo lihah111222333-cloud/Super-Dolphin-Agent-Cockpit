@@ -20,7 +20,7 @@ const (
 func TestOwnerReadStateCoversPlannedStartedAndTerminal(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
 	planID := operationID("a")
-	plan, err := owner.PlanAndReserve(context.Background(), fence, planID, readStateRunID, manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, planID, readStateRunID, manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -47,12 +47,12 @@ func TestOwnerReadStateCoversPlannedStartedAndTerminal(t *testing.T) {
 func TestOwnerReadOperationDistinguishesMissingAndExactReplay(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
 	opID := operationID("d")
-	plan, err := owner.PlanAndReserve(context.Background(), fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
 	assertMissingReadOperation(t, owner, fence)
-	if _, err := owner.PlanAndReserve(context.Background(), fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second); err != nil {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, opID, "run-operation-read", manifest, snapshot, units, 30*time.Second)); err != nil {
 		t.Fatalf("exact PlanAndReserve replay: %v", err)
 	}
 	state, found, err := owner.ReadOperation(context.Background(), plan.Fence, opID)
@@ -121,7 +121,7 @@ func TestOwnerReadStateMissingIsExplicit(t *testing.T) {
 
 func TestOwnerReadRunRequiresRecoveryAfterTakeover(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, operationID("f"), "run-recovery", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID("f"), "run-recovery", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("old epoch PlanAndReserve: %v", err)
 	}
@@ -160,7 +160,7 @@ func assertRecoveryRequired(t *testing.T, state DurableRunState, err error) {
 
 func TestOwnerLocateRunRejectsCrossEpochIdentityAmbiguity(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, operationID("1"), "run-ambiguous", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID("1"), "run-ambiguous", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("old epoch PlanAndReserve: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestOwnerReadStateRejectsTamperingWithoutMutation(t *testing.T) {
 			snapshot.Nodes[0].Endpoint = readStateSecretURL
 			runID := "run-tamper"
 			operationID := operationID("2")
-			plan, err := owner.PlanAndReserve(context.Background(), fence, operationID, runID, manifest, snapshot, units, 30*time.Second)
+			plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, runID, manifest, snapshot, units, 30*time.Second))
 			if err != nil {
 				t.Fatalf("PlanAndReserve: %v", err)
 			}

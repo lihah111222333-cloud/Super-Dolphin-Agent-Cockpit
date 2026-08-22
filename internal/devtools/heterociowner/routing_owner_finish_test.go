@@ -12,7 +12,7 @@ import (
 
 func TestOwnerFinishReleasesCompletedRunAndReplays(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, operationID("a"), "run-finish", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID("a"), "run-finish", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestOwnerFinishReleasesCompletedRunAndReplays(t *testing.T) {
 
 func TestOwnerFinishRejectsPlannedLeaseWithoutMutation(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, operationID("e"), "run-invalid-finish", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID("e"), "run-invalid-finish", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestOwnerFinishRejectsPlannedLeaseWithoutMutation(t *testing.T) {
 
 func TestOwnerCancelPlannedReleasesReservation(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, operationID("1"), "run-cancel", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID("1"), "run-cancel", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -85,6 +85,14 @@ func TestOwnerCancelPlannedReleasesReservation(t *testing.T) {
 
 func operationID(character string) heteroci.OperationID {
 	return heteroci.OperationID(strings.Repeat(character, heteroci.OperationIDHexLength))
+}
+
+func topologyPlanRequest(fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, snapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration) heteroci.TopologyPlanRequest {
+	_ = fence
+	return heteroci.TopologyPlanRequest{
+		OperationID: operationID, RepositoryID: "test-repository", SourceTreeSHA: strings.Repeat("d", 40), RunID: runID,
+		Manifest: manifest, SourceSnapshot: snapshot, Units: units, HeartbeatTTL: heartbeatTTL,
+	}
 }
 
 func assertOwnerRunReleased(t *testing.T, owner *Owner, fence heteroci.OwnerFence, runID string, want bool) {

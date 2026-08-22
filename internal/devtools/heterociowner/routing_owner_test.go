@@ -1,7 +1,9 @@
 package heterociowner
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -19,13 +21,13 @@ const (
 func TestOwnerPlanAndReserveCommitsAndReplaysAtomically(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
 	operationID := heteroci.OperationID(strings.Repeat("a", heteroci.OperationIDHexLength))
-	first, err := owner.PlanAndReserve(context.Background(), fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second)
+	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
 	assertDurablePlan(t, first, fence, operationID, now)
 	assertDurablePlanRows(t, owner, fence, "run-a", 1, 1)
-	replay, err := owner.PlanAndReserve(context.Background(), fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second)
+	replay, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve replay: %v", err)
 	}
@@ -41,16 +43,16 @@ func TestOwnerPlanAndReserveCommitsAndReplaysAtomically(t *testing.T) {
 func TestOwnerPlanAndReserveRejectsOperationDriftAndStaleFence(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
 	operationID := heteroci.OperationID(strings.Repeat("b", heteroci.OperationIDHexLength))
-	if _, err := owner.PlanAndReserve(context.Background(), fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second); err != nil {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, units, 30*time.Second)); err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
 	drifted := append([]heteroci.ExecutionUnit(nil), units...)
 	drifted[0].EstimatedDurationMS++
-	if _, err := owner.PlanAndReserve(context.Background(), fence, operationID, "run-a", manifest, snapshot, drifted, 30*time.Second); !errors.Is(err, ErrOperationConflict) {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, "run-a", manifest, snapshot, drifted, 30*time.Second)); !errors.Is(err, ErrOperationConflict) {
 		t.Fatalf("operation drift error = %v, want ErrOperationConflict", err)
 	}
 	staleID := heteroci.OperationID(strings.Repeat("c", heteroci.OperationIDHexLength))
-	if _, err := owner.PlanAndReserve(context.Background(), fence, staleID, "run-b", manifest, snapshot, units, 30*time.Second); err == nil {
+	if _, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, staleID, "run-b", manifest, snapshot, units, 30*time.Second)); err == nil {
 		t.Fatal("PlanAndReserve accepted stale owner fence")
 	}
 	assertDurablePlanRows(t, owner, fence, "run-a", 1, 1)
@@ -59,7 +61,7 @@ func TestOwnerPlanAndReserveRejectsOperationDriftAndStaleFence(t *testing.T) {
 func TestOwnerStartCommitsOccupancyAndReplaysExactly(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
 	planID := heteroci.OperationID(strings.Repeat("d", heteroci.OperationIDHexLength))
-	plan, err := owner.PlanAndReserve(context.Background(), fence, planID, "run-start", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, planID, "run-start", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -84,7 +86,7 @@ func TestOwnerStartCommitsOccupancyAndReplaysExactly(t *testing.T) {
 
 func TestOwnerStartRejectsDriftAndStaleFenceWithoutMutation(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, heteroci.OperationID(strings.Repeat("3", 64)), "run-start", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("3", 64)), "run-start", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -142,7 +144,7 @@ func TestOwnerStartRejectsLeaseJSONIdentitySwapWithoutMutation(t *testing.T) {
 
 func mustDurablePlan(t *testing.T, owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, snapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit) DurableReservedRoutingPlan {
 	t.Helper()
-	plan, err := owner.PlanAndReserve(context.Background(), fence, operationID, runID, manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, operationID, runID, manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve %s: %v", runID, err)
 	}
@@ -200,7 +202,7 @@ func TestOwnerStartAdvancesMultipleLeasesWithIndependentCAS(t *testing.T) {
 	second := units[0]
 	second.UnitID = "unit-b"
 	units = append(units, second)
-	plan, err := owner.PlanAndReserve(context.Background(), fence, heteroci.OperationID(strings.Repeat("6", 64)), "run-multi", manifest, snapshot, units, 30*time.Second)
+	plan, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("6", 64)), "run-multi", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -222,11 +224,11 @@ func TestOwnerStartAdvancesMultipleLeasesWithIndependentCAS(t *testing.T) {
 
 func TestOwnerPlanAndReserveSubtractsCurrentEpochReservationsExactlyOnce(t *testing.T) {
 	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
-	first, err := owner.PlanAndReserve(context.Background(), fence, heteroci.OperationID(strings.Repeat("9", 64)), "run-first", manifest, snapshot, units, 30*time.Second)
+	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("9", 64)), "run-first", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("first PlanAndReserve: %v", err)
 	}
-	second, err := owner.PlanAndReserve(context.Background(), first.Fence, heteroci.OperationID(strings.Repeat("a", 64)), "run-second", manifest, snapshot, units, 30*time.Second)
+	second, err := owner.PlanAndReserve(context.Background(), first.Fence, topologyPlanRequest(first.Fence, heteroci.OperationID(strings.Repeat("a", 64)), "run-second", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("second PlanAndReserve: %v", err)
 	}
@@ -245,7 +247,7 @@ func TestOwnerPlanAndReserveSubtractsCurrentEpochReservationsExactlyOnce(t *test
 
 func TestOwnerTakeoverDoesNotReloadOldEpochReservations(t *testing.T) {
 	owner, fence, manifest, snapshot, units, now := durableRoutingFixture(t)
-	first, err := owner.PlanAndReserve(context.Background(), fence, heteroci.OperationID(strings.Repeat("b", 64)), "run-old", manifest, snapshot, units, 30*time.Second)
+	first, err := owner.PlanAndReserve(context.Background(), fence, topologyPlanRequest(fence, heteroci.OperationID(strings.Repeat("b", 64)), "run-old", manifest, snapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("old epoch PlanAndReserve: %v", err)
 	}
@@ -257,12 +259,114 @@ func TestOwnerTakeoverDoesNotReloadOldEpochReservations(t *testing.T) {
 		t.Fatalf("takeover Acquire: %v", err)
 	}
 	newSnapshot := durableRoutingSnapshot(manifest, newFence.OwnerEpoch, now)
-	current, err := owner.PlanAndReserve(context.Background(), newFence, heteroci.OperationID(strings.Repeat("c", 64)), "run-new", manifest, newSnapshot, units, 30*time.Second)
+	current, err := owner.PlanAndReserve(context.Background(), newFence, topologyPlanRequest(newFence, heteroci.OperationID(strings.Repeat("c", 64)), "run-new", manifest, newSnapshot, units, 30*time.Second))
 	if err != nil {
 		t.Fatalf("new epoch PlanAndReserve: %v", err)
 	}
 	if current.EffectiveSnapshot.Nodes[0].Available != newSnapshot.Nodes[0].Available {
 		t.Fatal("new owner epoch reloaded old epoch reservation")
+	}
+}
+
+func TestOwnerPlanJournalBindsCanonicalPerRunRepositoryAudit(t *testing.T) {
+	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
+	firstRequest := topologyPlanRequest(fence, operationID("7"), "run-repository-a", manifest, snapshot, units, 30*time.Second)
+	firstRequest.RepositoryID = "repository-a"
+	firstRequest.SourceTreeSHA = strings.Repeat("a", 40)
+	first, err := owner.PlanAndReserve(context.Background(), fence, firstRequest)
+	if err != nil {
+		t.Fatalf("first PlanAndReserve: %v", err)
+	}
+	firstBytes := readPlanAuditRequestBytes(t, owner, fence, firstRequest.OperationID)
+	assertCanonicalPlanAuditRequest(t, firstBytes, fence, firstRequest)
+	replay, err := owner.PlanAndReserve(context.Background(), fence, firstRequest)
+	if err != nil || !reflect.DeepEqual(replay, first) {
+		t.Fatalf("canonical plan replay = %#v, %v; want %#v", replay, err, first)
+	}
+
+	secondRequest := topologyPlanRequest(first.Fence, operationID("8"), "run-repository-b", manifest, snapshot, units, 30*time.Second)
+	secondRequest.RepositoryID = "repository-b"
+	secondRequest.SourceTreeSHA = strings.Repeat("b", 40)
+	if _, err := owner.PlanAndReserve(context.Background(), first.Fence, secondRequest); err != nil {
+		t.Fatalf("second repository PlanAndReserve: %v", err)
+	}
+	secondBytes := readPlanAuditRequestBytes(t, owner, fence, secondRequest.OperationID)
+	assertCanonicalPlanAuditRequest(t, secondBytes, first.Fence, secondRequest)
+	if bytes.Equal(firstBytes, secondBytes) {
+		t.Fatal("different repository/tree audit produced identical journal request bytes")
+	}
+}
+
+func TestOwnerPlanRejectsMissingOrNonCanonicalRepositoryAudit(t *testing.T) {
+	owner, fence, manifest, snapshot, units, _ := durableRoutingFixture(t)
+	base := topologyPlanRequest(fence, operationID("9"), "run-invalid-audit", manifest, snapshot, units, 30*time.Second)
+	for _, test := range []struct {
+		name   string
+		mutate func(*heteroci.TopologyPlanRequest)
+	}{
+		{name: "empty repository", mutate: func(request *heteroci.TopologyPlanRequest) { request.RepositoryID = "" }},
+		{name: "empty tree", mutate: func(request *heteroci.TopologyPlanRequest) { request.SourceTreeSHA = "" }},
+		{name: "uppercase tree", mutate: func(request *heteroci.TopologyPlanRequest) { request.SourceTreeSHA = strings.Repeat("A", 40) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := base
+			test.mutate(&request)
+			if result, err := owner.PlanAndReserve(context.Background(), fence, request); err == nil || !reflect.ValueOf(result).IsZero() {
+				t.Fatalf("invalid audit result=%#v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func readPlanAuditRequestBytes(t *testing.T, owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID) []byte {
+	t.Helper()
+	var raw []byte
+	if err := owner.db.QueryRowContext(context.Background(), "SELECT request_bytes FROM heteroci_routing_operations WHERE scope = ? AND owner_epoch = ? AND operation_id = ?", fence.Scope, fence.OwnerEpoch, operationID).Scan(&raw); err != nil {
+		t.Fatalf("read plan audit request bytes: %v", err)
+	}
+	return raw
+}
+
+func assertCanonicalPlanAuditRequest(t *testing.T, raw []byte, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest) {
+	t.Helper()
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("decode plan audit envelope fields: %v", err)
+	}
+	assertExactPlanAuditJSONFields(t, envelope, "fence", "request")
+	var requestFields map[string]json.RawMessage
+	if err := json.Unmarshal(envelope["request"], &requestFields); err != nil {
+		t.Fatalf("decode topology plan request fields: %v", err)
+	}
+	assertExactPlanAuditJSONFields(t, requestFields,
+		"operation_id", "repository_id", "source_tree_sha", "run_id",
+		"manifest", "source_snapshot", "units", "heartbeat_ttl",
+	)
+	var decoded planAndReserveRequest
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode plan audit request: %v", err)
+	}
+	if !reflect.DeepEqual(decoded, planAndReserveRequest{Fence: fence, Request: request}) {
+		t.Fatalf("plan audit request drifted: got %#v", decoded)
+	}
+	canonical, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatalf("encode plan audit request: %v", err)
+	}
+	if !bytes.Equal(raw, canonical) {
+		t.Fatalf("plan audit request bytes are noncanonical: %q", raw)
+	}
+}
+
+func assertExactPlanAuditJSONFields(t *testing.T, fields map[string]json.RawMessage, expected ...string) {
+	t.Helper()
+	if len(fields) != len(expected) {
+		t.Fatalf("plan audit JSON fields = %v, want exactly %v", fields, expected)
+	}
+	for _, field := range expected {
+		if _, ok := fields[field]; !ok {
+			t.Fatalf("plan audit JSON field %q is missing: %v", field, fields)
+		}
 	}
 }
 

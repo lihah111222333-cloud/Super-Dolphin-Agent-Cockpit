@@ -122,7 +122,7 @@ func materialDigestTestBatch(t *testing.T) ExecutionBatch {
 	if err != nil {
 		t.Fatalf("DeriveOperationID: %v", err)
 	}
-	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, planID, fixture.request.RunID, fixture.manifest, fixture.snapshot, fixture.units, fixture.request.HeartbeatTTL)
+	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, workflowPlanRequest(fixture, planID, fixture.units))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}

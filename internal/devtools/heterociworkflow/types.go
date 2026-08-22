@@ -36,12 +36,7 @@ type DurableOwner interface {
 	PlanAndReserve(
 		ctx context.Context,
 		fence heteroci.OwnerFence,
-		operationID heteroci.OperationID,
-		runID string,
-		manifest heteroci.Manifest,
-		sourceSnapshot heteroci.SnapshotSet,
-		units []heteroci.ExecutionUnit,
-		heartbeatTTL time.Duration,
+		request heteroci.TopologyPlanRequest,
 	) (heterociowner.DurableReservedRoutingPlan, error)
 	Start(
 		ctx context.Context,
@@ -144,10 +139,12 @@ type Dependencies struct {
 
 // RunRequest 是一次异构 workflow 执行请求。
 type RunRequest struct {
-	ManifestPath string
-	RunID        string
-	Units        []heteroci.ExecutionUnit
-	HeartbeatTTL time.Duration
+	ManifestPath  string
+	RepositoryID  string
+	SourceTreeSHA string
+	RunID         string
+	Units         []heteroci.ExecutionUnit
+	HeartbeatTTL  time.Duration
 }
 
 // RunResult 是 workflow 完成后的本地非权威投影。

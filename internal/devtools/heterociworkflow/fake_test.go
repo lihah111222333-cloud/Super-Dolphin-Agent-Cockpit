@@ -30,6 +30,7 @@ type fakeOwner struct {
 	startCount   int
 	finishCount  int
 	cancelCount  int
+	planRequest  heteroci.TopologyPlanRequest
 }
 
 func (owner *fakeOwner) record(event string) {
@@ -56,9 +57,10 @@ func (owner *fakeOwner) LocateRun(context.Context, string) ([]heterociowner.Dura
 	return append([]heterociowner.DurableRunState(nil), owner.locateStates...), nil
 }
 
-func (owner *fakeOwner) PlanAndReserve(_ context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, snapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, ttl time.Duration) (heterociowner.DurableReservedRoutingPlan, error) {
+func (owner *fakeOwner) PlanAndReserve(_ context.Context, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest) (heterociowner.DurableReservedRoutingPlan, error) {
 	owner.record("plan")
-	plan, decision, err := heteroci.PlanRoutingDecision(manifest, snapshot, units, owner.now, ttl)
+	owner.planRequest = request
+	plan, decision, err := heteroci.PlanRoutingDecision(request.Manifest, request.SourceSnapshot, request.Units, owner.now, request.HeartbeatTTL)
 	if err != nil {
 		return heterociowner.DurableReservedRoutingPlan{}, err
 	}
@@ -66,24 +68,24 @@ func (owner *fakeOwner) PlanAndReserve(_ context.Context, fence heteroci.OwnerFe
 	if err != nil {
 		return heterociowner.DurableReservedRoutingPlan{}, err
 	}
-	leases := fakePlannedLeases(runID, decision, owner.now.UnixMilli())
+	leases := fakePlannedLeases(request.RunID, decision, owner.now.UnixMilli())
 	owner.planned = heterociowner.DurableReservedRoutingPlan{
 		Fence:             nextFence,
-		OperationID:       operationID,
-		SourceSnapshot:    snapshot,
-		EffectiveSnapshot: snapshot,
+		OperationID:       request.OperationID,
+		SourceSnapshot:    request.SourceSnapshot,
+		EffectiveSnapshot: request.SourceSnapshot,
 		Plan:              plan,
 		Decision:          decision,
 		Leases:            leases,
 	}
 	owner.run = heterociowner.DurableRunState{
 		Fence:        nextFence,
-		RunID:        runID,
-		Manifest:     manifest,
-		Units:        append([]heteroci.ExecutionUnit(nil), units...),
+		RunID:        request.RunID,
+		Manifest:     request.Manifest,
+		Units:        append([]heteroci.ExecutionUnit(nil), request.Units...),
 		Decision:     decision,
 		Leases:       append([]heteroci.RoutingLease(nil), leases...),
-		HeartbeatTTL: ttl,
+		HeartbeatTTL: request.HeartbeatTTL,
 		LastRevision: nextFence.Revision,
 	}
 	owner.fence = nextFence
@@ -344,8 +346,21 @@ func newWorkflowFixture(executor BatchExecutor) *workflowFixture {
 		Now:            func() time.Time { return now },
 		CleanupTimeout: time.Second,
 	}
-	fixture.request = RunRequest{ManifestPath: "manifest.json", RunID: "workflow-run-1", Units: units, HeartbeatTTL: time.Minute}
+	fixture.request = RunRequest{ManifestPath: "manifest.json", RepositoryID: "workflow-repository", SourceTreeSHA: strings.Repeat("a", 40), RunID: "workflow-run-1", Units: units, HeartbeatTTL: time.Minute}
 	return fixture
+}
+
+func workflowPlanRequest(fixture *workflowFixture, operationID heteroci.OperationID, units []heteroci.ExecutionUnit) heteroci.TopologyPlanRequest {
+	return heteroci.TopologyPlanRequest{
+		OperationID:    operationID,
+		RepositoryID:   fixture.request.RepositoryID,
+		SourceTreeSHA:  fixture.request.SourceTreeSHA,
+		RunID:          fixture.request.RunID,
+		Manifest:       fixture.manifest,
+		SourceSnapshot: fixture.snapshot,
+		Units:          units,
+		HeartbeatTTL:   fixture.request.HeartbeatTTL,
+	}
 }
 
 func assertWorkflowEvents(got []string, want ...string) error {

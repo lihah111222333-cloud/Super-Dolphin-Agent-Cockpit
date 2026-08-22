@@ -29,12 +29,8 @@ type DurableReservedRoutingPlan struct {
 
 // planAndReserveRequest 是 journal 的完整幂等输入，不接受 caller 预计算的 plan/decision。
 type planAndReserveRequest struct {
-	Fence             heteroci.OwnerFence      `json:"fence"`
-	RunID             string                   `json:"run_id"`
-	Manifest          heteroci.Manifest        `json:"manifest"`
-	SourceSnapshot    heteroci.SnapshotSet     `json:"source_snapshot"`
-	Units             []heteroci.ExecutionUnit `json:"units"`
-	HeartbeatTTLMilli int64                    `json:"heartbeat_ttl_milli"`
+	Fence   heteroci.OwnerFence          `json:"fence"`
+	Request heteroci.TopologyPlanRequest `json:"request"`
 }
 
 type durableReservationKey struct {
@@ -53,14 +49,9 @@ type durableReservation struct {
 func (owner *Owner) PlanAndReserve(
 	ctx context.Context,
 	fence heteroci.OwnerFence,
-	operationID heteroci.OperationID,
-	runID string,
-	manifest heteroci.Manifest,
-	sourceSnapshot heteroci.SnapshotSet,
-	units []heteroci.ExecutionUnit,
-	heartbeatTTL time.Duration,
+	request heteroci.TopologyPlanRequest,
 ) (DurableReservedRoutingPlan, error) {
-	if err := validatePlanAndReserveArguments(owner, fence, operationID, runID, manifest, sourceSnapshot, units, heartbeatTTL); err != nil {
+	if err := validatePlanAndReserveArguments(owner, fence, request); err != nil {
 		return DurableReservedRoutingPlan{}, err
 	}
 	nowUnixMilli, err := owner.nowUnixMilli()
@@ -68,20 +59,13 @@ func (owner *Owner) PlanAndReserve(
 		return DurableReservedRoutingPlan{}, err
 	}
 	now := time.UnixMilli(nowUnixMilli)
-	requestBytes, err := json.Marshal(planAndReserveRequest{
-		Fence:             fence,
-		RunID:             runID,
-		Manifest:          manifest,
-		SourceSnapshot:    sourceSnapshot,
-		Units:             units,
-		HeartbeatTTLMilli: heartbeatTTL.Milliseconds(),
-	})
+	requestBytes, err := json.Marshal(planAndReserveRequest{Fence: fence, Request: request})
 	if err != nil {
 		return DurableReservedRoutingPlan{}, fmt.Errorf("encode plan-and-reserve request: %w", err)
 	}
 	var result DurableReservedRoutingPlan
 	err = WithImmediateTx(ctx, owner.db, func(tx *sql.Tx) error {
-		return owner.planAndReserveTx(ctx, tx, fence, operationID, runID, manifest, sourceSnapshot, units, heartbeatTTL, now, nowUnixMilli, requestBytes, &result)
+		return owner.planAndReserveTx(ctx, tx, fence, request, now, nowUnixMilli, requestBytes, &result)
 	})
 	if err != nil {
 		return DurableReservedRoutingPlan{}, err
@@ -90,18 +74,18 @@ func (owner *Owner) PlanAndReserve(
 }
 
 // planAndReserveTx 在同一事务内执行 replay、重算、行写入和 journal CAS。
-func (owner *Owner) planAndReserveTx(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, sourceSnapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration, now time.Time, nowUnixMilli int64, requestBytes []byte, result *DurableReservedRoutingPlan) error {
-	existing, found, err := readOperationByID(ctx, tx, fence.Scope, fence.OwnerEpoch, operationID)
+func (owner *Owner) planAndReserveTx(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest, now time.Time, nowUnixMilli int64, requestBytes []byte, result *DurableReservedRoutingPlan) error {
+	existing, found, err := readOperationByID(ctx, tx, fence.Scope, fence.OwnerEpoch, request.OperationID)
 	if err != nil {
 		return err
 	}
 	if found {
-		return replayPlanOperation(existing, requestBytes, fence, operationID, manifest, units, heartbeatTTL, now, result)
+		return replayPlanOperation(existing, requestBytes, fence, request, now, result)
 	}
 	if err := owner.requireCurrentFence(ctx, tx, fence); err != nil {
 		return err
 	}
-	planned, reservations, err := planFromCurrentDatabase(ctx, tx, fence, runID, manifest, sourceSnapshot, units, heartbeatTTL, now)
+	planned, reservations, err := planFromCurrentDatabase(ctx, tx, fence, request.RunID, request.Manifest, request.SourceSnapshot, request.Units, request.HeartbeatTTL, now)
 	if err != nil {
 		return err
 	}
@@ -113,41 +97,36 @@ func (owner *Owner) planAndReserveTx(ctx context.Context, tx *sql.Tx, fence hete
 	if err != nil {
 		return err
 	}
-	*result = DurableReservedRoutingPlan{Fence: committedFence, OperationID: operationID, SourceSnapshot: cloneSnapshot(sourceSnapshot), EffectiveSnapshot: cloneSnapshot(planned.EffectiveSnapshot), Plan: planned.Plan, Decision: planned.Decision, Leases: cloneLeases(planned.Leases)}
+	*result = DurableReservedRoutingPlan{Fence: committedFence, OperationID: request.OperationID, SourceSnapshot: cloneSnapshot(request.SourceSnapshot), EffectiveSnapshot: cloneSnapshot(planned.EffectiveSnapshot), Plan: planned.Plan, Decision: planned.Decision, Leases: cloneLeases(planned.Leases)}
 	resultBytes, err := json.Marshal(*result)
 	if err != nil {
 		return fmt.Errorf("encode durable plan result: %w", err)
 	}
-	if err := insertPlanRows(ctx, tx, fence, runID, manifest, units, heartbeatTTL, *result, reservations, revision); err != nil {
+	if err := insertPlanRows(ctx, tx, fence, request.RunID, request.Manifest, request.Units, request.HeartbeatTTL, *result, reservations, revision); err != nil {
 		return err
 	}
-	_, err = commitOperationTx(ctx, tx, OperationRequest{Fence: fence, OperationID: operationID, Kind: planAndReserveOperationKind, RequestBytes: requestBytes, ResultBytes: resultBytes, ProjectionDigest: digestBytes(resultBytes), CommittedAtUnixMilli: nowUnixMilli})
+	_, err = commitOperationTx(ctx, tx, OperationRequest{Fence: fence, OperationID: request.OperationID, Kind: planAndReserveOperationKind, RequestBytes: requestBytes, ResultBytes: resultBytes, ProjectionDigest: digestBytes(resultBytes), CommittedAtUnixMilli: nowUnixMilli})
 	return err
 }
 
 // replayPlanOperation 只在 request bytes 完全相同时返回已提交 projection。
-func replayPlanOperation(existing OperationRecord, requestBytes []byte, fence heteroci.OwnerFence, operationID heteroci.OperationID, manifest heteroci.Manifest, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration, now time.Time, result *DurableReservedRoutingPlan) error {
+func replayPlanOperation(existing OperationRecord, requestBytes []byte, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest, now time.Time, result *DurableReservedRoutingPlan) error {
 	if existing.Kind != planAndReserveOperationKind || !bytes.Equal(existing.RequestBytes, requestBytes) {
 		return ErrOperationConflict
 	}
 	if err := json.Unmarshal(existing.ResultBytes, result); err != nil {
 		return fmt.Errorf("decode durable plan replay: %w", err)
 	}
-	return validateDurablePlanResult(*result, fence, operationID, manifest, units, heartbeatTTL, now)
+	return validateDurablePlanResult(*result, fence, request.OperationID, request.Manifest, request.Units, request.HeartbeatTTL, now)
 }
 
 // validatePlanAndReserveArguments 校验 durable 规划入口的身份、清单和时限。
-func validatePlanAndReserveArguments(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, snapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration) error {
-	if err := validatePlanOwnerBinding(owner, fence, operationID, runID); err != nil {
+func validatePlanAndReserveArguments(owner *Owner, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest) error {
+	if err := validatePlanOwnerBinding(owner, fence, request.OperationID, request.RunID); err != nil {
 		return err
 	}
-	if err := manifest.Validate(); err != nil {
-		return err
-	}
-	if snapshot.OwnerEpoch != fence.OwnerEpoch {
-		return fmt.Errorf("heteroci source snapshot owner epoch does not match fence")
-	}
-	return validatePlanPayload(units, heartbeatTTL)
+	session := heteroci.TopologySession{Scope: fence.Scope, OwnerID: fence.OwnerID, OwnerEpoch: fence.OwnerEpoch}
+	return request.Validate(session)
 }
 
 // validatePlanOwnerBinding 校验 owner、fence、operation 和运行标识的绑定。
@@ -166,17 +145,6 @@ func validatePlanOwnerBinding(owner *Owner, fence heteroci.OwnerFence, operation
 	}
 	if !validOwnerRunID(runID) {
 		return fmt.Errorf("heteroci owner run id is invalid")
-	}
-	return nil
-}
-
-// validatePlanPayload 校验工作单元集合和 owner heartbeat TTL。
-func validatePlanPayload(units []heteroci.ExecutionUnit, heartbeatTTL time.Duration) error {
-	if err := heteroci.ValidateExecutionUnits(units); err != nil {
-		return err
-	}
-	if heartbeatTTL <= 0 || heartbeatTTL.Milliseconds() <= 0 {
-		return fmt.Errorf("heteroci owner heartbeat TTL must be positive")
 	}
 	return nil
 }

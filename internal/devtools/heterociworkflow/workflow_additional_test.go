@@ -3,7 +3,12 @@ package heterociworkflow
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
@@ -155,7 +160,7 @@ func TestWorkflowBuildsOneDeterministicLocalWaveBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeriveOperationID: %v", err)
 	}
-	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, planID, fixture.request.RunID, fixture.manifest, fixture.snapshot, units, fixture.request.HeartbeatTTL)
+	planned, err := fixture.owner.PlanAndReserve(t.Context(), fence, workflowPlanRequest(fixture, planID, units))
 	if err != nil {
 		t.Fatalf("PlanAndReserve: %v", err)
 	}
@@ -209,3 +214,87 @@ func (owner *readDriftOwner) ReadRun(ctx context.Context, runID string) (heteroc
 }
 
 var _ DurableOwner = (*readDriftOwner)(nil)
+
+func TestRunRequestPlanAuditFieldRegistry(t *testing.T) {
+	producer := make(map[string]bool)
+	requestType := reflect.TypeFor[RunRequest]()
+	for field := range requestType.Fields() {
+		producer[field.Name] = true
+	}
+	consumer := map[string]string{
+		"ManifestPath": "strict manifest loader", "RepositoryID": "topology plan audit request",
+		"SourceTreeSHA": "topology plan audit request", "RunID": "topology plan and execution identity",
+		"Units": "topology planner and executor", "HeartbeatTTL": "snapshot and lease validation",
+	}
+	var missing, stale []string
+	for field := range producer {
+		if consumer[field] == "" {
+			missing = append(missing, field)
+		}
+	}
+	for field := range consumer {
+		if !producer[field] {
+			stale = append(stale, field)
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(stale)
+	if len(missing) != 0 || len(stale) != 0 {
+		t.Fatalf("RunRequest plan audit field registry drifted: missing=%v stale=%v", missing, stale)
+	}
+}
+
+func TestWorkflowPlanRequestCarriesPerRunRepositoryAudit(t *testing.T) {
+	executor := &fakeExecutor{result: successfulBatchResult("unit-1")}
+	fixture := newWorkflowFixture(executor)
+	executor.events = &fixture.events
+	fixture.request.RepositoryID = "repository-b"
+	fixture.request.SourceTreeSHA = strings.Repeat("b", 40)
+	if _, err := Execute(t.Context(), fixture.deps, fixture.request); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if fixture.owner.planRequest.RepositoryID != fixture.request.RepositoryID || fixture.owner.planRequest.SourceTreeSHA != fixture.request.SourceTreeSHA {
+		t.Fatalf("owner plan audit = %q/%q, want %q/%q", fixture.owner.planRequest.RepositoryID, fixture.owner.planRequest.SourceTreeSHA, fixture.request.RepositoryID, fixture.request.SourceTreeSHA)
+	}
+}
+
+func TestWorkflowRejectsMissingOrNonCanonicalRepositoryAuditBeforeSideEffects(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*RunRequest)
+	}{
+		{name: "empty repository", mutate: func(request *RunRequest) { request.RepositoryID = "" }},
+		{name: "empty tree", mutate: func(request *RunRequest) { request.SourceTreeSHA = "" }},
+		{name: "uppercase tree", mutate: func(request *RunRequest) { request.SourceTreeSHA = strings.Repeat("A", 40) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newWorkflowFixture(&fakeExecutor{})
+			test.mutate(&fixture.request)
+			if _, err := Execute(t.Context(), fixture.deps, fixture.request); !errors.Is(err, ErrInvalidRequest) {
+				t.Fatalf("Execute error = %v, want ErrInvalidRequest", err)
+			}
+			if len(fixture.events) != 0 {
+				t.Fatalf("invalid audit caused side effects: %v", fixture.events)
+			}
+		})
+	}
+}
+
+func TestAutomaticWorkflowRunRequestConsumesRepositoryAudit(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve workflow field guard source path")
+	}
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "..", "remotecicli", "automatic_run.go"))
+	if err != nil {
+		t.Fatalf("read automatic workflow caller: %v", err)
+	}
+	for _, binding := range []string{
+		"RepositoryID:  inputs.repository.RepositoryID",
+		"SourceTreeSHA: inputs.repository.TreeSHA",
+	} {
+		if !strings.Contains(string(source), binding) {
+			t.Fatalf("automatic workflow caller is missing plan audit binding %q", binding)
+		}
+	}
+}

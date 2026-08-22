@@ -77,6 +77,9 @@ func dispatchAutomaticRun(args []string, stdout, stderr io.Writer) error {
 	return writeProgress(stderr, "automatic run completed")
 }
 
+// automatic scheduler composition seam 尚未开放；后续 scheduler wiring 必须替换此签名断言而非公开手动 dispatch。
+var _ func([]string, io.Writer, io.Writer) error = dispatchAutomaticRun
+
 // writeAutomaticRunResult 在写 stdout 前强制 terminal result 总字节上限。
 func writeAutomaticRunResult(stdout io.Writer, result AutomaticRunResult) error {
 	if err := validateAutomaticRunResult(result); err != nil {
@@ -166,8 +169,12 @@ func runAutomaticExecution(ctx context.Context, configPath, repositoryPath, runI
 		LoadManifest: heteroci.LoadManifestFile, AcquireSnapshot: heteroci.AcquireSnapshot,
 		Now: clock, CleanupTimeout: time.Duration(inputs.config.CleanupTimeoutMS) * time.Millisecond,
 	}, heterociworkflow.RunRequest{
-		ManifestPath: inputs.config.TopologyManifestPath, RunID: runID, Units: units,
-		HeartbeatTTL: time.Duration(inputs.config.HeartbeatTTLMS) * time.Millisecond,
+		ManifestPath:  inputs.config.TopologyManifestPath,
+		RepositoryID:  inputs.repository.RepositoryID,
+		SourceTreeSHA: inputs.repository.TreeSHA,
+		RunID:         runID,
+		Units:         units,
+		HeartbeatTTL:  time.Duration(inputs.config.HeartbeatTTLMS) * time.Millisecond,
 	})
 	if err != nil {
 		_ = writeProgress(stderr, "automatic run failed error_code="+automaticExecutionErrorCode(err))

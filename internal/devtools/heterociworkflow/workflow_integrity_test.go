@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
@@ -214,12 +213,12 @@ type integrityPlanOwner struct {
 	*fakeOwner
 }
 
-func (owner *integrityPlanOwner) PlanAndReserve(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string, manifest heteroci.Manifest, snapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, ttl time.Duration) (heterociowner.DurableReservedRoutingPlan, error) {
-	planned, err := owner.fakeOwner.PlanAndReserve(ctx, fence, operationID, runID, manifest, snapshot, units, ttl)
+func (owner *integrityPlanOwner) PlanAndReserve(ctx context.Context, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest) (heterociowner.DurableReservedRoutingPlan, error) {
+	planned, err := owner.fakeOwner.PlanAndReserve(ctx, fence, request)
 	if err != nil {
 		return heterociowner.DurableReservedRoutingPlan{}, err
 	}
-	wrong, err := DeriveOperationID(runID, OperationPhaseStart, units[0].UnitID)
+	wrong, err := DeriveOperationID(request.RunID, OperationPhaseStart, request.Units[0].UnitID)
 	if err != nil {
 		return heterociowner.DurableReservedRoutingPlan{}, err
 	}

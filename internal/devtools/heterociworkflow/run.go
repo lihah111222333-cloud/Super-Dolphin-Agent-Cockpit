@@ -81,7 +81,16 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	if err != nil {
 		return preparedRun{}, err
 	}
-	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, ids.plan, request.RunID, manifest, snapshot, request.Units, request.HeartbeatTTL)
+	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, heteroci.TopologyPlanRequest{
+		OperationID:    ids.plan,
+		RepositoryID:   request.RepositoryID,
+		SourceTreeSHA:  request.SourceTreeSHA,
+		RunID:          request.RunID,
+		Manifest:       manifest,
+		SourceSnapshot: snapshot,
+		Units:          request.Units,
+		HeartbeatTTL:   request.HeartbeatTTL,
+	})
 	if err != nil {
 		return preparedRun{}, fmt.Errorf("plan and reserve heteroci run: %w", err)
 	}
@@ -168,7 +177,7 @@ func validateWorkflowReady(workflow *Workflow) error {
 	return nil
 }
 
-// validateRunRequest 校验 context、manifest path、run identity、TTL 和 execution units。
+// validateRunRequest 校验 context、manifest path、run audit、TTL 和 execution units。
 func validateRunRequest(ctx context.Context, request RunRequest) error {
 	if ctx == nil {
 		return fmt.Errorf("%w: context is required", ErrInvalidRequest)
@@ -178,6 +187,9 @@ func validateRunRequest(ctx context.Context, request RunRequest) error {
 	}
 	if request.ManifestPath == "" || strings.TrimSpace(request.ManifestPath) != request.ManifestPath {
 		return fmt.Errorf("%w: manifest path is invalid", ErrInvalidRequest)
+	}
+	if err := heteroci.ValidateTopologyAuditIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID); err != nil {
+		return fmt.Errorf("%w: run audit identity is invalid: %w", ErrInvalidRequest, err)
 	}
 	if err := validateWorkflowRunID(request.RunID); err != nil {
 		return fmt.Errorf("%w: run identity is invalid", ErrInvalidRequest)
