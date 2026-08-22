@@ -79,14 +79,11 @@ func finishPostgreSQLBindingReplay(ctx context.Context, tx *sql.Tx, record postg
 	return result, nil
 }
 func (owner *PostgreSQLOwner) commitPostgreSQLBindingMutation(ctx context.Context, tx *sql.Tx, current heteroci.OwnerFence, mutation heteroci.ExecutorBindingMutation, requestBytes []byte, nowUnixMilli int64) (heteroci.ExecutorBindingMutationResult, error) {
-	revision, err := nextOwnerRevision(current)
+	committedFence, err := expectedPostgreSQLBindingFence(current)
 	if err != nil {
 		return heteroci.ExecutorBindingMutationResult{}, rollbackPostgreSQLOwnerTx(tx, err)
 	}
-	committedFence, err := heteroci.NewOwnerFence(current.Scope, current.OwnerID, current.OwnerEpoch, revision)
-	if err != nil {
-		return heteroci.ExecutorBindingMutationResult{}, rollbackPostgreSQLOwnerTx(tx, err)
-	}
+	revision := committedFence.Revision
 	result := heteroci.ExecutorBindingMutationResult{Fence: committedFence, Plan: mutation.Plan}
 	resultBytes, err := json.Marshal(postgresqlBindingOperationResult{Fence: result.Fence, Plan: result.Plan})
 	if err != nil {
@@ -139,16 +136,27 @@ func replayPostgreSQLBinding(ctx context.Context, tx *sql.Tx, record postgresqlO
 	if err := json.Unmarshal(record.ResultBytes, &persisted); err != nil {
 		return heteroci.ExecutorBindingMutationResult{}, fmt.Errorf("decode PostgreSQL executor binding replay: %w", err)
 	}
-	if err := validatePostgreSQLBindingJournal(ctx, tx, record, mutation, requestBytes, persisted); err != nil {
+	expectedFence, err := expectedPostgreSQLBindingFence(mutation.Fence)
+	if err != nil {
 		return heteroci.ExecutorBindingMutationResult{}, err
 	}
-	if !reflect.DeepEqual(persisted.Plan, mutation.Plan) || persisted.Fence.OwnerEpoch != mutation.Fence.OwnerEpoch {
+	if err := validatePostgreSQLBindingJournal(ctx, tx, record, mutation, requestBytes, persisted, expectedFence); err != nil {
+		return heteroci.ExecutorBindingMutationResult{}, err
+	}
+	if !reflect.DeepEqual(persisted.Plan, mutation.Plan) {
 		return heteroci.ExecutorBindingMutationResult{}, ErrOperationConflict
 	}
 	return heteroci.ExecutorBindingMutationResult{Fence: persisted.Fence, Plan: persisted.Plan}, nil
 }
-func validatePostgreSQLBindingJournal(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, requestBytes []byte, persisted postgresqlBindingOperationResult) error {
-	if err := validatePostgreSQLBindingRecordIdentity(record, mutation, persisted); err != nil {
+func expectedPostgreSQLBindingFence(input heteroci.OwnerFence) (heteroci.OwnerFence, error) {
+	revision, err := nextOwnerRevision(input)
+	if err != nil {
+		return heteroci.OwnerFence{}, err
+	}
+	return heteroci.NewOwnerFence(input.Scope, input.OwnerID, input.OwnerEpoch, revision)
+}
+func validatePostgreSQLBindingJournal(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, requestBytes []byte, persisted postgresqlBindingOperationResult, expectedFence heteroci.OwnerFence) error {
+	if err := validatePostgreSQLBindingRecordIdentity(record, mutation, persisted, expectedFence); err != nil {
 		return err
 	}
 	if err := validatePostgreSQLBindingRecordDigests(record, requestBytes); err != nil {
@@ -157,10 +165,10 @@ func validatePostgreSQLBindingJournal(ctx context.Context, tx *sql.Tx, record po
 	if err := validatePostgreSQLBindingJournalChain(record, mutation.Fence); err != nil {
 		return err
 	}
-	return validatePostgreSQLBindingHead(ctx, tx, record, mutation.Fence)
+	return validatePostgreSQLBindingHead(ctx, tx, record, expectedFence)
 }
-func validatePostgreSQLBindingRecordIdentity(record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, persisted postgresqlBindingOperationResult) error {
-	if record.Scope != mutation.Fence.Scope || record.OperationID != mutation.Plan.ExternalOperationID || record.Revision != mutation.Fence.Revision+1 || record.Revision != persisted.Fence.Revision || record.OwnerEpoch != persisted.Fence.OwnerEpoch {
+func validatePostgreSQLBindingRecordIdentity(record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, persisted postgresqlBindingOperationResult, expectedFence heteroci.OwnerFence) error {
+	if record.Kind != postgresqlExecutorBindingOperationKind || record.Scope != expectedFence.Scope || record.OperationID != mutation.Plan.ExternalOperationID || record.OwnerID != expectedFence.OwnerID || record.OwnerEpoch != expectedFence.OwnerEpoch || record.Revision != expectedFence.Revision || persisted.Fence != expectedFence {
 		return ErrOperationConflict
 	}
 	return nil
@@ -179,9 +187,9 @@ func validatePostgreSQLBindingJournalChain(record postgresqlOperationRecord, fen
 	}
 	return nil
 }
-func validatePostgreSQLBindingHead(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, fence heteroci.OwnerFence) error {
-	head, headJournal, headProjection, found, err := readPostgreSQLBindingHead(ctx, tx, fence.Scope)
-	if err != nil || !found || head.Revision != record.Revision || headJournal != record.JournalDigest || headProjection != record.ProjectionDigest {
+func validatePostgreSQLBindingHead(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, expectedFence heteroci.OwnerFence) error {
+	head, headJournal, headProjection, found, err := readPostgreSQLBindingHead(ctx, tx, expectedFence.Scope)
+	if err != nil || !found || head != expectedFence || headJournal != record.JournalDigest || headProjection != record.ProjectionDigest {
 		return ErrOperationConflict
 	}
 	return nil

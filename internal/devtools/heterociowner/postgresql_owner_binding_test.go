@@ -2,6 +2,7 @@ package heterociowner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -178,6 +179,121 @@ func TestPostgreSQLOwnerBindExecutorsRejectsRequestAuditTamper(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPostgreSQLOwnerBindExecutorsRejectsJournalAndHeadTamper(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*testing.T, *postgresqlOwnerTestState, heteroci.ExecutorBindingMutation)
+	}{
+		{name: "previous journal digest", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingOperationField(t, state, mutation, 8, "sha256:"+strings.Repeat("a", 64))
+		}},
+		{name: "journal digest", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingOperationField(t, state, mutation, 9, "sha256:"+strings.Repeat("b", 64))
+		}},
+		{name: "record revision", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingOperationField(t, state, mutation, 2, int64(mutation.Fence.Revision+2))
+		}},
+		{name: "result fence scope", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingResultFence(t, state, mutation, func(result *postgresqlBindingOperationResult) {
+				result.Fence.Scope = heteroci.RoutingOwnerScope("sha256:" + strings.Repeat("c", 64))
+			})
+		}},
+		{name: "result fence owner", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingResultFence(t, state, mutation, func(result *postgresqlBindingOperationResult) {
+				result.Fence.OwnerID = heteroci.RoutingOwnerID(strings.Repeat("d", 64))
+			})
+		}},
+		{name: "result fence revision", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingResultFence(t, state, mutation, func(result *postgresqlBindingOperationResult) { result.Fence.Revision = mutation.Fence.Revision + 2 })
+		}},
+		{name: "head owner", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingHeadField(t, state, 0, strings.Repeat("e", 64))
+		}},
+		{name: "head epoch", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingHeadField(t, state, 1, int64(mutation.Fence.OwnerEpoch+1))
+		}},
+		{name: "head journal digest", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingHeadField(t, state, 3, "sha256:"+strings.Repeat("f", 64))
+		}},
+		{name: "head projection digest", mutate: func(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation) {
+			tamperBindingHeadField(t, state, 4, "sha256:"+strings.Repeat("0", 64))
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			owner, state, mutation := newPostgreSQLBindingMutationFixture(t)
+			first, err := owner.BindExecutors(context.Background(), mutation)
+			if err != nil {
+				t.Fatalf("initial BindExecutors: %v", err)
+			}
+			test.mutate(t, state, mutation)
+			if _, err := owner.BindExecutors(context.Background(), mutation); !errors.Is(err, ErrOperationConflict) {
+				t.Fatalf("tampered binding error = %v, want ErrOperationConflict", err)
+			}
+			state.mu.Lock()
+			gotRevision := state.data.head[2]
+			state.mu.Unlock()
+			if fmt.Sprint(gotRevision) != fmt.Sprint(first.Fence.Revision) {
+				t.Fatalf("tampered binding advanced head revision: got=%v want=%v", gotRevision, first.Fence.Revision)
+			}
+		})
+	}
+}
+
+func tamperBindingOperationField(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation, index int, value any) {
+	t.Helper()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	operation, ok := state.data.operations[string(mutation.Plan.ExternalOperationID)]
+	if !ok || len(operation) <= index {
+		t.Fatalf("binding operation field %d is missing", index)
+	}
+	operation[index] = value
+}
+
+func tamperBindingResultFence(t *testing.T, state *postgresqlOwnerTestState, mutation heteroci.ExecutorBindingMutation, mutate func(*postgresqlBindingOperationResult)) {
+	t.Helper()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	operation, ok := state.data.operations[string(mutation.Plan.ExternalOperationID)]
+	if !ok {
+		t.Fatal("binding operation is missing")
+	}
+	resultBytes, ok := operation[6].([]byte)
+	if !ok {
+		t.Fatal("binding operation result bytes have unexpected type")
+	}
+	var result postgresqlBindingOperationResult
+	if err := json.Unmarshal(resultBytes, &result); err != nil {
+		t.Fatalf("decode binding result: %v", err)
+	}
+	mutate(&result)
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("encode binding result: %v", err)
+	}
+	operation[6] = resultBytes
+	operation[7] = digestBytes(resultBytes)
+	operation[10] = operation[7]
+	requestBytes, ok := operation[4].([]byte)
+	if !ok {
+		t.Fatal("binding operation request bytes have unexpected type")
+	}
+	operationRequest := OperationRequest{Fence: mutation.Fence, OperationID: mutation.Plan.ExternalOperationID, Kind: fmt.Sprint(operation[3]), RequestBytes: requestBytes, ResultBytes: resultBytes, ProjectionDigest: fmt.Sprint(operation[10]), CommittedAtUnixMilli: namedInt64(operation[11])}
+	operation[9] = journalChainDigest(mutation.Fence, operationRequest, fmt.Sprint(operation[8]), fmt.Sprint(operation[5]), fmt.Sprint(operation[7]), heteroci.RoutingOwnerRevision(namedInt64(operation[2])))
+	state.data.head[3], state.data.head[4] = operation[9], operation[10]
+}
+
+func tamperBindingHeadField(t *testing.T, state *postgresqlOwnerTestState, index int, value any) {
+	t.Helper()
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.data.head) <= index {
+		t.Fatalf("binding owner head field %d is missing", index)
+	}
+	state.data.head[index] = value
 }
 
 func mutationPlanOperationIDForBindingTest(t *testing.T, runID heteroci.TopologyRunID) heteroci.OperationID {

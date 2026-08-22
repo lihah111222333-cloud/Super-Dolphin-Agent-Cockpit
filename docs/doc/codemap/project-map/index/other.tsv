@@ -959,8 +959,8 @@ internal/devtools/heterociowner/owner_fence_test.go	internal	other	go-test	2876	
 internal/devtools/heterociowner/postgresql_index_explain_pg14_test.sql	internal	other	sql	3848	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,index,explain,pg14,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner.go	internal	other	go-source	13165	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_adapter.go	internal	other	go-source	4575	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,adapter,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_binding.go	internal	other	go-source	12616	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,binding,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_binding_test.go	internal	other	go-test	11492	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,binding,test,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_binding.go	internal	other	go-source	13012	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,binding,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_binding_test.go	internal	other	go-test	17225	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,binding,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_binding_validation.go	internal	other	go-source	6961	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,binding,validation,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_lifecycle.go	internal	other	go-source	37500	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,lifecycle,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_plan.go	internal	other	go-source	16216	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,开发工具与生成器辅助包
