@@ -32,10 +32,9 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"generated:source",
 		"lsp:diagnostics",
-		"lsp:inspect",
-		"lsp:locate",
-		"lsp:read_file",
-		"lsp:xref",
+		"native:apply_patch",
+		"native:read",
+		"native:search",
 	)
 	assertStringSetContains(t, plan.GeneratedFiles, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md")
 	if !plan.RequiresEvidenceDoc {
@@ -207,10 +206,9 @@ func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"lsp:diagnostics",
-		"lsp:inspect",
-		"lsp:locate",
-		"lsp:read_file",
-		"lsp:xref",
+		"native:apply_patch",
+		"native:read",
+		"native:search",
 	)
 	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
 	assertStringSetOmits(t, plan.RequiredGates, "ai-maintenance:self-test")

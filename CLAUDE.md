@@ -6,8 +6,8 @@
 2. 读取 `docs/doc/codemap/README.md`，了解代码地图目录和阅读边界。
 3. 根据目录选择并打开一个相关的代码地图分卷。
 4. 使用 `rg` 搜索 `docs/doc/codemap/ai-index.json` 或精确源码目录，缩小候选符号和路径范围。
-5. 读取 `docs/internal-notes/LSP系统提示词.md`，然后使用 LSP 符号和导航工具确认定义、引用、调用方、实现和诊断，再决定要编辑或报告的路径。
-6. 在 LSP 确认路径后，打开精确源码文件和同包测试。
+5. 读取 `docs/internal-notes/LSP系统提示词.md`；仅当地图和原生搜索仍无法确认符号归属或跨文件影响面时，使用 `structure` / `xref`。
+6. 打开精确源码文件和同包测试；修改后使用 `diagnostics` 检查改动文件。
 
 行为阅读模式，适用于用户询问某个机制如何工作时：
 
@@ -16,71 +16,25 @@
 3. 使用 `docs/契约/*.md` 查看 fx、rungroup、jrpc2、sqlc、stateless、MCP 服务、洋葱架构等约定。
 4. 使用 `docs/doc/codemap/*.md` 导航大型子系统。
 5. 除非用户明确询问迁移历史，否则将 `docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**` 和旧报告视为历史规划材料。
-6. 读取 `docs/internal-notes/LSP系统提示词.md`，然后在回答行为、影响或实现问题前，使用 LSP 工具对相关文件做符号导航、引用和调用层级检查、悬停和签名上下文检查以及诊断检查。
+6. 读取 `docs/internal-notes/LSP系统提示词.md`；需要符号定义或跨文件影响证据时分别使用 `structure` / `xref`，局部源码事实直接使用原生文件工具读取。
 
-## LSP 强制使用规则
+## LSP 三工具与原生工具分工
 
-### LSP 工具链不可降级规则
+- 共享作战法则以 `shared-developer-instructions.md` 为准：文件读取用原生 `cat` / `head`，文本定位用原生 `grep` / `rg`，代码修改用原生 `apply_patch`。
+- `cmd/mcp-lsp` 对外只暴露 `structure`、`xref`、`diagnostics`：找定义用 `structure`，查调用方和影响面用 `xref`，修改后查语法和类型错误用 `diagnostics`。
+- 不存在 `file`、`read_file`、`inspect`、`grep`、`edit`、`patch_edit`、`completion` LSP 工具或兼容别名；不得用纯 shell 命令伪造 LSP 语义结果。
+- Anti-Overkill：局部单文件小 Bug 优先用原生工具直接解决，禁止无必要的重型跨文件探索。只有定义不明、调用关系不明或影响面跨文件时才使用 `structure` / `xref`。
+- 三个 LSP 工具的入参都是封闭 JSON object。返回值只读取 MCP `content` 中的纯文本行协议（`OK` / `ERROR`、`ATTR`、`ROW`、`HINT`），不得依赖 `structuredContent`。
+- `structure(workspace_symbol)` 的无文件语言选择使用 `workspace_language`；具体文件的语言覆盖使用 `language_id`；`xref` 使用 `pos=<file>:<line>:<column>`；`diagnostics` 必须且只能传 `file_path` 或 `file_paths` 之一。
+- LSP 工具超时、不可用或返回异常时，先收窄 `work_dir`、文件、符号或结果数后重试；仍失败时记录 tool、目标、错误和已尝试的收窄方式。禁止把无法取得 diagnostics 写成 PASS。
+- diagnostics 返回的 Error、Warning、Information、Hint 均视为待处理项；无法修复时记录文件、行号、规则和原因。
 
-- `cmd/mcp-lsp` 是 generic multi-language LSP peer；不得把本文件的 LSP 要求降级、改写或替换成 `gopls check`、`go test`、`rg + cat/sed`、单语言检查器或纯 shell 验证。
-- Go 文件可以由底层语言服务器使用 gopls，但人工工作流必须通过当前对外暴露的 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit`、`completion` 等 LSP 工具完成导航、影响面分析、读取、编辑和诊断；`gopls check` 只能作为额外验证，不能替代 LSP 工具证据。
-- 当前 MCP 暴露名使用短名；在 Codex 工具命名空间中对应 `mcp__lsp.file`、`mcp__lsp.inspect`、`mcp__lsp.xref`、`mcp__lsp.grep`、`mcp__lsp.structure`、`mcp__lsp.patch_edit`、`mcp__lsp.completion`。`file(diagnostics)` 是诊断入口，没有独立 `diagnostics` 工具；`edit`、`lsp_edit`、`lsp_file` 等旧名不是当前对外契约。
-- 如果会话首层工具列表没有展示上述 LSP 工具，不得直接判定“未暴露”或降级到 shell。必须主动查询当前平台的工具注册表或延迟工具目录（可用时按名称包含 `lsp` 过滤），再按平台映射的真实工具名至少发起一次调用；只有注册表无匹配，或实际调用明确返回 unknown tool / unavailable 后，才可记录 blocker。
-- 7 个 LSP 工具的入参都是封闭的 JSON object，不是自由文本；未声明字段和 action 不兼容字段必须拒绝。返回值只读取 MCP `content` 中的纯文本行协议（`OK` / `ERROR`、`ATTR`、`ROW`、`HINT`），不得依赖已移除的 `structuredContent`。
-- 语言字段按唯一语义使用：`grep(ast_search)` 使用 `ast_language` 选择 AST 语法；`structure(workspace_symbol)` 在无文件定位时使用 `workspace_language`；`language_id` 只覆盖具体文件的 LSP server 路由。旧字段 `language` 已移除，不得作为兼容别名。
-- action 级必选字段、互斥字段和有效取值以 `cmd/mcp-lsp/schema.go` 为事实来源，以 `docs/internal-notes/LSP系统提示词.md` 为调用指南；不得凭工具名猜参数。
-- LSP 工具超时、不可用或返回异常时，必须先收窄 `work_dir`、路径、查询、语言或结果数后重试；仍失败时记录 blocker，包含 tool/action、`work_dir`、目标文件或符号、错误信息和已尝试的收窄方式。禁止静默降级为 `gopls check` 或 shell 命令，也禁止把“无法取得 diagnostics”写成 PASS。
-- 审查、修复、路径判断或行为解释涉及源码时，至少保留一组可复查的 LSP 证据：定位（`grep` 或 `structure`）、理解（`inspect`）、影响面（`xref`）、精读（`file(read_file)`）和诊断（`file(diagnostics)`）。如果某一类证据因工具能力或文件类型无法取得，必须在输出中说明缺口和 blocker。
+### 最小工作流
 
-### LSP diagnostics 处理规则
-
-- LSP diagnostics 返回的 `Error`、`Warning`、`Information`、`Hint` 均视为待修复项；不得因 severity 为 hint 或“仅建议”而忽略。无法修复时必须记录 blocker，包含文件、行号、规则和原因。
-
-### A：AST 搜索 → 精确读取
-
-```text
-1. grep(ast_search, query="func ($R) MethodName(", ast_language="go")
-2. 用返回的 func_start/func_end → file(read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>) 精准读取
-```
-
-### B：符号定位 → 跳转定义 → 读实现
-
-```text
-1. structure(workspace_symbol, query="SymbolName", workspace_language="go") → 找到符号位置
-2. inspect(definition, pos=<file>:<line>:<col>) → 跳到定义
-3. file(read_file, pos=<file>:<line>, limit=<n>) → 读实现
-```
-
-### C：引用分析 → 调用层级 → 影响面
-
-```text
-1. xref(references, pos=<file>:<line>:<col>) → 找所有引用点
-2. xref(call_hierarchy, pos=<file>:<line>:<col>, direction="incoming") → 谁调用了它
-3. xref(call_hierarchy, pos=<file>:<line>:<col>, direction="outgoing") → 它调用了谁
-```
-
-### D：接口→实现→引用 三级跳
-
-```text
-1. inspect(definition, pos=<file>:<line>:<col>) → 接口定义
-2. inspect(implementation, pos=<file>:<line>:<col>) → 所有实现类
-3. xref(references, pos=<file>:<line>:<col>) → 所有调用点
-```
-
-### E：文件大纲对比
-
-```text
-1. structure(document_symbol, file_path="v3/file.go")
-2. structure(document_symbol, file_path="v2/file.go")
-3. 逐一对比找缺失
-```
-
-## 三、强制工作流
-
-审查类：grep(text_search|ast_search) 定位 → inspect(definition|hover|type_definition) 理解 → xref(references|call_hierarchy) 影响面 → file(read_file) 精读 → 输出判定
-
-修复类：grep(text_search|ast_search) 定位 → xref(references|call_hierarchy) 影响面 → file(read_file) 读取 → patch_edit(replace_range|rename|code_action|format) 修改 → file(diagnostics) 检查 → build/test 验证
-
+- 局部修复：原生读取/定位 → `apply_patch` → `diagnostics` → 格式化、构建和测试。
+- 定义不明：`structure` → 原生读取精确文件 → `apply_patch` → `diagnostics` → 构建和测试。
+- 影响面不明：先 `structure` 定位符号，再 `xref` 查引用或调用层级；只扩展到真实相关文件。
+- 审查/解释：原生读取是事实来源；需要符号归属或跨文件影响证据时分别追加 `structure` / `xref`，需要诊断证据时使用 `diagnostics`。
 
 ## 上下文预算卫生
 

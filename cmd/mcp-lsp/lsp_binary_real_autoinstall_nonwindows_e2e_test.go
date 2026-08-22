@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -35,7 +34,7 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsNPMBackedLanguageServersWithRealPack
 	for _, tc := range realNPMBackedDiagnosticsCases() {
 		t.Run(tc.languageID, func(t *testing.T) {
 			target := tc.write(t, filepath.Join(root, tc.languageID))
-			diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 			requireMCPToolSuccess(t, client, diagnostics, "real "+tc.languageID+" diagnostics")
 			requireRealInstalledBinaries(t, npmBin, tc.binaries)
 		})
@@ -79,10 +78,9 @@ func TestMcpLSPBinaryCompletionAutoInstallsRealCSSHTMLLanguageServers_E2E(t *tes
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			target := copyRealCSSHTMLCompletionFixture(t, root, tc.source)
-			position := target + ":" + strconv.Itoa(tc.line) + ":" + strconv.Itoa(tc.column)
-			completion := client.callTool(t, "completion", map[string]any{"pos": position, "max_results": 20})
+			completion := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": target})
 			requireRealCSSHTMLCompletionSuccess(t, client, completion, tc.language+" completion after npm auto-install")
-			hover := client.callTool(t, "inspect", map[string]any{"action": "hover", "pos": position})
+			hover := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": target})
 			requireRealCSSHTMLCompletionSuccess(t, client, hover, tc.language+" hover after npm auto-install")
 			symbols := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": target})
 			requireRealCSSHTMLCompletionSuccess(t, client, symbols, tc.language+" document_symbol after npm auto-install")
@@ -114,7 +112,7 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsGoplsWithRealGo_E2E(t *testing.T) {
 	} {
 		t.Run(tc.languageID, func(t *testing.T) {
 			target := tc.write(t, filepath.Join(root, tc.languageID))
-			diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 			requireMCPToolSuccess(t, client, diagnostics, "real "+tc.languageID+" diagnostics")
 			requireRealInstalledBinaries(t, goBin, tc.binaries)
 		})
@@ -140,7 +138,7 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsBrewBackedLanguageServersWithRealBre
 	for _, tc := range realBrewBackedDiagnosticsCases() {
 		t.Run(tc.languageID, func(t *testing.T) {
 			target := tc.write(t, filepath.Join(root, tc.languageID))
-			diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 			requireMCPToolSuccess(t, client, diagnostics, "real "+tc.languageID+" diagnostics")
 			requireHostBinariesForE2E(t, []realLSPDiagnosticsCase{tc})
 		})

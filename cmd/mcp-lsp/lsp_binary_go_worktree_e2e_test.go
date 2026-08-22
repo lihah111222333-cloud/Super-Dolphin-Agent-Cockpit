@@ -33,8 +33,7 @@ func TestLSPBinaryGoDiagnosticsIgnoresUnrelatedAmbientGoWorkForWorktree(t *testi
 	t.Setenv("GOWORK", goWorkPath)
 
 	client := startPrebuiltLSPBinaryClient(t, binary, worktree)
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	if diagnostics.IsError {

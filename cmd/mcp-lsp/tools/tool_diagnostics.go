@@ -12,6 +12,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
@@ -22,6 +23,51 @@ const maxDiagnosticSummaryRunes = 300
 const typeScriptDeprecatedDiagnosticCode = "6385"
 const diagnosticsStartupRetryCount = 5
 const diagnosticsStartupRetryBaseDelay = 300 * time.Millisecond
+
+// diagnosticsInput 是一级 diagnostics 工具的唯一外部入参。
+// 文件读取和 action 分发已经从 MCP-LSP 工具面删除，内部诊断流程只接收目标路径。
+type diagnosticsInput struct {
+	FilePath   string   `json:"file_path,omitempty"`
+	FilePaths  []string `json:"file_paths,omitempty"`
+	LanguageID string   `json:"language_id,omitempty"`
+}
+
+// NewDiagnosticsHandler 创建一级 diagnostics 工具处理器。
+// 诊断启动、恢复和批量收敛各有自己的 deadline，因此不再共享工具层总 deadline。
+func NewDiagnosticsHandler(cfg Config) Handler {
+	handler := handlerBase{
+		root:     resolveRoot(cfg.WorkspaceRoot),
+		registry: cfg.Registry,
+	}
+	return newManagerToolWithoutOuterTimeout(
+		"diagnostics",
+		middleware.TierNormal,
+		cfg.Registry,
+		decodeStrict,
+		func(ctx context.Context, _ lspmanager.Registry, input diagnosticsInput) (any, error) {
+			if err := validateDiagnosticsInput(input); err != nil {
+				return nil, err
+			}
+			return handler.handleDiagnostics(ctx, fileToolInput{
+				FilePath:   input.FilePath,
+				FilePaths:  input.FilePaths,
+				LanguageID: input.LanguageID,
+			})
+		},
+	)
+}
+
+func validateDiagnosticsInput(input diagnosticsInput) error {
+	hasSingle := strings.TrimSpace(input.FilePath) != ""
+	hasBatch := len(input.FilePaths) > 0
+	if hasSingle == hasBatch {
+		return errors.New("diagnostics requires exactly one of file_path or file_paths")
+	}
+	if len(collectDiagnosticTargetPaths(fileToolInput{FilePath: input.FilePath, FilePaths: input.FilePaths})) == 0 {
+		return errors.New("diagnostics requires at least one non-empty file path")
+	}
+	return nil
+}
 
 type diagnosticsTable struct {
 	File string   `json:"file"`
@@ -253,7 +299,7 @@ func (h handlerBase) waitDiagnosticsTargetsIndividually(ctx context.Context, uri
 	return ready, missing, nil
 }
 
-// handleDiagnostics 是 file diagnostics 工具入口。
+// handleDiagnostics 执行一级 diagnostics 工具的内部诊断流程。
 // 它先把输入路径限制在可信 workspace roots 内，再返回按文件分组的诊断表。
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
 	if h.registry == nil {
@@ -286,7 +332,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		Data:    tables,
 		Total:   total,
 		Showing: total,
-		Hint:    "next: patch_edit action=replace_range file_path=<file> patch=\"...\" or file action=read_file pos=<file>:<line>",
+		Hint:    "next: inspect the reported location with native file tools, apply a native apply_patch edit, then rerun diagnostics",
 		Meta:    diagnosticsMeta{Message: message},
 	}, nil
 }

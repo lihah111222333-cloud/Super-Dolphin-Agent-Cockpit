@@ -31,15 +31,16 @@ func TestMcpLSPBinaryToolsCallPlainTextOnlyContract_E2E(t *testing.T) {
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	assertBinaryGrepPlainTextContract(t, client)
+	assertNativePlainTextFixture(t, root)
+	assertBinaryDiagnosticsPlainTextContract(t, client, target)
 	assertBinaryFoldingPlainTextContract(t, client, target)
 	assertBinaryCallHierarchyPlainTextContract(t, client, target)
 	assertBinarySemanticTokensPlainTextContract(t, client, target)
-	assertBinaryInvalidRegexPlainTextContract(t, client)
+	assertBinaryInvalidDiagnosticsParamsContract(t, client, target)
 	assertDiagnosticsGateConsumesPlainText(t, ctx, binary, fakeGoplsBinDir)
 }
 
-// TestMcpLSPBinaryToolArgumentSchemaContract_E2E 通过真实 binary 锁定工具说明、条件 schema 与 grep 唯一 paths 契约。
+// TestMcpLSPBinaryToolArgumentSchemaContract_E2E 通过真实 binary 锁定三工具说明和条件 schema。
 func TestMcpLSPBinaryToolArgumentSchemaContract_E2E(t *testing.T) {
 	root, _ := writePlainTextContractFixture(t)
 	binary := buildMcpLSPBinaryForTest(t)
@@ -56,18 +57,27 @@ func TestMcpLSPBinaryToolArgumentSchemaContract_E2E(t *testing.T) {
 	listed := callBinaryToolsList(t, client)
 	assertBinaryToolJSONExamples(t, listed)
 	assertBinaryToolConditionalSchemas(t, listed)
-	assertBinaryGrepRejectsRemovedFields(t, client)
+	assertBinaryRemovedToolsRejected(t, client)
 }
 
-func assertBinaryGrepPlainTextContract(t *testing.T, client *mcpLSPBinaryClient) {
+func assertNativePlainTextFixture(t *testing.T, root string) {
 	t.Helper()
-	t.Run("grep counts all matches while returning ten rows", func(t *testing.T) {
-		result := client.callTool(t, "grep", map[string]any{
-			"action": "text_search", "query": "plain_text_needle", "paths": []string{"."}, "max_results": 10,
-		})
-		text := assertPlainTextOnlyMCPResult(t, result, false)
-		assertLineProtocolSummary(t, text, "OK total=16 showing=10 truncated=1 unit=match", 10)
-	})
+	content, err := os.ReadFile(filepath.Join(root, "main.go"))
+	if err != nil {
+		t.Fatalf("native read plain-text fixture: %v", err)
+	}
+	if got := bytes.Count(content, []byte("plain_text_needle")); got != 16 {
+		t.Fatalf("native search plain_text_needle count=%d, want 16", got)
+	}
+}
+
+func assertBinaryDiagnosticsPlainTextContract(t *testing.T, client *mcpLSPBinaryClient, target string) {
+	t.Helper()
+	result := client.callTool(t, "diagnostics", map[string]any{"file_path": target, "language_id": "go"})
+	text := assertPlainTextOnlyMCPResult(t, result, false)
+	if !strings.HasPrefix(text, "OK total=") || !strings.Contains(text, "unit=diagnostic") {
+		t.Fatalf("diagnostics text does not use line protocol: %q", text)
+	}
 }
 
 func assertBinaryFoldingPlainTextContract(t *testing.T, client *mcpLSPBinaryClient, target string) {
@@ -115,17 +125,15 @@ func assertBinarySemanticTokensPlainTextContract(t *testing.T, client *mcpLSPBin
 	})
 }
 
-func assertBinaryInvalidRegexPlainTextContract(t *testing.T, client *mcpLSPBinaryClient) {
+func assertBinaryInvalidDiagnosticsParamsContract(t *testing.T, client *mcpLSPBinaryClient, target string) {
 	t.Helper()
-	t.Run("invalid regex is actionable invalid params", func(t *testing.T) {
-		result := client.callTool(t, "grep", map[string]any{
-			"action": "text_search", "query": "[", "paths": []string{"."}, "regex": true,
-		})
+	t.Run("conflicting diagnostics targets are actionable invalid params", func(t *testing.T) {
+		result := client.callTool(t, "diagnostics", map[string]any{"file_path": target, "file_paths": []string{target}})
 		text := assertPlainTextOnlyMCPResult(t, result, true)
 		lines := strings.Split(text, "\n")
 		if len(lines) < 3 || lines[0] != "ERROR code=invalid_params retryable=0" ||
 			!strings.HasPrefix(lines[1], "MESSAGE\t") || !strings.HasPrefix(lines[2], "HINT\t") {
-			t.Errorf("invalid regex text does not match stable error protocol: %q", text)
+			t.Errorf("invalid diagnostics text does not match stable error protocol: %q", text)
 		}
 	})
 }
@@ -327,13 +335,9 @@ func callBinaryToolsList(t *testing.T, client *mcpLSPBinaryClient) []binaryListe
 func assertBinaryToolJSONExamples(t *testing.T, listed []binaryListedTool) {
 	t.Helper()
 	examples := map[string]string{
-		"file":       `{"action":"read_file","pos":"internal/foo.go:42","limit":40}`,
-		"inspect":    `{"action":"definition","pos":"internal/foo.go:42:9"}`,
-		"xref":       `{"action":"references","pos":"internal/foo.go:42:9"}`,
-		"grep":       `{"action":"text_search","query":"targetName","paths":["internal"],"glob":"*.go"}`,
 		"structure":  `{"action":"document_symbol","file_path":"internal/foo.go"}`,
-		"patch_edit": `{"action":"format","file_path":"internal/foo.go"}`,
-		"completion": `{"pos":"internal/foo.go:42:9"}`,
+		"xref":        `{"action":"references","pos":"internal/foo.go:42:9"}`,
+		"diagnostics": `{"file_path":"internal/foo.go"}`,
 	}
 	byName := binaryListedToolsByName(t, listed, len(examples))
 	for name, example := range examples {
@@ -349,27 +353,11 @@ func assertBinaryToolJSONExamples(t *testing.T, listed []binaryListedTool) {
 
 func assertBinaryToolConditionalSchemas(t *testing.T, listed []binaryListedTool) {
 	t.Helper()
-	byName := binaryListedToolsByName(t, listed, 7)
-	grepProps, ok := byName["grep"].InputSchema["properties"].(map[string]any)
-	if !ok {
-		t.Fatalf("grep schema properties type = %T", byName["grep"].InputSchema["properties"])
-	}
-	if _, ok := grepProps["paths"]; !ok {
-		t.Fatal("grep schema missing canonical paths")
-	}
-	for _, removed := range []string{"path", "file_paths"} {
-		if _, ok := grepProps[removed]; ok {
-			t.Errorf("grep schema exposes removed field %q", removed)
-		}
-	}
+	byName := binaryListedToolsByName(t, listed, 3)
 	invalid := map[string]map[string]any{
-		"file":       {"action": "read_file"},
-		"inspect":    {"action": "definition"},
-		"xref":       {"action": "call_hierarchy", "pos": "a.go:1:1", "direction": "supertypes"},
-		"grep":       {"action": "text_search", "paths": []any{"internal"}},
-		"structure":  {"action": "workspace_symbol", "query": "Handler", "file_path": "a.go", "workspace_language": "go"},
-		"patch_edit": {"action": "format"},
-		"completion": {},
+		"xref":        {"action": "call_hierarchy", "pos": "a.go:1:1", "direction": "supertypes"},
+		"structure":   {"action": "workspace_symbol", "query": "Handler", "file_path": "a.go", "workspace_language": "go"},
+		"diagnostics": {"file_path": "a.go", "file_paths": []any{"b.go"}},
 	}
 	for name, arguments := range invalid {
 		if err := validateToolArguments(t, byName[name].InputSchema, arguments); err == nil {
@@ -378,21 +366,14 @@ func assertBinaryToolConditionalSchemas(t *testing.T, listed []binaryListedTool)
 	}
 }
 
-func assertBinaryGrepRejectsRemovedFields(t *testing.T, client *mcpLSPBinaryClient) {
+func assertBinaryRemovedToolsRejected(t *testing.T, client *mcpLSPBinaryClient) {
 	t.Helper()
-	for name, arguments := range map[string]map[string]any{
-		"path": {
-			"action": "text_search", "query": "needle", "path": ".",
-		},
-		"file_paths": {
-			"action": "text_search", "query": "needle", "file_paths": []string{"."},
-		},
-	} {
+	for _, name := range []string{"file", "inspect", "grep", "patch_edit", "completion"} {
 		t.Run(name, func(t *testing.T) {
-			result := client.callTool(t, "grep", arguments)
+			result := client.callTool(t, name, map[string]any{})
 			text := assertPlainTextOnlyMCPResult(t, result, true)
-			if !strings.HasPrefix(text, "ERROR code=invalid_params retryable=0\n") {
-				t.Fatalf("removed %s error = %q, want invalid_params", name, text)
+			if !strings.Contains(text, "unknown tool: "+name) {
+				t.Fatalf("removed tool %s error = %q", name, text)
 			}
 		})
 	}

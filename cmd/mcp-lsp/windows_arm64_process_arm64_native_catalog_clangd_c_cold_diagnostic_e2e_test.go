@@ -103,7 +103,7 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdCColdDiagnosticE2E(t *testin
 		status := "runtime_failure"
 		initialize := client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}})
 		if initialize.Error == nil && nativeCatalog15x36Notify(client, "notifications/initialized", map[string]any{}) == nil {
-			open := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile}))
+			open := client.callTool(t, "structure", realMCPWindowsToolArguments("c", fixtureRoot, "structure", "document_symbol", map[string]any{"action": "document_symbol", "file_path": fixture.targetFile}))
 			if open.Error == nil && strings.TrimSpace(open.Result.ContentText()) != "" {
 				status = "semantic_success"
 			}

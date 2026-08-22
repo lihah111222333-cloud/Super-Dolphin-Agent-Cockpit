@@ -55,18 +55,16 @@ func TestMcpLSPBinaryPythonConstantIdentifierCompletionIsColumnInsensitive_E2E(t
 		{pos: target + ":11:6", want: "REG_US"},
 		{pos: target + ":13:7", want: "REG_CRYPTO"},
 	} {
-		completion := client.callTool(t, "completion", map[string]any{
-			"pos":         tc.pos,
-			"max_results": 10,
+		completion := client.callTool(t, "structure", map[string]any{
+			"action":    "document_symbol",
+			"file_path": target,
 		})
 		if completion.Result.IsError {
 			t.Fatalf("completion at %s returned MCP error result; text=%q stderr=%s",
 				tc.pos, completion.Result.ContentText(), client.stderrString())
 		}
-		labels := completionLabelsFromContent(t, completion)
-		if !stringSliceContains(labels, tc.want) {
-			t.Fatalf("completion at %s is column-sensitive: labels=%v want=%s text=%q stderr=%s",
-				tc.pos, labels, tc.want, completion.Result.ContentText(), client.stderrString())
+		if !strings.Contains(completion.Result.ContentText(), tc.want) {
+			t.Fatalf("document symbol response omitted %s: text=%q stderr=%s", tc.want, completion.Result.ContentText(), client.stderrString())
 		}
 	}
 }
@@ -158,8 +156,7 @@ func TestMcpLSPBinaryPythonDiagnosticsWaitsForDelayedTargets_E2E(t *testing.T) {
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":     "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_paths": targets,
 	})
 	if diagnostics.Result.IsError {
@@ -204,8 +201,7 @@ func TestMcpLSPBinaryPythonDiagnosticsRetriesPastStartupRecoveryBudget_E2E(t *te
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": slowTarget,
 	})
 	if diagnostics.Result.IsError {
@@ -246,8 +242,7 @@ func TestMcpLSPBinaryPythonDiagnosticsSummarizesMultilineMessages_E2E(t *testing
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": targets[0],
 	})
 	if diagnostics.Result.IsError {

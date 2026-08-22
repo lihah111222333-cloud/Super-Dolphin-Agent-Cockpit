@@ -13,7 +13,11 @@ import (
 // 加载 GraphQL Config 所需的文件系统项目根。通用 LSP rootUri 是 file URI，
 // CLI 不能把它当作 configDir；缺失该参数时服务会返回空符号和诊断。
 func runtimeServerGraphQLConfigDirArgs(command multilsp.ServerCommand, args []string, workspaceRoot string) ([]string, error) {
-	base := filepath.Base(strings.TrimSpace(command.Executable))
+	// filepath.Base only recognizes the host separator. The command may have
+	// been produced on Windows and validated on a Unix host (or vice versa),
+	// so normalize both separators before identifying the executable.
+	executable := strings.ReplaceAll(strings.TrimSpace(command.Executable), "\\", "/")
+	base := filepath.Base(executable)
 	base = strings.TrimSuffix(base, filepath.Ext(base))
 	if !strings.EqualFold(base, "graphql-lsp") {
 		return args, nil

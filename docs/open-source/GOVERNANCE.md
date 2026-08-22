@@ -68,17 +68,16 @@ No benchmark result, adoption claim, or avoided-cost number is inferred from the
 
 ### Historical incident
 
-The LSP sidecar once allowed a missing call-scoped CWD to fall back to a broader process or workspace root. In a multi-worktree session, that can make a valid request look successful while definitions, diagnostics, or edits are resolved against a sibling checkout.
+The LSP sidecar once allowed a missing call-scoped CWD to fall back to a broader process or workspace root. In a multi-worktree session, that can make a valid request look successful while definitions or diagnostics are resolved against a sibling checkout.
 
-The repair made trusted workspace scope mandatory, isolated manager pools by CWD, rejected missing scope, and added multi-project tests that place different diagnostics in different worktrees. Later hardening also rejects stale roots before a grep or edit can search a sibling worktree.
+The repair made trusted workspace scope mandatory, isolated manager pools by CWD, rejected missing scope, and added multi-project tests that place different diagnostics in different worktrees. Later hardening also rejects stale roots before semantic tools can inspect a sibling worktree.
 
 This is more dangerous than a visible tool failure: an AI agent can act confidently on correct-looking evidence from the wrong codebase.
 
 ### Public proof
 
 - `cmd/mcp-lsp/multilsp/multi_cwd_test.go` proves worktree routing, diagnostic isolation, concurrent requests, and missing-CWD rejection.
-- `cmd/mcp-lsp/tools/tool_grep_test.go` rejects stale roots and sibling-worktree fallback.
-- `cmd/mcp-lsp/tools/tool_edit_support_test.go` rejects edits outside the trusted workspace, including symlink escapes.
+- `cmd/mcp-lsp/tools/tool_diagnostics_test.go` rejects external and app-managed paths before the LSP manager is called.
 
 ```bash
 ./scripts/test_with_guard.sh ./cmd/mcp-lsp/multilsp \

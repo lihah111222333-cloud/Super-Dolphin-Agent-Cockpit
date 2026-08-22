@@ -56,8 +56,7 @@ func TestMcpLSPBinarySQLiteDiagnosticsWithRealLanguageServer_E2E(t *testing.T) {
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "real sql diagnostics")
@@ -82,8 +81,7 @@ func TestMcpLSPBinarySQLiteInvalidSQLProducesRealDiagnostic_E2E(t *testing.T) {
 	})
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "invalid SQLite diagnostics")
@@ -113,8 +111,7 @@ func TestMcpLSPBinarySQLDiagnosticsAcceptsSQLiteQuestionMarkPlaceholder_E2E(t *t
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "SQLite question-mark placeholder diagnostics")

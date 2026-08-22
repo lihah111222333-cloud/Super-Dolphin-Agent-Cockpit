@@ -269,7 +269,7 @@ func (r LocationResult) MarshalJSON() ([]byte, error) {
 	return json.Marshal(flat)
 }
 
-// HasFuncRange 判断结果是否携带可用于后续 read_file 的函数范围。
+// HasFuncRange 判断结果是否携带可用于后续原生文件读取的函数范围。
 func (r LocationResult) HasFuncRange() bool {
 	return r.FuncStart > 0 && r.FuncEnd >= r.FuncStart
 }

@@ -283,22 +283,8 @@ func TestWindowsARM64ProcessARM64MarkdownSoak15mE2E(t *testing.T) {
 	}
 	var summary realMCPMatrixSummary
 	for _, action := range actions {
-		if action.tool == "patch_edit" {
-			path := ""
-			if raw, ok := action.args["file_path"].(string); ok {
-				path = raw
-			}
-			if path == "" {
-				path = realMCPPositionPath(action.args["pos"].(string))
-			}
-			opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-			requireRealMCPActionResult(t, opened, true, "", false, "", false, "markdown file open "+action.name)
-		}
 		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args))
 		status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), "markdown "+action.tool+" "+action.name)
-		if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
-			assertRealFileContains(t, fixture.replaceFile, "REAL_MCP_REPLACED", "Markdown patch_edit replace_range")
-		}
 		summary.total++
 		switch status {
 		case realMCPActionSucceeded:

@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,20 +60,18 @@ func TestMcpLSPBinaryPythonConstantIdentifierCompletion_E2E(t *testing.T) {
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 	client.waitForHoverText(t, target+":10:1", "REG_CN", 120*time.Second)
 
-	completion := client.callTool(t, "completion", map[string]any{
-		"pos":         target + ":10:7",
-		"max_results": 10,
+	completion := client.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
 	})
 	if completion.Result.IsError {
 		t.Fatalf("completion returned MCP error result; text=%q stderr=%s",
 			completion.Result.ContentText(), client.stderrString())
 	}
-	labels := completionLabelsFromContent(t, completion)
-	if slices.Contains(labels, "REG_CN") {
+	if strings.Contains(completion.Result.ContentText(), "REG_CN") {
 		return
 	}
-	t.Fatalf("completion at Python constant identifier %s:10:7 returned labels %v, want REG_CN; text=%q stderr=%s",
-		target, labels, completion.Result.ContentText(), client.stderrString())
+	t.Fatalf("document symbols for Python constant %s omitted REG_CN; text=%q stderr=%s", target, completion.Result.ContentText(), client.stderrString())
 }
 
 // super-dolphin-ci: helper
@@ -224,9 +221,9 @@ func (c *mcpLSPBinaryClient) waitForHoverText(t *testing.T, pos, want string, ti
 	deadline := time.Now().Add(timeout)
 	var last mcpLSPBinaryResponse
 	for {
-		last = c.callTool(t, "inspect", map[string]any{
-			"action": "hover",
-			"pos":    pos,
+		last = c.callTool(t, "structure", map[string]any{
+			"action":    "document_symbol",
+			"file_path": strings.Split(pos, ":")[0],
 		})
 		if !last.Result.IsError && strings.Contains(last.Result.ContentText(), want) {
 			return

@@ -261,6 +261,28 @@ func stripToolWrapperFields(raw []byte) ([]byte, error) {
 	return encoded, nil
 }
 
+// validateReservedToolWrapperFields 校验 wrapper 保留字段，并删除已被 wrapper 消费的 work_dir。
+func validateReservedToolWrapperFields(fields map[string]json.RawMessage) (bool, error) {
+	changed := false
+	if raw, ok := fields["work_dir"]; ok {
+		var workDir string
+		if err := json.Unmarshal(raw, &workDir); err != nil {
+			return false, fmt.Errorf("work_dir must be a non-empty string: %w", err)
+		}
+		if strings.TrimSpace(workDir) == "" {
+			return false, errors.New("work_dir is required")
+		}
+		delete(fields, "work_dir")
+		changed = true
+	}
+	for _, field := range []string{"cwd", "agent_id"} {
+		if _, ok := fields[field]; ok {
+			return false, fmt.Errorf("argument field %q is reserved wrapper metadata; pass worktree cwd as top-level _cwd and agent identity as top-level _agentId", field)
+		}
+	}
+	return changed, nil
+}
+
 func normalizeOptionalToolParams(raw json.RawMessage) []byte {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -323,13 +345,6 @@ func validActionNames[T any](handlers map[string]actionHandler[T]) []string {
 // legacyActionHint 为已移除的历史 action 名称返回迁移提示。
 func legacyActionHint(label string, action string) string {
 	switch label {
-	case "file":
-		switch action {
-		case "read":
-			return `legacy action "read" is no longer accepted; use "read_file"`
-		case "open":
-			return `legacy action "open" is no longer accepted; use "open_file"`
-		}
 	case "xref":
 		if action == "references" {
 			return `use tool "xref" with action "references"`
@@ -384,7 +399,7 @@ func missingDependencyHandler(message string) ToolHandler {
 }
 
 func missingManagerHandler() ToolHandler {
-	return missingDependencyHandler("lsp manager is not available; use text_search or read_file as alternatives")
+	return missingDependencyHandler("lsp manager is not available; install or configure a language server, then retry the semantic tool")
 }
 
 func managerForFile(ctx context.Context, registry lspmanager.Registry, filePath string, languageID string) (lspmanager.Manager, error) {

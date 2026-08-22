@@ -260,7 +260,7 @@ func pythonNamedSymbol(lineNo int, line, indent, name string, kind protocol.Symb
 }
 
 // buildLevelSymbols 按缩进或标题级别把扁平 fallback 符号组装成 LSP 文档符号树。
-// 每个父节点的 range 会延伸到下一个同级节点前，保持前端折叠和 read_file 范围可用。
+// 每个父节点的 range 会延伸到下一个同级节点前，保持前端折叠和原生文件读取范围可用。
 func buildLevelSymbols(lines []string, items []fallbackSymbol) []protocol.DocumentSymbol {
 	if len(items) == 0 {
 		return nil

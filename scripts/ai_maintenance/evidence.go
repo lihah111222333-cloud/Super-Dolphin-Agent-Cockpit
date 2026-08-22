@@ -41,9 +41,23 @@ func completionEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
 	var problems []string
 	problems = append(problems, commandEvidenceProblems(doc.CommandsRun)...)
 	problems = append(problems, lspEvidenceProblems(doc, plan)...)
+	problems = append(problems, nativeEvidenceProblems(doc, plan)...)
 	problems = append(problems, diffScopeProblems(doc, plan)...)
 	problems = append(problems, generatedEvidenceProblems(doc, plan)...)
 	problems = append(problems, gateCommandProblems(doc, plan)...)
+	return problems
+}
+
+// nativeEvidenceProblems keeps the native read/search/apply_patch proof in
+// the same fail-closed path as diagnostics. Merely listing native:* in a plan
+// is not evidence unless the worker supplied a PASS record in NATIVE_EVIDENCE.
+func nativeEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
+	var problems []string
+	for _, want := range plan.RequiredEvidence {
+		if key, ok := strings.CutPrefix(want, "native:"); ok && !evidencePassed(doc.NativeEvidence[key]) {
+			problems = append(problems, "missing or non-pass native evidence "+key)
+		}
+	}
 	return problems
 }
 
@@ -180,7 +194,7 @@ func gateCommandProblems(doc evidenceDoc, plan gatePlan) []string {
 // parseEvidence 解析 worker 结尾的 text/yaml 风格 evidence 块。
 // 解析器只接受少量明确字段，未知字段不会放宽必填校验。
 func parseEvidence(text string) evidenceDoc {
-	parser := evidenceParser{doc: evidenceDoc{LSPEvidence: map[string]string{}}}
+	parser := evidenceParser{doc: evidenceDoc{LSPEvidence: map[string]string{}, NativeEvidence: map[string]string{}}}
 	scanner := bufio.NewScanner(strings.NewReader(text))
 	for scanner.Scan() {
 		parser.applyLine(strings.TrimSpace(scanner.Text()))
@@ -225,6 +239,8 @@ func (p *evidenceParser) applyKeyValue(key, value string) {
 	}
 	if p.section == "LSP_EVIDENCE" {
 		p.doc.LSPEvidence[key] = value
+	} else if p.section == "NATIVE_EVIDENCE" {
+		p.doc.NativeEvidence[key] = value
 	}
 }
 

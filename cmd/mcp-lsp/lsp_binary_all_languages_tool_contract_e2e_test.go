@@ -26,7 +26,7 @@ import (
 )
 
 // TestMcpLSPBinaryRepresentativeFakeLanguageToolContractCrossPlatformE2E 先用 Python 锁定跨平台 fake-LSP
-// binary 与七个 MCP 工具族的控制契约。该测试证明路由、schema、响应结构和写盘同步，
+// binary 与三个 MCP 语义工具族的控制契约。该测试证明路由、schema 和响应结构，
 // 不证明任何真实语言服务器的语义质量。
 func TestMcpLSPBinaryRepresentativeFakeLanguageToolContractCrossPlatformE2E(t *testing.T) {
 	if testing.Short() {
@@ -37,7 +37,7 @@ func TestMcpLSPBinaryRepresentativeFakeLanguageToolContractCrossPlatformE2E(t *t
 }
 
 // TestMcpLSPBinaryAllRequiresLSPClientLanguageToolContractCrossPlatformE2E 动态覆盖全部
-// RequiresLSPClient 语言及公开别名。外部 fake server 只证明七个工具族的路由、控制面和
+// RequiresLSPClient 语言及公开别名。外部 fake server 只证明三个工具族的路由、控制面和
 // schema 闭包，不冒充真实语言服务器语义证明。
 func TestMcpLSPBinaryAllRequiresLSPClientLanguageToolContractCrossPlatformE2E(t *testing.T) {
 	if testing.Short() {
@@ -129,10 +129,6 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 		"SUPER_DOLPHIN_LSP_BUNDLE_DIR=" + binaryPackage.bundle,
 		"SUPER_DOLPHIN_LSP_MANIFEST=" + binaryPackage.manifest,
 		"SUPER_DOLPHIN_WINDOWS_NODE_PATH=" + binaryPackage.nodePath,
-		// The fake Go-family server is intentionally much smaller than real
-		// gopls. A one-megabyte root-cohort limit exercises the production
-		// zero-lease pressure-reclaim path so this matrix does not leave the
-		// product's normal 15-minute shared-daemon policy running per alias.
 		"AGENT_LSP_GO_RSS_LIMIT_MB=1",
 		"AGENT_LSP_SHARED_CACHE_DIR=" + filepath.Join(root, ".lsp-cache"),
 		"SUPER_DOLPHIN_HOME=" + productHome,
@@ -140,8 +136,6 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 		"USERPROFILE=" + filepath.Dir(productHome),
 	}
 	if languageID == "gowork" {
-		// gowork fixture 同时含有仓库级和目标级 go.work；显式锁定目标，
-		// 让 file-scoped 与 language-only 请求进入同一 immutable scope。
 		contractEnv = append(contractEnv, "GOWORK="+fixture.target)
 	}
 	client := startAllLanguageToolContractBinaryForTest(t, ctx, binaryPackage.binary, root, fakeBinDir, contractEnv)
@@ -149,337 +143,97 @@ func runAllLanguageToolContractE2E(t *testing.T, binary, languageID string, chec
 
 	client.call(t, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]any{},
+		"capabilities": map[string]any{},
 	})
 	if checkManifest {
 		requireAllLanguageToolSchemas(t, client)
 	}
+	assertAllLanguageNativeFixture(t, fixture)
 
 	common := func(args map[string]any) map[string]any {
 		args["language_id"] = languageID
 		args["work_dir"] = root
 		return args
 	}
-	needleLine, functionLine := 1, 2
+	functionLine := 2
 	switch languageID {
 	case "go":
-		needleLine, functionLine = 3, 5
+		functionLine = 5
 	case "gomod", "gowork":
-		needleLine, functionLine = 2, 3
+		functionLine = 3
 	case "json":
-		needleLine, functionLine = 2, 2
+		functionLine = 2
 	}
 	semanticPos := fixture.target + ":" + strconv.Itoa(functionLine) + ":3"
 
-	opened := client.callTool(t, "file", common(map[string]any{
-		"action":    "open_file",
-		"file_path": fixture.target,
-	}))
-	requireMCPToolSuccess(t, client, opened, languageID+" file open_file")
-	requireAllLanguageToolContains(t, opened, "opened", languageID+" file open_file")
-
-	readSingle := client.callTool(t, "file", common(map[string]any{
-		"action":    "read_file",
-		"file_path": fixture.target,
-		"limit":     300,
-	}))
-	requireMCPToolSuccess(t, client, readSingle, languageID+" file read_file single")
-	requireAllLanguageToolContains(t, readSingle, "contractNeedle", languageID+" file read_file single")
-
-	readBatch := client.callTool(t, "file", common(map[string]any{
-		"action":     "read_file",
-		"file_paths": []string{fixture.target, fixture.secondary},
-		"limit":      300,
-	}))
-	requireMCPToolSuccess(t, client, readBatch, languageID+" file read_file batch")
-	requireAllLanguageToolContains(t, readBatch, filepath.Base(fixture.target), languageID+" file read_file batch target")
-	requireAllLanguageToolContains(t, readBatch, filepath.Base(fixture.secondary), languageID+" file read_file batch secondary")
-
-	readLines := client.callTool(t, "file", common(map[string]any{
-		"action": "read_file",
-		"pos":    fixture.target + ":" + strconv.Itoa(needleLine),
-		"scope":  "lines",
-		"limit":  1,
-	}))
-	requireMCPToolSuccess(t, client, readLines, languageID+" file read_file lines")
-	requireAllLanguageToolContains(t, readLines, "contractNeedle", languageID+" file read_file lines")
-
-	readFunction := client.callTool(t, "file", common(map[string]any{
-		"action": "read_file",
-		"pos":    fixture.target + ":" + strconv.Itoa(functionLine),
-		"limit":  50,
-	}))
-	requireMCPToolSuccess(t, client, readFunction, languageID+" file read_file function")
-	requireAllLanguageToolContains(t, readFunction, "ContractFunction", languageID+" file read_file function")
-
-	diagnostics := client.callTool(t, "file", common(map[string]any{
-		"action":    "diagnostics",
-		"file_path": fixture.target,
-	}))
-	requireMCPToolSuccess(t, client, diagnostics, languageID+" file diagnostics")
-	diagnosticsDoc := requireAllLanguageLineProtocol(t, diagnostics, languageID+" file diagnostics")
-	if diagnosticsDoc.Header.Unit != "diagnostic" || diagnosticsDoc.Header.Total < 1 {
-		t.Fatalf("%s file diagnostics has no content diagnostic rows: header=%+v text=%q stderr=%s",
-			languageID, diagnosticsDoc.Header, diagnostics.Result.ContentText(), client.stderrString())
-	}
-	requireAllLanguageToolContains(t, diagnostics, "CONTRACT-DIAG", languageID+" file diagnostics")
-
-	for _, action := range []string{"hover", "definition", "implementation", "type_definition", "signature_help"} {
-		response := client.callTool(t, "inspect", common(map[string]any{
-			"action": action,
-			"pos":    semanticPos,
-		}))
-		requireMCPToolSuccess(t, client, response, languageID+" inspect "+action)
-		want := "contract"
-		if action == "hover" {
-			want = "contract-hover"
-		} else if action == "signature_help" {
-			want = "contract-signature"
-		}
-		requireAllLanguageToolContains(t, response, want, languageID+" inspect "+action)
-	}
-
-	references := client.callTool(t, "xref", common(map[string]any{
-		"action":              "references",
-		"pos":                 semanticPos,
-		"include_declaration": false,
-		"max_results":         1,
-	}))
-	requireMCPToolSuccess(t, client, references, languageID+" xref references")
-	requireAllLanguageToolContains(t, references, "contract-secondary", languageID+" xref references")
-	requireAllLanguageToolTruncated(t, references, languageID+" xref references max_results")
-
-	for _, direction := range []string{"incoming", "outgoing", "both"} {
-		response := client.callTool(t, "xref", common(map[string]any{
-			"action":    "call_hierarchy",
-			"pos":       semanticPos,
-			"direction": direction,
-		}))
-		if allLanguageToolContractUsesDocumentSymbolFallback(languageID) {
-			// JSON/Markdown/YAML 的产品契约只有 document_symbol 静态降级；call_hierarchy
-			// 返回能力不支持信封时必须单独断言，不能把空结果计为成功。
-			requireAllLanguageToolUnsupported(t, response, "call hierarchy", languageID, languageID+" xref call_hierarchy "+direction)
-			continue
-		}
-		requireMCPToolSuccess(t, client, response, languageID+" xref call_hierarchy "+direction)
-		requireAllLanguageToolContains(t, response, "contract-call", languageID+" xref call_hierarchy "+direction)
-	}
-	for _, direction := range []string{"supertypes", "subtypes"} {
-		response := client.callTool(t, "xref", common(map[string]any{
-			"action":    "type_hierarchy",
-			"pos":       semanticPos,
-			"direction": direction,
-		}))
-		requireMCPToolSuccess(t, client, response, languageID+" xref type_hierarchy "+direction)
-		requireAllLanguageToolContains(t, response, "contract-type", languageID+" xref type_hierarchy "+direction)
-	}
-
-	textSearch := client.callTool(t, "grep", map[string]any{
-		"action":         "text_search",
-		"query":          "contractNeedle",
-		"paths":          []string{root},
-		"glob":           "**/*" + filepath.Ext(fixture.target),
-		"case_sensitive": false,
-		"max_results":    10,
-		"work_dir":       root,
-	})
-	requireMCPToolSuccess(t, client, textSearch, languageID+" grep text_search path/glob")
-	requireAllLanguageToolContains(t, textSearch, "contractNeedle", languageID+" grep text_search path/glob")
-
-	regexSearch := client.callTool(t, "grep", map[string]any{
-		"action":         "text_search",
-		"query":          "[Cc]ontract[A-Z][A-Za-z]+",
-		"paths":          []string{fixture.target},
-		"regex":          true,
-		"case_sensitive": true,
-		"max_results":    10,
-		"work_dir":       root,
-	})
-	requireMCPToolSuccess(t, client, regexSearch, languageID+" grep regex")
-	requireAllLanguageToolContains(t, regexSearch, "contractNeedle", languageID+" grep regex")
-
-	smartCaseSearch := client.callTool(t, "grep", map[string]any{
-		"action":      "text_search",
-		"query":       "contractneedle",
-		"paths":       []string{filepath.Dir(fixture.target)},
-		"max_results": 10,
-		"work_dir":    root,
-	})
-	requireMCPToolSuccess(t, client, smartCaseSearch, languageID+" grep smart-case paths")
-	requireAllLanguageToolContains(t, smartCaseSearch, "contractNeedle", languageID+" grep smart-case paths")
-
-	compatSearch := client.callTool(t, "grep", map[string]any{
-		"action":      "text_search",
-		"query":       "contractNeedle",
-		"paths":       []string{fixture.secondary},
-		"max_results": 10,
-		"work_dir":    root,
-	})
-	requireMCPToolSuccess(t, client, compatSearch, languageID+" grep paths compatibility")
-	requireAllLanguageToolContains(t, compatSearch, "contractNeedle", languageID+" grep paths compatibility")
-
-	grepCap := client.callTool(t, "grep", map[string]any{
-		"action":      "text_search",
-		"query":       "contractNeedle",
-		"paths":       []string{root},
-		"glob":        "**/*" + filepath.Ext(fixture.target),
-		"max_results": 1,
-		"work_dir":    root,
-	})
-	requireMCPToolSuccess(t, client, grepCap, languageID+" grep cap")
-	requireAllLanguageToolTruncated(t, grepCap, languageID+" grep cap")
-	requireAllLanguageToolHint(t, grepCap, languageID+" grep cap")
-
-	astSearch := client.callTool(t, "grep", map[string]any{
-		"action": "ast_search",
-		"query":  "contractNeedle",
-		"paths":  []string{fixture.target},
-		// grep.ast_search is a workspace search capability, not an LSP adapter
-		// selector. Use one grammar supported by the bundled sg for every
-		// adapter-routing subtest; language_id coverage is exercised by all LSP
-		// tools above.
-		"ast_language": "javascript",
-		"max_results":  2,
-		"work_dir":     root,
-	})
-	requireMCPToolSuccess(t, client, astSearch, languageID+" grep ast_search")
-	requireAllLanguageToolContains(t, astSearch, "CONTRACT-AST", languageID+" grep ast_search")
-
-	documentSymbols := client.callTool(t, "structure", common(map[string]any{
-		"action":      "document_symbol",
-		"file_path":   fixture.target,
-		"max_results": 10,
-	}))
-	requireMCPToolSuccess(t, client, documentSymbols, languageID+" structure document_symbol")
-	requireAllLanguageToolContains(t, documentSymbols, "ContractFunction", languageID+" structure document_symbol")
-
-	workspaceByFile := client.callTool(t, "structure", map[string]any{
-		"action":    "workspace_symbol",
-		"file_path": fixture.target,
-		"query":     "Contract",
-		// fake-LSP 返回 ContractWorkspace*，需显式覆盖默认 exact 匹配，
-		// 同时保留 max_results 截断契约的验证。
-		"match_mode":  "fuzzy",
-		"max_results": 10,
-		"work_dir":    root,
-	})
-	if !strings.Contains(workspaceByFile.Result.ContentText(), "ContractWorkspace") {
-		trace, err := os.ReadFile(filepath.Join(root, "fake-lsp-trace.log"))
-		if err != nil {
-			t.Fatalf("workspace_symbol file missing fake trace: %v; stderr=%s", err, client.stderrString())
-		}
-		t.Logf("workspace_symbol file trace: fake=%s stderr=%s", trace, client.stderrString())
-	}
-	requireMCPToolSuccess(t, client, workspaceByFile, languageID+" structure workspace_symbol file")
-	requireAllLanguageToolContains(t, workspaceByFile, "ContractWorkspace", languageID+" structure workspace_symbol file")
-
-	workspaceByLanguage := client.callTool(t, "structure", map[string]any{
-		"action":             "workspace_symbol",
-		"workspace_language": languageID,
-		"query":              "Contract",
-		"match_mode":         "fuzzy",
-		"max_results":        1,
-		"work_dir":           root,
-	})
-	if languageID == "sql" {
-		// SQL 的 language-only 请求无法证明当前 sqlc owner 属于受支持的 SQLite 方言；
-		// 上面的 file_path 变体证明合法能力可用，这里同时锁定危险歧义必须 fail-fast。
-		requireAllLanguageToolErrorContains(t, workspaceByLanguage, "requires file_path", languageID+" structure workspace_symbol language guard")
-	} else {
-		requireMCPToolSuccess(t, client, workspaceByLanguage, languageID+" structure workspace_symbol language")
-		requireAllLanguageToolContains(t, workspaceByLanguage, "ContractWorkspace", languageID+" structure workspace_symbol language")
-		requireAllLanguageToolTruncated(t, workspaceByLanguage, languageID+" structure workspace_symbol max_results")
-	}
-
-	folding := client.callTool(t, "structure", common(map[string]any{
-		"action":    "folding_range",
-		"file_path": fixture.target,
-	}))
-	requireMCPToolSuccess(t, client, folding, languageID+" structure folding_range")
-	// 纯文本行协议使用 snake_case 字段，和 formatter 的 ROW 契约保持一致。
-	requireAllLanguageToolContains(t, folding, "start_line", languageID+" structure folding_range")
-
-	semanticTokens := client.callTool(t, "structure", common(map[string]any{
-		"action":      "semantic_tokens",
-		"file_path":   fixture.target,
-		"max_results": 10,
-	}))
-	requireMCPToolSuccess(t, client, semanticTokens, languageID+" structure semantic_tokens")
-	// 纯文本协议通过语义行暴露解码后的 token 类型，而不是原始 data 数组。
-	requireAllLanguageToolContains(t, semanticTokens, "type=variable", languageID+" structure semantic_tokens")
-
-	completion := client.callTool(t, "completion", common(map[string]any{
-		"pos":         semanticPos,
-		"max_results": 1,
-	}))
-	requireMCPToolSuccess(t, client, completion, languageID+" completion")
-	requireAllLanguageToolContains(t, completion, "contractCompletion", languageID+" completion")
-	requireAllLanguageToolTruncated(t, completion, languageID+" completion max_results")
-
-	editFiles := []struct {
+	for _, test := range []struct {
 		name string
-		path string
+		args map[string]any
 	}{
-		{name: "replace_range", path: fixture.replaceTarget},
-		{name: "rename", path: fixture.renameTarget},
-		{name: "code_action", path: fixture.codeActionTarget},
-		{name: "format", path: fixture.formatTarget},
-	}
-	for _, editFile := range editFiles {
-		openedEdit := client.callTool(t, "file", common(map[string]any{
-			"action":    "open_file",
-			"file_path": editFile.path,
-		}))
-		requireMCPToolSuccess(t, client, openedEdit, languageID+" patch_edit open "+editFile.name)
+		{name: "diagnostics", args: map[string]any{"file_path": fixture.target}},
+		{name: "diagnostics-batch", args: map[string]any{"file_paths": []string{fixture.target, fixture.secondary}}},
+	} {
+		response := client.callTool(t, "diagnostics", common(test.args))
+		requireMCPToolSuccess(t, client, response, languageID+" diagnostics "+test.name)
 	}
 
-	replacePatch := "@@\n-CONTRACT_REPLACE\n+CONTRACT_REPLACED\n"
-	if languageID == "gowork" {
-		replacePatch = "@@\n-// CONTRACT_REPLACE\n+// CONTRACT_REPLACED\n"
+	for _, test := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "document_symbol", args: map[string]any{"action": "document_symbol", "file_path": fixture.target, "max_results": 20}},
+		{name: "workspace_symbol-file", args: map[string]any{"action": "workspace_symbol", "file_path": fixture.target, "query": "ContractFunction", "max_results": 20}},
+		{name: "folding_range", args: map[string]any{"action": "folding_range", "file_path": fixture.target, "max_results": 20}},
+		{name: "semantic_tokens", args: map[string]any{"action": "semantic_tokens", "file_path": fixture.target, "max_results": 20}},
+	} {
+		response := client.callTool(t, "structure", common(test.args))
+		requireMCPToolSuccess(t, client, response, languageID+" structure "+test.name)
 	}
-	replace := client.callTool(t, "patch_edit", common(map[string]any{
-		"action":    "replace_range",
-		"file_path": fixture.replaceTarget,
-		"patch":     replacePatch,
-	}))
-	requireMCPToolSuccess(t, client, replace, languageID+" patch_edit replace_range")
-	requireAllLanguageFileContains(t, fixture.replaceTarget, "CONTRACT_REPLACED", languageID+" patch_edit replace_range disk")
-	requireAllLanguageToolBool(t, replace, "lsp_sync", true, languageID+" patch_edit replace_range lsp_sync")
+	workspaceLanguage := client.callTool(t, "structure", map[string]any{
+		"action": "workspace_symbol", "workspace_language": languageID,
+		"query": "ContractFunction", "max_results": 20, "work_dir": root,
+	})
+	requireMCPToolSuccess(t, client, workspaceLanguage, languageID+" structure workspace_symbol-language")
 
-	rename := client.callTool(t, "patch_edit", common(map[string]any{
-		"action":   "rename",
-		"pos":      fixture.renameTarget + ":1:1",
-		"new_name": "CONTRACT_RENAMED",
-	}))
-	requireMCPToolSuccess(t, client, rename, languageID+" patch_edit rename")
-	requireAllLanguageToolContains(t, rename, "CONTRACT_RENAMED", languageID+" patch_edit rename response")
-	// rename 的纯文本协议在 FILE 行报告 edits，并分别报告持久化与 LSP 同步状态。
-	requireAllLanguageToolPositiveNumber(t, rename, "edits", languageID+" patch_edit rename edits")
-	requireAllLanguageToolBool(t, rename, "persisted", true, languageID+" patch_edit rename persisted")
-	requireAllLanguageToolBool(t, rename, "lsp_sync", true, languageID+" patch_edit rename lsp_sync")
-	requireAllLanguageFileContains(t, fixture.renameTarget, "CONTRACT_RENAMED", languageID+" patch_edit rename disk")
+	for _, test := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "references", args: map[string]any{"action": "references", "pos": semanticPos, "include_declaration": true, "max_results": 20}},
+		{name: "references-no-declaration", args: map[string]any{"action": "references", "pos": semanticPos, "include_declaration": false, "max_results": 20}},
+		{name: "call_hierarchy-incoming", args: map[string]any{"action": "call_hierarchy", "pos": semanticPos, "direction": "incoming"}},
+		{name: "call_hierarchy-outgoing", args: map[string]any{"action": "call_hierarchy", "pos": semanticPos, "direction": "outgoing"}},
+		{name: "call_hierarchy-both", args: map[string]any{"action": "call_hierarchy", "pos": semanticPos, "direction": "both"}},
+		{name: "type_hierarchy-supertypes", args: map[string]any{"action": "type_hierarchy", "pos": semanticPos, "direction": "supertypes"}},
+		{name: "type_hierarchy-subtypes", args: map[string]any{"action": "type_hierarchy", "pos": semanticPos, "direction": "subtypes"}},
+		{name: "type_hierarchy-both", args: map[string]any{"action": "type_hierarchy", "pos": semanticPos, "direction": "both"}},
+	} {
+		response := client.callTool(t, "xref", common(test.args))
+		requireMCPToolSuccess(t, client, response, languageID+" xref "+test.name)
+	}
+}
 
-	codeAction := client.callTool(t, "patch_edit", common(map[string]any{
-		"action": "code_action",
-		"pos":    fixture.codeActionTarget + ":1:1",
-		"only":   []string{"quickfix"},
-	}))
-	requireMCPToolSuccess(t, client, codeAction, languageID+" patch_edit code_action")
-	requireAllLanguageToolContains(t, codeAction, "CONTRACT_CODE_ACTION", languageID+" patch_edit code_action response")
-	requireAllLanguageToolBool(t, codeAction, "lsp_sync", true, languageID+" patch_edit code_action lsp_sync")
-	requireAllLanguageFileContains(t, fixture.codeActionTarget, "CONTRACT_CODE_ACTION", languageID+" patch_edit code_action disk")
-
-	format := client.callTool(t, "patch_edit", common(map[string]any{
-		"action":    "format",
-		"file_path": fixture.formatTarget,
-	}))
-	requireMCPToolSuccess(t, client, format, languageID+" patch_edit format")
-	// format 的纯文本协议在 FILE 行统一报告 edits、status、持久化与同步状态。
-	requireAllLanguageToolPositiveNumber(t, format, "edits", languageID+" patch_edit format edits")
-	requireAllLanguageToolContains(t, format, "status=applied", languageID+" patch_edit format status")
-	requireAllLanguageToolBool(t, format, "persisted", true, languageID+" patch_edit format persisted")
-	requireAllLanguageToolBool(t, format, "lsp_sync", true, languageID+" patch_edit format lsp_sync")
-	requireAllLanguageFileContains(t, fixture.formatTarget, "CONTRACT_FORMATTED", languageID+" patch_edit format disk")
+func assertAllLanguageNativeFixture(t *testing.T, fixture allLanguageToolContractFixture) {
+	t.Helper()
+	for _, path := range []string{fixture.target, fixture.secondary} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("native read %s: %v", path, err)
+		}
+		if !bytes.Contains(content, []byte("contractNeedle")) {
+			t.Fatalf("native search %s missing contractNeedle", path)
+		}
+	}
+	content, err := os.ReadFile(fixture.secondary)
+	if err != nil {
+		t.Fatalf("native read edit source %s: %v", fixture.secondary, err)
+	}
+	edited := bytes.Replace(content, []byte("contractNeedle"), []byte("contractNeedleNative"), 1)
+	nativeEdit := filepath.Join(filepath.Dir(fixture.secondary), "native-edit-"+filepath.Base(fixture.secondary))
+	if err := os.WriteFile(nativeEdit, edited, 0o600); err != nil {
+		t.Fatalf("native write %s: %v", nativeEdit, err)
+	}
+	requireAllLanguageFileContains(t, nativeEdit, "contractNeedleNative", "native edit")
 }
 
 func requireAllLanguageToolSchemas(t *testing.T, client *mcpLSPBinaryClient) {
@@ -493,7 +247,7 @@ func requireAllLanguageToolSchemas(t *testing.T, client *mcpLSPBinaryClient) {
 	if !ok {
 		t.Fatalf("tools/list result has no tools array: %#v", result)
 	}
-	want := []string{"completion", "file", "grep", "inspect", "patch_edit", "structure", "xref"}
+	want := []string{"diagnostics", "structure", "xref"}
 	got := make([]string, 0, len(tools))
 	for _, rawTool := range tools {
 		tool, ok := rawTool.(map[string]any)

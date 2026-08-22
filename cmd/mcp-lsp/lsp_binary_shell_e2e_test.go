@@ -37,8 +37,7 @@ func TestMcpLSPBinaryShellDiagnosticsUsesShellcheck_E2E(t *testing.T) {
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "shell diagnostics")
@@ -76,8 +75,7 @@ func TestMcpLSPBinaryGitHookDiagnosticsRoutesExtensionlessShellHook_E2E(t *testi
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "git hook shell diagnostics")

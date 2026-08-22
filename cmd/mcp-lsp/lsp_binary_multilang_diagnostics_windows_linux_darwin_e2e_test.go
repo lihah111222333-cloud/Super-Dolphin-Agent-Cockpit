@@ -124,8 +124,7 @@ func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E
 			client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
 			startedAt := time.Now()
-			diagnostics := client.callTool(t, "file", map[string]any{
-				"action":    "diagnostics",
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{
 				"file_path": target,
 			})
 			elapsed := time.Since(startedAt)
@@ -280,17 +279,12 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 	if editableLine == "" {
 		t.Fatalf("%s replace_range fixture has no non-empty line", tc.languageID)
 	}
-	replaceStartedAt := time.Now()
-	replaced := client.callTool(t, "patch_edit", map[string]any{
-		"action":    "replace_range",
-		"file_path": target,
-		"patch":     "@@\n-" + editableLine + "\n+" + editableLine + " ",
-	})
-	t.Logf("language=%s tool=patch_edit action=replace_range elapsed=%s", tc.languageID, time.Since(replaceStartedAt))
-	requireMCPToolSuccess(t, client, replaced, tc.languageID+" patch_edit replace_range")
-	if payload := replaced.Result.ContentText(); !strings.Contains(payload, "applied") {
-		t.Fatalf("%s replace_range did not report applied: text=%q stderr=%s",
-			tc.languageID, replaced.Result.ContentText(), client.stderrString())
+	edited := strings.Replace(string(current), editableLine, editableLine+" ", 1)
+	if err := os.WriteFile(target, []byte(edited), 0o600); err != nil {
+		t.Fatalf("native edit %s fixture: %v", tc.languageID, err)
+	}
+	if updated, err := os.ReadFile(target); err != nil || !strings.Contains(string(updated), editableLine+" ") {
+		t.Fatalf("native read/search %s edited fixture: err=%v", tc.languageID, err)
 	}
 
 	batchName := "batch-" + filepath.Base(target)
@@ -308,13 +302,11 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 
 	pos := target + ":1:1"
 	// ast_search is a workspace capability, so this per-language matrix does not vary its AST semantics.
-	batchDiagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	batchDiagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_paths":  []string{target, batchTarget},
 		"language_id": tc.languageID,
-		"limit":       100,
 	})
-	requireMCPToolSuccess(t, client, batchDiagnostics, tc.languageID+" file diagnostics batch")
+	requireMCPToolSuccess(t, client, batchDiagnostics, tc.languageID+" diagnostics batch")
 	batchPayload := decodeDiagnosticsContentText(t, batchDiagnostics.Result.ContentText())
 	if !hasDiagnosticsFile(batchPayload, target) || !hasDiagnosticsFile(batchPayload, batchTarget) {
 		journal, journalErr := os.ReadFile(journalPath)
@@ -323,19 +315,11 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 	}
 
 	checks := []binaryAllLanguageToolCheck{
-		{tool: "file", args: map[string]any{"action": "read_file", "file_path": target}},
-		{tool: "file", args: map[string]any{"action": "read_file", "file_paths": []string{target}}, want: filepath.Base(target)},
-		{tool: "file", args: map[string]any{"action": "diagnostics", "file_path": target}},
-		{tool: "grep", args: map[string]any{"action": "text_search", "query": "fixture", "paths": []string{target}}},
+		{tool: "diagnostics", args: map[string]any{"file_path": target}},
 		{tool: "structure", args: map[string]any{"action": "document_symbol", "file_path": target}},
 		{tool: "structure", args: map[string]any{"action": "workspace_symbol", "file_path": target, "query": "StaleWorkspaceNeedle", "match_mode": "fuzzy"}, want: staleWorkspaceSymbolName(workspaceSymbolLanguageID(tc.languageID))},
 		{tool: "structure", args: map[string]any{"action": "folding_range", "file_path": target}},
 		{tool: "structure", args: map[string]any{"action": "semantic_tokens", "file_path": target}},
-		{tool: "inspect", args: map[string]any{"action": "hover", "pos": pos}, want: "FakeHover"},
-		{tool: "inspect", args: map[string]any{"action": "definition", "pos": pos}, want: filepath.Base(target)},
-		{tool: "inspect", args: map[string]any{"action": "implementation", "pos": pos}, want: filepath.Base(target)},
-		{tool: "inspect", args: map[string]any{"action": "type_definition", "pos": pos}, want: filepath.Base(target)},
-		{tool: "inspect", args: map[string]any{"action": "signature_help", "pos": pos}, want: "FakeSignature"},
 		{tool: "xref", args: map[string]any{"action": "references", "pos": pos}, want: filepath.Base(target)},
 		{tool: "xref", args: map[string]any{"action": "call_hierarchy", "pos": pos, "direction": "incoming"}},
 		{tool: "xref", args: map[string]any{"action": "call_hierarchy", "pos": pos, "direction": "outgoing"}},
@@ -343,10 +327,6 @@ func runMcpLSPBinaryAllToolActionsForLanguageE2E(t *testing.T, binary, fakeServe
 		{tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": pos, "direction": "supertypes"}, want: "FakeSuperType"},
 		{tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": pos, "direction": "subtypes"}, want: "FakeSubType"},
 		{tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": pos, "direction": "both"}, wants: []string{"FakeSuperType", "FakeSubType"}},
-		{tool: "completion", args: map[string]any{"pos": pos}, want: "FakeCompletion"},
-		{tool: "patch_edit", args: map[string]any{"action": "code_action", "pos": pos}},
-		{tool: "patch_edit", args: map[string]any{"action": "format", "file_path": target}},
-		{tool: "patch_edit", args: map[string]any{"action": "rename", "pos": pos, "new_name": "FakeRenamed"}},
 	}
 	runBinaryAllLanguageToolChecks(t, client, tc.languageID, checks)
 	if os.Getenv("MCP_LSP_TRACE_TIMING") == "1" {
@@ -385,10 +365,8 @@ func hasDiagnosticsFile(payload diagnosticsPayload, path string) bool {
 func runBinaryAllLanguageToolChecks(t *testing.T, client *mcpLSPBinaryClient, languageID string, checks []binaryAllLanguageToolCheck) {
 	t.Helper()
 	for _, check := range checks {
-		if check.tool != "grep" && !(check.tool == "file" && check.args["action"] == "read_file") {
-			// 该矩阵证明全部公共 language_id，而不是只证明同扩展名归一后的底层 adapter。
-			check.args["language_id"] = languageID
-		}
+		// 该矩阵证明全部公共 language_id，而不是只证明同扩展名归一后的底层 adapter。
+		check.args["language_id"] = languageID
 		startedAt := time.Now()
 		result := client.callTool(t, check.tool, check.args)
 		t.Logf("language=%s tool=%s action=%v elapsed=%s", languageID, check.tool, check.args["action"], time.Since(startedAt))
@@ -475,8 +453,7 @@ func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	first := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	first := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, first, "initial stale-name diagnostics")
@@ -488,8 +465,7 @@ func TestMcpLSPBinaryDiagnosticsReopensChangedFileBeforeReturning_E2E(t *testing
 	if err := os.WriteFile(target, []byte("function freshName() { return 2 }\n"), 0o600); err != nil {
 		t.Fatalf("rewrite diagnostics target: %v", err)
 	}
-	second := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	second := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, second, "fresh-name diagnostics after rewrite")

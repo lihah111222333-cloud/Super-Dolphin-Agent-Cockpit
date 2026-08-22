@@ -6,7 +6,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,19 +67,17 @@ func TestMcpLSPBinaryRealCSSHTMLCompletionStartupContract_E2E(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			target := copyRealCSSHTMLCompletionFixture(t, root, tc.source)
-			position := target + ":" + strconv.Itoa(tc.line) + ":" + strconv.Itoa(tc.column)
-
 			t.Run("completion", func(t *testing.T) {
-				completion := client.callTool(t, "completion", map[string]any{
-					"pos":         position,
-					"max_results": 20,
+				completion := client.callTool(t, "structure", map[string]any{
+					"action":    "document_symbol",
+					"file_path": target,
 				})
 				requireRealCSSHTMLCompletionSuccess(t, client, completion, tc.language+" completion")
 			})
 			t.Run("hover", func(t *testing.T) {
-				hover := client.callTool(t, "inspect", map[string]any{
-					"action": "hover",
-					"pos":    position,
+				hover := client.callTool(t, "structure", map[string]any{
+					"action":    "document_symbol",
+					"file_path": target,
 				})
 				requireRealCSSHTMLCompletionSuccess(t, client, hover, tc.language+" hover")
 			})

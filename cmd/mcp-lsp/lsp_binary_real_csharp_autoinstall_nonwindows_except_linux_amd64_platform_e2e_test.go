@@ -32,7 +32,7 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsCSharpLSWithRealDotnet_E2E(t *testin
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 	target := writeBinaryColdStartCSharpFixture(t, root)
-	diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 	requireMCPToolSuccess(t, client, diagnostics, "real csharp diagnostics")
 	requireRealInstalledBinaries(t, dotnetTools, []string{"csharp-ls"})
 }

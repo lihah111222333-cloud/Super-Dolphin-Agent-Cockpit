@@ -37,14 +37,14 @@ func TestMcpLSPBinaryLinuxManagedSwiftRubyRealServers_E2E(t *testing.T) {
 			target := tc.write(t, filepath.Join(root, tc.languageID))
 			for iteration := 1; iteration <= 2; iteration++ {
 				started := time.Now()
-				result := client.callTool(t, "inspect", map[string]any{
-					"action": "hover",
-					"pos":    target + ":1:1",
+				result := client.callTool(t, "structure", map[string]any{
+					"action":    "document_symbol",
+					"file_path": target,
 				})
 				t.Logf("managed language=%s hover iteration=%d elapsed=%s", tc.languageID, iteration, time.Since(started))
 				requireMCPToolSuccess(t, client, result, "real managed "+tc.languageID+" hover")
 			}
-			diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 			requireMCPToolSuccess(t, client, diagnostics, "real managed "+tc.languageID+" diagnostics")
 		})
 	}

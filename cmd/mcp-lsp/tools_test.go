@@ -11,8 +11,6 @@ import (
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/lspplatform"
-	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
-	lsptools "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/tools"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/stretchr/testify/require"
 )
@@ -23,24 +21,21 @@ func TestLSPToolManifestsExposeShortNames(t *testing.T) {
 	for _, manifest := range manifests {
 		got = append(got, manifest.Name)
 	}
-	want := []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"}
+	want := []string{"structure", "xref", "diagnostics"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("manifest names = %#v, want %#v", got, want)
 	}
 }
 
-func TestLSPToolManifestsAvoidCodexReservedEditName(t *testing.T) {
+func TestLSPToolManifestsExcludeRemovedTools(t *testing.T) {
 	manifests := newLSPToolManifests()
 	got := make(map[string]bool, len(manifests))
 	for _, manifest := range manifests {
 		got[manifest.Name] = true
 	}
-	if got["edit"] {
-		t.Fatalf("manifest exposes Codex-reserved LSP tool name %q; got %#v", "edit", got)
-	}
-	for _, want := range []string{"patch_edit", "completion"} {
-		if !got[want] {
-			t.Fatalf("manifest missing short LSP tool name %q; got %#v", want, got)
+	for _, removed := range []string{"edit", "patch_edit", "file", "read_file", "inspect", "grep", "completion"} {
+		if got[removed] {
+			t.Fatalf("manifest exposes removed tool %q; got %#v", removed, got)
 		}
 	}
 }
@@ -60,12 +55,12 @@ func TestToolsListExposesShortLSPNamesWhenSemanticLSPIsAvailable(t *testing.T) {
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"} {
+	for _, want := range []string{"structure", "xref", "diagnostics"} {
 		if !got[want] {
 			t.Fatalf("tools/list missing Codex-safe LSP tool %q; got %#v", want, got)
 		}
 	}
-	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
+	for _, legacy := range []string{"lsp_structure", "lsp_xref", "lsp_diagnostics", "lsp_file", "lsp_edit"} {
 		if got[legacy] {
 			t.Fatalf("tools/list exposed legacy alias %q; got %#v", legacy, got)
 		}
@@ -84,15 +79,13 @@ func TestToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable(t *testing
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, hidden := range []string{"inspect", "xref", "structure", "patch_edit", "completion"} {
+	for _, hidden := range []string{"structure", "xref", "diagnostics"} {
 		if got[hidden] {
 			t.Fatalf("tools/list exposed semantic LSP tool %q without a language server; got %#v", hidden, got)
 		}
 	}
-	for _, want := range []string{"file", "grep"} {
-		if !got[want] {
-			t.Fatalf("tools/list missing non-semantic helper %q; got %#v", want, got)
-		}
+	if len(got) != 0 {
+		t.Fatalf("tools/list exposed tools without a language server; got %#v", got)
 	}
 }
 
@@ -195,7 +188,7 @@ func TestToolsListPackagedStandardBundleExposesSemanticToolsWithoutJDTLS(t *test
 	for _, tool := range list {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"file", "inspect", "xref", "grep", "structure", "patch_edit", "completion"} {
+	for _, want := range []string{"structure", "xref", "diagnostics"} {
 		if !got[want] {
 			t.Fatalf("tools/list missing Codex-safe LSP tool %q for standard packaged bundle; got %#v", want, got)
 		}
@@ -225,12 +218,12 @@ func TestToolsListPackagedInvalidManifestFailsFast(t *testing.T) {
 
 func TestHandleToolCallRejectsLegacyLSPAlias(t *testing.T) {
 	defs := toolDefinitions(ToolHandlers{
-		"file": func(context.Context, json.RawMessage) (any, error) {
+		"diagnostics": func(context.Context, json.RawMessage) (any, error) {
 			return map[string]any{"ok": true}, nil
 		},
 	})
 
-	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
+	for _, legacy := range []string{"lsp_structure", "lsp_xref", "lsp_diagnostics", "lsp_file", "lsp_edit"} {
 		_, err := handleToolCall(context.Background(), defs, legacy, json.RawMessage(`{}`))
 		if err == nil || !strings.Contains(err.Error(), "unknown tool: "+legacy) {
 			t.Fatalf("handleToolCall(%s) error = %v, want unknown tool", legacy, err)
@@ -240,22 +233,22 @@ func TestHandleToolCallRejectsLegacyLSPAlias(t *testing.T) {
 
 func TestToolsCallAcceptsShortLSPNamesOnly(t *testing.T) {
 	defs := toolDefinitions(ToolHandlers{
-		"file": func(_ context.Context, _ json.RawMessage) (any, error) {
-			return map[string]any{"tool": "file"}, nil
+		"diagnostics": func(_ context.Context, _ json.RawMessage) (any, error) {
+			return map[string]any{"tool": "diagnostics"}, nil
 		},
 	})
 
-	result, err := handleToolCall(context.Background(), defs, "file", json.RawMessage(`{"action":"open_file","file_path":"cmd/mcp-lsp/tools.go"}`))
+	result, err := handleToolCall(context.Background(), defs, "diagnostics", json.RawMessage(`{"file_path":"cmd/mcp-lsp/tools.go"}`))
 	if err != nil {
-		t.Fatalf("handleToolCall(file) error = %v", err)
+		t.Fatalf("handleToolCall(diagnostics) error = %v", err)
 	}
 	payload, ok := result.(map[string]any)
-	if !ok || payload["tool"] != "file" {
-		t.Fatalf("handleToolCall(file) result = %#v, want file payload", result)
+	if !ok || payload["tool"] != "diagnostics" {
+		t.Fatalf("handleToolCall(diagnostics) result = %#v, want diagnostics payload", result)
 	}
-	_, err = handleToolCall(context.Background(), defs, "lsp_file", json.RawMessage(`{}`))
+	_, err = handleToolCall(context.Background(), defs, "lsp_diagnostics", json.RawMessage(`{}`))
 	if err == nil || !strings.Contains(err.Error(), "unknown tool") {
-		t.Fatalf("handleToolCall(lsp_file) error = %v, want unknown tool", err)
+		t.Fatalf("handleToolCall(lsp_diagnostics) error = %v, want unknown tool", err)
 	}
 }
 
@@ -309,40 +302,6 @@ func TestHandleScopedToolsCallSetsIsErrorForToolEnvelope(t *testing.T) {
 	}
 	if payload["isError"] != true {
 		t.Fatalf("isError = %#v, want true; result=%#v", payload["isError"], payload)
-	}
-}
-
-func TestHandleScopedToolsCallReturnsPlainTextAmbiguousPatchError(t *testing.T) {
-	root := t.TempDir()
-	target := filepath.Join(root, "dup.txt")
-	if err := os.WriteFile(target, []byte("same\nsame\n"), 0o600); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-	handler := lsptools.NewEditHandlerWithRoot(root, lspmanager.NewRegistry(nil))
-	defs := []toolDefinition{{
-		Manifest: ToolManifest{Name: "patch_edit"},
-		Handler:  ToolHandler(handler),
-	}}
-	args, err := json.Marshal(map[string]any{
-		"action":    "replace_range",
-		"file_path": target,
-		"patch":     "@@\n-same\n+changed\n",
-	})
-	require.NoError(t, err)
-	params, err := json.Marshal(map[string]any{
-		"name":            "patch_edit",
-		"arguments":       json.RawMessage(args),
-		"_cwd":            root,
-		"_workspaceRoots": []string{root},
-	})
-	require.NoError(t, err)
-
-	result, err := handleScopedToolsCall(context.Background(), registryToolProvider{defs: defs}, "lsp", params)
-	require.NoError(t, err)
-	text := requirePlainTextToolResult(t, result, true)
-	escapedTarget := strings.ReplaceAll(target, `\`, `\\`)
-	for _, want := range []string{"patch_ambiguous", "HINT\t", "candidate_location=", escapedTarget + ":1-L1"} {
-		require.Contains(t, text, want)
 	}
 }
 

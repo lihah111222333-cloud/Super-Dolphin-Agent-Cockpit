@@ -28,7 +28,7 @@ func RenderJSON(value any) (string, error) {
 }
 
 // RenderLineNumberedText 为文本窗口补 1-based 行号。
-// startLine 非法时从 1 开始，保证 read_file 回显始终可定位。
+// startLine 非法时从 1 开始，保证文本回显始终可定位。
 func RenderLineNumberedText(content string, startLine int) string {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if len(lines) == 0 {

@@ -40,7 +40,7 @@ func TestWindowsExternalStdioMCPHostWithoutKillOnCloseJobStartsSharedGoplsE2E(t 
 	t.Cleanup(func() { client.close(t) })
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	result := client.callTool(t, "completion", map[string]any{"pos": targets[0] + ":3:1"})
+	result := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[0]})
 	requireMCPToolSuccess(t, client, result, "external Windows stdio host shared gopls startup")
 
 	invocations := waitForFakeGoplsInvocations(t, argsLog, 2)
@@ -78,7 +78,7 @@ func TestWindowsExternalStdioMCPHostKillOnCloseJobWithoutBreakawayServesSharedGo
 	t.Cleanup(func() { client.close(t) })
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	result := client.callTool(t, "completion", map[string]any{"pos": targets[0] + ":3:1"})
+	result := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[0]})
 	requireMCPToolSuccess(t, client, result, "KILL_ON_CLOSE Windows stdio host shared gopls startup")
 
 	invocations := waitForFakeGoplsInvocations(t, argsLog, 2)

@@ -174,28 +174,16 @@ sequenceDiagram
 ### `cmd/mcp-lsp/internal/hiddenexec/`：跨平台子进程树控制
 - `cmd/mcp-lsp/internal/hiddenexec/process.go`
   - 统一构造普通/可取消命令；context 取消也会终止整棵派生进程树。
-- `cmd/mcp-lsp/internal/hiddenexec/process_default.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_unix.go`
+- `cmd/mcp-lsp/internal/hiddenexec/process_darwin_linux_default.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_darwin_linux_platform.go`
   - Darwin/Linux 启动独立进程组，并通过组信号回收语言服务器及其 worker。
 - `cmd/mcp-lsp/internal/hiddenexec/process_windows.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_windows.go`
   - Windows 先创建 KillOnClose Job Object，再以 `CREATE_SUSPENDED` 启动语言服务器，按 `AssignProcessToJobObject → ResumeThread` 顺序消除 Start→Assign 逃逸窗口；绑定或恢复失败会终止进程并关闭 Job/进程/线程句柄。仅旧进程无 Job 时使用 `taskkill /T`，其失败不会被父 PID kill 伪装成整树成功。
-- `cmd/mcp-lsp/internal/hiddenexec/process_other.go`
+- `cmd/mcp-lsp/internal/hiddenexec/process_nondarwin_nonlinux_nonwindows.go`
   - 其他平台保留父进程回收实现，避免平台文件缺失导致构建失败。
 
-### `edit/`：补丁与 replace_range 算法层
-- `patchparse.go`
-  - 解析单/多 hunk patch，限制 patch 尺寸、行数、hunk 数。
-- `patchmatch.go`
-  - 用上下文去匹配 patch hunk 在当前文件中的真实落点，输出 `resolved offsets / matched_by / edit_context`。
-- `replaceutil.go`
-  - `replace_range` 的内容大小保护、offset/line 映射、编辑上下文构造。
-  - 定义：
-    - 内容上限 4MB
-    - 替换内容上限 256KB
-    - 超过 2MB 走 large-content bypass
-    - 最多 20 个 edits
-- `seeksequence.go`
-  - `SeekSequence()` 是 5-pass **按行序列**匹配器：`exact / trim_right / trim_both / unicode_normalized / escape_normalized`。
-  - `substring_exact` 不是 `seeksequence.go` 的一档；它是 `patchmatch.go` 在行序列匹配失败后的 raw substring fallback。
+### 三工具原生边界
+- `cmd/mcp-lsp` 只保留 `structure`、`xref`、`diagnostics`。
+- 文件读取、文本搜索和补丁编辑由宿主原生工具执行；侧车不再实现 `edit/` 或 `replace_range` 算法层。
 
 ### `exec/`：受控命令执行
 - `sandbox.go`
@@ -300,7 +288,7 @@ sequenceDiagram
   - owner 只探测并发布自己的 RSS；其他 reader 在两分钟新鲜窗口内只读报告，避免多 worktree 下形成平方级远端进程树探测。陈旧 live 报告会原位刷新并标成不可跨 owner 驱逐；坏报告当轮按整个高水位保守计量并改为 `.bad` 隔离，使下一轮恢复而不永久毒化总账。
   - 总账动态校验所有 JSON 必填字段并拒绝未知字段；只发布 owner-only 回收决策，不允许一个 mcp-lsp 直接 kill 另一个进程拥有的语言服务器。
   - POSIX 上按 canonical `-remote=auto;<cohort>` 归集独立 gopls daemon RSS，避免只看到 forwarder；Windows 不使用不受支持的带 ID auto daemon，而是独立 gopls + 4GiB cohort 约束。
-- `cmd/mcp-lsp/internal/hiddenexec/process_tree_unix.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_windows.go`
+- `cmd/mcp-lsp/internal/hiddenexec/process_tree_darwin_linux_platform.go`、`cmd/mcp-lsp/internal/hiddenexec/process_tree_windows.go`
   - 汇总受管进程组/Job 对应语言服务器树 RSS；Windows 通过 `JobObjectBasicProcessIdList` 枚举 Job 成员并汇总 working set，Linux 进程启动身份使用 boot ID 加 `/proc/<pid>/stat` start time。Windows 先以 `CREATE_SUSPENDED` 启动，绑定 KillOnClose Job 后再恢复初始线程；真机 Win32 运行时验证仍需 Windows runner。
 
 ### `installer/`：LSP 安装器
@@ -716,7 +704,7 @@ graph TD
 3. `cmd/mcp-lsp/tools/factory.go` + `cmd/mcp-lsp/tools.go`
 4. `cmd/mcp-lsp/manager/registry.go` + `cmd/mcp-lsp/multilsp/manager*.go`
 5. `cmd/mcp-lsp/multilsp/client.go` + `cmd/mcp-lsp/multilsp/transport*.go`
-6. `cmd/mcp-lsp/tools/tool_edit*.go` + `cmd/mcp-lsp/edit/*.go`
+6. `cmd/mcp-lsp/tools/tool_structure.go`、`tool_xref.go`、`tool_diagnostics.go`
 
 这样能最快建立“从 MCP 调用入口到 LSP 子进程，再到控制面生命周期”的完整心智模型。
 

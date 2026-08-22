@@ -121,6 +121,7 @@ type evidenceDoc struct {
 	OwnedFilesChanged            []string
 	UnrelatedDirtyFilesPreserved []string
 	LSPEvidence                  map[string]string
+	NativeEvidence               map[string]string
 	CommandsRun                  []evidenceCommand
 	GeneratedFiles               []evidenceGeneratedFile
 	Blockers                     []string
@@ -518,7 +519,7 @@ func applyFrontendSourceGateRules(repoRoot, file string, gates, evidence map[str
 		gates["frontend:changed-tests"] = true
 	}
 	if frontendDiagnosticsRelevant(file) {
-		requireLSPEvidence(file, evidence)
+		requireToolEvidence(file, evidence)
 	}
 	return false, nil
 }
@@ -526,23 +527,22 @@ func applyFrontendSourceGateRules(repoRoot, file string, gates, evidence map[str
 // applyBackendSourceGateRules 为 Go 生产源码补充 LSP 证据并标记后端验证面。
 func applyBackendSourceGateRules(file string, evidence map[string]bool) (bool, error) {
 	if strings.HasSuffix(file, ".go") && (strings.HasPrefix(file, "cmd/") || strings.HasPrefix(file, "internal/") || strings.HasPrefix(file, "pkg/")) {
-		requireLSPEvidence(file, evidence)
+		requireToolEvidence(file, evidence)
 		return true, nil
 	}
 	if strings.HasPrefix(file, "scripts/") && strings.HasSuffix(file, ".go") {
-		requireLSPEvidence(file, evidence)
+		requireToolEvidence(file, evidence)
 		return true, nil
 	}
 	return false, nil
 }
 
-func requireLSPEvidence(file string, evidence map[string]bool) {
+func requireToolEvidence(file string, evidence map[string]bool) {
 	evidence["lsp:diagnostics"] = true
 	if sourceLike(file) {
-		evidence["lsp:locate"] = true
-		evidence["lsp:inspect"] = true
-		evidence["lsp:xref"] = true
-		evidence["lsp:read_file"] = true
+		evidence["native:search"] = true
+		evidence["native:read"] = true
+		evidence["native:apply_patch"] = true
 	}
 }
 

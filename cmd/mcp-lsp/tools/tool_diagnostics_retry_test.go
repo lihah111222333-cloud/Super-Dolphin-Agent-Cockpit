@@ -33,7 +33,7 @@ func TestDiagnosticsRecoversStartupWaitByBootstrappingTarget(t *testing.T) {
 	registry := &diagnosticsTestRegistry{
 		waitErrs: []error{lspmanager.ErrDiagnosticsNotReady},
 	}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "startup.go"})
 
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
@@ -61,7 +61,7 @@ func TestDiagnosticsRetriesStartupWaitUntilFifthRetry(t *testing.T) {
 			lspmanager.ErrDiagnosticsNotReady,
 		},
 	}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "slow.go"})
 
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
@@ -87,7 +87,7 @@ func TestDiagnosticsReportsStartupTimeoutAfterFiveRetries(t *testing.T) {
 			lspmanager.ErrDiagnosticsNotReady,
 		},
 	}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "never.go"})
 
 	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
@@ -135,7 +135,7 @@ func TestDiagnosticsBatchReturnsPartialAfterStartupRetryMissesOneTarget(t *testi
 			return fmt.Errorf("%w: diagnostics did not publish for requested targets before 1.5s: %s", lspmanager.ErrDiagnosticsNotReady, secondURI)
 		},
 	}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePaths: []string{"ready.go", "slow.go"}})
 
 	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
@@ -168,7 +168,7 @@ func TestDiagnosticsPropagatesNonStartupWaitError(t *testing.T) {
 	registry := &diagnosticsTestRegistry{
 		waitErrs: []error{errors.New("diagnostic cache corrupt")},
 	}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "broken.go"})
 
 	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)

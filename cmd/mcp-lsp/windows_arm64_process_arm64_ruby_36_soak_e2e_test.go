@@ -625,8 +625,8 @@ func TestWindowsARM64ProcessARM64Ruby36SoakE2E(t *testing.T) {
 	}
 	// manager idle 可能重建 Ruby child；先用同一 fixture 的公开 open_file
 	// 重新 hydration 文档，再验证 hover 非空，不能把 child 重建后的空状态当语义结果。
-	postIdleOpen := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{
-		"action":    "open_file",
+	postIdleOpen := client.callTool(t, "structure", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "structure", "document_symbol", map[string]any{
+		"action":    "document_symbol",
 		"file_path": postIdlePath,
 	}))
 	requireRealMCPActionResult(t, postIdleOpen, true, "", false, "", false, "ruby post-idle fixture hydration")
@@ -781,22 +781,8 @@ func windowsARM64ProcessARM64Ruby36RunActionMatrix(t *testing.T, client *mcpLSPB
 		if err := windowsARM64ProcessARM64Ruby36WriteWire(wirePath, fmt.Sprintf("phase=action_start;language=ruby;ordinal=%d/%d;tool=%s;name=%s;require_non_empty=%t;allow_capability_unsupported=%t", ordinal, windowsARM64ProcessARM64Ruby36Actions, action.tool, action.name, action.requireResult, action.allowCapabilityUnsupported)); err != nil {
 			t.Fatalf("write Ruby action start wire: %v", err)
 		}
-		if action.tool == "patch_edit" {
-			path, _ := action.args["file_path"].(string)
-			if path == "" {
-				path = realMCPPositionPath(fmt.Sprint(action.args["pos"]))
-			}
-			if path == "" {
-				t.Fatalf("Ruby patch action %s has no target path", action.name)
-			}
-			opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-			requireRealMCPActionResult(t, opened, true, "", false, "", false, "ruby patch target")
-		}
 		response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixture.workDir, action.tool, action.name, action.args))
 		status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), "ruby "+action.tool+"/"+action.name)
-		if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
-			assertRealFileContains(t, fixture.replaceFile, "REAL_MCP_REPLACED", "ruby replace_range")
-		}
 		matrix.total++
 		switch status {
 		case realMCPActionSucceeded:
@@ -826,7 +812,7 @@ func windowsARM64ProcessARM64Ruby36RunActionMatrix(t *testing.T, client *mcpLSPB
 
 func windowsARM64ProcessARM64Ruby36PostIdleHover(actions []realMCPActionSpec) (realMCPActionSpec, bool) {
 	for _, action := range actions {
-		if action.tool == "inspect" && action.name == "hover" && action.requireResult && !action.allowCapabilityUnsupported {
+		if action.tool == "structure" && action.name == "document_symbol" && action.requireResult && !action.allowCapabilityUnsupported {
 			return action, true
 		}
 	}

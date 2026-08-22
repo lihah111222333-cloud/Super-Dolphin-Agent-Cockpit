@@ -32,7 +32,7 @@ func TestMcpLSPBinaryWindowsGoplsSharedDaemonLifecycleE2E(t *testing.T) {
 	requireWindowsGoplsBrokerRecord(t, record, install, endpoint, daemonPID)
 
 	clients[0].close(t)
-	result := clients[1].callTool(t, "completion", map[string]any{"pos": targets[1] + ":3:1"})
+	result := clients[1].callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[1]})
 	requireMCPToolSuccess(t, clients[1], result, "second Windows forwarder after first closed")
 	requireWindowsProcessAlive(t, daemonPID, "gopls daemon")
 	requireWindowsProcessAlive(t, record.OwnerPID, "gopls broker")
@@ -49,8 +49,8 @@ func startWindowsGoplsClients(t *testing.T, ctx context.Context, binary string, 
 		client := clients[index]
 		t.Cleanup(func() { client.close(t) })
 		client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-		result := client.callTool(t, "completion", map[string]any{"pos": targets[index] + ":3:1"})
-		requireMCPToolSuccess(t, client, result, "Windows shared gopls forwarder warmup")
+		result := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[index]})
+		requireMCPToolSuccess(t, client, result, "Windows shared gopls forwarder warmup structure")
 	}
 	return clients
 }

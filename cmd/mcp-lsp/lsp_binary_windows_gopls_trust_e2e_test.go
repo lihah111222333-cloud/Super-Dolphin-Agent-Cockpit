@@ -24,7 +24,7 @@ func TestWindowsLSPBundleRejectsTamperedGoplsSHA256E2E(t *testing.T) {
 	)
 	t.Cleanup(func() { client.close(t) })
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	result := client.callTool(t, "completion", map[string]any{"pos": target + ":3:1"})
+	result := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": target})
 	if !result.Result.IsError || !strings.Contains(result.Result.ContentText(), "sha256 does not match") {
 		t.Fatalf("tampered Windows gopls manifest was not rejected by the trusted gate: text=%q structured=%s stderr=%s",
 			result.Result.ContentText(), result.Result.StructuredContent, client.stderrString())

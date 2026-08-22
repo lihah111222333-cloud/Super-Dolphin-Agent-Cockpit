@@ -90,36 +90,18 @@ func forbidFields(fields ...string) schema {
 
 // 各工具 schema 按 MCP 暴露的 action 分组，字段说明就是模型可见的调用约束。
 
-func newLSPFileSchema() schema {
-	openFile := forbidFields("pos", "file_paths")
-	openFile["required"] = []string{"file_path"}
-	return withActionConditions(NewObjectSchema(map[string]schema{
-		"action":      enumProp("Action. Use diagnostics on this file tool to fetch LSP diagnostics; there is no separate diagnostics tool.", "open_file", "read_file", "diagnostics"),
-		"pos":         stringProp("Position: 'file_path' (full file) or 'file_path:line' (function at line). Example: internal/foo.go:42 reads the function containing line 42 with its doc comments."),
-		"scope":       enumProp("Read mode override (default: function at line). Pass scope=lines to force a line-window read instead of function extraction.", "lines"),
-		"file_path":   stringProp(`File path for open_file or diagnostics. Example: {"action":"diagnostics","file_path":"internal/foo.go"}.`),
-		"file_paths":  arrayOfStringsProp(`Multiple file paths for batch read or diagnostics. Example: {"action":"diagnostics","file_paths":["internal/foo.go"]}.`),
-		"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
-		"limit":       integerProp("Max lines to return for read_file (default 300 for function mode, 250 for line-window; cap 2000). Single-file read_file output is budgeted by final text at 50 KiB and may be truncated with a continuation hint."),
-		"work_dir":    lspWorkDirProp(),
-	}, "action"),
-		actionCondition("open_file", openFile),
-		actionCondition("read_file", schema{
-			"oneOf": exactlyOneRequired("pos", "file_path", "file_paths"),
-		}),
-		actionCondition("diagnostics", schema{
-			"oneOf": exactlyOneRequired("file_path", "file_paths"),
-		}),
-	)
-}
-
-func newLSPInspectSchema() schema {
-	return NewObjectSchema(map[string]schema{
-		"action":      enumProp("Action", "hover", "definition", "implementation", "type_definition", "signature_help"),
-		"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
-		"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
-		"work_dir":    lspWorkDirProp(),
-	}, "action", "pos")
+func newLSPDiagnosticsSchema() schema {
+	return schema{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"file_path":   map[string]any(stringProp("Single file path to diagnose. Pass exactly one of file_path or file_paths.")),
+			"file_paths":  map[string]any(arrayOfStringsProp("Files to diagnose. Pass exactly one of file_path or file_paths.")),
+			"language_id": map[string]any(stringProp("Optional language server override for extensionless or ambiguous files.")),
+			"work_dir":    map[string]any(lspWorkDirProp()),
+		},
+		"oneOf": exactlyOneRequired("file_path", "file_paths"),
+	}
 }
 
 func newLSPXrefSchema() schema {
@@ -148,42 +130,6 @@ func newLSPXrefSchema() schema {
 		actionCondition("call_hierarchy", callHierarchy),
 		actionCondition("type_hierarchy", typeHierarchy),
 	)
-}
-
-func newLSPGrepSchema() schema {
-	paths := arrayOfStringsProp("Search roots for text_search or ast_search. A single root is a one-element array.")
-	paths["minItems"] = 1
-	return withActionConditions(NewObjectSchema(map[string]schema{
-		"action":         enumProp("Action", "text_search", "ast_search"),
-		"ast_language":   stringProp("Registered AST language selector for ast_search; omit only when a file path or glob identifies it unambiguously."),
-		"query":          stringProp("Search query"),
-		"paths":          paths,
-		"glob":           stringProp("Glob filter for text_search or ast_search; ast_search can also use it to infer the target language."),
-		"regex":          booleanProp("Regex mode (default literal)"),
-		"case_sensitive": booleanProp("Override smart-case (default: sensitive when query has uppercase, insensitive otherwise)"),
-		"max_results":    integerProp("Max matches per file (default 50, cap 50)"),
-		"work_dir":       lspWorkDirProp(),
-	}, "action", "query"),
-		actionCondition("text_search", forbidFields("ast_language")),
-		actionCondition("ast_search", forbidFields("regex", "case_sensitive")),
-	)
-}
-
-func newLSPGrepOutputSchema() schema {
-	return schema{
-		"type": "object",
-		"properties": map[string]any{
-			"data":                map[string]any{"type": "object", "description": "matched files keyed by path; each value has cols and rows"},
-			"total":               map[string]any{"type": "integer", "description": "total filtered matches before display limits"},
-			"showing":             map[string]any{"type": "integer", "description": "rows currently shown across all files"},
-			"truncated":           map[string]any{"type": "boolean", "description": "true when per-file or payload limits omitted rows"},
-			"dropped_for_payload": map[string]any{"type": "integer"},
-			"regex_fallback":      map[string]any{"type": "boolean"},
-			"message":             map[string]any{"type": "string"},
-			"hint":                map[string]any{"type": "string"},
-		},
-		"required": []string{"total"},
-	}
 }
 
 func newLSPStructureSchema() schema {
@@ -225,41 +171,6 @@ func requiredWithForbiddenFields(required []string, forbidden ...string) schema 
 	condition := forbidFields(forbidden...)
 	condition["required"] = required
 	return condition
-}
-
-func newPatchEditSchema() schema {
-	replaceRange := forbidFields("pos", "new_name", "only")
-	replaceRange["required"] = []string{"file_path", "patch"}
-	rename := forbidFields("file_path", "patch", "only")
-	rename["required"] = []string{"pos", "new_name"}
-	codeAction := forbidFields("file_path", "patch", "new_name")
-	codeAction["required"] = []string{"pos"}
-	format := forbidFields("pos", "patch", "new_name", "only")
-	format["required"] = []string{"file_path"}
-	return withActionConditions(NewObjectSchema(map[string]schema{
-		"action":      enumProp("Action.", "replace_range", "rename", "code_action", "format"),
-		"file_path":   stringProp("File path (absolute or relative, auto-resolved). Required for replace_range and format."),
-		"patch":       stringProp("Patch body for replace_range. Supports multi-section edits."),
-		"pos":         stringProp("Position as 'file_path:line:column' for rename/code_action (example internal/foo.go:42:9)."),
-		"new_name":    stringProp("New symbol name (rename only)."),
-		"only":        arrayOfStringsProp("Code action kinds filter (code_action only, e.g. [\"quickfix\", \"refactor\"])."),
-		"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
-		"work_dir":    lspWorkDirProp(),
-	}, "action"),
-		actionCondition("replace_range", replaceRange),
-		actionCondition("rename", rename),
-		actionCondition("code_action", codeAction),
-		actionCondition("format", format),
-	)
-}
-
-func newLSPCompletionSchema() schema {
-	return NewObjectSchema(map[string]schema{
-		"pos":         stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
-		"language_id": stringProp("Optional language server override for extensionless or ambiguous files."),
-		"max_results": integerProp("Max candidates (default 20, cap 50)"),
-		"work_dir":    lspWorkDirProp(),
-	}, "pos")
 }
 
 // lspWorkDirProp 生成 work_dir 属性 schema。

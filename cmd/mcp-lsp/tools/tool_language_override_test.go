@@ -115,9 +115,8 @@ func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
 	}
 	manager := &languageOverrideManager{}
 	registry := &languageOverrideRegistry{manager: manager}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	payload, err := json.Marshal(map[string]any{
-		"action":      "open_file",
 		"file_path":   "sample.go",
 		"language_id": "typescript",
 	})
@@ -126,7 +125,7 @@ func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
 	}
 
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), payload); err != nil {
-		t.Fatalf("open_file with language_id returned error: %v", err)
+		t.Fatalf("diagnostics with language_id returned error: %v", err)
 	}
 	if registry.gotLanguageID != "typescript" {
 		t.Fatalf("registry language = %q, want override typescript", registry.gotLanguageID)
@@ -232,7 +231,7 @@ func TestFuncRangeEnricherRoutesSQLToSQLite(t *testing.T) {
 	}
 }
 
-func TestOpenFileReturnsErrorWhenDidOpenFails(t *testing.T) {
+func TestOpenDiagnosticDocumentReturnsDidOpenFailure(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "main.go")
 	if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
@@ -242,13 +241,13 @@ func TestOpenFileReturnsErrorWhenDidOpenFails(t *testing.T) {
 	registry := &languageOverrideRegistry{manager: manager}
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
 
-	_, err := handlerBase{registry: registry}.openFile(ctx, path, "")
+	err := handlerBase{registry: registry}.openDiagnosticDocument(ctx, path, "")
 	if err == nil || !strings.Contains(err.Error(), "did open boom") {
-		t.Fatalf("openFile() error = %v, want DidOpen failure", err)
+		t.Fatalf("openDiagnosticDocument() error = %v, want DidOpen failure", err)
 	}
 }
 
-func TestOpenFileRetriesColdBootstrapTimeoutOnce(t *testing.T) {
+func TestOpenDiagnosticDocumentRetriesColdBootstrapTimeoutOnce(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "main.go")
 	if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
@@ -261,12 +260,12 @@ func TestOpenFileRetriesColdBootstrapTimeoutOnce(t *testing.T) {
 	registry := &languageOverrideRegistry{manager: manager}
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: root, WorkspaceRoots: []string{root}})
 
-	result, err := handlerBase{registry: registry}.openFile(ctx, path, "")
+	err := handlerBase{registry: registry}.openDiagnosticDocument(ctx, path, "")
 	if err != nil {
-		t.Fatalf("openFile() error = %v, want cold bootstrap retry success", err)
+		t.Fatalf("openDiagnosticDocument() error = %v, want cold bootstrap retry success", err)
 	}
-	if result.Status != "opened" || manager.didOpenCalls != 2 {
-		t.Fatalf("openFile() result=%#v DidOpen calls=%d, want success after exactly one retry", result, manager.didOpenCalls)
+	if manager.didOpenCalls != 2 {
+		t.Fatalf("DidOpen calls=%d, want success after exactly one retry", manager.didOpenCalls)
 	}
 }
 
@@ -278,9 +277,8 @@ func TestDiagnosticsLanguageOverrideReopensDocumentWithResolvedScope(t *testing.
 	}
 	manager := &languageOverrideManager{}
 	registry := &languageOverrideRegistry{manager: manager}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	payload, err := json.Marshal(map[string]any{
-		"action":      "diagnostics",
 		"file_path":   "sample.txt",
 		"language_id": "javascript",
 	})

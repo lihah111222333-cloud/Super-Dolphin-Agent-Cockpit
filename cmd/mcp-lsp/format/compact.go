@@ -237,7 +237,7 @@ func GroupLocationsByFile(items []protocol.LocationResult, total int) protocol.G
 				row.FuncStart = items[i].FuncStart
 				row.FuncEnd = items[i].FuncEnd
 				lastRange[file] = cur
-				grouped.Hint = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
+				grouped.Hint = "next: inspect the reported function range with native cat/head tools"
 			}
 		}
 		grouped.Data[file] = append(grouped.Data[file], row)

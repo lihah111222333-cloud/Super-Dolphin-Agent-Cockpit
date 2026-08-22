@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -31,14 +32,13 @@ func TestMcpLSPBinaryJavaToolsAndAndroidClasspathDiagnostics_E2E(t *testing.T) {
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	read := client.callTool(t, "file", map[string]any{
-		"action": "read_file",
-		"pos":    target + ":1",
-		"limit":  20,
-		"scope":  "lines",
-	})
-	requireMCPToolSuccess(t, client, read, "java read_file")
-	requireToolTextContains(t, read, "MainActivity", "java read_file")
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("native read Java fixture: %v", err)
+	}
+	if !bytes.Contains(content, []byte("MainActivity")) {
+		t.Fatalf("native search Java fixture missing MainActivity")
+	}
 
 	structure := client.callTool(t, "structure", map[string]any{
 		"action":      "document_symbol",
@@ -48,33 +48,14 @@ func TestMcpLSPBinaryJavaToolsAndAndroidClasspathDiagnostics_E2E(t *testing.T) {
 	requireMCPToolSuccess(t, client, structure, "java document_symbol")
 	requireToolResultContains(t, structure, "MainActivity", "java document_symbol")
 
-	hover := client.callTool(t, "inspect", map[string]any{
-		"action": "hover",
-		"pos":    target + ":5:42",
-	})
-	requireMCPToolSuccess(t, client, hover, "java hover")
-	requireToolResultContains(t, hover, "android.app.Activity", "java hover")
-
-	definition := client.callTool(t, "inspect", map[string]any{
-		"action": "definition",
+	references := client.callTool(t, "xref", map[string]any{
+		"action": "references",
 		"pos":    target + ":5:14",
 	})
-	requireMCPToolSuccess(t, client, definition, "java definition")
-	requireGroupedLocationTextTotal(t, definition, 1, "java definition")
-	requireToolResultContains(t, definition, "MainActivity.java", "java definition")
+	requireMCPToolSuccess(t, client, references, "java references")
+	requireToolResultContains(t, references, "MainActivity.java", "java references")
 
-	completion := client.callTool(t, "completion", map[string]any{
-		"pos":         target + ":7:12",
-		"max_results": 10,
-	})
-	requireMCPToolSuccess(t, client, completion, "java completion")
-	if !stringSliceContains(completionLabelsFromContent(t, completion), "onCreate") {
-		t.Fatalf("java completion missing onCreate; text=%q stderr=%s",
-			completion.Result.ContentText(), client.stderrString())
-	}
-
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "java diagnostics")
@@ -198,25 +179,14 @@ func fakeJDTLSResult(req fakeLSPRequest) any {
 			"capabilities": map[string]any{
 				"textDocumentSync":       1,
 				"documentSymbolProvider": true,
-				"hoverProvider":          true,
-				"definitionProvider":     true,
-				"completionProvider": map[string]any{
-					"triggerCharacters": []string{"."},
-				},
+				"referencesProvider":     true,
 			},
 		}
 	case "shutdown":
 		return nil
 	case "textDocument/documentSymbol":
 		return fakeJDTLSDocumentSymbols()
-	case "textDocument/hover":
-		return map[string]any{
-			"contents": map[string]any{
-				"kind":  "markdown",
-				"value": "```java\nandroid.app.Activity\n```",
-			},
-		}
-	case "textDocument/definition":
+	case "textDocument/references":
 		params := decodeFakeJavaPositionParams(req.Params)
 		return []map[string]any{{
 			"uri": params.TextDocument.URI,
@@ -225,15 +195,6 @@ func fakeJDTLSResult(req fakeLSPRequest) any {
 				"end":   map[string]any{"line": 4, "character": 25},
 			},
 		}}
-	case "textDocument/completion":
-		return map[string]any{
-			"isIncomplete": false,
-			"items": []map[string]any{{
-				"label":  "onCreate",
-				"kind":   2,
-				"detail": "void onCreate()",
-			}},
-		}
 	default:
 		return nil
 	}

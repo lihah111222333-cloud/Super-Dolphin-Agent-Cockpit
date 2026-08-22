@@ -239,6 +239,46 @@ COMMANDS_RUN:
 	}
 }
 
+func TestValidateEvidenceBlocksMissingNativeEvidence(t *testing.T) {
+	plan := gatePlan{ChangedFiles: []string{"internal/app/modules.go"}, RequiredEvidence: []string{"native:read", "native:search", "native:apply_patch"}}
+	path := writeEvidence(t, `
+STATUS: DONE_WITH_EVIDENCE
+AGENTID: 12345678-1234-1234-1234-123456789abc
+OWNED_FILES_CHANGED: [internal/app/modules.go]
+COMMANDS_RUN:
+  - cmd: go test ./internal/app
+    exit: 0
+NATIVE_EVIDENCE:
+  read: PASS
+  search: RED
+`)
+	err := validateEvidenceFile(path, plan)
+	if err == nil {
+		t.Fatal("missing and RED native evidence was accepted")
+	}
+	for _, want := range []string{"missing or non-pass native evidence search", "missing or non-pass native evidence apply_patch"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q: %v", want, err)
+		}
+	}
+}
+
+func TestValidateEvidenceRejectsForgedNativeEvidenceOutsideSection(t *testing.T) {
+	plan := gatePlan{ChangedFiles: []string{"internal/app/modules.go"}, RequiredEvidence: []string{"native:read"}}
+	path := writeEvidence(t, `
+STATUS: DONE_WITH_EVIDENCE
+AGENTID: 12345678-1234-1234-1234-123456789abc
+OWNED_FILES_CHANGED: [internal/app/modules.go]
+native:read: PASS
+COMMANDS_RUN:
+  - cmd: go test ./internal/app
+    exit: 0
+`)
+	if err := validateEvidenceFile(path, plan); err == nil || !strings.Contains(err.Error(), "missing or non-pass native evidence read") {
+		t.Fatalf("forged native evidence error = %v, want missing native proof", err)
+	}
+}
+
 func TestValidateEvidenceAcceptsBlockedReportWithoutGreenEvidence(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
 	path := writeEvidence(t, `
@@ -266,6 +306,10 @@ LSP_EVIDENCE:
   xref: PASS
   read_file: PASS
   diagnostics: PASS
+NATIVE_EVIDENCE:
+  read: PASS
+  search: PASS
+  apply_patch: PASS
 COMMANDS_RUN:
   - cmd: ./scripts/test_with_guard.sh ./internal/app -count=1
     exit: 0
@@ -305,6 +349,10 @@ LSP_EVIDENCE:
   xref: PASS
   read_file: PASS
   diagnostics: PASS
+NATIVE_EVIDENCE:
+  read: PASS
+  search: PASS
+  apply_patch: PASS
 COMMANDS_RUN:
   - cmd: go run ./scripts/lsp_diagnostics_gate --file frontend-app/src/App.jsx
     exit: 0

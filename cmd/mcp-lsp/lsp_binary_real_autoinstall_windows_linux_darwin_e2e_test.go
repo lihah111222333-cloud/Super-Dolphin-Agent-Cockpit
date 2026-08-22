@@ -44,7 +44,7 @@ func TestMcpLSPBinaryRealClangdCAndMQL_E2E(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			target := tc.write(t, filepath.Join(root, tc.name))
-			diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 			requireMCPToolSuccess(t, client, diagnostics, "real clangd "+tc.name+" diagnostics")
 			symbols := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": target})
 			requireMCPToolSuccess(t, client, symbols, "real clangd "+tc.name+" document symbols")
@@ -97,8 +97,7 @@ func TestMcpLSPBinaryDiagnosticsWithRealSystemLanguageServers_E2E(t *testing.T) 
 	for _, tc := range cases {
 		t.Run(tc.languageID, func(t *testing.T) {
 			target := tc.write(t, filepath.Join(root, tc.languageID))
-			diagnostics := client.callTool(t, "file", map[string]any{
-				"action":    "diagnostics",
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{
 				"file_path": target,
 			})
 			requireMCPToolSuccess(t, client, diagnostics, "real "+tc.languageID+" diagnostics")

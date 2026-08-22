@@ -200,19 +200,15 @@ sequenceDiagram
 
 | LSP 工具 | manifest | handler 绑定 | 实际入口 |
 |---|---|---|---|
-| `file` | `cmd/mcp-lsp/tools.go:28` | `cmd/mcp-lsp/tools.go:53` | `cmd/mcp-lsp/tools/tool_file.go:90` |
-| `inspect` | `cmd/mcp-lsp/tools.go:29` | `cmd/mcp-lsp/tools.go:54` | `cmd/mcp-lsp/tools/tool_inspect.go:26` |
-| `xref` | `cmd/mcp-lsp/tools.go:30` | `cmd/mcp-lsp/tools.go:55` | `cmd/mcp-lsp/tools/tool_xref.go:26` |
-| `grep` | `cmd/mcp-lsp/tools.go:31` | `cmd/mcp-lsp/tools.go:56` | `cmd/mcp-lsp/tools/tool_grep.go:50` |
-| `structure` | `cmd/mcp-lsp/tools.go:32` | `cmd/mcp-lsp/tools.go:57` | `cmd/mcp-lsp/tools/tool_structure.go:25` |
-| `patch_edit` | `cmd/mcp-lsp/tools.go:33` | `cmd/mcp-lsp/tools.go:58` | `cmd/mcp-lsp/tools/tool_edit.go:65` |
-| `completion` | `cmd/mcp-lsp/tools.go:34` | `cmd/mcp-lsp/tools.go:59` | `cmd/mcp-lsp/tools/tool_completion.go:20` |
+| `structure` | `cmd/mcp-lsp/tools.go` | `newToolHandlers` | `cmd/mcp-lsp/tools/tool_structure.go` |
+| `xref` | `cmd/mcp-lsp/tools.go` | `newToolHandlers` | `cmd/mcp-lsp/tools/tool_xref.go` |
+| `diagnostics` | `cmd/mcp-lsp/tools.go` | `newToolHandlers` | `cmd/mcp-lsp/tools/tool_diagnostics.go` |
 
 调用链实测（由 `xref` 反查）：
 
 1. `common.Server` / `common.HTTPServer` 的 `tools/call` 最终调用 `registryToolProvider.CallTool`：`internal/mcpserver/common/server.go:221`、`internal/mcpserver/common/http_transport.go:161`、`cmd/mcp-lsp/fx.go:136`。
 2. `registryToolProvider.CallTool` 只做名字分发，核心逻辑在 `handleToolCall`：`cmd/mcp-lsp/fx.go:151`。
-3. `newToolHandlers` 把每个 tool 名绑定到 `tools.New*Handler(...)`：`cmd/mcp-lsp/tools.go:39`。
+3. `newToolHandlers` 只把 `structure`、`xref`、`diagnostics` 绑定到 `tools.New*Handler(...)`；文件读取、文本搜索和编辑属于原生工具边界。
 4. 具体 handler 里再决定是否走 registry / search / edit / format / sandbox：`cmd/mcp-lsp/tools/factory.go:35`。
 
 ### 5.1 `manager.Registry` / language 检测真实调用链
@@ -317,11 +313,10 @@ sequenceDiagram
 
 | 包 | 测试文件 | 核心 Test* | freeze |
 |---|---|---|---|
-| `edit` | `cmd/mcp-lsp/edit/patchparse_test.go` | `TestParseImplicitSingleHunk` (`cmd/mcp-lsp/edit/patchparse_test.go:9`) | — |
 | `multilsp` | `cmd/mcp-lsp/multilsp/gomod_test.go` | `TestFindJSTSProjectRootWithinFindsFirstValidProject` (`cmd/mcp-lsp/multilsp/gomod_test.go:9`) | — |
 | `manager` | `cmd/mcp-lsp/manager/registry_multilang_e2e_test.go` | `TestMultiLanguageLSP_E2E` (`cmd/mcp-lsp/manager/registry_multilang_e2e_test.go:242`) | — |
 | `search` | `cmd/mcp-lsp/search/language_inference_test.go` | `TestInferLanguage` (`cmd/mcp-lsp/search/language_inference_test.go:5`) | — |
-| `tools` | `cmd/mcp-lsp/tools/tool_edit_support_test.go` | `TestReadFileWithModeNormalizesCRLF` (`cmd/mcp-lsp/tools/tool_edit_support_test.go:11`) | — |
+| `tools` | `cmd/mcp-lsp/tools/tool_diagnostics_test.go` | `TestDiagnosticsHandler` | — |
 
 补充：本卷覆盖的 5 个子包当前都**没有独立 archtest freeze 数字**；冻结压力仍主要落在 11 卷 `memory/prompt` 等包，而 03 卷更像“运行时与工具语义”地图。
 

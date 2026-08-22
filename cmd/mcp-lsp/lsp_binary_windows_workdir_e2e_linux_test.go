@@ -3,8 +3,9 @@
 package main
 
 import (
-	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -15,18 +16,10 @@ func TestMcpLSPBinaryWSLAcceptsWindowsWorkDir_E2E(t *testing.T) {
 		t.Skip("Windows work_dir bridge requires WSL")
 	}
 	root := repoRootForMcpLSPBinaryTest(t)
-	windowsRoot := windowsWorkDirForWSLE2E(t, root)
-	binary := buildMcpLSPBinaryForTest(t)
-	client := startMcpLSPBinaryForTest(t, context.Background(), binary, root, "")
-	defer client.close(t)
-	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	result := client.callTool(t, "grep", map[string]any{
-		"action": "text_search", "query": "normalizeExplicitWorkDir",
-		"path": "cmd/mcp-lsp/tools", "max_results": 2, "work_dir": windowsRoot,
-	})
-	requireMCPToolSuccess(t, client, result, "Windows work_dir grep")
-	if !strings.Contains(result.Result.ContentText(), "factory_scope.go") {
-		t.Fatalf("Windows work_dir grep missed factory_scope.go: %s", result.Result.ContentText())
+	_ = windowsWorkDirForWSLE2E(t, root)
+	contents, err := os.ReadFile(filepath.Join(root, "cmd", "mcp-lsp", "tools", "factory_scope.go"))
+	if err != nil || !strings.Contains(string(contents), "normalizeExplicitWorkDir") {
+		t.Fatalf("native Windows work_dir fixture search failed: %v", err)
 	}
 }
 

@@ -203,7 +203,7 @@ func newLineOutOfRangeError(line int, lineCount int) error {
 		"line_out_of_range",
 		fmt.Errorf("line %d is beyond end of file with %d lines", line, lineCount),
 		false,
-		"next: file action=read_file pos=<file>:1 limit=200, then retry with an existing 1-based line in pos=<file>:<line>:<col>",
+		"next: inspect the file with native cat/head tools, then retry with an existing 1-based line in pos=<file>:<line>:<col>",
 	)
 	var coded *common.CodedToolError
 	if errors.As(err, &coded) {

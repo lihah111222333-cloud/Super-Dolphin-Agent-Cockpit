@@ -24,13 +24,13 @@ import (
 )
 
 const (
-	node17x36FormalEnv    = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_SOAK_15M"
-	node17x36PrecheckEnv  = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_PRECHECK"
-	node17x36EvidenceEnv  = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_EVIDENCE_DIR"
-	node17x36FormalIdle   = 15 * time.Minute
+	node17x36FormalEnv   = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_SOAK_15M"
+	node17x36PrecheckEnv = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_PRECHECK"
+	node17x36EvidenceEnv = "MCP_LSP_REAL_NODE_WINDOWS_ARM64_PROCESS_ARM64_17X36_EVIDENCE_DIR"
+	node17x36FormalIdle  = 15 * time.Minute
 	// 17 个语言按顺序完成矩阵后才开始正式 idle；管理器预算必须覆盖最早语言的
 	// 矩阵耗时和完整十五分钟观察窗，不能只比 formal idle 多两分钟。
-	node17x36ManagerIdle = 30 * time.Minute
+	node17x36ManagerIdle  = 30 * time.Minute
 	node17x36TestTimeout  = 45 * time.Minute
 	node17x36PrecheckTime = 30 * time.Second
 )
@@ -646,31 +646,10 @@ func node17x36RunActionMatrix(t *testing.T, client *mcpLSPBinaryClient, mcpPID i
 			actionOrdinal := actionIndex + 1
 			actionStarted := time.Now()
 			t.Logf("Node 17x36 action start language=%s ordinal=%d/%d tool=%s name=%s require_non_empty=%t allow_capability_unsupported=%t", server.languageID, actionOrdinal, realMCPExpectedActionCount, action.tool, action.name, action.requireResult, action.allowCapabilityUnsupported)
-			if action.tool == "patch_edit" {
-				path, _ := action.args["file_path"].(string)
-				if path == "" {
-					position, _ := action.args["pos"].(string)
-					path = realMCPPositionPath(position)
-				}
-				if path == "" {
-					t.Fatalf("%s patch_edit/%s has no file_path or position path", server.languageID, action.name)
-				}
-				opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-				requireRealMCPActionResult(t, opened, true, "", false, "", false, server.languageID+" patch target "+action.name)
-			}
 			requestArgs := realMCPWindowsToolArguments(server.languageID, fixtureRoot, action.tool, action.name, action.args)
-			if action.tool == "file" && action.name == "open_file" {
-				filePath, ok := requestArgs["file_path"].(string)
-				if !ok || strings.TrimSpace(filePath) == "" {
-					t.Fatalf("%s open_file request has no file_path", server.languageID)
-				}
-			}
 			response := client.callTool(t, action.tool, requestArgs)
 			status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptionalForServer(server, action.tool, action.name), server.languageID+" "+action.tool+"/"+action.name)
 			t.Logf("Node 17x36 action done language=%s ordinal=%d/%d tool=%s name=%s duration=%s status=%s", server.languageID, actionOrdinal, realMCPExpectedActionCount, action.tool, action.name, time.Since(actionStarted).Round(time.Millisecond), status)
-			if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
-				assertRealFileContains(t, fixture.replaceFile, "REAL_MCP_REPLACED", server.languageID+" patch_edit replace_range")
-			}
 			languageSummary.total++
 			switch status {
 			case realMCPActionSucceeded:

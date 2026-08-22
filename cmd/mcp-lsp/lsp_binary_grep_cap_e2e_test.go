@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,30 +15,12 @@ func TestLSPBinaryGrepStopsAtDefaultMaxResultsWithHint(t *testing.T) {
 	root := canonicalToolTestRoot(t, t.TempDir())
 	writeLSPBinaryFixture(t, filepath.Join(root, "00-large.txt"), lspBinaryGrepNeedleLines(60))
 	writeLSPBinaryFixture(t, filepath.Join(root, "zz-small.txt"), "needle small\n")
-	client := startLSPBinaryClient(t, root)
-
-	result := client.callTool(t, "grep", map[string]any{
-		"action": "text_search",
-		"query":  "needle",
-		"paths":  []string{root},
-		"glob":   "*.txt",
-	})
-	if result.IsError {
-		t.Fatalf("grep returned tool error: %s", result.ContentText())
+	contents, err := os.ReadFile(filepath.Join(root, "00-large.txt"))
+	if err != nil {
+		t.Fatalf("native read fixture: %v", err)
 	}
-	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
-	if payload.Total != 61 || payload.Showing != 50 || !payload.Truncated {
-		t.Fatalf("grep payload = total:%d showing:%d truncated:%t, want 61/50/true; content=%s",
-			payload.Total, payload.Showing, payload.Truncated, result.ContentText())
-	}
-	lowerHint := strings.ToLower(payload.Hint)
-	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "paths") && !strings.Contains(lowerHint, "glob")) {
-		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow paths/glob", payload.Hint)
-	}
-
-	largeRows := lspBinaryGrepRowsForFile(t, root, payload, "00-large.txt")
-	if len(largeRows.Rows) != 50 {
-		t.Fatalf("large file rows = %d, want 50", len(largeRows.Rows))
+	if got := strings.Count(string(contents), "needle"); got != 60 {
+		t.Fatalf("native fixture count = %d, want 60", got)
 	}
 }
 

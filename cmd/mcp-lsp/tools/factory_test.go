@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,41 +18,16 @@ import (
 )
 
 func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {
-	_, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "file", "read_fiel", struct{}{}, map[string]actionHandler[struct{}]{
-		"read_file": func(context.Context, struct{}) (any, error) { return nil, nil },
+	_, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "xref", "referneces", struct{}{}, map[string]actionHandler[struct{}]{
+		"references": func(context.Context, struct{}) (any, error) { return nil, nil },
 	})
 	if err == nil {
 		t.Fatalf("dispatch error = nil, want unsupported action")
 	}
-	for _, want := range []string{"valid actions:", "read_file", `did you mean "read_file"`} {
+	for _, want := range []string{"valid actions:", "references", `did you mean "references"`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("dispatch error = %q, want %q", err.Error(), want)
 		}
-	}
-}
-
-func TestDispatchToolActionRejectsLegacyFileAliases(t *testing.T) {
-	tests := []struct {
-		legacy  string
-		current string
-	}{
-		{legacy: "read", current: "read_file"},
-		{legacy: "open", current: "open_file"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.legacy, func(t *testing.T) {
-			got, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "file", tc.legacy, struct{}{}, map[string]actionHandler[struct{}]{
-				tc.current: func(context.Context, struct{}) (any, error) { return "ok", nil },
-			})
-			if err == nil {
-				t.Fatalf("dispatch %s alias error = nil, result = %#v; want unsupported action", tc.legacy, got)
-			}
-			for _, want := range []string{fmt.Sprintf(`unsupported file action %q`, tc.legacy), fmt.Sprintf(`legacy action %q is no longer accepted`, tc.legacy), fmt.Sprintf(`%q`, tc.current)} {
-				if !strings.Contains(err.Error(), want) {
-					t.Fatalf("dispatch %s alias error = %q, want %q", tc.legacy, err.Error(), want)
-				}
-			}
-		})
 	}
 }
 
@@ -126,7 +100,7 @@ func TestWrapperRejectsLegacyAgentIDInArguments(t *testing.T) {
 }
 
 func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
-	envelope := newToolErrorEnvelope("patch_edit", "go", errors.New("line must be >= 1"))
+	envelope := newToolErrorEnvelope("xref", "go", errors.New("line must be >= 1"))
 	if envelope.Success {
 		t.Fatalf("envelope success = true, want false")
 	}
@@ -135,34 +109,6 @@ func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(envelope.Hint), "1-based") {
 		t.Fatalf("envelope hint = %q, want one-based cursor guidance", envelope.Hint)
-	}
-
-	replaceEnvelope := newToolErrorEnvelope("patch_edit", "go", errors.New("column is out of range"))
-	if !strings.Contains(strings.ToLower(replaceEnvelope.Hint), "patch") {
-		t.Fatalf("replace_range-style cursor hint = %q, want patch guidance", replaceEnvelope.Hint)
-	}
-}
-
-func TestFileLSPBootstrapActionsDisableOuterTimeout(t *testing.T) {
-	if _, ok := fileToolDeadlineForAction(t, "diagnostics"); ok {
-		t.Fatal("file diagnostics received an outer tool deadline")
-	}
-	openParams := json.RawMessage(`{"action":"open_file"}`)
-	if got := fileToolTimeoutTierForOS(openParams, "windows"); got != toolTimeoutDisabled {
-		t.Fatalf("Windows open_file timeout tier = %s, want disabled", got)
-	}
-	if got := fileToolTimeoutTierForOS(openParams, "linux"); got != middleware.TierNormal {
-		t.Fatalf("Linux open_file timeout tier = %s, want unchanged normal tier", got)
-	}
-}
-
-func TestFileReadFirstCallHasWindowsColdInstallWindow(t *testing.T) {
-	params := json.RawMessage(`{"action":"read_file"}`)
-	if got := fileToolTimeoutTierForOS(params, "windows"); got != toolTimeoutDisabled {
-		t.Fatalf("Windows first read_file timeout tier = %s, want disabled for cold LSP install", got)
-	}
-	if got := fileToolTimeoutTierForOS(params, "linux"); got != middleware.TierNormal {
-		t.Fatalf("Linux first read_file timeout tier = %s, want unchanged normal tier", got)
 	}
 }
 
@@ -201,69 +147,11 @@ func TestWindowsColdInstallTimeoutPolicyDoesNotAffectOtherPlatforms(t *testing.T
 	}
 }
 
-func TestPatchEditActionsDisableOuterTimeout(t *testing.T) {
-	for _, action := range []string{"replace_range", "rename", "code_action", "format"} {
-		params := json.RawMessage(`{"action":"` + action + `"}`)
-		if got := patchEditTimeoutTierForOS(params, "windows"); got != toolTimeoutDisabled {
-			t.Fatalf("Windows patch_edit %s timeout tier = %s, want disabled", action, got)
-		}
-		wantOther := middleware.TierNormal
-		if action == "replace_range" {
-			wantOther = toolTimeoutDisabled
-		}
-		if got := patchEditTimeoutTierForOS(params, "linux"); got != wantOther {
-			t.Fatalf("Linux patch_edit %s timeout tier = %s, want unchanged %s", action, got, wantOther)
-		}
-	}
-}
-
-func patchEditDeadlineForAction(t *testing.T, action string) (time.Time, bool) {
-	t.Helper()
-	root := t.TempDir()
-	var deadline time.Time
-	deadlineOK := false
-	handler := wrapToolHandlerWithTimeoutResolver("patch_edit", middleware.TierNormal, patchEditTimeoutTier, func(ctx context.Context, _ json.RawMessage) (any, error) {
-		deadline, deadlineOK = ctx.Deadline()
-		return "ok", nil
-	})
-	payload := mustMarshalToolPayload(t, map[string]any{"action": action})
-
-	if _, err := handler(testToolContext(root), payload); err != nil {
-		t.Fatalf("handler returned error: %v", err)
-	}
-	return deadline, deadlineOK
-}
-
-func fileToolDeadlineForAction(t *testing.T, action string) (time.Time, bool) {
-	t.Helper()
-	root := t.TempDir()
-	var deadline time.Time
-	deadlineOK := false
-	handler := wrapToolHandlerWithTimeoutResolver("file", middleware.TierNormal, fileToolTimeoutTier, func(ctx context.Context, _ json.RawMessage) (any, error) {
-		deadline, deadlineOK = ctx.Deadline()
-		return "ok", nil
-	})
-	payload := mustMarshalToolPayload(t, map[string]any{"action": action})
-
-	if _, err := handler(testToolContext(root), payload); err != nil {
-		t.Fatalf("handler returned error: %v", err)
-	}
-	return deadline, deadlineOK
-}
-
-func assertDeadlineNear(t *testing.T, deadline time.Time, want time.Duration, action string) {
-	t.Helper()
-	remaining := time.Until(deadline)
-	if remaining < want-5*time.Second || remaining > want {
-		t.Fatalf("file %s timeout = %s, want near %s", action, remaining.Round(time.Second), want)
-	}
-}
-
 func assertWrapperRejectsLegacyArgument(t *testing.T, field string) {
 	t.Helper()
 	root := t.TempDir()
 	decoded := false
-	handler := wrapToolHandler("file", time.Second, func(_ context.Context, params json.RawMessage) (any, error) {
+	handler := wrapToolHandler("xref", time.Second, func(_ context.Context, params json.RawMessage) (any, error) {
 		var input struct {
 			Action string `json:"action"`
 		}
@@ -274,7 +162,7 @@ func assertWrapperRejectsLegacyArgument(t *testing.T, field string) {
 		return input, nil
 	})
 	payload := mustMarshalToolPayload(t, map[string]any{
-		"action": "read_file",
+		"action": "references",
 		field:    root,
 	})
 

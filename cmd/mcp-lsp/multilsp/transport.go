@@ -29,6 +29,12 @@ const (
 	jsonRPCInternalError  = -32603
 )
 
+// ErrLSPResponseTimeout distinguishes a completed write whose peer did not
+// answer before the request budget. It still joins DeadlineExceeded for the
+// MCP error envelope, but manager retry must never turn this terminal result
+// into a later success from a duplicate semantic request.
+var ErrLSPResponseTimeout = errors.New("LSP response timeout")
+
 // ServerRequestHandler 处理 LSP 服务端主动发起的请求。
 type ServerRequestHandler func(context.Context, string, json.RawMessage) (any, error)
 
@@ -385,7 +391,7 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 		// 请求已经完整写入后，调用方超时只移除 pending。终止 transport 会丢弃
 		// 语言服务器正在进行的 workspace load，使大仓库的每次重试都从零开始。
 		// writeMessageContext 自己仍会在真正的阻塞写超时时调用 abortBlockedWrite。
-		return nil, ctx.Err()
+		return nil, errors.Join(ErrLSPResponseTimeout, ctx.Err())
 	}
 }
 

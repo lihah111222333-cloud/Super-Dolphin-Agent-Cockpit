@@ -214,8 +214,7 @@ func requireDocumentSymbolNamesE2E(t *testing.T, records []lineprotocol.Record, 
 
 func requireEmptyDiagnosticsScopeE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
 	t.Helper()
-	result := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	result := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   target,
 		"language_id": "go",
 	})
@@ -228,8 +227,7 @@ func requireEmptyDiagnosticsScopeE2E(t *testing.T, client *mcpLSPBinaryClient, t
 
 func requireEmptyBatchDiagnosticsScopeE2E(t *testing.T, client *mcpLSPBinaryClient, target, sibling string) {
 	t.Helper()
-	result := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	result := client.callTool(t, "diagnostics", map[string]any{
 		"file_paths":  []string{target, sibling},
 		"language_id": "go",
 	})

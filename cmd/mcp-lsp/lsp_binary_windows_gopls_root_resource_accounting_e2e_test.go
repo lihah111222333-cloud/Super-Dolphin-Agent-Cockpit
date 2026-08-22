@@ -57,7 +57,7 @@ func TestMcpLSPBinaryWindowsGoplsRootCohortJobRSSAccountingDefersActiveLeasesE2E
 	requireWindowsGoplsRootResourceStable(t, cacheRoot, path, receipt)
 
 	for index, client := range clients {
-		result := client.callTool(t, "completion", map[string]any{"pos": targets[index] + ":3:1"})
+		result := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[index]})
 		requireMCPToolSuccess(t, client, result, "Windows gopls forwarder after active-lease RSS defer")
 	}
 	requireWindowsGoplsRootResourceProcessesAlive(t, record, childPID, forwarders)

@@ -230,13 +230,13 @@ func TestMcpLSPBinaryRealNodePHPWindowsE2E(t *testing.T) {
 	}
 	binary := buildRealMcpLSPBinary(t, root)
 	summary := runRealMCPToolCoverageForServers(t, root, binary, nodeDist, installDir, server, 1)
-	if summary.total != realMCPExpectedActionCount || slices.Contains(summary.unsupportedActions, "patch_edit/rename") {
-		t.Fatalf("focused PHP semantic rename matrix failed: total=%d success=%d legal_empty=%d unsupported=%v", summary.total, summary.succeeded, summary.legalEmpty, summary.unsupportedActions)
+	if summary.total != realMCPExpectedActionCount {
+		t.Fatalf("focused PHP three-tool matrix failed: total=%d success=%d legal_empty=%d unsupported=%v", summary.total, summary.succeeded, summary.legalEmpty, summary.unsupportedActions)
 	}
 }
 
 // TestMcpLSPBinaryRealNodeDockerfileCapabilityWindowsE2E 在真实 Dockerfile 会话中
-// 锁定 references 的服务端能力边界与 code_action 的适配能力，禁止把二者都记为可选。
+// 锁定 references 的服务端能力边界，并确认 diagnostics 不被误记为可选能力。
 func TestMcpLSPBinaryRealNodeDockerfileCapabilityWindowsE2E(t *testing.T) {
 	if os.Getenv(realNodeDockerfileCapabilityWindowsE2EEnv) != "1" {
 		t.Skipf("set %s=1 to run the targeted real Windows Dockerfile capability e2e", realNodeDockerfileCapabilityWindowsE2EEnv)
@@ -259,14 +259,14 @@ func TestMcpLSPBinaryRealNodeDockerfileCapabilityWindowsE2E(t *testing.T) {
 	if !slices.Contains(summary.unsupportedActions, "xref/references") {
 		t.Fatalf("Dockerfile references must remain a typed server capability boundary: unsupported=%v", summary.unsupportedActions)
 	}
-	if slices.Contains(summary.unsupportedActions, "patch_edit/code_action") {
-		t.Fatalf("Dockerfile code_action must reach the server and return success/legal-empty, not capability_unsupported: unsupported=%v", summary.unsupportedActions)
+	if slices.Contains(summary.unsupportedActions, "diagnostics/diagnostics") {
+		t.Fatalf("Dockerfile diagnostics must reach the server, not capability_unsupported: unsupported=%v", summary.unsupportedActions)
 	}
 	t.Logf("targeted real Dockerfile capability E2E completed in %s: total=%d success=%d legal_empty=%d capability_unsupported=%d", time.Since(started).Round(time.Millisecond), summary.total, summary.succeeded, summary.legalEmpty, summary.capabilityUnsupported)
 }
 
 // TestMcpLSPBinaryRealNodeJSONCapabilityWindowsE2E 锁定 JSON server 的客户端能力门槛：
-// completion/format 必须可调用，references/semantic_tokens 仍按真实上游能力记账。
+// diagnostics 必须可调用，references/semantic_tokens 仍按真实上游能力记账。
 func TestMcpLSPBinaryRealNodeJSONCapabilityWindowsE2E(t *testing.T) {
 	if os.Getenv(realNodeJSONCapabilityWindowsE2EEnv) != "1" {
 		t.Skipf("set %s=1 to run the targeted real Windows JSON capability e2e", realNodeJSONCapabilityWindowsE2EEnv)
@@ -291,14 +291,12 @@ func TestMcpLSPBinaryRealNodeJSONCapabilityWindowsE2E(t *testing.T) {
 			t.Fatalf("JSON %s must remain a typed upstream capability boundary: unsupported=%v", action, summary.unsupportedActions)
 		}
 	}
-	for _, action := range []string{"completion/completion", "patch_edit/format"} {
-		if slices.Contains(summary.unsupportedActions, action) {
-			t.Fatalf("JSON %s must be callable after initialize capability adaptation: unsupported=%v", action, summary.unsupportedActions)
-		}
+	if slices.Contains(summary.unsupportedActions, "diagnostics/diagnostics") {
+		t.Fatalf("JSON diagnostics must be callable after initialize capability adaptation: unsupported=%v", summary.unsupportedActions)
 	}
 }
 
-// TestMcpLSPBinaryRealNodeVueWindowsE2E 只运行 Vue 的真实安装、握手和 36-action 矩阵；
+// TestMcpLSPBinaryRealNodeVueWindowsE2E 只运行 Vue 的真实安装、握手和 15-action 三工具矩阵；
 // 正式全量测试仍固定要求 17 个 Node language ID，不受该 targeted selector 影响。
 func TestMcpLSPBinaryRealNodeVueWindowsE2E(t *testing.T) {
 	if os.Getenv(realNodeVueWindowsE2EEnv) != "1" {
@@ -2020,15 +2018,10 @@ func TestRealMCPFixtureSourcesTraceToBinLSPTestE2E(t *testing.T) {
 					t.Fatalf("%s %s copied fixture differs from checked-in source", server.languageID, file.name)
 				}
 			}
-			astFile := filepath.Join(fixture.workDir, ".mcp-ast", "ast_fixture.js")
-			copyRealMCPBinSourceFileWithinRoot(t, sourceRoot, "javascript/module-examples/top-level-await/main.js", fixture.workDir, astFile)
-			actions := realMCPActionSpecs(server, fixture, astFile)
-			var astSearchPaths []string
+			assertRealMCPNativeFixtureInputs(t, fixture)
+			actions := realMCPActionSpecs(server, fixture, "")
 			var workspaceQueries []string
 			for _, action := range actions {
-				if action.tool == "grep" && action.name == "ast_search" {
-					astSearchPaths, _ = action.args["paths"].([]string)
-				}
 				if action.tool == "structure" && strings.HasPrefix(action.name, "workspace_symbol-") {
 					query, _ := action.args["query"].(string)
 					workspaceQueries = append(workspaceQueries, query)
@@ -2037,14 +2030,10 @@ func TestRealMCPFixtureSourcesTraceToBinLSPTestE2E(t *testing.T) {
 			if len(workspaceQueries) != 2 || workspaceQueries[0] != server.sourceWorkspaceQuery || workspaceQueries[1] != server.sourceWorkspaceQuery {
 				t.Fatalf("%s workspace_symbol actions do not use the mapped real query: %v", server.languageID, workspaceQueries)
 			}
-			if len(astSearchPaths) != 1 || filepath.Clean(astSearchPaths[0]) != filepath.Clean(astFile) || !realMCPPathWithinRoot(fixture.workDir, astSearchPaths[0]) {
-				t.Fatalf("%s ast_search must use an isolated bin/LSP/test copy: paths=%v", server.languageID, astSearchPaths)
-			}
-			astSourcePath := filepath.Join(sourceRoot, "javascript", "module-examples", "top-level-await", "main.js")
-			astSource := readRealMCPBinSourceFile(t, astSourcePath)
-			astFixture := readRealMCPBinSourceFile(t, astFile)
-			if !bytes.Equal(astSource, astFixture) {
-				t.Fatalf("%s ast_search fixture differs from bin/LSP/test source", server.languageID)
+			for _, action := range actions {
+				if action.tool != "structure" && action.tool != "xref" && action.tool != "diagnostics" {
+					t.Fatalf("%s action %q exposes removed MCP tool %q", server.languageID, action.name, action.tool)
+				}
 			}
 		})
 	}
@@ -2696,17 +2685,8 @@ func TestRealMCPContractGuardsE2E(t *testing.T) {
 		realFixture := writeRealMCPLanguageFixture(t, t.TempDir(), server)
 		requireRealMCPFixturePositions(t, realFixture, server)
 		for _, action := range actions {
-			if action.tool == "file" && slices.Contains([]string{"open_file", "diagnostics", "diagnostics-batch"}, action.name) && action.allowCapabilityUnsupported {
+			if action.tool == "diagnostics" && action.allowCapabilityUnsupported {
 				t.Fatalf("%s/%s must not escape through capability_unsupported", action.tool, action.name)
-			}
-			if action.tool == "inspect" && action.name == "hover" && realMCPFixtureHasHover(server) && (!action.requireResult || action.allowCapabilityUnsupported) {
-				t.Fatalf("%s/hover claims fixture support without required non-empty/no-unsupported contract", server.languageID)
-			}
-			if action.tool == "inspect" && action.name == "definition" && realMCPFixtureHasDefinition(server) && (!action.requireResult || action.allowCapabilityUnsupported) {
-				t.Fatalf("%s/definition claims fixture support without required non-empty/no-unsupported contract", server.languageID)
-			}
-			if action.tool == "completion" && realMCPFixtureHasCompletion(server) && (!action.requireResult || action.allowCapabilityUnsupported) {
-				t.Fatalf("%s/completion claims fixture support without required non-empty/no-unsupported contract", server.languageID)
 			}
 			if action.tool == "xref" && strings.HasPrefix(action.name, "type_hierarchy-") && !action.allowCapabilityUnsupported {
 				t.Fatalf("%s/%s must preserve optional LSP capability_unsupported accounting", server.languageID, action.name)
@@ -2769,7 +2749,7 @@ func TestRealMCPHierarchyDirectionContractsE2E(t *testing.T) {
 			}
 		}
 
-		for _, direction := range []string{"supertypes", "subtypes"} {
+		for _, direction := range []string{"supertypes", "subtypes", "both"} {
 			action := "type_hierarchy-" + direction
 			requireResult, emptyReason := realMCPActionResultContract(server, "xref", action)
 			if requireResult != fixtureCase.typeHierarchy {
@@ -2793,7 +2773,7 @@ func TestRealMCPHierarchyDirectionContractsE2E(t *testing.T) {
 		t.Fatalf("hierarchy contract regression changed action count=%d, want %d", len(actions), realMCPExpectedActionCount)
 	}
 	if err := validateRealMCPActionClosure(actions); err != nil {
-		t.Fatalf("hierarchy contract regression changed 36-action closure: %v", err)
+		t.Fatalf("hierarchy contract regression changed 15-action closure: %v", err)
 	}
 }
 
@@ -2821,11 +2801,8 @@ func TestRealMCPCapabilityUnsupportedAccountingE2E(t *testing.T) {
 	if got := realMCPActionCapabilityKey("structure", "semantic_tokens"); got != "semantic_tokens" {
 		t.Fatalf("semantic_tokens capability key=%q", got)
 	}
-	if got := realMCPActionCapabilityKey("patch_edit", "format"); got != "document_formatting" {
-		t.Fatalf("format capability key=%q", got)
-	}
-	if got := realMCPActionCapabilityKey("grep", "text_search"); got != "" {
-		t.Fatalf("grep must not have an LSP capability key, got %q", got)
+	if got := realMCPActionCapabilityKey("diagnostics", "diagnostics"); got != "diagnostics" {
+		t.Fatalf("diagnostics capability key=%q", got)
 	}
 
 	var unsupported mcpLSPBinaryResponse
@@ -2836,7 +2813,7 @@ func TestRealMCPCapabilityUnsupportedAccountingE2E(t *testing.T) {
 		t.Fatalf("typed capability_unsupported status=%q, want %q", got, realMCPActionUnsupported)
 	}
 	var remoteEmptyUnsupported mcpLSPBinaryResponse
-	if err := json.Unmarshal([]byte(`{"result":{"content":[{"type":"text","text":"workspace symbol is not available for markdown. markdown support is limited to document_symbol fallback; use structure action=document_symbol file_path=<markdown file> or grep action=text_search."}],"isError":false}}`), &remoteEmptyUnsupported); err != nil {
+	if err := json.Unmarshal([]byte(`{"result":{"content":[{"type":"text","text":"workspace symbol is not available for markdown. use structure action=document_symbol file_path=<markdown file>."}],"isError":false}}`), &remoteEmptyUnsupported); err != nil {
 		t.Fatalf("decode remote content-only capability-empty fixture: %v", err)
 	}
 	if got := requireRealMCPActionResult(t, remoteEmptyUnsupported, false, "", true, "workspace_symbol", false, "remote content-only capability empty"); got != realMCPActionUnsupported {
@@ -2844,25 +2821,24 @@ func TestRealMCPCapabilityUnsupportedAccountingE2E(t *testing.T) {
 	}
 
 	var legalEmpty mcpLSPBinaryResponse
-	if err := json.Unmarshal([]byte(`{"result":{"content":[{"type":"text","text":"OK total=0 showing=0 truncated=0 unit=edit\nATTR\tchanged=0"}],"isError":false}}`), &legalEmpty); err != nil {
+	if err := json.Unmarshal([]byte(`{"result":{"content":[{"type":"text","text":"OK total=0 showing=0 truncated=0 unit=diagnostic\nMESSAGE\tChecked file: fixture.go"}],"isError":false}}`), &legalEmpty); err != nil {
 		t.Fatalf("decode content-only legal-empty fixture: %v", err)
 	}
-	if got := requireRealMCPActionResult(t, legalEmpty, false, "changed=false is a legal empty response", false, "", false, "format legal-empty"); got != realMCPActionLegalEmpty {
+	if got := requireRealMCPActionResult(t, legalEmpty, false, "zero diagnostics is a legal empty response", false, "", false, "diagnostics legal-empty"); got != realMCPActionLegalEmpty {
 		t.Fatalf("legal empty status=%q, want %q", got, realMCPActionLegalEmpty)
 	}
 
 	var semantic mcpLSPBinaryResponse
-	if err := json.Unmarshal([]byte(`{"result":{"content":[{"type":"text","text":"OK total=1 showing=1 truncated=0 unit=hover\nROW\tvalue=real-hover"}],"isError":false}}`), &semantic); err != nil {
+	if err := json.Unmarshal([]byte(`{"result":{"content":[{"type":"text","text":"OK total=1 showing=1 truncated=0 unit=location\nROW\tfile=fixture.go\tline=1\tcol=1"}],"isError":false}}`), &semantic); err != nil {
 		t.Fatalf("decode content-only semantic fixture: %v", err)
 	}
-	if got := requireRealMCPActionResult(t, semantic, true, "", false, "hover", false, "hover content-only semantic success"); got != realMCPActionSucceeded {
+	if got := requireRealMCPActionResult(t, semantic, true, "", false, "references", false, "xref content-only semantic success"); got != realMCPActionSucceeded {
 		t.Fatalf("content-only semantic status=%q, want %q", got, realMCPActionSucceeded)
 	}
 }
 
-// TestWindowsRealMCPPublicToolArgumentSchemasE2E 锁定 Windows 真实矩阵对七个
-// 公共工具族的参数合成边界，防止把 language_id 注入不接受该字段的 grep，或令
-// structure/workspace_symbol 同时携带互斥的 file_path 与 workspace_language 作用域。
+// TestWindowsRealMCPPublicToolArgumentSchemasE2E 锁定 Windows 真实矩阵对三个
+// 公共工具族的参数合成边界。
 func TestWindowsRealMCPPublicToolArgumentSchemasE2E(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -2871,15 +2847,11 @@ func TestWindowsRealMCPPublicToolArgumentSchemasE2E(t *testing.T) {
 		args           map[string]any
 		wantLanguageID bool
 	}{
-		{name: "file", tool: "file", actionName: "open_file", args: map[string]any{"action": "open_file"}, wantLanguageID: true},
-		{name: "inspect", tool: "inspect", actionName: "hover", args: map[string]any{"action": "hover"}, wantLanguageID: true},
 		{name: "xref", tool: "xref", actionName: "references", args: map[string]any{"action": "references"}, wantLanguageID: true},
-		{name: "grep", tool: "grep", actionName: "text_search", args: map[string]any{"action": "text_search"}},
 		{name: "structure-document", tool: "structure", actionName: "document_symbol", args: map[string]any{"action": "document_symbol"}, wantLanguageID: true},
 		{name: "structure-workspace-file", tool: "structure", actionName: "workspace_symbol-file", args: map[string]any{"action": "workspace_symbol", "file_path": "fixture.js"}},
 		{name: "structure-workspace-language", tool: "structure", actionName: "workspace_symbol-language", args: map[string]any{"action": "workspace_symbol", "workspace_language": "javascript"}},
-		{name: "patch-edit", tool: "patch_edit", actionName: "format", args: map[string]any{"action": "format"}, wantLanguageID: true},
-		{name: "completion", tool: "completion", actionName: "completion", args: map[string]any{}, wantLanguageID: true},
+		{name: "diagnostics", tool: "diagnostics", actionName: "diagnostics", args: map[string]any{"file_path": "fixture.js"}, wantLanguageID: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -3252,7 +3224,7 @@ type realMCPActionSpec struct {
 
 const (
 	realMCPExpectedLanguageCount = 17
-	realMCPExpectedActionCount   = 36
+	realMCPExpectedActionCount   = 15
 )
 
 // realMCPExpectedMatrixActionTotal 从实际拆分后的语言数推导矩阵总量，避免把 Vue companion
@@ -3262,18 +3234,14 @@ func realMCPExpectedMatrixActionTotal(languageCount int) int {
 }
 
 var realMCPExpectedActionKeys = map[string]struct{}{
-	"file/open_file": {}, "file/read_file-single": {}, "file/read_file-full": {}, "file/read_file-batch": {},
-	"file/read_file-lines": {}, "file/read_file-function": {}, "file/diagnostics": {}, "file/diagnostics-batch": {},
-	"inspect/hover": {}, "inspect/definition": {}, "inspect/implementation": {}, "inspect/type_definition": {}, "inspect/signature_help": {},
 	"xref/references": {}, "xref/references-no-declaration": {}, "xref/call_hierarchy-incoming": {}, "xref/call_hierarchy-outgoing": {}, "xref/call_hierarchy-both": {}, "xref/type_hierarchy-supertypes": {}, "xref/type_hierarchy-subtypes": {},
-	"grep/text_search": {}, "grep/text_search-regex": {}, "grep/text_search-paths": {}, "grep/text_search-file_paths": {}, "grep/text_search-glob": {}, "grep/ast_search": {},
+	"xref/type_hierarchy-both":  {},
 	"structure/document_symbol": {}, "structure/workspace_symbol-file": {}, "structure/workspace_symbol-language": {}, "structure/folding_range": {}, "structure/semantic_tokens": {},
-	"patch_edit/replace_range": {}, "patch_edit/rename": {}, "patch_edit/code_action": {}, "patch_edit/format": {},
-	"completion/completion": {},
+	"diagnostics/diagnostics": {}, "diagnostics/diagnostics-batch": {},
 }
 
 var realMCPExpectedActionToolCounts = map[string]int{
-	"file": 8, "inspect": 5, "xref": 7, "grep": 6, "structure": 5, "patch_edit": 4, "completion": 1,
+	"structure": 5, "xref": 8, "diagnostics": 2,
 }
 
 // validateRealMCPActionClosure 校验 36 个 action 的精确键闭包、唯一性、工具分布和结果合同完整性。
@@ -3784,11 +3752,8 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 		var languageSummary realMCPMatrixSummary
 		t.Run(platform+"/"+server.languageID, func(t *testing.T) {
 			fixture := writeRealMCPLanguageFixture(t, fixtureRoot, server)
-			// ast_search 也必须在当前语言的隔离 workspace 内读取快照副本，不能
-			// 通过根临时目录或 synthetic 内容绕过 work_dir 边界。
-			astFile := filepath.Join(fixture.workDir, ".mcp-ast", "ast_fixture.js")
-			copyRealMCPBinSourceFileWithinRoot(t, filepath.Join(root, "bin", "LSP", "test"), "javascript/module-examples/top-level-await/main.js", fixture.workDir, astFile)
-			actions := realMCPActionSpecs(server, fixture, astFile)
+			assertRealMCPNativeFixtureInputs(t, fixture)
+			actions := realMCPActionSpecs(server, fixture, "")
 			if err := validateRealMCPActionClosure(actions); err != nil {
 				t.Fatalf("%s action closure: %v", server.languageID, err)
 			}
@@ -3809,37 +3774,9 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 			for _, action := range actions {
 				action := action
 				t.Run(action.tool+"/"+action.name, func(t *testing.T) {
-					if action.tool == "patch_edit" {
-						path, _ := action.args["file_path"].(string)
-						if path == "" {
-							position, _ := action.args["pos"].(string)
-							path = realMCPPositionPath(position)
-						}
-						if path == "" {
-							t.Fatalf("patch_edit action %s has no file_path or position path", action.name)
-						}
-						opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-						requireRealMCPActionResult(t, opened, true, "", false, "", false, server.languageID+" file open "+action.name)
-					}
 					requestArgs := realMCPWindowsToolArguments(server.languageID, fixture.workDir, action.tool, action.name, action.args)
-					if action.tool == "file" && action.name == "open_file" {
-						filePath, ok := requestArgs["file_path"].(string)
-						if !ok || strings.TrimSpace(filePath) == "" {
-							t.Fatalf("real MCP open_file request must carry a non-empty file_path; args=%v", requestArgs)
-						}
-						t.Logf("real MCP open_file request file_path=%q", filePath)
-					}
 					response := client.callTool(t, action.tool, requestArgs)
 					status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptionalForServer(server, action.tool, action.name), server.languageID+" "+action.tool+" "+action.name)
-					if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
-						assertRealFileContains(t, fixture.replaceFile, fixture.replaceExpectation, server.languageID+" patch_edit replace_range")
-					}
-					if server.name == "prisma" && action.tool == "patch_edit" && action.name == "rename" && status == realMCPActionSucceeded {
-						assertRealMCPPrismaRenamePreservesMapping(t, fixture.renameFile, "realMCPRenamed", server.sourceIdentifier)
-					}
-					if server.name == "php" && action.tool == "patch_edit" && action.name == "rename" && status == realMCPActionSucceeded {
-						assertRealMCPPHPSemanticRename(t, client, server, fixture)
-					}
 					switch status {
 					case realMCPActionSucceeded:
 						languageSummary.succeeded++
@@ -3891,14 +3828,14 @@ func runRealMCPToolCoverageForServersWithProductRoot(t *testing.T, root, binary,
 func realMCPWindowsToolArguments(languageID, workDir, tool, actionName string, args map[string]any) map[string]any {
 	result := maps.Clone(args)
 	result["work_dir"] = workDir
-	if tool != "grep" && !(tool == "structure" && strings.HasPrefix(actionName, "workspace_symbol-")) {
+	if tool == "diagnostics" || tool == "xref" || (tool == "structure" && actionName != "workspace_symbol-language") {
 		result["language_id"] = languageID
 	}
 	return result
 }
 
-// writeRealMCPLanguageFixture 为每个真实 Node server 建立独立文件，避免一个语言的编辑污染另一个语言。
-// 这些文件只由真实 MCP stdio 工具打开，绝不注入 fake LSP server。
+// writeRealMCPLanguageFixture 为每个真实 Node server 建立独立文件。
+// 文件准备、读取和断言均由测试进程原生完成，MCP 只承担三种语义请求。
 func writeRealMCPLanguageFixture(t *testing.T, root string, server realNodeServerCase) realMCPFixture {
 	t.Helper()
 	if strings.TrimSpace(server.sourceDir) != "" {
@@ -4015,8 +3952,7 @@ func writeRealMCPLanguageFixture(t *testing.T, root string, server realNodeServe
 }
 
 // writeRealMCPBinSourceFixture 把 bin/LSP/test 的完整语言快照复制到临时
-// workspace，再为每个会修改文件的动作建立独立副本。所有初始文件内容均来自
-// 快照；动作只在临时副本上运行，避免 patch_edit 污染仓库样板。
+// workspace。所有初始文件内容均来自快照；读取、搜索和写入准备由测试进程原生完成。
 func writeRealMCPBinSourceFixture(t *testing.T, root string, server realNodeServerCase) realMCPFixture {
 	t.Helper()
 	repoRoot := realNodeRepoRoot(t)
@@ -4318,42 +4254,6 @@ func assertRealMCPPrismaRenamePreservesMapping(t *testing.T, path, renamedModel,
 	}
 }
 
-func assertRealMCPPHPSemanticRename(t *testing.T, client *mcpLSPBinaryClient, server realNodeServerCase, fixture realMCPFixture) {
-	t.Helper()
-	declaration := fixture.renameFile
-	consumer := filepath.Join(filepath.Dir(fixture.renameFile), "Semver.php")
-	declarationContent, err := os.ReadFile(declaration)
-	if err != nil {
-		t.Fatalf("read PHP renamed declaration %s: %v", declaration, err)
-	}
-	if !bytes.Contains(declarationContent, []byte("class realMCPRenamed")) || bytes.Contains(declarationContent, []byte("class VersionParser")) {
-		t.Fatalf("PHP rename did not update declaration exactly: %s", declaration)
-	}
-	consumerContent, err := os.ReadFile(consumer)
-	if err != nil {
-		t.Fatalf("read PHP renamed consumer %s: %v", consumer, err)
-	}
-	if !bytes.Contains(consumerContent, []byte("new realMCPRenamed()")) {
-		t.Fatalf("PHP rename did not update constructor reference: %s", consumer)
-	}
-	if !bytes.Contains(consumerContent, []byte("@var VersionParser")) {
-		t.Fatalf("PHP rename changed same-name non-reference documentation text: %s", consumer)
-	}
-	for _, path := range []string{declaration, consumer} {
-		response := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "diagnostics", map[string]any{
-			"action": "diagnostics", "file_path": path,
-		}))
-		requireRealMCPActionResult(t, response, false, "PHP semantic rename must leave zero diagnostics", false, realMCPActionCapabilityKey("file", "diagnostics"), realMCPActionProtocolOptionalForServer(server, "file", "diagnostics"), "PHP rename diagnostics")
-		doc, err := lineprotocol.Parse(response.Result.ContentText())
-		if err != nil {
-			t.Fatalf("parse PHP post-rename diagnostics %s: %v; text=%q", path, err, response.Result.ContentText())
-		}
-		if doc.Error != nil || doc.Header.Total != 0 {
-			t.Fatalf("PHP post-rename diagnostics are not zero for %s: error=%v header=%+v text=%q", path, doc.Error, doc.Header, response.Result.ContentText())
-		}
-	}
-}
-
 func realMCPPrismaBlockBoundaryError(content string) error {
 	open := ""
 	for index, line := range strings.Split(content, "\n") {
@@ -4432,8 +4332,7 @@ func realMCPPositionPath(position string) string {
 		return beforeColumn
 	}
 	if _, err := strconv.Atoi(beforeColumn[secondLast+1:]); err != nil {
-		// file(read_file) 的 lines/function scope 只携带 :line；Windows
-		// 盘符中的冒号不是第二个位置分隔符。
+		// 兼容只携带 :line 的原生位置；Windows 盘符中的冒号不是第二个位置分隔符。
 		return beforeColumn
 	}
 	return beforeColumn[:secondLast]
@@ -4621,7 +4520,7 @@ func realMCPNodeSourceMapping(sourceRoot string, server realNodeServerCase) (str
 	return sourcePath, sourceBytes, nil
 }
 
-func realMCPActionSpecs(server realNodeServerCase, fixture realMCPFixture, astFile string) []realMCPActionSpec {
+func realMCPActionSpecs(server realNodeServerCase, fixture realMCPFixture, _ string) []realMCPActionSpec {
 	semantic := fixture.semanticPosition
 	workspaceQuery := strings.TrimSpace(fixture.workspaceQuery)
 	if fixture.sourceRoot != "" {
@@ -4631,39 +4530,11 @@ func realMCPActionSpecs(server realNodeServerCase, fixture realMCPFixture, astFi
 	} else if workspaceQuery == "" {
 		workspaceQuery = realMCPWorkspaceQuery(server)
 	}
-	readLine := fixture.readLine
-	if fixture.sourceRoot != "" {
-		if readLine <= 0 || readLine != server.sourceLine {
-			panic(fmt.Sprintf("%s real fixture is missing its mapped source line: fixture=%d server=%d", server.languageID, readLine, server.sourceLine))
-		}
-	} else if readLine <= 0 {
-		readLine = server.line
-	}
-	implementationResult, implementationEmpty := realMCPActionResultContract(server, "inspect", "implementation")
-	typeDefinitionResult, typeDefinitionEmpty := realMCPActionResultContract(server, "inspect", "type_definition")
-	definitionResult, definitionEmpty := realMCPActionResultContract(server, "inspect", "definition")
-	signatureResult, signatureEmpty := realMCPActionResultContract(server, "inspect", "signature_help")
 	callIncomingResult, callIncomingEmpty := realMCPActionResultContract(server, "xref", "call_hierarchy")
 	typeHierarchyResult, typeHierarchyEmpty := realMCPActionResultContract(server, "xref", "type_hierarchy")
 	referencesResult, referencesEmpty := realMCPActionResultContract(server, "xref", "references")
 	referencesNoDeclarationResult, referencesNoDeclarationEmpty := realMCPActionResultContract(server, "xref", "references-no-declaration")
-	codeActionResult, codeActionEmpty := realMCPActionResultContract(server, "patch_edit", "code_action")
 	actions := []realMCPActionSpec{
-		{name: "open_file", tool: "file", args: map[string]any{"action": "open_file", "file_path": fixture.targetFile}},
-		{name: "read_file-single", tool: "file", args: map[string]any{"action": "read_file", "file_path": fixture.targetFile, "limit": 100}, requireResult: true},
-		{name: "read_file-full", tool: "file", args: map[string]any{"action": "read_file", "file_path": fixture.targetFile}, requireResult: true},
-		{name: "read_file-batch", tool: "file", args: map[string]any{"action": "read_file", "file_paths": []string{fixture.targetFile, fixture.secondaryFile}, "limit": 100}, requireResult: true},
-		{name: "read_file-lines", tool: "file", args: map[string]any{"action": "read_file", "pos": fixture.targetFile + ":" + strconv.Itoa(readLine), "scope": "lines", "limit": 1}, requireResult: true},
-		{name: "read_file-function", tool: "file", args: map[string]any{"action": "read_file", "pos": fixture.targetFile + ":" + strconv.Itoa(readLine), "limit": 50}, requireResult: true},
-		{name: "diagnostics", tool: "file", args: map[string]any{"action": "diagnostics", "file_path": fixture.codeActionFile}, emptyResultReason: "真实诊断 fixture 已写入；语言服务器可以合法报告零条诊断"},
-		{name: "diagnostics-batch", tool: "file", args: map[string]any{"action": "diagnostics", "file_paths": []string{fixture.codeActionFile, fixture.targetFile}}, emptyResultReason: "批量诊断允许其中一个合法文件没有诊断"},
-
-		{name: "hover", tool: "inspect", args: map[string]any{"action": "hover", "pos": semantic}, requireResult: true},
-		{name: "definition", tool: "inspect", args: map[string]any{"action": "definition", "pos": semantic}, requireResult: definitionResult, emptyResultReason: definitionEmpty},
-		{name: "implementation", tool: "inspect", args: map[string]any{"action": "implementation", "pos": fixture.implementationPosition}, requireResult: implementationResult, emptyResultReason: implementationEmpty},
-		{name: "type_definition", tool: "inspect", args: map[string]any{"action": "type_definition", "pos": fixture.typeDefinitionPosition}, requireResult: typeDefinitionResult, emptyResultReason: typeDefinitionEmpty},
-		{name: "signature_help", tool: "inspect", args: map[string]any{"action": "signature_help", "pos": fixture.signaturePosition}, requireResult: signatureResult, emptyResultReason: signatureEmpty},
-
 		{name: "references", tool: "xref", args: map[string]any{"action": "references", "pos": semantic, "include_declaration": true, "max_results": 20}, requireResult: referencesResult, emptyResultReason: referencesEmpty},
 		{name: "references-no-declaration", tool: "xref", args: map[string]any{"action": "references", "pos": semantic, "include_declaration": false, "max_results": 20}, requireResult: referencesNoDeclarationResult, emptyResultReason: referencesNoDeclarationEmpty},
 		{name: "call_hierarchy-incoming", tool: "xref", args: map[string]any{"action": "call_hierarchy", "pos": fixture.callHierarchyPosition, "direction": "incoming"}, requireResult: callIncomingResult, emptyResultReason: callIncomingEmpty},
@@ -4671,26 +4542,15 @@ func realMCPActionSpecs(server realNodeServerCase, fixture realMCPFixture, astFi
 		{name: "call_hierarchy-both", tool: "xref", args: map[string]any{"action": "call_hierarchy", "pos": fixture.callHierarchyPosition, "direction": "both"}, requireResult: callIncomingResult, emptyResultReason: callIncomingEmpty},
 		{name: "type_hierarchy-supertypes", tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": fixture.typeHierarchyPosition, "direction": "supertypes"}, requireResult: typeHierarchyResult, emptyResultReason: typeHierarchyEmpty},
 		{name: "type_hierarchy-subtypes", tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": fixture.typeHierarchyPosition, "direction": "subtypes"}, requireResult: typeHierarchyResult, emptyResultReason: typeHierarchyEmpty},
-
-		{name: "text_search", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{fixture.secondaryFile}, "max_results": 10}, requireResult: true},
-		{name: "text_search-regex", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{fixture.secondaryFile}, "regex": true, "case_sensitive": true, "max_results": 10}, requireResult: true},
-		{name: "text_search-paths", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{filepath.Dir(fixture.secondaryFile)}, "max_results": 10}, requireResult: true},
-		{name: "text_search-file_paths", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{fixture.secondaryFile}, "max_results": 10}, requireResult: true},
-		{name: "text_search-glob", tool: "grep", args: map[string]any{"action": "text_search", "query": fixture.searchNeedle, "paths": []string{filepath.Dir(fixture.secondaryFile)}, "glob": filepath.Base(fixture.secondaryFile), "max_results": 10}, requireResult: true},
-		{name: "ast_search", tool: "grep", args: map[string]any{"action": "ast_search", "query": "function $NAME($$$ARGS) { $$$BODY }", "paths": []string{astFile}, "ast_language": "javascript", "max_results": 10}, requireResult: true},
+		{name: "type_hierarchy-both", tool: "xref", args: map[string]any{"action": "type_hierarchy", "pos": fixture.typeHierarchyPosition, "direction": "both"}, requireResult: typeHierarchyResult, emptyResultReason: typeHierarchyEmpty},
 
 		{name: "document_symbol", tool: "structure", args: map[string]any{"action": "document_symbol", "file_path": fixture.targetFile, "max_results": 20}, requireResult: true},
 		{name: "workspace_symbol-file", tool: "structure", args: map[string]any{"action": "workspace_symbol", "file_path": fixture.targetFile, "query": workspaceQuery, "max_results": 20}, requireResult: true},
 		{name: "workspace_symbol-language", tool: "structure", args: map[string]any{"action": "workspace_symbol", "workspace_language": server.languageID, "query": workspaceQuery, "max_results": 20}, requireResult: true},
 		{name: "folding_range", tool: "structure", args: map[string]any{"action": "folding_range", "file_path": fixture.targetFile, "max_results": 20}, requireResult: true},
 		{name: "semantic_tokens", tool: "structure", args: map[string]any{"action": "semantic_tokens", "file_path": fixture.targetFile, "max_results": 20}, requireResult: true},
-
-		{name: "replace_range", tool: "patch_edit", args: map[string]any{"action": "replace_range", "file_path": fixture.replaceFile, "patch": fixture.replacePatch}},
-		{name: "rename", tool: "patch_edit", args: map[string]any{"action": "rename", "pos": fixture.renamePosition, "new_name": "realMCPRenamed"}, requireResult: true},
-		{name: "code_action", tool: "patch_edit", args: map[string]any{"action": "code_action", "pos": fixture.codeActionPosition, "only": []string{"quickfix"}}, requireResult: codeActionResult, emptyResultReason: codeActionEmpty},
-		{name: "format", tool: "patch_edit", args: map[string]any{"action": "format", "file_path": fixture.formatFile}, emptyResultReason: "fixture 已经是合法格式；语言服务器返回 changed=false 的空编辑仍是成功"},
-
-		{name: "completion", tool: "completion", args: map[string]any{"pos": fixture.completionPosition, "max_results": 20}, requireResult: true},
+		{name: "diagnostics", tool: "diagnostics", args: map[string]any{"file_path": fixture.codeActionFile}, emptyResultReason: "真实诊断 fixture 已写入；语言服务器可以合法报告零条诊断"},
+		{name: "diagnostics-batch", tool: "diagnostics", args: map[string]any{"file_paths": []string{fixture.codeActionFile, fixture.targetFile}}, emptyResultReason: "批量诊断允许其中一个合法文件没有诊断"},
 	}
 	for i := range actions {
 		action := &actions[i]
@@ -4721,19 +4581,8 @@ func realMCPActionFamily(tool, action string) string {
 func realMCPActionResultContract(server realNodeServerCase, tool, action string) (bool, string) {
 	actionFamily := realMCPActionFamily(tool, action)
 	switch tool {
-	case "file":
-		switch action {
-		case "open_file", "read_file-single", "read_file-full", "read_file-batch", "read_file-lines", "read_file-function":
-			return true, ""
-		case "diagnostics", "diagnostics-batch":
-			return false, "fixture 诊断文件可以合法返回零条诊断；诊断 action 本身必须成功"
-		}
-	case "grep":
-		return true, ""
-	case "inspect":
-		if action == "hover" && !realMCPFixtureHasHover(server) {
-			return false, "该语言 fixture 没有稳定的 hover 文档；合法空 hover 明确允许"
-		}
+	case "diagnostics":
+		return false, "fixture 诊断文件可以合法返回零条诊断；diagnostics 工具本身必须成功"
 	case "structure":
 		switch action {
 		case "document_symbol", "workspace_symbol-file", "workspace_symbol-language":
@@ -4749,27 +4598,6 @@ func realMCPActionResultContract(server realNodeServerCase, tool, action string)
 				return false, "该语言 fixture 没有稳定 semantic token 合同；合法空 semantic_tokens 明确允许"
 			}
 		}
-	case "patch_edit":
-		switch action {
-		case "replace_range":
-			return false, "replace_range 以文件内容断言为成功合同；响应只含 changed/path 等元数据时合法为空"
-		case "rename":
-			if !realMCPFixtureHasRename(server) {
-				return false, "该语言 fixture 没有稳定 rename 符号；合法空 rename 明确允许"
-			}
-		case "format":
-			return false, "合法格式 fixture 可以返回 changed=false；空 format 明确允许"
-		}
-	case "completion":
-		if !realMCPFixtureHasCompletion(server) {
-			return false, "该语言 fixture 没有稳定 completion 候选；合法空 completion 明确允许"
-		}
-	}
-	if tool == "inspect" && action == "definition" && !realMCPFixtureHasDefinition(server) {
-		return false, "fixture has a semantic token but no jump definition; empty definition is expected"
-	}
-	if tool == "inspect" && action == "signature_help" && !realMCPFixtureHasSignatureHelp(server) {
-		return false, "fixture has no function-call signature position; empty signature_help is expected"
 	}
 	if tool == "xref" && action == "references" && !realMCPFixtureHasReferences(server) {
 		return false, "fixture has no repeated cross-reference symbol; empty references is expected"
@@ -4777,14 +4605,7 @@ func realMCPActionResultContract(server realNodeServerCase, tool, action string)
 	if tool == "xref" && action == "references-no-declaration" && !realMCPFixtureHasReferenceUse(server) {
 		return false, "fixture has no non-declaration cross-reference use; empty references(include_declaration=false) is expected"
 	}
-	if tool == "patch_edit" && action == "code_action" {
-		return false, "真实诊断 fixture 已写入；无 quickfix 时空结果是成功；已知未提供 codeActionProvider 的服务端则按协议可选能力独立记账 capability_unsupported"
-	}
 	switch {
-	case tool == "inspect" && action == "implementation" && !realMCPFixtureHasInheritance(server):
-		return false, "fixture 没有可实现的继承/接口关系；空 implementation 是该语言的明确预期"
-	case tool == "inspect" && action == "type_definition" && !realMCPFixtureHasTypeDefinition(server):
-		return false, "fixture 没有稳定的静态类型定义位置；空 type_definition 是该语言的明确预期"
 	case tool == "xref" && actionFamily == "call_hierarchy" && !realMCPFixtureHasCallHierarchy(server):
 		return false, "fixture 没有可调用的函数层级关系；空 call_hierarchy 是该语言的明确预期"
 	case tool == "xref" && actionFamily == "type_hierarchy" && !realMCPFixtureHasInheritance(server):
@@ -4799,21 +4620,8 @@ func realMCPActionResultContract(server realNodeServerCase, tool, action string)
 // capability_unsupported 仍须通过服务端 capability snapshot 或协议可选性门禁。
 func realMCPActionAllowsCapabilityUnsupported(server realNodeServerCase, tool, action string) bool {
 	switch tool {
-	case "file", "grep":
+	case "diagnostics":
 		return false
-	case "inspect":
-		switch action {
-		case "hover":
-			return !realMCPFixtureHasHover(server)
-		case "definition":
-			return !realMCPFixtureHasDefinition(server)
-		case "implementation":
-			return !realMCPFixtureHasInheritance(server)
-		case "type_definition":
-			return !realMCPFixtureHasTypeDefinition(server)
-		case "signature_help":
-			return !realMCPFixtureHasSignatureHelp(server)
-		}
 	case "xref":
 		switch action {
 		case "references":
@@ -4822,7 +4630,7 @@ func realMCPActionAllowsCapabilityUnsupported(server realNodeServerCase, tool, a
 			return !realMCPFixtureHasReferenceUse(server)
 		case "call_hierarchy-incoming", "call_hierarchy-outgoing", "call_hierarchy-both":
 			return !realMCPFixtureHasCallHierarchy(server)
-		case "type_hierarchy-supertypes", "type_hierarchy-subtypes":
+		case "type_hierarchy-supertypes", "type_hierarchy-subtypes", "type_hierarchy-both":
 			// type hierarchy 是 LSP 可选能力；即使 fixture 有真实继承关系，当前
 			// language server 也可能未声明 prepareTypeHierarchy。调用必须成功到达
 			// 能力裁决点，并以明确 unsupported 记账，禁止伪造层级结果。
@@ -4837,19 +4645,6 @@ func realMCPActionAllowsCapabilityUnsupported(server realNodeServerCase, tool, a
 		case "semantic_tokens":
 			return !realMCPFixtureHasSemanticTokens(server)
 		}
-	case "patch_edit":
-		switch action {
-		case "replace_range":
-			return false
-		case "rename":
-			return !realMCPFixtureHasRename(server)
-		case "code_action":
-			return !realMCPFixtureHasCodeAction(server)
-		case "format":
-			return !realMCPFixtureHasFormat(server)
-		}
-	case "completion":
-		return !realMCPFixtureHasCompletion(server)
 	}
 	return false
 }
@@ -5032,7 +4827,7 @@ func realMCPWorkspaceQuery(server realNodeServerCase) string {
 	}
 }
 
-// requireRealMCPToolFamilies 锁定真实 stdio tools/list 必须同时暴露的七个公开工具族。
+// requireRealMCPToolFamilies 锁定真实 stdio tools/list 必须同时暴露的三个公开工具族。
 // tools/list 是 MCP 协议结果，不是 tools/call 的 CallToolResult，必须直接解析 result 对象。
 func requireRealMCPToolFamilies(t *testing.T, raw json.RawMessage) {
 	t.Helper()
@@ -5049,9 +4844,9 @@ func requireRealMCPToolFamilies(t *testing.T, raw json.RawMessage) {
 		got = append(got, tool.Name)
 	}
 	sort.Strings(got)
-	want := []string{"completion", "file", "grep", "inspect", "patch_edit", "structure", "xref"}
+	want := []string{"diagnostics", "structure", "xref"}
 	if !slices.Equal(got, want) {
-		t.Fatalf("real tools/list names=%v, want exact seven public tool families=%v; raw=%s", got, want, raw)
+		t.Fatalf("real tools/list names=%v, want exact three public tool families=%v; raw=%s", got, want, raw)
 	}
 }
 
@@ -5062,6 +4857,28 @@ func writeRealFixture(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write real MCP fixture %s: %v", path, err)
+	}
+}
+
+// assertRealMCPNativeFixtureInputs 用原生文件操作验证 MCP 语义调用的输入快照。
+// 文件读取、文本定位和夹具写入不占用 MCP 工具面。
+func assertRealMCPNativeFixtureInputs(t *testing.T, fixture realMCPFixture) {
+	t.Helper()
+	for _, path := range []string{fixture.targetFile, fixture.secondaryFile, fixture.codeActionFile} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("native read fixture %s: %v", path, err)
+		}
+		if len(content) == 0 {
+			t.Fatalf("native read fixture %s returned empty content", path)
+		}
+	}
+	secondary, err := os.ReadFile(fixture.secondaryFile)
+	if err != nil {
+		t.Fatalf("native search fixture %s: %v", fixture.secondaryFile, err)
+	}
+	if needle := strings.TrimSpace(fixture.searchNeedle); needle != "" && !bytes.Contains(secondary, []byte(needle)) {
+		t.Fatalf("native search fixture %s missing %q", fixture.secondaryFile, needle)
 	}
 }
 
@@ -5244,15 +5061,8 @@ func registerRealMCPTempRootCleanup(t *testing.T, root string) {
 // 没有对应 LSP 能力的核心文件、grep 和 replace action 不得用 unsupported 伪造成功。
 func realMCPActionCapabilityKey(tool, action string) string {
 	switch tool {
-	case "file":
-		if action == "diagnostics" || action == "diagnostics-batch" {
-			return "diagnostic"
-		}
-	case "inspect":
-		switch action {
-		case "hover", "definition", "implementation", "type_definition", "signature_help":
-			return action
-		}
+	case "diagnostics":
+		return "diagnostics"
 	case "xref":
 		switch {
 		case action == "references" || action == "references-no-declaration":
@@ -5273,17 +5083,6 @@ func realMCPActionCapabilityKey(tool, action string) string {
 		case action == "semantic_tokens":
 			return "semantic_tokens"
 		}
-	case "patch_edit":
-		switch action {
-		case "rename", "code_action":
-			return action
-		case "format":
-			return "document_formatting"
-		}
-	case "completion":
-		if action == "completion" {
-			return "completion"
-		}
 	}
 	return ""
 }
@@ -5302,42 +5101,24 @@ func realMCPActionProtocolOptionalForServer(server realNodeServerCase, tool, act
 	}
 	switch server.name {
 	case "graphql":
-		return (tool == "inspect" && action == "type_definition") ||
-			(tool == "xref" && (action == "references" || action == "references-no-declaration")) ||
-			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens")) ||
-			(tool == "patch_edit" && action == "rename")
+		return (tool == "xref" && (action == "references" || action == "references-no-declaration")) ||
+			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens"))
 	case "prisma":
-		// @prisma/language-server 的真实会话不提供 codeActionProvider；method-not-found
-		// 必须保留为 typed capability_unsupported，不能合成 Prisma 编辑。
-		return tool == "structure" && (action == "workspace_symbol-file" || action == "workspace_symbol-language" || action == "folding_range" || action == "semantic_tokens") ||
-			(tool == "patch_edit" && action == "code_action")
+		return tool == "structure" && (action == "workspace_symbol-file" || action == "workspace_symbol-language" || action == "folding_range" || action == "semantic_tokens")
 	case "shellscript":
 		return (tool == "xref" && strings.HasPrefix(action, "call_hierarchy-")) ||
 			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens"))
 	case "css", "html":
-		return (tool == "patch_edit" && action == "format") ||
-			(tool == "structure" && action == "semantic_tokens")
+		return tool == "structure" && action == "semantic_tokens"
 	case "json":
 		return (tool == "xref" && (action == "references" || action == "references-no-declaration")) ||
 			(tool == "structure" && action == "semantic_tokens")
-	case "markdown":
-		return tool == "patch_edit" && action == "format"
-	case "python":
-		return (tool == "inspect" && action == "implementation") ||
-			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens")) ||
-			(tool == "patch_edit" && action == "format")
-	case "yaml":
-		return (tool == "structure" && action == "semantic_tokens") ||
-			(tool == "patch_edit" && action == "format")
+	case "python", "yaml":
+		return tool == "structure" && (action == "folding_range" || action == "semantic_tokens")
 	case "php":
-		// Intelephense 的真实会话同样没有 codeActionProvider；rename 缺失也继续按
-		// 上游可选能力记账，适配层不伪造 code action/rename 编辑。
-		return (tool == "inspect" && action == "implementation") ||
-			(tool == "xref" && strings.HasPrefix(action, "call_hierarchy-")) ||
-			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens")) ||
-			(tool == "patch_edit" && (action == "rename" || action == "code_action"))
+		return (tool == "xref" && strings.HasPrefix(action, "call_hierarchy-")) ||
+			(tool == "structure" && (action == "folding_range" || action == "semantic_tokens"))
 	case "vue":
-		// Vue companion 当前明确不提供 workspace/symbol；两种公开入口均按能力缺失记账。
 		return tool == "structure" && (action == "workspace_symbol-file" || action == "workspace_symbol-language")
 	default:
 		return false
@@ -5349,82 +5130,35 @@ func TestRealMCPOptionalCapabilityContractsE2E(t *testing.T) {
 	for _, server := range realNodeServerCases() {
 		servers[server.name] = server
 	}
-	dockerfile, ok := servers["dockerfile"]
-	if !ok {
-		t.Fatal("dockerfile real server case is missing")
+	if realMCPActionProtocolOptionalForServer(servers["json"], "diagnostics", "diagnostics") {
+		t.Fatal("diagnostics must not become capability-optional")
 	}
-	if !realMCPActionAllowsCapabilityUnsupported(dockerfile, "xref", "references") {
-		t.Fatal("dockerfile/xref/references must remain an explicit server capability boundary")
-	}
-	if realMCPActionAllowsCapabilityUnsupported(dockerfile, "patch_edit", "code_action") {
-		t.Fatal("dockerfile/patch_edit/code_action must not be classified as capability-optional")
-	}
-	jsonServer, ok := servers["json"]
-	if !ok {
-		t.Fatal("json real server case is missing")
-	}
-	if !realMCPFixtureHasCompletion(jsonServer) || realMCPActionAllowsCapabilityUnsupported(jsonServer, "completion", "completion") {
-		t.Fatal("json/completion must be a required real-server capability")
-	}
-	if realMCPActionProtocolOptionalForServer(jsonServer, "patch_edit", "format") {
-		t.Fatal("json/patch_edit/format must not be classified as an upstream capability boundary")
-	}
-	if !realMCPActionProtocolOptionalForServer(jsonServer, "xref", "references") || !realMCPActionProtocolOptionalForServer(jsonServer, "structure", "semantic_tokens") {
+	if !realMCPActionProtocolOptionalForServer(servers["json"], "xref", "references") ||
+		!realMCPActionProtocolOptionalForServer(servers["json"], "structure", "semantic_tokens") {
 		t.Fatal("json references and semantic_tokens must remain explicitly optional upstream capabilities")
-	}
-	for _, languageID := range []string{"php", "prisma"} {
-		server, ok := servers[languageID]
-		if !ok {
-			t.Fatalf("%s real server case is missing", languageID)
-		}
-		if !realMCPFixtureHasCompletion(server) {
-			t.Fatalf("%s completion must be a required non-empty real-server result", languageID)
-		}
-		requireResult, emptyReason := realMCPActionResultContract(server, "completion", "completion")
-		if !requireResult || emptyReason != "" {
-			t.Fatalf("%s/completion contract=(%t,%q), want required non-empty", languageID, requireResult, emptyReason)
-		}
-		if realMCPActionAllowsCapabilityUnsupported(server, "completion", "completion") {
-			t.Fatalf("%s/completion must not be classified as capability-optional", languageID)
-		}
-		if !realMCPActionProtocolOptionalForServer(server, "patch_edit", "code_action") {
-			t.Fatalf("%s/patch_edit/code_action must account the observed upstream capability boundary", languageID)
-		}
 	}
 	for _, test := range []struct {
 		server string
 		tool   string
 		action string
 	}{
-		{"graphql", "inspect", "type_definition"},
 		{"graphql", "xref", "references"},
 		{"graphql", "structure", "folding_range"},
-		{"graphql", "patch_edit", "rename"},
 		{"prisma", "structure", "workspace_symbol-file"},
 		{"prisma", "structure", "semantic_tokens"},
 		{"shellscript", "xref", "call_hierarchy-incoming"},
 		{"shellscript", "structure", "folding_range"},
 		{"css", "structure", "semantic_tokens"},
-		{"css", "patch_edit", "format"},
 		{"html", "structure", "semantic_tokens"},
-		{"html", "patch_edit", "format"},
 		{"json", "structure", "semantic_tokens"},
-		{"markdown", "patch_edit", "format"},
-		{"python", "inspect", "implementation"},
 		{"python", "structure", "folding_range"},
 		{"python", "structure", "semantic_tokens"},
-		{"python", "patch_edit", "format"},
 		{"yaml", "structure", "semantic_tokens"},
-		{"yaml", "patch_edit", "format"},
-		{"php", "inspect", "implementation"},
 		{"php", "xref", "call_hierarchy-incoming"},
 		{"php", "xref", "call_hierarchy-outgoing"},
 		{"php", "xref", "call_hierarchy-both"},
 		{"php", "structure", "folding_range"},
 		{"php", "structure", "semantic_tokens"},
-		{"php", "patch_edit", "rename"},
-		{"php", "patch_edit", "code_action"},
-		{"prisma", "patch_edit", "code_action"},
 		{"vue", "structure", "workspace_symbol-file"},
 		{"vue", "structure", "workspace_symbol-language"},
 	} {
@@ -5433,11 +5167,9 @@ func TestRealMCPOptionalCapabilityContractsE2E(t *testing.T) {
 			t.Fatalf("%s/%s/%s must be explicitly optional", test.server, test.tool, test.action)
 		}
 	}
-	if realMCPActionProtocolOptionalForServer(servers["graphql"], "file", "read_file-full") ||
-		realMCPActionProtocolOptionalForServer(servers["graphql"], "grep", "text_search") ||
-		realMCPActionProtocolOptionalForServer(servers["prisma"], "inspect", "hover") ||
+	if realMCPActionProtocolOptionalForServer(servers["graphql"], "diagnostics", "diagnostics") ||
 		realMCPActionProtocolOptionalForServer(servers["vue"], "structure", "document_symbol") {
-		t.Fatal("core file/grep/hover actions must not become optional")
+		t.Fatal("core diagnostics/document_symbol actions must not become optional")
 	}
 }
 

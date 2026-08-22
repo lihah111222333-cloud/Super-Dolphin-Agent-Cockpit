@@ -47,8 +47,7 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsMissingLanguageServers_E2E(t *testin
 			defer client.close(t)
 
 			client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-			diagnostics := client.callTool(t, "file", map[string]any{
-				"action":    "diagnostics",
+			diagnostics := client.callTool(t, "diagnostics", map[string]any{
 				"file_path": target,
 			})
 			requireMCPToolSuccess(t, client, diagnostics, tc.languageID+" diagnostics after auto-install")

@@ -20,8 +20,9 @@ const (
 	// grep 输出预算和提示文本保持稳定，便于模型按提示继续缩小查询。
 	defaultSearchResults = 50
 	maxSearchResults     = 50
+	maxSearchFileBytes   = 2 << 20
 	grepTruncatedHint    = "next: adjust max_results, narrow paths/glob, refine query, or search a specific file"
-	grepFuncRangeHint    = `next: call file with {"action":"read_file","pos":"<file>:<func_start>","limit":40}; set limit to func_end-func_start+1`
+	grepFuncRangeHint    = "next: inspect the returned file and line range with native cat/head tools"
 )
 
 // grepToolInput 是 grep 工具的外部入参，搜索范围只接受 paths 数组。
@@ -122,7 +123,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 				Query:        input.Query,
 				Language:     input.ASTLanguage,
 				MaxResults:   limit,
-				MaxFileBytes: maxReadFileBytes,
+				MaxFileBytes: maxSearchFileBytes,
 				CommandPath:  commandPath,
 			})
 			if errors.Is(err, search.ErrInvalidASTLanguage) {

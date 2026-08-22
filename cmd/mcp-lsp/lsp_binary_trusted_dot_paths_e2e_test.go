@@ -93,8 +93,7 @@ func assertTrustedHiddenPythonParsing(t *testing.T, client *mcpLSPBinaryClient, 
 	})
 	requireMCPToolSuccess(t, client, result, "trusted hidden Python document symbols")
 	requireToolResultContains(t, result, "hidden_symbol", "trusted hidden Python document symbols")
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   target,
 		"language_id": "python",
 		"work_dir":    worktree,

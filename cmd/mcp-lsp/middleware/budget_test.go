@@ -8,7 +8,7 @@ import (
 )
 
 func TestBudgetOverflowSetsSuccessFalse(t *testing.T) {
-	handler := WithOutputBudget("patch_edit", func(context.Context, json.RawMessage) (any, error) {
+	handler := WithOutputBudget("diagnostics", func(context.Context, json.RawMessage) (any, error) {
 		return map[string]any{"success": true, "data": strings.Repeat("x", 1024)}, nil
 	}, Budget{MaxBytes: 64})
 
@@ -44,7 +44,7 @@ func TestGenericBudgetOverflowSetsSuccessFalse(t *testing.T) {
 }
 
 func TestOutputBudgetUsesFinalTextNotIntermediateJSON(t *testing.T) {
-	handler := WithOutputBudget("file", func(context.Context, json.RawMessage) (any, error) {
+	handler := WithOutputBudget("structure", func(context.Context, json.RawMessage) (any, error) {
 		return strings.Repeat("line\n", 20), nil
 	}, Budget{MaxBytes: 100})
 
@@ -63,15 +63,9 @@ func TestGrepToolBudgetIsSixteenKiB(t *testing.T) {
 	}
 }
 
-func TestFileToolBudgetIsFiftyKiB(t *testing.T) {
-	if got := ToolBudget("file"); got != 50*1024 {
-		t.Fatalf("ToolBudget(file) = %d, want %d", got, 50*1024)
-	}
-}
-
-func TestPatchEditToolBudgetIsThirtyTwoKiB(t *testing.T) {
-	if got := ToolBudget("patch_edit"); got != 32*1024 {
-		t.Fatalf("ToolBudget(patch_edit) = %d, want %d", got, 32*1024)
+func TestDiagnosticsToolBudgetIsFiftyKiB(t *testing.T) {
+	if got := ToolBudget("diagnostics"); got != 50*1024 {
+		t.Fatalf("ToolBudget(diagnostics) = %d, want %d", got, 50*1024)
 	}
 }
 

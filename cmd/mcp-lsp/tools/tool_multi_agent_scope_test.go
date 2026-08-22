@@ -26,10 +26,9 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	registry := lspmanager.NewRegistry(nil)
 	registry.Register("go", newMultiAgentToolManager("singleton", ""), resolver)
 	t.Cleanup(func() { _ = registry.Close() })
-	handler := NewFileHandler(Config{WorkspaceRoot: evilRoot, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: evilRoot, Registry: registry})
 
 	runScopedDiagnostics(t, handler, repo, "agent-a", map[string]any{
-		"action":    "diagnostics",
 		"file_path": "main.go",
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
@@ -38,7 +37,6 @@ func TestTwoAgentsSameRepoNoDiagnosticLeak(t *testing.T) {
 	assertToolManagerReopenCalls(t, managerB, 0)
 
 	runScopedDiagnostics(t, handler, repo, "agent-b", map[string]any{
-		"action":    "diagnostics",
 		"file_path": "main.go",
 	})
 	assertToolManagerDiagnostics(t, managerA, 1, "agent-a", repo, evilRoot)
@@ -57,19 +55,22 @@ func TestAgentStopCleansScopeWithoutKillingOtherAgent(t *testing.T) {
 	managerB := newMultiAgentToolManager("agent-b", fileURI(filepath.Join(repo, "main.go")))
 	resolver.setCurrent("agent-a", "thread-1", repo, managerA)
 	resolver.setCurrent("agent-b", "thread-1", repo, managerB)
+	resolver.setManager("agent-b", "thread-1", repo, managerB)
 	registry := lspmanager.NewRegistry(nil)
 	registry.Register("go", newMultiAgentToolManager("singleton", ""), resolver)
 	t.Cleanup(func() { _ = registry.Close() })
-	handler := NewFileHandler(Config{WorkspaceRoot: "/untrusted/root", Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: "/untrusted/root", Registry: registry})
 
 	resolver.clearCurrent("agent-a", "thread-1")
-	runScopedDiagnostics(t, handler, repo, "agent-a", map[string]any{"action": "diagnostics"})
+	if err := runScopedDiagnosticsError(t, handler, repo, "agent-a", map[string]any{"file_path": "main.go"}); err == nil || !strings.Contains(err.Error(), "missing scoped manager") {
+		t.Fatalf("stopped agent diagnostics error = %v, want missing scoped manager", err)
+	}
 	assertToolManagerDiagnostics(t, managerA, 0, "", "", "")
 	assertToolManagerReopenCalls(t, managerA, 0)
 
-	runScopedDiagnostics(t, handler, repo, "agent-b", map[string]any{"action": "diagnostics"})
+	runScopedDiagnostics(t, handler, repo, "agent-b", map[string]any{"file_path": "main.go"})
 	assertToolManagerDiagnostics(t, managerB, 1, "agent-b", repo, "")
-	assertToolManagerReopenCalls(t, managerB, 0)
+	assertToolManagerReopenCalls(t, managerB, 1)
 	if got := managerB.snapshot().closeCalls; got != 0 {
 		t.Fatalf("other agent manager was closed during stopped-scope cleanup: closeCalls=%d", got)
 	}
@@ -296,6 +297,19 @@ func runScopedDiagnostics(t *testing.T, handler Handler, root, agentID string, p
 		t.Fatalf("diagnostics for %s: %v", agentID, err)
 	}
 	return result
+}
+
+func runScopedDiagnosticsError(t *testing.T, handler Handler, root, agentID string, payload map[string]any) error {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{
+		AgentID: agentID, ThreadID: "thread-1", CallID: "call-" + agentID, CWD: root, Family: "lsp",
+	})
+	_, err = handler(ctx, raw)
+	return err
 }
 
 func assertToolManagerDiagnostics(t *testing.T, mgr *multiAgentToolManager, wantCalls int, wantAgent, wantCWD, forgedCWD string) {

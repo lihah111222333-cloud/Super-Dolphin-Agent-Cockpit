@@ -36,7 +36,7 @@ func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsMissingLanguageServer_E2E(t *t
 	})
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 	requireMCPToolSuccess(t, client, diagnostics, "sql diagnostics after auto-install")
 	requireFakeSQLCargoArgs(t, marker)
 	payload := decodeDiagnosticsContentText(t, diagnostics.Result.ContentText())
@@ -65,7 +65,7 @@ func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsWithRealCargo_E2E(t *testing.T
 	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{"PATH=" + path, "CARGO_HOME=" + cargoHome})
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target})
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{"file_path": target})
 	requireMCPToolSuccess(t, client, diagnostics, "SQLite diagnostics after real Cargo auto-install")
 	installed := filepath.Join(cargoHome, "bin", "sqruff")
 	if out, err := exec.CommandContext(ctx, installed, "--version").CombinedOutput(); err != nil {

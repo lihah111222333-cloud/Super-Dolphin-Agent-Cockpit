@@ -321,42 +321,15 @@ func TestWindowsARM64ProcessARM64SwiftMCP36SoakE2E(t *testing.T) {
 				}
 			}
 		}
-		var setupErr error
-		if action.tool == "patch_edit" {
-			path := ""
-			if value, ok := action.args["file_path"].(string); ok {
-				path = value
-			}
-			if path == "" {
-				path = realMCPPositionPath(action.args["pos"].(string))
-			}
-			setup := map[string]any{"action": "open_file", "file_path": path}
-			if _, _, setupErr = swiftMCPCall(t, client, wire, "tools/call", map[string]any{
-				"name": "file", "arguments": realMCPWindowsToolArguments(server.languageID, workspaceRoot, "file", "open_file", setup),
-				"_cwd": workspaceRoot, "_workspaceRoots": []string{workspaceRoot},
-			}, "setup/file/open_file/"+action.name); setupErr != nil {
-				receipt = append(receipt, "setup_open_for="+key+" status=runtime_failure detail="+swiftMCPRedact(setupErr.Error()))
-			}
-		}
 		var response mcpLSPBinaryResponse
 		var callErr error
-		if setupErr != nil {
-			callErr = setupErr
-		} else {
-			actionWorkspaceRoot := swiftMCP36ActionWorkspaceRoot(fixture, action, workspaceRoot)
-			requestArgs := realMCPWindowsToolArguments(server.languageID, actionWorkspaceRoot, action.tool, action.name, action.args)
-			response, _, callErr = swiftMCPCall(t, client, wire, "tools/call", map[string]any{
-				"name": action.tool, "arguments": requestArgs, "_cwd": actionWorkspaceRoot, "_workspaceRoots": []string{actionWorkspaceRoot},
-			}, key)
-		}
+		actionWorkspaceRoot := swiftMCP36ActionWorkspaceRoot(fixture, action, workspaceRoot)
+		requestArgs := realMCPWindowsToolArguments(server.languageID, actionWorkspaceRoot, action.tool, action.name, action.args)
+		response, _, callErr = swiftMCPCall(t, client, wire, "tools/call", map[string]any{
+			"name": action.tool, "arguments": requestArgs, "_cwd": actionWorkspaceRoot, "_workspaceRoots": []string{actionWorkspaceRoot},
+		}, key)
 		status := swiftMCPClassifyAction(action.name, response, callErr)
 		detail := swiftMCPResponseDetail(response, callErr)
-		if action.tool == "patch_edit" && action.name == "replace_range" && status == swiftMCPActionSuccess {
-			if payload, readErr := os.ReadFile(fixture.replaceFile); readErr != nil || !bytes.Contains(payload, []byte("REAL_MCP_REPLACED")) {
-				status = swiftMCPActionRuntimeFailure
-				detail = "replace_not_observed"
-			}
-		}
 		summary.total++
 		summary.add(key, status)
 		receipt = append(receipt, fmt.Sprintf("action=%s status=%s code=%s non_empty=%t detail=%s", key, status, swiftMCPResponseCode(response), swiftMCPResponseNonEmpty(response), swiftMCPRedact(detail)))

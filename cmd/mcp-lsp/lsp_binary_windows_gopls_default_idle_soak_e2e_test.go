@@ -56,7 +56,7 @@ func TestMcpLSPBinaryWindowsGoplsDefault15mIdleReclaimsSharedDaemonE2E(t *testin
 	exact = append(exact, sidecars...)
 
 	clients[0].close(t)
-	result := clients[1].callTool(t, "completion", map[string]any{"pos": targets[1] + ":3:1"})
+	result := clients[1].callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[1]})
 	requireMCPToolSuccess(t, clients[1], result, "Windows default-idle second forwarder after first close")
 	idleStarted := time.Now()
 	clients[1].close(t)

@@ -43,8 +43,7 @@ func TestMcpLSPCachedRubyDiagnosticsAndDocumentSymbol_E2E(t *testing.T) {
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 	client.call(t, "tools/list", map[string]any{})
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   target,
 		"language_id": "ruby",
 	})

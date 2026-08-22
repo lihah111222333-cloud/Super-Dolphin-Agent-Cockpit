@@ -139,7 +139,7 @@ func TestDiagnosticsUsesMetaCWDForExternalAbsolutePath(t *testing.T) {
 	externalFile := writeDiagnosticsFixture(t, externalRoot, "external.go")
 
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
 	ctx := context.WithValue(context.Background(), common.CwdContextKey, externalRoot)
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: externalFile})
 
@@ -156,7 +156,7 @@ func TestDiagnosticsUsesMetaCWDForRelativePath(t *testing.T) {
 	externalFile := writeDiagnosticsFixture(t, externalRoot, "same.go")
 
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
 	ctx := context.WithValue(context.Background(), common.CwdContextKey, externalRoot)
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "same.go"})
 
@@ -173,7 +173,7 @@ func TestDiagnosticsBatchUsesMetaCWD(t *testing.T) {
 	second := writeDiagnosticsFixture(t, externalRoot, "second.go")
 
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
 	ctx := context.WithValue(context.Background(), common.CwdContextKey, externalRoot)
 	req := marshalDiagnosticsInput(t, fileToolInput{
 		Action:    "diagnostics",
@@ -227,7 +227,7 @@ func TestDiagnosticsPreservesLiteralPercentInAbsoluteWorkspacePath(t *testing.T)
 	}
 	target := writeDiagnosticsFixture(t, workspace, "main.go")
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: workspace, Registry: registry})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: target})
 
@@ -246,7 +246,7 @@ func TestDiagnosticsRejectsDeletedManagedFile(t *testing.T) {
 			uri: {{Message: "stale cached diagnostic"}},
 		},
 	}
-	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: workspace, Registry: registry})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
 	if err := os.Remove(target); err != nil {
 		t.Fatalf("remove HISTORY.md fixture: %v", err)
@@ -303,7 +303,7 @@ func TestDiagnosticsAppManagedOutsideWorkspaceSkipsStartupOpenRecovery(t *testin
 
 	workspace := t.TempDir()
 	registry := &diagnosticsTestRegistry{waitErrs: []error{lspmanager.ErrDiagnosticsNotReady}}
-	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: workspace, Registry: registry})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
 	ctx = WithAppManagedReadCapability(ctx)
 	target := fileURI(appFile)
@@ -363,7 +363,7 @@ func TestDiagnosticsLanguageOverrideRejectsAppManagedOutsideWorkspaceBeforeAnyLS
 	workspace := t.TempDir()
 	manager := &appManagedDiagnosticsManager{}
 	registry := &diagnosticsTestRegistry{manager: manager}
-	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: workspace, Registry: registry})
 	ctx := common.WithToolScope(
 		context.Background(),
 		common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}},
@@ -427,7 +427,7 @@ func TestDiagnosticsMixedBatchRejectsAppManagedOutsideWorkspaceBeforeRegistry(t 
 	workspace := t.TempDir()
 	workspaceFile := writeDiagnosticsFixture(t, workspace, "workspace.go")
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: workspace, Registry: registry})
 	ctx := common.WithToolScope(
 		context.Background(),
 		common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}},
@@ -509,7 +509,7 @@ func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {
 			},
 		},
 	}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "broken.go"})
 
 	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
@@ -520,7 +520,7 @@ func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {
 	if payload["total"] != float64(2) || payload["showing"] != float64(2) {
 		t.Fatalf("diagnostics total/showing = %#v/%#v, want 2/2", payload["total"], payload["showing"])
 	}
-	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "read_file") || !strings.Contains(hint, "replace_range") {
+	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "native file tools") || !strings.Contains(hint, "apply_patch") {
 		t.Fatalf("diagnostics hint = %q, want repair guidance", hint)
 	}
 	meta, ok := payload["meta"].(map[string]any)
@@ -564,7 +564,7 @@ func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
 	externalRoot := t.TempDir()
 	externalFile := writeDiagnosticsFixture(t, externalRoot, "external.go")
 
-	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: &diagnosticsTestRegistry{}})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: mainRoot, Registry: &diagnosticsTestRegistry{}})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: externalFile})
 
 	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: mainRoot}), req)
@@ -579,7 +579,7 @@ func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
 func TestDiagnosticsDeletedFileFailsFast(t *testing.T) {
 	root := t.TempDir()
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "deleted.go"})
 
 	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
@@ -599,7 +599,7 @@ func TestDiagnosticsRefreshesStaleFileBeforeReturn(t *testing.T) {
 	target := writeDiagnosticsFixture(t, root, "stale.go")
 
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "stale.go"})
 
 	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req); err != nil {
@@ -618,7 +618,7 @@ func TestDiagnosticsShellScriptBootstrapsShellscriptLanguage(t *testing.T) {
 	target := writeDiagnosticsFixture(t, root, "broken.sh")
 
 	registry := &diagnosticsShellRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "broken.sh"})
 
 	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
@@ -683,7 +683,7 @@ func TestDiagnosticsLanguageOverrideDeletedFilesFailFast(t *testing.T) {
 	} {
 		t.Run(strings.Join(collectDiagnosticTargetPaths(input), ","), func(t *testing.T) {
 			registry := &diagnosticsTestRegistry{manager: &languageOverrideDiagnosticsManager{}}
-			handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+			handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 			_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), marshalDiagnosticsInput(t, input))
 			if err == nil {
 				t.Fatal("diagnostics returned OK for deleted language override target, want file_not_found")
@@ -704,7 +704,7 @@ func runLanguageOverrideDiagnosticsFixture(
 	t.Helper()
 	manager := &languageOverrideDiagnosticsManager{diagnostics: []protocol.Diagnostic{diagnostic}}
 	registry := &diagnosticsTestRegistry{manager: manager}
-	handler := NewFileHandler(Config{WorkspaceRoot: root, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
 	request := marshalDiagnosticsInput(t, input)
 	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), request)
 	if err != nil {
@@ -739,7 +739,7 @@ func TestDiagnosticsPassesTrustedToolScopeToRegistry(t *testing.T) {
 	target := writeDiagnosticsFixture(t, scopedRoot, "scoped.go")
 
 	registry := &diagnosticsTestRegistry{}
-	handler := NewFileHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: mainRoot, Registry: registry})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{
 		AgentID:  "agent-scope",
 		ThreadID: "thread-scope",
@@ -775,7 +775,11 @@ func writeDiagnosticsFixture(t *testing.T, root, name string) string {
 
 func marshalDiagnosticsInput(t *testing.T, input fileToolInput) json.RawMessage {
 	t.Helper()
-	raw, err := json.Marshal(input)
+	raw, err := json.Marshal(diagnosticsInput{
+		FilePath:   input.FilePath,
+		FilePaths:  input.FilePaths,
+		LanguageID: input.LanguageID,
+	})
 	if err != nil {
 		t.Fatalf("marshal diagnostics input: %v", err)
 	}

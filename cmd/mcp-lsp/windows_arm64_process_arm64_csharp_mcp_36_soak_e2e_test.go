@@ -409,22 +409,12 @@ func windowsARM64ProcessARM64CSharpActions(server realNodeServerCase, fixture re
 		action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported = windowsARM64ProcessARM64CSharpActionContract(action.tool, action.name)
 		action.contractSet = true
 		switch action.tool + "/" + action.name {
-		case "grep/ast_search":
-			action.args["query"] = "class $NAME { $$$BODY }"
-			// ast-grep 没有 csharp 注册 alias；使用已注册 parser 对 C# fixture
-			// 做受控空匹配，避免把 invalid_params 错误伪装成 capability 缺失。
-			action.args["ast_language"] = "javascript"
 		case "structure/workspace_symbol-file":
 			action.args["query"] = "FormatGreeting"
 			action.args["file_path"] = fixture.targetFile
 		case "structure/workspace_symbol-language":
 			action.args["query"] = "FormatGreeting"
 			action.args["workspace_language"] = "csharp"
-		}
-		if action.tool == "grep" {
-			action.args["query"] = "FormatGreeting"
-			action.args["paths"] = []string{fixture.targetFile}
-			action.args["glob"] = filepath.Base(fixture.targetFile)
 		}
 		if action.tool == "structure" && !strings.HasPrefix(action.name, "workspace_symbol-") {
 			action.args["file_path"] = fixture.targetFile
@@ -804,19 +794,9 @@ func windowsARM64ProcessARM64CSharpRunActions(t *testing.T, client *mcpLSPBinary
 	for _, action := range actions {
 		key := action.tool + "/" + action.name
 		args := realMCPWindowsToolArguments(server.languageID, workDir, action.tool, action.name, action.args)
-		if action.tool == "patch_edit" {
-			path := fixture.replaceFile
-			if action.name != "replace_range" {
-				path = fixture.targetFile
-			}
-			setup := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-			if setup.Result.IsError {
-				t.Fatalf("C# patch setup failed for %s", key)
-			}
-		}
 		response := client.callTool(t, action.tool, args)
 		status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), "C# "+key)
-		if action.tool == "file" && (action.name == "diagnostics" || action.name == "diagnostics-batch") {
+		if action.tool == "diagnostics" && (action.name == "diagnostics" || action.name == "diagnostics-batch") {
 			if err := validateZeroDiagnosticsResult(response); err != nil {
 				t.Fatalf("C# %s must return zero diagnostics: %v; text=%q", key, err, response.Result.ContentText())
 			}

@@ -324,9 +324,9 @@ func multilangLifecycleInitializeEntries(entries []fakeMultilangLifecycleJournal
 
 func callMultilangLifecycleLanguage(t *testing.T, client *mcpLSPBinaryClient, target string) mcpLSPBinaryResponse {
 	t.Helper()
-	return client.callTool(t, "inspect", map[string]any{
-		"action": "hover",
-		"pos":    target + ":1:1",
+	return client.callTool(t, "structure", map[string]any{
+		"action":    "document_symbol",
+		"file_path": target,
 	})
 }
 

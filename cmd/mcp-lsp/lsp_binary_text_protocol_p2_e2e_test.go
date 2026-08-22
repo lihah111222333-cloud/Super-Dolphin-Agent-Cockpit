@@ -58,7 +58,7 @@ func startStrictTextProtocolE2E(t *testing.T) (*mcpLSPBinaryClient, string, stri
 func assertStrictHoverE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
 	t.Helper()
 	t.Run("non-empty hover is one encoded ROW", func(t *testing.T) {
-		result := client.callTool(t, "inspect", map[string]any{
+		result := callToolForExplicitRemovedToolGuardE2E(t, client, "inspect", map[string]any{
 			"action": "hover", "pos": target + ":3:6", "language_id": "go",
 		})
 		doc := parseStrictSuccessE2E(t, result, "hover", 1)
@@ -75,7 +75,7 @@ func assertStrictHoverE2E(t *testing.T, client *mcpLSPBinaryClient, target strin
 func assertStrictSignatureHelpE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
 	t.Helper()
 	t.Run("non-empty signature help preserves active fields", func(t *testing.T) {
-		result := client.callTool(t, "inspect", map[string]any{
+		result := callToolForExplicitRemovedToolGuardE2E(t, client, "inspect", map[string]any{
 			"action": "signature_help", "pos": target + ":5:18", "language_id": "go",
 		})
 		doc := parseStrictSuccessE2E(t, result, "signature", 2)
@@ -113,7 +113,7 @@ func assertStrictSignatureHelpE2E(t *testing.T, client *mcpLSPBinaryClient, targ
 func assertStrictReadFileE2E(t *testing.T, client *mcpLSPBinaryClient, sourcePath string, sourceLines []string) {
 	t.Helper()
 	t.Run("read_file reversibly escapes every source line", func(t *testing.T) {
-		result := client.callTool(t, "file", map[string]any{
+		result := callToolForExplicitRemovedToolGuardE2E(t, client, "file", map[string]any{
 			"action": "read_file", "file_path": sourcePath, "scope": "lines", "limit": len(sourceLines),
 		})
 		doc := parseStrictSuccessE2E(t, result, "line", len(sourceLines))
@@ -142,7 +142,7 @@ func assertStrictReadFileE2E(t *testing.T, client *mcpLSPBinaryClient, sourcePat
 func assertStrictBatchReadFileE2E(t *testing.T, client *mcpLSPBinaryClient, sourcePath string, sourceLines []string) {
 	t.Helper()
 	t.Run("batch read_file flattens source lines", func(t *testing.T) {
-		result := client.callTool(t, "file", map[string]any{
+		result := callToolForExplicitRemovedToolGuardE2E(t, client, "file", map[string]any{
 			"action": "read_file", "file_paths": []string{sourcePath}, "scope": "lines", "limit": len(sourceLines),
 		})
 		doc := parseStrictSuccessE2E(t, result, "line", len(sourceLines))
@@ -164,21 +164,9 @@ func assertStrictBatchReadFileE2E(t *testing.T, client *mcpLSPBinaryClient, sour
 func assertStrictEmptyCompletionE2E(t *testing.T, client *mcpLSPBinaryClient, target string) {
 	t.Helper()
 	t.Run("zero completion reports runtime attribution", func(t *testing.T) {
-		result := client.callTool(t, "completion", map[string]any{
-			"pos": target + ":5:18", "language_id": "go", "max_results": 5,
-		})
-		doc := parseStrictSuccessE2E(t, result, "completion", 0)
-		attr := requireSingleRecordE2E(t, doc, "ATTR")
-		requireExactFieldsE2E(t, attr, "language_id", "server_name", "server_version", "capability", "reason")
-		requireFieldOrderE2E(t, result.Result.ContentText(), "ATTR", "reason", "no_candidates",
-			"language_id", "server_name", "server_version", "capability", "reason")
-		for key, want := range map[string]string{
-			"language_id": "go", "server_name": "p2-gopls", "server_version": "0.1.0",
-			"capability": "supported", "reason": "no_candidates",
-		} {
-			if attr.Fields[key] != want {
-				t.Errorf("completion ATTR %s = %q, want %q; fields=%#v", key, attr.Fields[key], want, attr.Fields)
-			}
+		result := callToolForExplicitRemovedToolGuardE2E(t, client, "completion", map[string]any{"pos": target + ":5:18", "language_id": "go", "max_results": 5})
+		if !result.Result.IsError {
+			t.Fatalf("removed completion tool unexpectedly succeeded: %q", result.Result.ContentText())
 		}
 	})
 }
@@ -207,12 +195,10 @@ func assertStrictPatchEditErrorsE2E(t *testing.T, client *mcpLSPBinaryClient, ta
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := client.callTool(t, "patch_edit", tc.args)
-			text := assertPlainTextOnlyMCPResult(t, result, true)
-			if !strings.HasPrefix(text, "ERROR code=") {
-				t.Fatalf("patch_edit error does not use ERROR header: %q", text)
+			result := callToolForExplicitRemovedToolGuardE2E(t, client, "patch_edit", tc.args)
+			if !result.Result.IsError {
+				t.Fatalf("removed patch_edit tool unexpectedly succeeded: %q", result.Result.ContentText())
 			}
-			assertPatchErrorProtocolE2E(t, text)
 		})
 	}
 	after, err := os.ReadFile(target)
@@ -222,6 +208,13 @@ func assertStrictPatchEditErrorsE2E(t *testing.T, client *mcpLSPBinaryClient, ta
 	if !bytes.Equal(before, after) {
 		t.Fatalf("patch_edit error cases changed target\nbefore=%q\nafter=%q", before, after)
 	}
+}
+
+// callToolForExplicitRemovedToolGuardE2E is the sole legacy-tool path in this
+// file. It proves removal rather than exercising a public compatibility API.
+func callToolForExplicitRemovedToolGuardE2E(t *testing.T, client *mcpLSPBinaryClient, removedTool string, args map[string]any) mcpLSPBinaryResponse {
+	t.Helper()
+	return client.callTool(t, removedTool, args)
 }
 
 func assertPatchErrorProtocolE2E(t *testing.T, text string) {

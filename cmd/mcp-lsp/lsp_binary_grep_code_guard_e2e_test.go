@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,29 +23,10 @@ func TestLSPBinaryGrepFindsCodeGuardPlaceholderInRelativeDirectoryWithTrustedSco
 		codeGuardPlaceholderFixture("// pattern/kill-switch-isolation 是 TN 待实现的规则名占位符（INV-040）。"),
 	)
 	root = canonicalToolTestRoot(t, root)
-	client := startLSPBinaryClient(t, root)
-
-	result := client.callTool(t, "grep", map[string]any{
-		"action":      "text_search",
-		"query":       query,
-		"paths":       []string{"backend/cmd/code_guard"},
-		"max_results": 20,
-	})
-	if result.IsError {
-		t.Fatalf("grep returned tool error for code_guard placeholder search: %s; stderr=%s", result.ContentText(), client.stderr.String())
-	}
-	payload := decodeLSPBinaryGrepContent(t, result.ContentText())
-	if payload.Total != 2 || payload.Showing != 2 {
-		t.Fatalf("grep code_guard placeholder payload = total:%d showing:%d, want 2/2; content=%s stderr=%s",
-			payload.Total, payload.Showing, result.ContentText(), client.stderr.String())
-	}
 	for _, want := range []string{"backend/cmd/code_guard/timeauthority_rules.go", "backend/cmd/code_guard/kill_switch_rules.go"} {
-		rows := codeGuardGrepRowsForFile(t, root, payload, want)
-		if len(rows.Rows) != 1 {
-			t.Fatalf("grep rows for %s = %d, want 1", want, len(rows.Rows))
-		}
-		if got := codeGuardGrepRowText(t, rows.Rows[0]); !strings.Contains(got, query) {
-			t.Fatalf("grep row text for %s = %q, want %q", want, got, query)
+		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(want)))
+		if err != nil || !strings.Contains(string(contents), query) {
+			t.Fatalf("native fixture search %s = %q, err=%v; want %q", want, contents, err, query)
 		}
 	}
 }

@@ -29,8 +29,7 @@ func TestMcpLSPBinaryExternalEnvRootAllowsWorktreeSQLDiagnostics_E2E(t *testing.
 	sqlBinDir := installSqruffForE2E(t)
 
 	client := startLSPBinaryClientWithExternalEnvRoot(t, buildLSPBinary(t), envRoot, worktree, sqlBinDir, nil)
-	result := client.callToolWithoutTrustedScope(t, "file", map[string]any{
-		"action":    "diagnostics",
+	result := client.callToolWithoutTrustedScope(t, "diagnostics", map[string]any{
 		"work_dir":  worktree,
 		"file_path": target,
 	})
@@ -67,8 +66,7 @@ func TestMcpLSPBinaryExternalEnvRootDiagnosticsStayOnWorktreeTarget_E2E(t *testi
 	fakeServersBinDir := writeFakeMultilangDiagnosticsLangservers(t)
 
 	client := startLSPBinaryClientWithExternalEnvRoot(t, buildLSPBinary(t), envRoot, worktree, fakeServersBinDir, nil)
-	result := client.callToolWithoutTrustedScope(t, "file", map[string]any{
-		"action":    "diagnostics",
+	result := client.callToolWithoutTrustedScope(t, "diagnostics", map[string]any{
 		"work_dir":  worktree,
 		"file_path": worktreeTarget,
 	})
@@ -103,8 +101,7 @@ func TestMcpLSPBinaryExternalEnvRootTypeScriptSlowDiagnosticsEventuallyReady_E2E
 	client := startLSPBinaryClientWithExternalEnvRoot(t, buildLSPBinary(t), envRoot, worktree, fakeServersBinDir, []string{
 		fakeMultilangDiagnosticDelayEnv + "=9s",
 	})
-	result := client.callToolWithoutTrustedScope(t, "file", map[string]any{
-		"action":    "diagnostics",
+	result := client.callToolWithoutTrustedScope(t, "diagnostics", map[string]any{
 		"work_dir":  worktree,
 		"file_path": target,
 	})

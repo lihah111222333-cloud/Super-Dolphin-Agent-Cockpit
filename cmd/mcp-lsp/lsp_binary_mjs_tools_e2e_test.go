@@ -39,6 +39,10 @@ func TestMcpLSPBinaryMJSToolsUseConfiguredTSServerFallback_E2E(t *testing.T) {
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	content, err := os.ReadFile(target)
+	if err != nil || !bytes.Contains(content, []byte("guardTarget")) {
+		t.Fatalf("native read/search MJS fixture: err=%v", err)
+	}
 
 	for _, tc := range mjsClientBackedToolCalls(target) {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,16 +71,12 @@ func TestMcpLSPBinaryMJSDiagnosticsPropagatesTSServerCrashAndRebuilds_E2E(t *tes
 	})
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	open := client.callTool(t, "file", map[string]any{"action": "open_file", "file_path": target, "language_id": "javascript"})
-	if open.Result.IsError {
-		t.Fatalf("open_file returned MCP error before crash: %q stderr=%s", open.Result.ContentText(), client.stderrString())
-	}
-	first := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target, "language_id": "javascript"})
+	first := client.callTool(t, "diagnostics", map[string]any{"file_path": target, "language_id": "javascript"})
 	if !first.Result.IsError || !strings.Contains(first.Result.ContentText(), "transport closed") {
 		t.Fatalf("diagnostics did not propagate tsserver crash: text=%q structured=%s stderr=%s", first.Result.ContentText(), first.Result.StructuredContent, client.stderrString())
 	}
 	waitForFakeJSTSMarker(t, crashMarker)
-	second := client.callTool(t, "file", map[string]any{"action": "diagnostics", "file_path": target, "language_id": "javascript"})
+	second := client.callTool(t, "diagnostics", map[string]any{"file_path": target, "language_id": "javascript"})
 	if second.Result.IsError || !strings.Contains(second.Result.ContentText(), "OK total=0") {
 		t.Fatalf("diagnostics did not recover on rebuilt language server: text=%q structured=%s stderr=%s", second.Result.ContentText(), second.Result.StructuredContent, client.stderrString())
 	}
@@ -101,23 +101,15 @@ type mjsToolCallCase struct {
 
 func mjsClientBackedToolCalls(target string) []mjsToolCallCase {
 	pos := target + ":2:16"
-	calls := mjsFileToolCalls(target)
+	calls := mjsDiagnosticsToolCalls(target)
 	calls = append(calls, mjsStructureToolCalls(target)...)
-	calls = append(calls, mjsInspectToolCalls(pos)...)
 	calls = append(calls, mjsXrefToolCalls(pos)...)
-	calls = append(calls, mjsCompletionAndEditToolCalls(target, pos)...)
 	return calls
 }
 
-func mjsFileToolCalls(target string) []mjsToolCallCase {
+func mjsDiagnosticsToolCalls(target string) []mjsToolCallCase {
 	return []mjsToolCallCase{
-		{name: "file open_file", tool: "file", arguments: map[string]any{
-			"action":      "open_file",
-			"file_path":   target,
-			"language_id": "javascript",
-		}},
-		{name: "file diagnostics", tool: "file", arguments: map[string]any{
-			"action":      "diagnostics",
+		{name: "diagnostics", tool: "diagnostics", arguments: map[string]any{
 			"file_path":   target,
 			"language_id": "javascript",
 		}},
@@ -150,36 +142,6 @@ func mjsStructureToolCalls(target string) []mjsToolCallCase {
 	}
 }
 
-func mjsInspectToolCalls(pos string) []mjsToolCallCase {
-	return []mjsToolCallCase{
-		{name: "inspect hover", tool: "inspect", arguments: map[string]any{
-			"action":      "hover",
-			"pos":         pos,
-			"language_id": "javascript",
-		}},
-		{name: "inspect definition", tool: "inspect", arguments: map[string]any{
-			"action":      "definition",
-			"pos":         pos,
-			"language_id": "javascript",
-		}},
-		{name: "inspect implementation", tool: "inspect", arguments: map[string]any{
-			"action":      "implementation",
-			"pos":         pos,
-			"language_id": "javascript",
-		}},
-		{name: "inspect type_definition", tool: "inspect", arguments: map[string]any{
-			"action":      "type_definition",
-			"pos":         pos,
-			"language_id": "javascript",
-		}},
-		{name: "inspect signature_help", tool: "inspect", arguments: map[string]any{
-			"action":      "signature_help",
-			"pos":         pos,
-			"language_id": "javascript",
-		}},
-	}
-}
-
 func mjsXrefToolCalls(pos string) []mjsToolCallCase {
 	return []mjsToolCallCase{
 		{name: "xref references", tool: "xref", arguments: map[string]any{
@@ -198,32 +160,6 @@ func mjsXrefToolCalls(pos string) []mjsToolCallCase {
 			"pos":         pos,
 			"language_id": "javascript",
 			"direction":   "both",
-		}},
-	}
-}
-
-func mjsCompletionAndEditToolCalls(target, pos string) []mjsToolCallCase {
-	return []mjsToolCallCase{
-		{name: "completion", tool: "completion", arguments: map[string]any{
-			"pos":         pos,
-			"language_id": "javascript",
-			"max_results": 10,
-		}},
-		{name: "patch_edit code_action", tool: "patch_edit", arguments: map[string]any{
-			"action":      "code_action",
-			"pos":         pos,
-			"language_id": "javascript",
-		}},
-		{name: "patch_edit format", tool: "patch_edit", arguments: map[string]any{
-			"action":      "format",
-			"file_path":   target,
-			"language_id": "javascript",
-		}},
-		{name: "patch_edit rename", tool: "patch_edit", arguments: map[string]any{
-			"action":      "rename",
-			"pos":         pos,
-			"language_id": "javascript",
-			"new_name":    "renamedGuardTarget",
 		}},
 	}
 }

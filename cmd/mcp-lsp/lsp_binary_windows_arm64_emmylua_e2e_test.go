@@ -478,8 +478,8 @@ func TestWindowsARM64EmmyLuaProductionE2E(t *testing.T) {
 		action := action
 		t.Run(action.Tool+"/"+action.Name, func(t *testing.T) {
 			if action.PreOpen != "" {
-				opened := client.callTool(t, "file", realMCPWindowsToolArguments("lua", fixtureRoot, "file", "open_file", map[string]any{
-					"action": "open_file", "file_path": action.PreOpen,
+				opened := client.callTool(t, "structure", realMCPWindowsToolArguments("lua", fixtureRoot, "structure", "document_symbol", map[string]any{
+					"action": "document_symbol", "file_path": action.PreOpen,
 				}))
 				if opened.Result.IsError {
 					t.Fatalf("open patch target file=%s returned MCP error", filepath.Base(action.PreOpen))

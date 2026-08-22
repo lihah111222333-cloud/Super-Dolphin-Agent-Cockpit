@@ -24,16 +24,14 @@ func TestMcpLSPBinaryWJBootCandidatePublisherPlatformConstraintKeepsRootCohortCo
 	writeLSPBinaryFixture(t, target, "//go:build darwin || linux\n\npackage main\n\nfunc main() {}\n")
 
 	client := startPrebuiltLSPBinaryClient(t, goWorktreeLSPBinaryUnderTest(t), wjbootRoot)
-	ordinaryDiagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	ordinaryDiagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": ordinaryTarget,
 	})
 	if ordinaryDiagnostics.IsError {
 		t.Fatalf("WJBoot ordinary diagnostics returned MCP error; text=%q stderr=%s",
 			ordinaryDiagnostics.ContentText(), client.stderr.String())
 	}
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	if diagnostics.IsError {

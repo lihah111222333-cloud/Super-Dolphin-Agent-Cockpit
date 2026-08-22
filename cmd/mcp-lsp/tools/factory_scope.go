@@ -22,7 +22,7 @@ type appManagedReadCapabilityContextKey struct{}
 type runtimeWorkspaceRootCapabilityContextKey struct{}
 
 // WithAppManagedWriteCapability 标记调用方已经通过应用侧授权，可写入 app-managed 数据根。
-// 默认 direct edit 不带该能力，因此只能写 workspace roots 内文件。
+// 默认 direct tool 不带该能力，因此只能访问 workspace roots 内文件。
 func WithAppManagedWriteCapability(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()

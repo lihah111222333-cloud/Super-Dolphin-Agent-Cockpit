@@ -965,17 +965,6 @@ func TestWindowsARM64ProcessARM64GoSQLS36ActionE2E(t *testing.T) {
 				markWindowsARM64GoSQLSReceiptFailure(&receipt, "action/"+key+"/mcp_identity", err)
 				t.Fatalf("MCP identity before %s: %v", key, err)
 			}
-			if action.tool == "patch_edit" {
-				path, _ := action.args["file_path"].(string)
-				if path == "" {
-					path = realMCPPositionPath(fmt.Sprint(action.args["pos"]))
-				}
-				opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixtureRoot, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-				if opened.Result.IsError {
-					markWindowsARM64GoSQLSReceiptFailure(&receipt, "action/"+key+"/setup", fmt.Errorf("patch target open returned MCP error"))
-					t.Fatalf("open GoSQLS patch target: %s", opened.Result.ContentText())
-				}
-			}
 			response := client.callTool(t, action.tool, args)
 			responseObserved = true
 			if len(bytes.TrimSpace(response.Result.StructuredContent)) != 0 {

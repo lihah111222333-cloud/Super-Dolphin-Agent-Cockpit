@@ -201,7 +201,10 @@ func canAutoRetryDeadClientRequest(method string) bool {
 // isRetryableNavigationTimeout 只允许 inspect/xref 读链路在单步内部 deadline 后重试一次。
 // 调用方 deadline 或取消已生效时必须立即返回，不能通过重试延长上层预算。
 func isRetryableNavigationTimeout(ctx context.Context, method string, err error) bool {
-	if ctx == nil || ctx.Err() != nil || !errors.Is(err, context.DeadlineExceeded) {
+	// A transport response timeout means the request was already sent. Retrying
+	// it can surface an OK long after the public MCP call timed out; the late
+	// response is deliberately discarded by transport.handleResponse instead.
+	if ctx == nil || ctx.Err() != nil || errors.Is(err, ErrLSPResponseTimeout) || !errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	switch method {

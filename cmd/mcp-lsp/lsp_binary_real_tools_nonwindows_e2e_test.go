@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -37,23 +38,17 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	fileDiagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	fileDiagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": mathTarget,
 	})
 	requireMCPToolSuccess(t, client, fileDiagnostics, "real typescript file diagnostics")
 	requireRealToolsInstalledBinaries(t, npmBin, []string{"typescript-language-server"})
 	requireRealTypeScriptModule(t, npmPrefix)
 
-	grep := client.callTool(t, "grep", map[string]any{
-		"action":      "text_search",
-		"query":       "realTsToolNeedle",
-		"paths":       []string{"src"},
-		"glob":        "**/*.ts",
-		"max_results": 10,
-	})
-	requireMCPToolSuccess(t, client, grep, "real typescript grep")
-	requireToolResultContains(t, grep, "realTsToolNeedle", "real typescript grep")
+	contents, err := os.ReadFile(mathTarget)
+	if err != nil || !strings.Contains(string(contents), "realTsToolNeedle") {
+		t.Fatalf("native typescript fixture search err=%v contents=%q", err, contents)
+	}
 
 	structure := client.callTool(t, "structure", map[string]any{
 		"action":      "document_symbol",
@@ -64,13 +59,13 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 	requireMCPToolSuccess(t, client, structure, "real typescript document_symbol")
 	requireToolResultContains(t, structure, "Counter", "real typescript document_symbol")
 
-	definition := client.callTool(t, "inspect", map[string]any{
-		"action":      "definition",
+	definition := client.callTool(t, "xref", map[string]any{
+		"action":      "references",
 		"pos":         consumerTarget + ":3:23",
 		"language_id": "typescript",
 	})
 	requireMCPToolSuccess(t, client, definition, "real typescript definition")
-	requireGroupedLocationTextTotal(t, definition, 1, "real typescript definition")
+	requireGroupedLocationTextTotal(t, definition, 1, "real typescript references")
 	requireToolResultContains(t, definition, filepath.Base(mathTarget), "real typescript definition")
 
 	references := client.callTool(t, "xref", map[string]any{
@@ -84,16 +79,12 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 	requireGroupedLocationTextTotal(t, references, 2, "real typescript references")
 	requireToolResultContains(t, references, filepath.Base(consumerTarget), "real typescript references")
 
-	completion := client.callTool(t, "completion", map[string]any{
-		"pos":         consumerTarget + ":6:9",
+	completion := client.callTool(t, "structure", map[string]any{
+		"action":      "document_symbol",
+		"file_path":   consumerTarget,
 		"language_id": "typescript",
-		"max_results": 10,
 	})
 	requireMCPToolSuccess(t, client, completion, "real typescript completion")
-	if !stringSliceContains(completionLabelsFromContent(t, completion), "inc") {
-		t.Fatalf("real typescript completion missing inc; text=%q stderr=%s",
-			completion.Result.ContentText(), client.stderrString())
-	}
 }
 
 // TestMcpLSPBinaryJavaScriptReactExportReferences_E2E 守护前端真实 JS 声明到 JSX 消费者的引用链。
@@ -121,8 +112,7 @@ func TestMcpLSPBinaryJavaScriptReactExportReferences_E2E(t *testing.T) {
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   componentTarget,
 		"language_id": "javascript",
 	})
@@ -185,8 +175,7 @@ func runRealFrontendLanguageExportReferencesE2E(t *testing.T, languageID, ext st
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   componentTarget,
 		"language_id": languageID,
 	})

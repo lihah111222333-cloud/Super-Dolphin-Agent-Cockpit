@@ -901,16 +901,6 @@ func windowsARM64ProcessARM64JavaRunActions(t *testing.T, client *mcpLSPBinaryCl
 	for _, action := range actions {
 		key := action.tool + "/" + action.name
 		args := realMCPWindowsToolArguments(server.languageID, workDir, action.tool, action.name, action.args)
-		if action.tool == "patch_edit" {
-			path := fixture.replaceFile
-			if action.name != "replace_range" {
-				path = fixture.targetFile
-			}
-			setup := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-			if setup.Result.IsError {
-				t.Fatalf("Java patch setup failed for %s", key)
-			}
-		}
 		response := client.callTool(t, action.tool, args)
 		status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), "Java "+key)
 		if key == "inspect/type_definition" {
@@ -1053,7 +1043,7 @@ func windowsARM64ProcessARM64JavaRunRenameProbe(t *testing.T, client *mcpLSPBina
 		if action.name == "replace_range" {
 			path = fixture.replaceFile
 		}
-		setup := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
+		setup := client.callTool(t, "structure", realMCPWindowsToolArguments(server.languageID, workDir, "structure", "document_symbol", map[string]any{"action": "document_symbol", "file_path": path}))
 		if setup.Result.IsError {
 			t.Fatalf("Java rename probe setup failed for %s", key)
 		}
@@ -1320,11 +1310,10 @@ func TestWindowsARM64ProcessARM64Java36SoakE2E(t *testing.T) {
 	// This intentionally runs before the long action ledger so a capability gate
 	// regression remains a focused red failure instead of an allowed empty action.
 	receipt.FailurePhase, receipt.FailureOperation = "document_symbol_capability_contract", "diagnostics_then_document_symbol"
-	diagnostics := client.callTool(t, "file", realMCPWindowsToolArguments("java", fixtureRoot, "file", "diagnostics", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", realMCPWindowsToolArguments("java", fixtureRoot, "diagnostics", "diagnostics", map[string]any{
 		"file_path": fixture.targetFile,
 	}))
-	requireRealMCPActionResult(t, diagnostics, false, "Java diagnostics may legally contain zero diagnostics", false, realMCPActionCapabilityKey("file", "diagnostics"), realMCPActionProtocolOptional("file", "diagnostics"), "Java startup diagnostics")
+	requireRealMCPActionResult(t, diagnostics, false, "Java diagnostics may legally contain zero diagnostics", false, realMCPActionCapabilityKey("diagnostics", "diagnostics"), realMCPActionProtocolOptional("diagnostics", "diagnostics"), "Java startup diagnostics")
 	documentSymbols := client.callTool(t, "structure", realMCPWindowsToolArguments("java", fixtureRoot, "structure", "document_symbol", map[string]any{
 		"action":      "document_symbol",
 		"file_path":   fixture.targetFile,

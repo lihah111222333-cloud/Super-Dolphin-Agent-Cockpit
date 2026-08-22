@@ -45,7 +45,7 @@ func TestMcpLSPBinaryWindowsGoplsRootCohortPressureReclaimsZeroLeaseJobE2E(t *te
 	requireWindowsGoplsRootResourceContract(t, resourcePath, receipt, record, childPID, forwarders)
 
 	clients[0].close(t)
-	result := clients[1].callTool(t, "completion", map[string]any{"pos": targets[1] + ":3:1"})
+	result := clients[1].callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[1]})
 	requireMCPToolSuccess(t, clients[1], result, "Windows gopls pressure after first sidecar closed")
 	requireWindowsProcessAlive(t, record.OwnerPID, "gopls broker")
 	requireWindowsProcessAlive(t, record.DaemonPID, "gopls daemon")

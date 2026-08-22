@@ -9,16 +9,7 @@ import (
 
 	lspinstaller "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 )
-
-func TestFileReadKeepsNormalTimeoutTier(t *testing.T) {
-	deadline, ok := fileToolDeadlineForAction(t, "read_file")
-	if !ok {
-		t.Fatal("file read_file context deadline missing")
-	}
-	assertDeadlineNear(t, deadline, middleware.TierNormal, "read_file")
-}
 
 func TestSameDiagnosticURIKeepsNonWindowsCaseSensitivity(t *testing.T) {
 	if sameDiagnosticURI("file:///tmp/Work/main.mq4", "file:///tmp/work/main.mq4") {

@@ -54,7 +54,7 @@ func TestMcpLSPBinaryWindowsCommittedDurableGoplsStaleLeaseRecoveryE2E(t *testin
 	clientA := startWindowsGoplsMCPBinaryForTest(t, ctx, install.Binary, roots[0], filepath.Dir(install.Gopls), env)
 	t.Cleanup(func() { clientA.close(t) })
 	clientA.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	completionA := clientA.callTool(t, "completion", map[string]any{"pos": targets[0] + ":3:1"})
+	completionA := clientA.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[0]})
 	requireMCPToolSuccess(t, clientA, completionA, "Windows committed stale-lease sidecar A completion")
 
 	endpointA, daemonPIDA := requireSingleWindowsGoplsTopology(t, waitForFakeGoplsInvocations(t, argsLog, 2), install.Gopls, windowsGoplsStaleLeaseRecoveryIdle)
@@ -73,7 +73,7 @@ func TestMcpLSPBinaryWindowsCommittedDurableGoplsStaleLeaseRecoveryE2E(t *testin
 	clientB := startWindowsGoplsMCPBinaryForTest(t, ctx, install.Binary, roots[1], filepath.Dir(install.Gopls), env)
 	t.Cleanup(func() { clientB.close(t) })
 	clientB.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	completionB := clientB.callTool(t, "completion", map[string]any{"pos": targets[1] + ":3:1"})
+	completionB := clientB.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": targets[1]})
 	requireMCPToolSuccess(t, clientB, completionB, "Windows committed stale-lease sidecar B completion")
 	requireWindowsGoplsCommittedCacheSnapshot(t, cacheRoot, recordPath, recordA, "after sidecar B completion")
 

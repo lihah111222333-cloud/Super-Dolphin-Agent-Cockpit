@@ -10,23 +10,13 @@ type toolOverflowHint struct {
 func toolOverflowHints() map[string]toolOverflowHint {
 	return map[string]toolOverflowHint{
 		"grep": {
-			Hint: `next: call grep with {"action":"text_search","query":"<query>","paths":["<path>"],"glob":"<glob>","max_results":10}`,
+			Hint: "next: use native rg with a narrower path or query",
 			NextAction: map[string]any{
-				"tool":         "grep",
-				"suggest_args": map[string]any{"max_results": 10},
-				"tip":          "Scope search to a subdirectory or single file",
+				"tool": "grep",
 			},
 		},
-		"file": {
-			Hint: "next: file action=read_file pos=<file>:<line> limit=100",
-			NextAction: map[string]any{
-				"tool":         "file",
-				"suggest_args": map[string]any{"limit": 100},
-				"tip":          "Read a specific range with offset and limit",
-			},
-		},
-		"inspect": {
-			Hint: "next: inspect pos=<file>:<line>:<col>",
+		"structure": {
+			Hint: "next: structure action=document_symbol file_path=<file> max_results=10",
 		},
 		"xref": {
 			Hint: "next: xref max_results=10 and narrow pos/scope",
@@ -35,17 +25,10 @@ func toolOverflowHints() map[string]toolOverflowHint {
 				"suggest_args": map[string]any{"max_results": 10},
 			},
 		},
-		"structure": {
-			Hint: "next: structure action=document_symbol file_path=<file> max_results=10",
-		},
-		"patch_edit": {
-			Hint: "next: check success/applied fields for status",
-		},
-		"completion": {
-			Hint: "next: completion pos=<file>:<line>:<col> max_results=10",
+		"diagnostics": {
+			Hint: "next: split file_paths into smaller diagnostics batches",
 			NextAction: map[string]any{
-				"tool":         "completion",
-				"suggest_args": map[string]any{"max_results": 10},
+				"tool": "diagnostics",
 			},
 		},
 	}
@@ -67,32 +50,10 @@ func extractSummary(toolName string, payload map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	switch toolName {
-	case "grep":
-		s := map[string]any{
-			"total":   numericField(payload, "total"),
-			"showing": numericField(payload, "showing"),
-		}
-		if data, ok := payload["data"].(map[string]any); ok {
-			names := make([]string, 0, 5)
-			for k := range data {
-				names = append(names, k)
-				if len(names) >= 5 {
-					break
-				}
-			}
-			s["top_files"] = names
-		}
-		return s
-	case "xref":
+	case "xref", "diagnostics":
 		return map[string]any{
 			"total":   numericField(payload, "total"),
 			"showing": numericField(payload, "showing"),
-		}
-	case "patch_edit":
-		return map[string]any{
-			"success": payload["success"],
-			"applied": payload["applied"],
-			"action":  payload["action"],
 		}
 	default:
 		return map[string]any{}

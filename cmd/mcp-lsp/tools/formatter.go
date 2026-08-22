@@ -173,7 +173,7 @@ func appendBudgetNextAction(sb *strings.Builder, value any) {
 }
 
 // formatXrefAndOutline 渲染跳转、调用层级和文档大纲类结果。
-// 这些结果保留 file:line:col 形态，便于后续直接传给 read_file 或 inspect。
+// 这些结果保留 file:line:col 形态，便于原生文件工具或三类语义工具继续定位。
 func formatXrefAndOutline(result any) (string, bool) {
 	switch val := result.(type) {
 	case protocol.GroupedLocationResult:

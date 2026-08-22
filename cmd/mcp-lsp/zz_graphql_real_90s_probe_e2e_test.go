@@ -40,10 +40,10 @@ func TestRealGraphQLSingleRequest90sProbeE2E(t *testing.T) {
 	client := startRealMcpLSPBinary(t, ctx, binary, fixture.workDir, root, nodeDist, installDir, productRoot)
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}})
-	args := realMCPWindowsToolArguments("graphql", fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile})
+	args := realMCPWindowsToolArguments("graphql", fixture.workDir, "structure", "document_symbol", map[string]any{"action": "document_symbol", "file_path": fixture.targetFile})
 	t.Logf("MCP request id=graphql-open-file tool=file action=open_file file=%s mcp_pid=%d", fixture.targetFile, client.cmd.Process.Pid)
 	done := make(chan mcpLSPBinaryResponse, 1)
-	go func() { done <- client.callTool(t, "file", args) }()
+	go func() { done <- client.callTool(t, "structure", args) }()
 	select {
 	case response := <-done:
 		t.Logf("MCP response id=graphql-open-file is_error=%t content=%s stderr_tail=%s", response.Result.IsError, response.Result.ContentText(), client.stderrString())

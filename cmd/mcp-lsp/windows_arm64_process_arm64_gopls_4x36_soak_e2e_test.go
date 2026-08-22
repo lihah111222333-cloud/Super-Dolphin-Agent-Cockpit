@@ -1249,13 +1249,6 @@ func windowsARM64ProcessARM64GoplsRunActionMatrix(t *testing.T, client *mcpLSPBi
 				}
 				t.Logf("gopls %s %s failure stderr_bytes=%d stderr_sha256=%s stderr_tail=%q", languageID, key, len(stderr), hex.EncodeToString(digest[:]), tail)
 			})
-			if action.tool == "patch_edit" {
-				path := windowsARM64ProcessARM64GoplsPatchSetupPath(action.name, fixture)
-				setup := client.callTool(t, "file", realMCPWindowsToolArguments(actionLanguageID, workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-				if setup.Result.IsError {
-					t.Fatalf("patch setup open failed for %s", key)
-				}
-			}
 			response = client.callTool(t, action.tool, args)
 			record.ContentBytes, record.ContentSHA256 = windowsARM64ProcessARM64GoplsContentSummary(response.Result.ContentText())
 			status = requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), "gopls "+languageID+" "+key)

@@ -95,9 +95,9 @@ func assertBinaryLegacyLanguageCallsFail(t *testing.T, client *mcpLSPBinaryClien
 func assertBinaryNewLanguageCallsSucceed(t *testing.T, client *mcpLSPBinaryClient) {
 	t.Helper()
 	t.Run("ast_language", func(t *testing.T) {
-		text := assertPlainTextOnlyMCPResult(t, client.callTool(t, "grep", map[string]any{
+		text := assertPlainTextOnlyMCPResult(t, callToolForExplicitRemovedToolGuardE2E(t, client, "grep", map[string]any{
 			"action": "ast_search", "query": "func Needle() {}", "paths": []string{"."}, "glob": "*.go", "ast_language": "go",
-		}), false)
+		}), true)
 		if !strings.Contains(text, "Needle") {
 			t.Errorf("ast_language result = %q, want Needle match", text)
 		}
@@ -124,7 +124,7 @@ func assertBinaryInvalidASTLanguagesFailFast(t *testing.T, client *mcpLSPBinaryC
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			text := assertPlainTextOnlyMCPResult(t, client.callTool(t, "grep", test.arguments), true)
+			text := assertPlainTextOnlyMCPResult(t, callToolForExplicitRemovedToolGuardE2E(t, client, "grep", test.arguments), true)
 			if !strings.HasPrefix(text, "ERROR code=invalid_params retryable=0\n") || !strings.Contains(text, test.want) {
 				t.Errorf("invalid ast_language result = %q, want %q invalid_params", text, test.want)
 			}

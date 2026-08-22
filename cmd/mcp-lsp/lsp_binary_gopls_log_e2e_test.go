@@ -92,8 +92,7 @@ func TestMcpLSPBinaryGoplsOrphanedFilesShutdownWarningIsNotErrorLog_E2E(t *testi
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	if diagnostics.Result.IsError {
@@ -133,8 +132,7 @@ func TestMcpLSPBinaryGoplsDiagnosticsFallsBackToPullWhenPublishIsSilent_E2E(t *t
 	requireMCPToolSuccess(t, client, structure, "go document_symbol")
 	requireToolResultContains(t, structure, "main", "go document_symbol")
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "go diagnostics")
@@ -172,8 +170,7 @@ func TestMcpLSPBinaryGoplsDiagnosticsTreatsReadyBootstrapWithoutPublishAsEmpty_E
 	requireMCPToolSuccess(t, client, structure, "go document_symbol")
 	requireToolResultContains(t, structure, "main", "go document_symbol")
 
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":    "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "go diagnostics without publish")
@@ -203,8 +200,7 @@ func TestMcpLSPBinaryGoplsDiagnosticsUsesBuildTagsForE2EFile_E2E(t *testing.T) {
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   target,
 		"language_id": "go",
 	})
@@ -230,8 +226,7 @@ func TestMcpLSPBinaryGoplsDiagnosticsLeavesStandaloneIgnoreTagToGopls_E2E(t *tes
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   target,
 		"language_id": "go",
 	})
@@ -257,8 +252,7 @@ func TestMcpLSPBinaryGoplsDiagnosticsUsesLanguageOverrideForTxtTemplate_E2E(t *t
 	defer client.close(t)
 
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
-	diagnostics := client.callTool(t, "file", map[string]any{
-		"action":      "diagnostics",
+	diagnostics := client.callTool(t, "diagnostics", map[string]any{
 		"file_path":   target,
 		"language_id": "go",
 	})

@@ -54,8 +54,8 @@ func runWorkspaceSymbolExternalDiskRefreshCase(t *testing.T, binary, fakeServers
 
 func warmWorkspaceSymbolDocument(t *testing.T, client *mcpLSPBinaryClient, target, languageID string) {
 	t.Helper()
-	warmup := client.callTool(t, "file", map[string]any{
-		"action":      "open_file",
+	warmup := client.callTool(t, "structure", map[string]any{
+		"action":      "document_symbol",
 		"file_path":   target,
 		"language_id": languageID,
 	})

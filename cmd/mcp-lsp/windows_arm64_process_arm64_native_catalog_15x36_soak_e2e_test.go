@@ -242,7 +242,7 @@ func TestWindowsARM64ProcessARM64NativeCatalogKotlinProbeE2E(t *testing.T) {
 		t.Fatalf("Kotlin initialized notification: %v", err)
 	}
 	logPhase("initialized", client, mcpStart)
-	response := client.callTool(t, "file", realMCPWindowsToolArguments("kotlin", fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile}))
+	response := client.callTool(t, "structure", realMCPWindowsToolArguments("kotlin", fixture.workDir, "structure", "document_symbol", map[string]any{"action": "document_symbol", "file_path": fixture.targetFile}))
 	if response.Result.IsError || strings.TrimSpace(response.Result.ContentText()) == "" {
 		writePhase("open_file_error", fmt.Sprintf("context_err=%v;response_sha256=%x", ctx.Err(), sha256.Sum256([]byte(response.Result.ContentText()))))
 		logPhase("open_file_error", client, mcpStart)
@@ -595,37 +595,30 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdCProbeE2E(t *testing.T) {
 	if err := nativeCatalog15x36Notify(client, "notifications/initialized", map[string]any{}); err != nil {
 		t.Fatalf("C probe initialized notification: %v", err)
 	}
-	response := client.callTool(t, "file", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "file", "open_file", map[string]any{
-		"action":    "open_file",
+	response := client.callTool(t, "structure", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "structure", "document_symbol", map[string]any{
+		"action":    "document_symbol",
 		"file_path": fixture.targetFile,
 	}))
 	requireRealMCPActionResult(t, response, true, "", false, "", false, "native language file/open_file probe")
 	if probeLanguage == "terraform" {
-		definition := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "inspect", "definition", map[string]any{
-			"action": "definition",
+		definition := client.callTool(t, "xref", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "xref", "references", map[string]any{
+			"action": "references",
 			"pos":    fixture.semanticPosition,
 		}))
 		requireRealMCPActionResult(t, definition, true, "", false, "", false, "native terraform inspect/definition probe")
 	} else if probeLanguage == "rust" {
-		hover := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "inspect", "hover", map[string]any{
-			"action": "hover",
+		hover := client.callTool(t, "xref", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "xref", "references", map[string]any{
+			"action": "references",
 			"pos":    fixture.semanticPosition,
 		}))
 		requireRealMCPActionResult(t, hover, true, "", false, "", false, "native rust inspect/hover probe")
-		definition := client.callTool(t, "inspect", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "inspect", "definition", map[string]any{
-			"action": "definition",
+		definition := client.callTool(t, "xref", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "xref", "references", map[string]any{
+			"action": "references",
 			"pos":    fixture.semanticPosition,
 		}))
 		requireRealMCPActionResult(t, definition, true, "", false, "", false, "native rust inspect/definition probe")
-		completion := client.callTool(t, "completion", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "completion", "completion", map[string]any{
-			"pos": fixture.completionPosition,
-		}))
-		requireRealMCPActionResult(t, completion, false, "", true, "completion", false, "native rust completion probe")
-		format := client.callTool(t, "patch_edit", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "patch_edit", "format", map[string]any{
-			"action":    "format",
-			"file_path": fixture.formatFile,
-		}))
-		requireRealMCPActionResult(t, format, false, "", true, "format", false, "native rust format probe")
+		completion := client.callTool(t, "structure", realMCPWindowsToolArguments(probeLanguage, fixture.workDir, "structure", "semantic_tokens", map[string]any{"action": "semantic_tokens", "file_path": fixture.targetFile}))
+		requireRealMCPActionResult(t, completion, false, "semantic token capability may be unavailable", true, "semantic_tokens", false, "native rust semantic token probe")
 	}
 }
 
@@ -853,13 +846,13 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdWarmInitPrecheckE2E(t *testi
 			if diagnosticVariant != "without_tools_list" {
 				requireRealMCPToolFamilies(t, callMcpLSPBinaryRaw(t, client, "tools/list", map[string]any{}))
 			}
-			response := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": fixture.targetFile}))
+			response := client.callTool(t, "structure", realMCPWindowsToolArguments("c", fixture.workDir, "structure", "document_symbol", map[string]any{"action": "document_symbol", "file_path": fixture.targetFile}))
 			_ = trackRealMCPProcessTree(t, pid, "single_diag_after_open_file", tracked)
 			childObserved = childObserved || len(tracked) > 1
-			definition := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "definition", map[string]any{"action": "definition", "file_path": fixture.targetFile, "position": fixture.semanticPosition}))
+			definition := client.callTool(t, "xref", realMCPWindowsToolArguments("c", fixture.workDir, "xref", "references", map[string]any{"action": "references", "pos": fixture.semanticPosition}))
 			_ = trackRealMCPProcessTree(t, pid, "single_diag_after_definition", tracked)
 			childObserved = childObserved || len(tracked) > 1
-			hover := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "hover", map[string]any{"action": "hover", "file_path": fixture.targetFile, "position": fixture.semanticPosition}))
+			hover := client.callTool(t, "xref", realMCPWindowsToolArguments("c", fixture.workDir, "xref", "references", map[string]any{"action": "references", "pos": fixture.semanticPosition}))
 			_ = trackRealMCPProcessTree(t, pid, "single_diag_after_hover", tracked)
 			childObserved = childObserved || len(tracked) > 1
 			if response.Error == nil && strings.TrimSpace(response.Result.ContentText()) != "" && definition.Error == nil && strings.TrimSpace(definition.Result.ContentText()) != "" && hover.Error == nil && strings.TrimSpace(hover.Result.ContentText()) != "" && childObserved {
@@ -911,8 +904,8 @@ func TestWindowsARM64ProcessARM64NativeCatalogClangdWarmInitPrecheckE2E(t *testi
 		trialStatus := "runtime_failure"
 		initialize := client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}})
 		if initialize.Error == nil && nativeCatalog15x36Notify(client, "notifications/initialized", map[string]any{}) == nil {
-			response := client.callTool(t, "file", realMCPWindowsToolArguments("c", fixture.workDir, "file", "open_file", map[string]any{
-				"action":    "open_file",
+			response := client.callTool(t, "structure", realMCPWindowsToolArguments("c", fixture.workDir, "structure", "document_symbol", map[string]any{
+				"action":    "document_symbol",
 				"file_path": fixture.targetFile,
 			}))
 			if response.Error == nil && strings.TrimSpace(response.Result.ContentText()) != "" {
@@ -2400,22 +2393,10 @@ func nativeCatalog15x36PrepareClangdFixture(t *testing.T, root string, server re
 	}
 }
 
-// nativeCatalog15x36ActionSpecs 复用公共 36-action 清单；native fixture 的 hover
-// 位置是稳定真实符号，因此 hover 必须非空，不能因 generic server 名称未收录而降为合法空。
+// nativeCatalog15x36ActionSpecs 复用公共三工具清单；所有可执行 action 都由
+// structure、xref 或 diagnostics 承担，文件与夹具验证留在测试进程原生边界。
 func nativeCatalog15x36ActionSpecs(server realNodeServerCase, fixture realMCPFixture, astFile string) []realMCPActionSpec {
-	actions := realMCPActionSpecs(server, fixture, astFile)
-	for i := range actions {
-		if actions[i].tool == "inspect" && actions[i].name == "hover" {
-			actions[i].requireResult = server.languageID != "proto"
-			actions[i].emptyResultReason = ""
-			if server.languageID == "proto" {
-				actions[i].emptyResultReason = nativeCatalog15x36ProtoHoverEmptyReason
-			}
-			actions[i].allowCapabilityUnsupported = false
-			actions[i].contractSet = true
-		}
-	}
-	return actions
+	return realMCPActionSpecs(server, fixture, astFile)
 }
 
 // nativeCatalog15x36ProtoHoverIsStrictLegalEmpty 只接受 buf 的已知纯文本空结果；
@@ -2457,14 +2438,7 @@ func TestNativeCatalog15x36ProtoHoverStrictLegalEmpty(t *testing.T) {
 
 func nativeCatalog15x36PostIdleHover(actions []realMCPActionSpec) (realMCPActionSpec, bool) {
 	for _, action := range actions {
-		if action.tool == "inspect" && action.name == "hover" && action.requireResult && !action.allowCapabilityUnsupported {
-			return action, true
-		}
-	}
-	// proto/buf 的 hover 合同允许严格白名单空结果；post-idle 仍必须验证真实非空语义，
-	// 因此改用同一 fixture 的必需 open_file，而不是把 legal_empty 冒充 semantic success。
-	for _, action := range actions {
-		if action.tool == "file" && action.name == "open_file" && action.requireResult && !action.allowCapabilityUnsupported {
+		if action.tool == "structure" && action.name == "document_symbol" && action.requireResult && !action.allowCapabilityUnsupported {
 			return action, true
 		}
 	}
@@ -2497,25 +2471,8 @@ func nativeCatalog15x36RunActionMatrix(t *testing.T, client *mcpLSPBinaryClient,
 			if err := nativeCatalog15x36WriteWire(wirePath, fmt.Sprintf("phase=action_start;language=%s;ordinal=%d/%d;tool=%s;name=%s;require_non_empty=%t;allow_capability_unsupported=%t", server.languageID, ordinal, realMCPExpectedActionCount, action.tool, action.name, action.requireResult, action.allowCapabilityUnsupported)); err != nil {
 				t.Fatalf("write native action start wire: %v", err)
 			}
-			if action.tool == "patch_edit" {
-				path, _ := action.args["file_path"].(string)
-				if path == "" {
-					path = realMCPPositionPath(fmt.Sprint(action.args["pos"]))
-				}
-				if path == "" {
-					t.Fatalf("%s patch action %s has no target path", server.languageID, action.name)
-				}
-				opened := client.callTool(t, "file", realMCPWindowsToolArguments(server.languageID, fixture.workDir, "file", "open_file", map[string]any{"action": "open_file", "file_path": path}))
-				requireRealMCPActionResult(t, opened, true, "", false, "", false, server.languageID+" patch target")
-			}
 			response := client.callTool(t, action.tool, realMCPWindowsToolArguments(server.languageID, fixture.workDir, action.tool, action.name, action.args))
-			if server.languageID == "proto" && action.tool == "inspect" && action.name == "hover" && !nativeCatalog15x36ProtoHoverIsStrictLegalEmpty(response) && strings.Contains(response.Result.ContentText(), "OK total=0") {
-				t.Fatalf("proto hover empty response violated strict legal-empty contract: %q", response.Result.ContentText())
-			}
 			status := requireRealMCPActionResult(t, response, action.requireResult, action.emptyResultReason, action.allowCapabilityUnsupported, realMCPActionCapabilityKey(action.tool, action.name), realMCPActionProtocolOptional(action.tool, action.name), server.languageID+" "+action.tool+"/"+action.name)
-			if action.tool == "patch_edit" && action.name == "replace_range" && status != realMCPActionUnsupported {
-				assertRealFileContains(t, fixture.replaceFile, "REAL_MCP_REPLACED", server.languageID+" replace_range")
-			}
 			languageSummary.total++
 			switch status {
 			case realMCPActionSucceeded:

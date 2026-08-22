@@ -20,12 +20,9 @@ type toolBudgetDescriptor struct {
 func defaultToolBudgets() []toolBudgetDescriptor {
 	return []toolBudgetDescriptor{
 		{name: "grep", maxBytes: 16 * 1024},
-		{name: "file", maxBytes: 50 * 1024},
-		{name: "inspect", maxBytes: 8 * 1024},
-		{name: "xref", maxBytes: 16 * 1024},
 		{name: "structure", maxBytes: 16 * 1024},
-		{name: "patch_edit", maxBytes: 32 * 1024},
-		{name: "completion", maxBytes: 16 * 1024},
+		{name: "xref", maxBytes: 16 * 1024},
+		{name: "diagnostics", maxBytes: 50 * 1024},
 	}
 }
 
@@ -118,83 +115,20 @@ func budgetTextBytes(value any) ([]byte, int, error) {
 
 // structuredOverflow 根据工具类型选择合适的溢出包装格式。
 func structuredOverflow(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
-	switch toolName {
-	case "patch_edit":
-		return editOverflowEnvelope(toolName, payload, actualBytes, budgetBytes)
-	default:
-		hint := lookupHint(toolName)
-		envelope := map[string]any{
-			"success":          false,
-			"original_success": originalSuccess(payload),
-			"error":            "tool result exceeded output budget",
-			"error_code":       "result_too_large",
-			"tool":             toolName,
-			"actual_bytes":     actualBytes,
-			"budget_bytes":     budgetBytes,
-			"summary":          extractSummary(toolName, payload),
-			"hint":             hint.Hint,
-		}
-		if hint.NextAction != nil {
-			envelope["next_action"] = hint.NextAction
-		}
-		return envelope
-	}
-}
-
-// editOverflowEnvelope 为编辑类工具构造溢出响应。
-// 它保留编辑摘要和替换预览，避免超预算时丢掉定位信息。
-func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
 	hint := lookupHint(toolName)
 	envelope := map[string]any{
-		"error_code":            "result_too_large",
-		"tool":                  toolName,
-		"actual_bytes":          actualBytes,
-		"budget_bytes":          budgetBytes,
-		"hint":                  hint.Hint,
-		"success":               false,
-		"original_success":      originalSuccess(payload),
-		"action":                payload["action"],
-		"error":                 "tool result exceeded output budget",
-		"original_error":        payload["error"],
-		"status":                payload["status"],
-		"applied":               payload["applied"],
-		"applied_count":         payload["applied_count"],
-		"persisted":             payload["persisted"],
-		"lsp_sync":              payload["lsp_sync"],
-		"warning":               payload["warning"],
-		"diagnostic_generation": payload["diagnostic_generation"],
+		"success":          false,
+		"original_success": originalSuccess(payload),
+		"error":            "tool result exceeded output budget",
+		"error_code":       "result_too_large",
+		"tool":             toolName,
+		"actual_bytes":     actualBytes,
+		"budget_bytes":     budgetBytes,
+		"summary":          extractSummary(toolName, payload),
+		"hint":             hint.Hint,
 	}
-	if ctx, ok := payload["edit_context"].(string); ok && len(ctx) > 2048 {
-		mid := len(ctx) / 2
-		start := max(0, mid-1024)
-		end := min(len(ctx), mid+1024)
-		envelope["edit_context"] = ctx[start:end]
-	} else if ok {
-		envelope["edit_context"] = ctx
-	}
-	if current, ok := payload["current_content"].(string); ok {
-		envelope["current_content_excerpt"] = centerExcerpt(current, 2048)
-		envelope["current_content_truncated"] = len(current) > 2048
-	}
-	if body, ok := payload["func_body"].(string); ok {
-		envelope["func_body"] = centerExcerpt(body, 2048)
-		envelope["func_body_truncated"] = len(body) > 2048
-	}
-	for _, key := range []string{
-		"matched_by",
-		"resolved_start_offset",
-		"resolved_end_offset",
-		"resolved_lsp_line",
-		"affected_start_line",
-		"affected_end_line",
-		"replaced_len",
-		"replacement_len",
-		"func_start",
-		"func_end",
-	} {
-		if v, ok := payload[key]; ok {
-			envelope[key] = v
-		}
+	if hint.NextAction != nil {
+		envelope["next_action"] = hint.NextAction
 	}
 	return envelope
 }
@@ -206,17 +140,6 @@ func originalSuccess(payload map[string]any) any {
 		return nil
 	}
 	return payload["success"]
-}
-
-// centerExcerpt 截取文本中间段，保证字节数不超过 maxBytes。
-func centerExcerpt(text string, maxBytes int) string {
-	if len(text) <= maxBytes {
-		return text
-	}
-	mid := len(text) / 2
-	start := max(0, mid-(maxBytes/2))
-	end := min(len(text), start+maxBytes)
-	return text[start:end]
 }
 
 // numericField 从 payload 中取 key 对应的数值。

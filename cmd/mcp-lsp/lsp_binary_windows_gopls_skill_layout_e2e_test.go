@@ -45,6 +45,6 @@ func TestMcpLSPBinaryWindowsSkillDeliveryLayoutServesGoplsE2E(t *testing.T) {
 	defer client.close(t)
 	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
 
-	result := client.callTool(t, "completion", map[string]any{"pos": target + ":3:1"})
-	requireMCPToolSuccess(t, client, result, "Windows skill delivery layout gopls completion")
+	result := client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": target})
+	requireMCPToolSuccess(t, client, result, "Windows skill delivery layout gopls structure")
 }

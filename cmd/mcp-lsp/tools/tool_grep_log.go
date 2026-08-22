@@ -39,13 +39,13 @@ func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, l
 		Regex:         input.Regex,
 		CaseSensitive: input.CaseSensitive,
 		MaxResults:    limit,
-		MaxFileBytes:  maxReadFileBytes,
+		MaxFileBytes:  maxSearchFileBytes,
 	}
 	pkglogger.Info("mcp-lsp grep text_search started", grepLogAttrs(input,
 		"root", root,
 		"roots_count", len(roots),
 		"limit", limit,
-		"max_file_bytes", maxReadFileBytes,
+		"max_file_bytes", maxSearchFileBytes,
 	)...)
 	result, err := search.SearchTextCounted(ctx, opts)
 	if err != nil {
