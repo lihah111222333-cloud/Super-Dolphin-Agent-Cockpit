@@ -65,7 +65,7 @@ type automaticRouteInputs struct {
 }
 
 // prepareAutomaticRouteInputs 绑定 strict config、exact repository manifest 与动态 topology。
-func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath string, stderr io.Writer) (inputs automaticRouteInputs, returnErr error) {
+func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath string) (inputs automaticRouteInputs, returnErr error) {
 	config, err := loadAutomaticRouteConfig(configPath)
 	if err != nil {
 		return automaticRouteInputs{}, newCLIFailure("load automatic route config", err)
@@ -83,9 +83,6 @@ func prepareAutomaticRouteInputs(ctx context.Context, configPath, repositoryPath
 	repository, err = expandDetectedRepositoryGoCatalog(routeCtx, repository)
 	if err != nil {
 		return automaticRouteInputs{}, newCLIFailure("derive exact-tree Go workload catalog", err)
-	}
-	if err := writeProgress(stderr, "target repository detected"); err != nil {
-		return automaticRouteInputs{}, newCLIFailure("write progress", err)
 	}
 	manifest, err := heteroci.LoadManifestFile(config.TopologyManifestPath)
 	if err != nil {

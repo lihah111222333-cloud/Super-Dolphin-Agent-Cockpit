@@ -15,10 +15,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 	"unicode"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
 const (
@@ -27,7 +27,7 @@ const (
 )
 
 // usageText 只描述仍保留的公开 descriptor/execute 入口；云制品命令已退役。
-const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> | execute\n"
+const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> --repository <absolute-root> | execute\n"
 
 // ErrExecutionContractUpgradeRequired 表示 execute 尚未获得可验证的执行合约。
 var ErrExecutionContractUpgradeRequired = errors.New("execution contract upgrade required")
@@ -37,9 +37,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	err := dispatchCLI(args, stdout, stderr)
 	if err == nil {
 		return 0
-	}
-	if _, writeErr := fmt.Fprintln(stderr, "super-dolphin-remote-ci:", err); writeErr != nil {
-		return 3
 	}
 	return 1
 }
@@ -61,35 +58,19 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 
 // dispatchValidate 校验参数、读取 descriptor 并绑定共享的 typed run。
 func dispatchValidate(args []string, stdout, stderr io.Writer) error {
-	descriptorPath, err := parseDescriptorPath(args)
+	raw, descriptor, repositoryRoot, err := loadPortableDescriptor(args)
 	if err != nil {
 		return err
 	}
-	if err := writeProgress(stderr, "descriptor path accepted"); err != nil {
-		return newCLIFailure("write progress", err)
-	}
-	raw, err := readDescriptorFile(descriptorPath)
-	if err != nil {
-		return newCLIFailure("read descriptor", err)
-	}
-	if err := writeProgress(stderr, "descriptor bytes read"); err != nil {
-		return newCLIFailure("write progress", err)
-	}
-	descriptor, err := remoteci.DecodePortableRunDescriptor(raw)
-	if err != nil {
-		return newCLIFailure("decode descriptor", err)
-	}
-	if err := writeProgress(stderr, "descriptor decoded"); err != nil {
-		return newCLIFailure("write progress", err)
-	}
-	binding, err := remoteci.BindPortableRun(
-		context.Background(),
-		descriptor,
-		gitObjectResolver{},
-		fileIdentityReader{},
-	)
+	binding, err := bindPortableDescriptor(descriptor, repositoryRoot)
 	if err != nil {
 		return newCLIFailure("bind portable run", err)
+	}
+	if err := writePortableValidationStages(stderr, descriptor.OperationID, binding.ManifestDigest); err != nil {
+		return newCLIFailure("write validation event", err)
+	}
+	if err := writePortableValidationEvent(stderr, descriptor.OperationID, binding.ManifestDigest, 4, "manifest_binding", "portable_run_bound"); err != nil {
+		return newCLIFailure("write validation event", err)
 	}
 	output, err := boundedBindingJSON(raw, binding)
 	if err != nil {
@@ -98,46 +79,87 @@ func dispatchValidate(args []string, stdout, stderr io.Writer) error {
 	if _, err := stdout.Write(output); err != nil {
 		return newCLIFailure("write result", err)
 	}
-	return writeProgress(stderr, "portable run bound")
+	return nil
 }
 
-// parseDescriptorPath 只接受一个显式、clean、绝对 descriptor 路径。
-func parseDescriptorPath(args []string) (string, error) {
-	if len(args) != 2 || args[0] != "--descriptor" || args[1] == "" {
-		return "", newCLIFailure("usage: "+usageText, nil)
+func loadPortableDescriptor(args []string) ([]byte, remoteportable.PortableRunInput, string, error) {
+	descriptorPath, repositoryRoot, err := parseDescriptorArgs(args)
+	if err != nil {
+		return nil, remoteportable.PortableRunInput{}, "", err
 	}
-	path := args[1]
-	if strings.TrimSpace(path) != path || filepath.Clean(path) != path || !filepath.IsAbs(path) {
-		return "", newCLIFailure("descriptor path must be a clean absolute path", nil)
+	raw, err := readDescriptorFile(descriptorPath)
+	if err != nil {
+		return nil, remoteportable.PortableRunInput{}, "", newCLIFailure("read descriptor", err)
 	}
-	for _, r := range path {
+	descriptor, err := remoteportable.DecodePortableRunDescriptor(raw)
+	if err != nil {
+		return nil, remoteportable.PortableRunInput{}, "", newCLIFailure("decode descriptor", err)
+	}
+	return raw, descriptor, repositoryRoot, nil
+}
+
+func bindPortableDescriptor(descriptor remoteportable.PortableRunInput, repositoryRoot string) (remoteportable.BoundPortableRun, error) {
+	engineFacts, err := currentPortableEngineFacts()
+	if err != nil {
+		return remoteportable.BoundPortableRun{}, fmt.Errorf("compute engine facts: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return remoteportable.BindPortableRun(ctx, descriptor, gitObjectResolver{repositoryRoot: repositoryRoot}, engineFacts)
+}
+
+// parseDescriptorArgs 只接受显式 descriptor 与 repository root 路径。
+func parseDescriptorArgs(args []string) (string, string, error) {
+	if !validDescriptorArgumentShape(args) {
+		return "", "", newCLIFailure("usage: "+usageText, nil)
+	}
+	descriptorPath, repositoryRoot := args[1], args[3]
+	if err := validateDescriptorArgumentPath(descriptorPath); err != nil {
+		return "", "", newCLIFailure("descriptor path is invalid", err)
+	}
+	if err := validateAbsolutePathComponents(repositoryRoot, true); err != nil {
+		return "", "", newCLIFailure("repository path is invalid", err)
+	}
+	return descriptorPath, repositoryRoot, nil
+}
+
+func validDescriptorArgumentShape(args []string) bool {
+	if len(args) != 4 || args[0] != "--descriptor" || args[2] != "--repository" {
+		return false
+	}
+	return args[1] != "" && args[3] != ""
+}
+
+// validateDescriptorArgumentPath 校验 descriptor 的 clean absolute path 和控制字符。
+func validateDescriptorArgumentPath(value string) error {
+	if strings.TrimSpace(value) != value || filepath.Clean(value) != value || !filepath.IsAbs(value) {
+		return errors.New("descriptor path must be a clean absolute path")
+	}
+	for _, r := range value {
 		if unicode.IsControl(r) {
-			return "", newCLIFailure("descriptor path contains control characters", nil)
+			return errors.New("descriptor path contains control characters")
 		}
 	}
-	return path, nil
+	return nil
 }
 
 // readDescriptorFile 以 bounded read 打开 regular non-symlink descriptor 文件。
 func readDescriptorFile(path string) ([]byte, error) {
-	if err := validateAbsolutePathComponents(path, false); err != nil {
-		return nil, errors.New("descriptor path is not trusted")
-	}
-	info, err := os.Lstat(path)
+	file, openedInfo, err := openDescriptorFile(path)
 	if err != nil {
-		return nil, errors.New("descriptor file is unavailable")
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, errors.New("descriptor file must be a regular non-symlink file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, errors.New("descriptor file cannot be opened")
+		return nil, err
 	}
 	data, readErr := io.ReadAll(io.LimitReader(file, descriptorMaxBytes+1))
+	finalInfo, finalStatErr := file.Stat()
 	closeErr := file.Close()
-	if readErr != nil || closeErr != nil {
+	if readErr != nil {
 		return nil, errors.New("descriptor file cannot be read")
+	}
+	if finalStatErr != nil || closeErr != nil {
+		return nil, errors.New("descriptor file cannot be read")
+	}
+	if !sameFileIdentity(openedInfo, finalInfo) {
+		return nil, errors.New("descriptor file identity changed during read")
 	}
 	if len(data) == 0 || len(data) > descriptorMaxBytes {
 		return nil, errors.New("descriptor exceeds the bounded size")
@@ -145,30 +167,66 @@ func readDescriptorFile(path string) ([]byte, error) {
 	return data, nil
 }
 
+// openDescriptorFile 以句柄 identity 核对方式打开 regular descriptor。
+func openDescriptorFile(path string) (*os.File, os.FileInfo, error) {
+	if err := validateAbsolutePathComponents(path, false); err != nil {
+		return nil, nil, errors.New("descriptor path is not trusted")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, nil, errors.New("descriptor file is unavailable")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, nil, errors.New("descriptor file must be a regular non-symlink file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, errors.New("descriptor file cannot be opened")
+	}
+	openedInfo, err := file.Stat()
+	if err != nil || !sameFileIdentity(info, openedInfo) {
+		_ = file.Close()
+		return nil, nil, errors.New("descriptor file identity changed before read")
+	}
+	return file, openedInfo, nil
+}
+
+func sameFileIdentity(left, right os.FileInfo) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	leftID, leftErr := stableFileIdentity(left)
+	rightID, rightErr := stableFileIdentity(right)
+	return leftErr == nil && rightErr == nil && leftID == rightID
+}
+
 // boundedBindingJSON 只投影 descriptor 与 identity 摘要，拒绝把 binding 原样写到 stdout。
-func boundedBindingJSON(descriptor []byte, binding remoteci.BoundPortableRun) ([]byte, error) {
+func boundedBindingJSON(descriptor []byte, binding remoteportable.BoundPortableRun) ([]byte, error) {
 	descriptorDigest := digestBytes(descriptor)
 	if !isDigest(binding.BindingSHA256) {
 		return nil, errors.New("portable binding omitted canonical identity digest")
 	}
 	result := struct {
-		Schema                 string `json:"schema"`
-		Status                 string `json:"status"`
-		ExecutionProvider      string `json:"execution_provider"`
-		RepositoryID           string `json:"repository_id"`
-		TargetCommitSHA        string `json:"target_commit_sha"`
-		TargetTreeSHA          string `json:"target_tree_sha"`
-		WorkloadManifestSHA256 string `json:"workload_manifest_sha256"`
-		EngineArtifactSHA256   string `json:"engine_artifact_sha256"`
-		DescriptorDigest       string `json:"descriptor_sha256"`
-		BindingDigest          string `json:"binding_sha256"`
+		Schema                string `json:"schema"`
+		Status                string `json:"status"`
+		ContractID            string `json:"contract_id"`
+		Authority             string `json:"authority"`
+		ExecutionPoolContract string `json:"execution_pool_contract"`
+		OperationID           string `json:"operation_id"`
+		RepositoryID          string `json:"repository_id"`
+		TargetCommitSHA       string `json:"target_commit_sha"`
+		TargetTreeSHA         string `json:"target_tree_sha"`
+		ManifestBlobSHA256    string `json:"manifest_blob_sha256"`
+		ManifestDigest        string `json:"manifest_digest"`
+		EngineBinarySHA256    string `json:"engine_binary_sha256"`
+		DescriptorDigest      string `json:"descriptor_sha256"`
+		BindingDigest         string `json:"binding_sha256"`
 	}{
-		Schema: "portable-remote-ci-validation/v1", Status: "NOT_VERIFIED",
-		ExecutionProvider: binding.ExecutionProvider, RepositoryID: binding.Target.RepositoryID,
-		TargetCommitSHA: binding.Target.CommitSHA, TargetTreeSHA: binding.Target.TreeSHA,
-		WorkloadManifestSHA256: binding.WorkloadManifest.SHA256,
-		EngineArtifactSHA256:   binding.Engine.RuntimeArtifactSHA256,
-		DescriptorDigest:       descriptorDigest, BindingDigest: binding.BindingSHA256,
+		Schema: "remote-ci-validation-result/v1", Status: "validated",
+		ContractID: binding.Manifest.ContractID, Authority: "LOCAL_NON_AUTHORITATIVE", ExecutionPoolContract: "remote-ci-four-node/v1", OperationID: binding.OperationID, RepositoryID: binding.Manifest.Target.RepositoryID,
+		TargetCommitSHA: binding.CommitSHA, TargetTreeSHA: binding.TreeSHA,
+		ManifestBlobSHA256: binding.ManifestBlobSHA256, ManifestDigest: binding.ManifestDigest, EngineBinarySHA256: binding.EngineFacts.BinarySHA256,
+		DescriptorDigest: descriptorDigest, BindingDigest: binding.BindingSHA256,
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -197,36 +255,26 @@ func digestBytes(data []byte) string {
 }
 
 // gitObjectResolver 通过 git object database 读取绑定 target tree，不读取当前工作树文件。
-type gitObjectResolver struct{}
+type gitObjectResolver struct {
+	repositoryRoot string
+}
 
-// ResolveObjectFormat 读取显式仓库的 canonical Git object format。
-func (gitObjectResolver) ResolveObjectFormat(ctx context.Context, repositoryRoot string) (string, error) {
-	if ctx == nil {
-		return "", errors.New("resolve object format context is nil")
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	output, err := runBoundedGitObjectCommand(ctx, repositoryRoot, gitObjectFormatMaxBytes, "rev-parse", "--show-object-format")
+// RepositoryFacts 返回 exact repository 的 semantic object format fact。
+func (resolver gitObjectResolver) RepositoryFacts(ctx context.Context) (remoteportable.GitRepositoryFacts, error) {
+	output, err := runGitObjectCommand(ctx, resolver.repositoryRoot, "rev-parse", "--show-object-format")
 	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return "", contextErr
-		}
-		return "", errors.New("resolve object format failed")
+		return remoteportable.GitRepositoryFacts{}, errors.New("resolve repository object format failed")
 	}
-	switch string(output) {
-	case "sha1\n":
-		return "sha1", nil
-	case "sha256\n":
-		return "sha256", nil
-	default:
-		return "", errors.New("resolve object format returned invalid output")
+	objectFormat := strings.TrimSpace(string(output))
+	if objectFormat != "sha1" && objectFormat != "sha256" {
+		return remoteportable.GitRepositoryFacts{}, errors.New("repository object format is invalid")
 	}
+	return remoteportable.GitRepositoryFacts{ObjectFormat: objectFormat}, nil
 }
 
 // ResolveCommitTree 将显式 commit 解析为其 tree，并拒绝空或多行输出。
-func (gitObjectResolver) ResolveCommitTree(ctx context.Context, repositoryRoot, commitSHA string) (string, error) {
-	output, err := runGitObjectCommand(ctx, repositoryRoot, "rev-parse", commitSHA+"^{tree}")
+func (resolver gitObjectResolver) ResolveCommitTree(ctx context.Context, commitSHA string) (string, error) {
+	output, err := runGitObjectCommand(ctx, resolver.repositoryRoot, "rev-parse", commitSHA+"^{tree}")
 	if err != nil {
 		return "", errors.New("resolve commit tree failed")
 	}
@@ -238,20 +286,38 @@ func (gitObjectResolver) ResolveCommitTree(ctx context.Context, repositoryRoot, 
 }
 
 // ReadTreeBlob 只读取 target tree 中的 repo-relative manifest blob。
-func (gitObjectResolver) ReadTreeBlob(ctx context.Context, repositoryRoot, treeSHA, repoRelativePath string) (remoteci.GitTreeBlob, error) {
-	entry, err := runGitObjectCommand(ctx, repositoryRoot, "ls-tree", "-z", treeSHA, "--", repoRelativePath)
+func (resolver gitObjectResolver) ReadTreeBlob(ctx context.Context, treeSHA, repoRelativePath string) (remoteportable.GitTreeBlob, error) {
+	entry, err := runGitObjectCommand(ctx, resolver.repositoryRoot, "ls-tree", "-z", treeSHA, "--", repoRelativePath)
 	if err != nil {
-		return remoteci.GitTreeBlob{}, errors.New("inspect target tree blob failed")
+		return remoteportable.GitTreeBlob{}, errors.New("inspect target tree blob failed")
 	}
 	mode, objectType, err := parseGitTreeEntry(entry, repoRelativePath)
 	if err != nil || objectType != "blob" || (mode != "100644" && mode != "100755") {
-		return remoteci.GitTreeBlob{}, errors.New("target tree manifest is not a regular blob")
+		return remoteportable.GitTreeBlob{}, errors.New("target tree manifest is not a regular blob")
 	}
-	output, err := runGitObjectCommand(ctx, repositoryRoot, "cat-file", "blob", treeSHA+":"+repoRelativePath)
+	output, err := runGitObjectCommand(ctx, resolver.repositoryRoot, "cat-file", "blob", treeSHA+":"+repoRelativePath)
 	if err != nil {
-		return remoteci.GitTreeBlob{}, errors.New("read target tree blob failed")
+		return remoteportable.GitTreeBlob{}, errors.New("read target tree blob failed")
 	}
-	return remoteci.GitTreeBlob{Mode: mode, Data: output}, nil
+	return remoteportable.GitTreeBlob{Mode: mode, Data: output}, nil
+}
+
+// ListTree 返回 exact tree 的 regular blob 文件路径。
+func (resolver gitObjectResolver) ListTree(ctx context.Context, treeSHA string) ([]remoteportable.GitTreeEntry, error) {
+	output, err := runGitObjectCommand(ctx, resolver.repositoryRoot, "ls-tree", "-r", "-z", "--full-tree", treeSHA, "--")
+	if err != nil {
+		return nil, errors.New("list exact tree failed")
+	}
+	return remoteportable.ParseGitTreeEntries(output)
+}
+
+// ReadBlob 读取 exact tree 中的一个 regular blob。
+func (resolver gitObjectResolver) ReadBlob(ctx context.Context, treeSHA, repoRelativePath string) ([]byte, error) {
+	blob, err := resolver.ReadTreeBlob(ctx, treeSHA, repoRelativePath)
+	if err != nil {
+		return nil, err
+	}
+	return blob.Data, nil
 }
 
 // parseGitTreeEntry 严格解析单个 NUL 终止的 git ls-tree 记录。
@@ -270,19 +336,20 @@ func parseGitTreeEntry(raw []byte, expectedPath string) (string, string, error) 
 	return fields[0], fields[1], nil
 }
 
-const gitObjectFormatMaxBytes = len("sha256\n")
+const gitObjectOutputMaxBytes = 1 << 20
 
 // runBoundedGitObjectCommand 执行受控只读 Git 查询并限制 stdout 字节数。
 func runBoundedGitObjectCommand(ctx context.Context, repositoryRoot string, maxBytes int, args ...string) ([]byte, error) {
-	if ctx == nil || repositoryRoot == "" || maxBytes <= 0 || len(args) == 0 {
-		return nil, errors.New("bounded git object command inputs are incomplete")
+	if err := validateBoundedGitInputs(ctx, repositoryRoot, maxBytes, args); err != nil {
+		return nil, err
 	}
-	if err := validateAbsolutePathComponents(repositoryRoot, true); err != nil {
+	identityBefore, err := repositoryRootIdentity(repositoryRoot)
+	if err != nil {
 		return nil, err
 	}
 	commandArgs := append([]string{"-C", repositoryRoot}, args...)
 	command := exec.CommandContext(ctx, "git", commandArgs...)
-	if err := gateprivate.ConfigureBoundedCommand(command); err != nil {
+	if err := remoteportable.ConfigureBoundedCommand(command); err != nil {
 		return nil, err
 	}
 	stdout, err := command.StdoutPipe()
@@ -292,14 +359,135 @@ func runBoundedGitObjectCommand(ctx context.Context, repositoryRoot string, maxB
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
-	return readBoundedGitObjectCommand(command, stdout, maxBytes)
+	output, commandErr := readBoundedGitObjectCommand(command, stdout, maxBytes)
+	if err := verifyRepositoryRootIdentity(repositoryRoot, identityBefore); err != nil {
+		return nil, err
+	}
+	return output, commandErr
+}
+
+// validateBoundedGitInputs 校验受控 Git 命令的 context、root 和 output 上限。
+func validateBoundedGitInputs(ctx context.Context, repositoryRoot string, maxBytes int, args []string) error {
+	if ctx == nil || repositoryRoot == "" || maxBytes <= 0 || len(args) == 0 {
+		return errors.New("bounded git object command inputs are incomplete")
+	}
+	return validateAbsolutePathComponents(repositoryRoot, true)
+}
+
+func verifyRepositoryRootIdentity(root, expected string) error {
+	actual, err := repositoryRootIdentity(root)
+	if err != nil || actual != expected {
+		return errors.New("repository root identity changed during Git command")
+	}
+	return nil
+}
+
+// repositoryRootIdentity 计算 root、.git、gitdir 和 commondir 的内部稳定身份串。
+func repositoryRootIdentity(root string) (string, error) {
+	if err := validateAbsolutePathComponents(root, true); err != nil {
+		return "", err
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return "", errors.New("repository root identity is unavailable")
+	}
+	rootID, err := stableFileIdentity(info)
+	if err != nil {
+		return "", err
+	}
+	storageID, err := repositoryStorageIdentity(root)
+	if err != nil {
+		return "", err
+	}
+	return rootID + "|" + storageID, nil
+}
+
+// repositoryStorageIdentity 核对 .git、linked gitdir 和实际 common-dir 的内部句柄身份。
+func repositoryStorageIdentity(root string) (string, error) {
+	gitPath := filepath.Join(root, ".git")
+	info, err := os.Lstat(gitPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "no-git-directory", nil
+		}
+		return "", errors.New("Git storage identity is unavailable")
+	}
+	if info.IsDir() {
+		return stableFileIdentity(info)
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("Git storage identity is invalid")
+	}
+	gitDir, gitFileID, err := linkedGitDirIdentity(root, gitPath, info)
+	if err != nil {
+		return "", err
+	}
+	commonDir, commonFileID, err := linkedGitCommonDirIdentity(gitDir)
+	if err != nil {
+		return "", err
+	}
+	commonInfo, err := os.Stat(commonDir)
+	if err != nil || !commonInfo.IsDir() {
+		return "", errors.New("linked Git common-dir identity is unavailable")
+	}
+	commonID, err := stableFileIdentity(commonInfo)
+	if err != nil {
+		return "", err
+	}
+	return gitFileID + "|" + gitDir + "|" + commonFileID + "|" + commonID, nil
+}
+
+// linkedGitDirIdentity 解析 .git gitdir 指针并冻结 linked worktree gitdir 身份。
+func linkedGitDirIdentity(root, gitPath string, info os.FileInfo) (string, string, error) {
+	data, err := readRegularBoundedFile(gitPath)
+	if err != nil || !strings.HasPrefix(string(data), "gitdir: ") {
+		return "", "", errors.New("linked Git storage identity is invalid")
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(string(data), "gitdir: "))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(root, gitDir)
+	}
+	gitDirInfo, err := os.Stat(gitDir)
+	if err != nil || !gitDirInfo.IsDir() {
+		return "", "", errors.New("linked Git dir identity is unavailable")
+	}
+	gitID, err := stableFileIdentity(info)
+	if err != nil {
+		return "", "", err
+	}
+	return gitDir, gitID, nil
+}
+
+// linkedGitCommonDirIdentity 解析 gitdir/commondir 并冻结 common-dir 文件与目录身份。
+func linkedGitCommonDirIdentity(gitDir string) (string, string, error) {
+	commondirPath := filepath.Join(gitDir, "commondir")
+	info, err := os.Lstat(commondirPath)
+	if os.IsNotExist(err) {
+		return gitDir, "no-commondir-file", nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return "", "", errors.New("linked Git commondir identity is invalid")
+	}
+	data, err := readRegularBoundedFile(commondirPath)
+	if err != nil {
+		return "", "", errors.New("linked Git commondir file is unreadable")
+	}
+	commonDir := strings.TrimSpace(string(data))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(gitDir, commonDir)
+	}
+	fileID, err := stableFileIdentity(info)
+	if err != nil {
+		return "", "", err
+	}
+	return commonDir, fileID, nil
 }
 
 // readBoundedGitObjectCommand 读取有限 stdout，并在超限时终止和回收精确进程。
 func readBoundedGitObjectCommand(command *exec.Cmd, stdout io.Reader, maxBytes int) ([]byte, error) {
 	output, readErr := io.ReadAll(io.LimitReader(stdout, int64(maxBytes)+1))
 	if len(output) > maxBytes {
-		killErr := command.Process.Kill()
+		killErr := command.Cancel()
 		waitErr := command.Wait()
 		if killErr != nil || waitErr != nil {
 			return nil, errors.New("bounded git object command termination failed")
@@ -315,80 +503,32 @@ func readBoundedGitObjectCommand(command *exec.Cmd, stdout io.Reader, maxBytes i
 
 // runGitObjectCommand 执行只读 git object 查询，不允许进入旧 gate binary。
 func runGitObjectCommand(ctx context.Context, repositoryRoot string, args ...string) ([]byte, error) {
-	if ctx == nil || repositoryRoot == "" || len(args) == 0 {
-		return nil, errors.New("git object command inputs are incomplete")
-	}
-	if err := validateAbsolutePathComponents(repositoryRoot, true); err != nil {
-		return nil, err
-	}
-	commandArgs := append([]string{"-C", repositoryRoot}, args...)
-	command := exec.CommandContext(ctx, "git", commandArgs...)
-	output, err := command.Output()
-	if err != nil {
-		return nil, err
-	}
-	return output, nil
-}
-
-// fileIdentityReader 只读取 descriptor 指定 authority 文件的 regular-file identity。
-type fileIdentityReader struct{}
-
-// ReadFileIdentity 返回 bounded、稳定的文件身份，不打开数据库或读取其内容。
-func (fileIdentityReader) ReadFileIdentity(ctx context.Context, path string) (string, error) {
-	if ctx == nil {
-		return "", errors.New("file identity context is nil")
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	if err := validateAbsolutePathComponents(path, false); err != nil {
-		return "", err
-	}
-	info, err := os.Lstat(path)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return "", errors.New("authority file is not a regular non-symlink file")
-	}
-	identity, err := stableFileIdentity(info)
-	if err != nil {
-		return "", err
-	}
-	return identity, nil
-}
-
-// ReadFileSHA256 返回 descriptor 指定 config 文件的 bounded 内容摘要。
-func (fileIdentityReader) ReadFileSHA256(ctx context.Context, path string) (string, error) {
-	if ctx == nil {
-		return "", errors.New("file digest context is nil")
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	data, err := readRegularBoundedFile(path)
-	if err != nil {
-		return "", err
-	}
-	return digestBytes(data), nil
+	return runBoundedGitObjectCommand(ctx, repositoryRoot, gitObjectOutputMaxBytes, args...)
 }
 
 // readRegularBoundedFile 读取 regular non-symlink 文件并限制内存占用。
 func readRegularBoundedFile(path string) ([]byte, error) {
-	if err := validateAbsolutePathComponents(path, false); err != nil {
+	file, openedInfo, err := openDescriptorFile(path)
+	if err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(path)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, errors.New("bound file is not a regular non-symlink file")
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, errors.New("bound file cannot be opened")
-	}
 	data, readErr := io.ReadAll(io.LimitReader(file, descriptorMaxBytes+1))
+	finalInfo, finalStatErr := file.Stat()
 	closeErr := file.Close()
-	if readErr != nil || closeErr != nil || len(data) > descriptorMaxBytes {
+	if err := validateStableBoundedRead(readErr, finalStatErr, closeErr, openedInfo, finalInfo); err != nil {
+		return nil, err
+	}
+	if len(data) > descriptorMaxBytes {
 		return nil, errors.New("bound file cannot be read within the size limit")
 	}
 	return data, nil
+}
+
+func validateStableBoundedRead(readErr, statErr, closeErr error, opened, final os.FileInfo) error {
+	if readErr != nil || statErr != nil || closeErr != nil || !sameFileIdentity(opened, final) {
+		return errors.New("bound file cannot be read within the size limit")
+	}
+	return nil
 }
 
 // validateAbsolutePathComponents 拒绝路径任一现存组件的 symlink 与类型漂移。
@@ -485,12 +625,6 @@ func integerFileIdentityField(value reflect.Value, names ...string) (uint64, boo
 		}
 	}
 	return 0, false
-}
-
-// writeProgress 写入固定阶段文本，禁止携带 descriptor、配置或路径内容。
-func writeProgress(stderr io.Writer, stage string) error {
-	_, err := fmt.Fprintln(stderr, "progress:", stage)
-	return err
 }
 
 type cliFailure struct {

@@ -16,7 +16,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterocitransport"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 	platformsqlite "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
@@ -74,7 +74,7 @@ func dispatchAutomaticRun(args []string, stdout, stderr io.Writer) error {
 	if err := writeAutomaticRunResult(stdout, result); err != nil {
 		return err
 	}
-	return writeProgress(stderr, "automatic run completed")
+	return nil
 }
 
 // automatic scheduler composition seam 尚未开放；后续 scheduler wiring 必须替换此签名断言而非公开手动 dispatch。
@@ -132,7 +132,7 @@ func parseAutomaticRunArgs(args []string) (string, string, string, error) {
 
 // runAutomaticExecution 组装 durable owner、receipt、probe、binder 并执行一次 workflow。
 func runAutomaticExecution(ctx context.Context, configPath, repositoryPath, runID string, stderr io.Writer) (result AutomaticRunResult, returnErr error) {
-	inputs, err := prepareAutomaticRouteInputs(ctx, configPath, repositoryPath, stderr)
+	inputs, err := prepareAutomaticRouteInputs(ctx, configPath, repositoryPath)
 	if err != nil {
 		return result, err
 	}
@@ -160,7 +160,7 @@ func runAutomaticExecution(ctx context.Context, configPath, repositoryPath, runI
 	if err != nil {
 		return result, err
 	}
-	units, err := remoteci.ProjectRepositoryWorkloadBootstrapExecutionUnits(inputs.repository.Manifest)
+	units, err := remoteportable.ProjectPortableWorkloadBootstrapExecutionUnits(inputs.repository.Workloads)
 	if err != nil {
 		return result, newCLIFailure("project automatic workloads", err)
 	}
@@ -177,35 +177,9 @@ func runAutomaticExecution(ctx context.Context, configPath, repositoryPath, runI
 		HeartbeatTTL:  time.Duration(inputs.config.HeartbeatTTLMS) * time.Millisecond,
 	})
 	if err != nil {
-		_ = writeProgress(stderr, "automatic run failed error_code="+automaticExecutionErrorCode(err))
 		return result, newCLIFailure("execute automatic local workflow", err)
 	}
 	return projectAutomaticRunResult(inputs.repository, runID, runResult), nil
-}
-
-// automaticExecutionErrorCode 将 workflow 错误链映射为稳定可观察分类。
-func automaticExecutionErrorCode(err error) string {
-	for _, candidate := range []struct {
-		code string
-		err  error
-	}{
-		{code: "command_executor", err: heterociexec.ErrCommandExecutor},
-		{code: "receipt_claim", err: heterociexec.ErrReceiptClaim},
-		{code: "receipt_read", err: heterociexec.ErrReceiptRead},
-		{code: "receipt_write", err: heterociexec.ErrReceiptWrite},
-		{code: "command_encoding", err: heterociexec.ErrCommandEncoding},
-		{code: "executor_binding", err: heterociworkflow.ErrExecutorBinding},
-		{code: "execution_state", err: heterociworkflow.ErrExecutionState},
-		{code: "receipt_required", err: heterociworkflow.ErrBatchReceiptRequired},
-		{code: "batch_failed", err: heterociworkflow.ErrBatchFailed},
-		{code: "cleanup_incomplete", err: heterociworkflow.ErrCleanupIncomplete},
-		{code: "invalid_request", err: heterociworkflow.ErrInvalidRequest},
-	} {
-		if errors.Is(err, candidate.err) {
-			return candidate.code
-		}
-	}
-	return "workflow_failed"
 }
 
 func buildAutomaticProbeTransport(inputs automaticRouteInputs) (heteroci.ProbeTransport, error) {
@@ -253,7 +227,7 @@ func buildAutomaticNodeExecutor(inputs automaticRouteInputs, node heteroci.NodeC
 	if err != nil {
 		return nil, newCLIFailure("construct automatic node runner", err)
 	}
-	factory := automaticNodeCommandFactory(inputs.repository.Manifest, node.Platform, binding)
+	factory := automaticNodeCommandFactory(inputs.repository.Workloads, node.Platform, binding)
 	executor, err := heterociexec.NewCommandBatchExecutor(factory, runner, receipts)
 	if err != nil {
 		return nil, newCLIFailure("construct automatic batch executor", err)
@@ -262,10 +236,10 @@ func buildAutomaticNodeExecutor(inputs automaticRouteInputs, node heteroci.NodeC
 }
 
 // automaticNodeCommandFactory 把 batch unit 映射为唯一 node batch request。
-func automaticNodeCommandFactory(manifest remoteci.RepositoryWorkloadManifest, platform heteroci.Platform, binding AutomaticProbeNode) heterociexec.CommandFactory {
-	byID := make(map[string]remoteci.RepositoryWorkload, len(manifest.Workloads))
-	for _, workload := range manifest.Workloads {
-		byID[workload.ID] = workload
+func automaticNodeCommandFactory(workloads []remoteportable.PortableManifestWorkload, platform heteroci.Platform, binding AutomaticProbeNode) heterociexec.CommandFactory {
+	byID := make(map[string]remoteportable.PortableManifestWorkload, len(workloads))
+	for _, workload := range workloads {
+		byID[workload.UnitID] = workload
 	}
 	return func(batch heterociworkflow.ExecutionBatch) (heterociexec.Command, error) {
 		request := heterocinode.BatchRequest{SchemaVersion: heterocinode.BatchRequestSchemaVersion, GoExecutable: binding.GoExecutable}
@@ -288,9 +262,9 @@ func automaticNodeCommandFactory(manifest remoteci.RepositoryWorkloadManifest, p
 	}
 }
 
-func automaticBatchWorkload(workload remoteci.RepositoryWorkload) heterocinode.BatchWorkload {
+func automaticBatchWorkload(workload remoteportable.PortableManifestWorkload) heterocinode.BatchWorkload {
 	return heterocinode.BatchWorkload{
-		UnitID: workload.ID, Kind: string(workload.Kind), ModuleRoot: workload.ModuleRoot, Package: workload.Package, Name: workload.Name,
+		UnitID: workload.UnitID, Kind: workload.Kind, ModuleRoot: workload.ModuleRoot, Package: workload.Package, Name: workload.Name,
 		ExecutionPolicy: heterocinode.BatchExecutionPolicy(workload.ExecutionPolicy),
 	}
 }
@@ -307,7 +281,7 @@ func automaticNodeRunnerConfig(inputs automaticRouteInputs, node heteroci.NodeCo
 		Timeout:   time.Duration(inputs.config.RunTimeoutMS) * time.Millisecond,
 		WaitDelay: time.Duration(inputs.config.ProbeWaitDelayMS) * time.Millisecond, LogWriter: logs,
 	}
-	workloadIdentity := inputs.repository.Manifest.ManifestDigest
+	workloadIdentity := inputs.repository.ManifestBlobSHA256
 	if node.Platform == heteroci.PlatformLinuxAMD64 {
 		base.Linux = &AutomaticLinuxRunnerConfig{
 			RunAsUser: binding.RunAsUser, DockerGroup: binding.DockerGroup, RunnerExecutable: binding.RunnerExecutable, RepoPath: repositoryPath, SharedRoot: binding.SharedRoot, CacheRoot: binding.CacheRoot,

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"path"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
 type detectedModuleIdentity struct {
@@ -36,7 +36,7 @@ func deriveDetectedRepositoryModuleIdentity(ctx context.Context, repository Dete
 }
 
 // deriveDetectedModuleIdentity 绑定一个 manifest module 的依赖文件。
-func deriveDetectedModuleIdentity(ctx context.Context, repository DetectedRepository, module remoteci.RepositoryWorkloadModule) (detectedModuleIdentity, error) {
+func deriveDetectedModuleIdentity(ctx context.Context, repository DetectedRepository, module remoteportable.RepositoryWorkloadModule) (detectedModuleIdentity, error) {
 	goMod, found, err := readDetectedModuleBlob(ctx, repository, path.Join(module.Root, "go.mod"))
 	if err != nil || !found {
 		return detectedModuleIdentity{}, errors.New("repository module go.mod is unavailable")
@@ -53,17 +53,17 @@ func deriveDetectedModuleIdentity(ctx context.Context, repository DetectedReposi
 }
 
 // readDetectedModuleBlob 从 exact tree 区分 absent 与 regular blob。
-func readDetectedModuleBlob(ctx context.Context, repository DetectedRepository, relative string) (remoteci.GitTreeBlob, bool, error) {
+func readDetectedModuleBlob(ctx context.Context, repository DetectedRepository, relative string) (remoteportable.GitTreeBlob, bool, error) {
 	listing, err := runBoundedGitObjectCommand(ctx, repository.Root, 4<<10, "ls-tree", "-z", repository.TreeSHA, "--", relative)
 	if err != nil {
-		return remoteci.GitTreeBlob{}, false, err
+		return remoteportable.GitTreeBlob{}, false, err
 	}
 	if len(listing) == 0 {
-		return remoteci.GitTreeBlob{}, false, nil
+		return remoteportable.GitTreeBlob{}, false, nil
 	}
-	blob, err := (gitObjectResolver{}).ReadTreeBlob(ctx, repository.Root, repository.TreeSHA, relative)
+	blob, err := (gitObjectResolver{repositoryRoot: repository.Root}).ReadTreeBlob(ctx, repository.TreeSHA, relative)
 	if err != nil {
-		return remoteci.GitTreeBlob{}, false, err
+		return remoteportable.GitTreeBlob{}, false, err
 	}
 	return blob, true, nil
 }

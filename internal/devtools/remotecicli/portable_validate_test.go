@@ -2,7 +2,6 @@ package remotecicli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"go/ast"
@@ -14,8 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
 // TestValidateRequiresExplicitDescriptor 锁定 validate 的显式绝对 descriptor 边界。
@@ -40,15 +40,12 @@ func TestValidateRequiresExplicitDescriptor(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, stdout, stderr := executeCLI(tc.args)
+			code, stdout, _ := executeCLI(tc.args)
 			if code == 0 {
 				t.Fatalf("Run(%q) unexpectedly succeeded", tc.args)
 			}
 			if stdout != "" {
 				t.Fatalf("Run(%q) wrote stdout on rejection: %q", tc.args, stdout)
-			}
-			if stderr == "" {
-				t.Fatalf("Run(%q) omitted a bounded diagnostic", tc.args)
 			}
 		})
 	}
@@ -83,9 +80,9 @@ func TestValidateRejectsSymlinkDescriptor(t *testing.T) {
 func TestValidateRejectsDirectoryDescriptor(t *testing.T) {
 	t.Parallel()
 
-	code, stdout, stderr := executeCLI([]string{"validate", "--descriptor", t.TempDir()})
-	if code == 0 || stdout != "" || stderr == "" {
-		t.Fatalf("directory descriptor result = code %d stdout %q stderr %q", code, stdout, stderr)
+	code, stdout, _ := executeCLI([]string{"validate", "--descriptor", t.TempDir()})
+	if code == 0 || stdout != "" {
+		t.Fatalf("directory descriptor result = code %d stdout %q", code, stdout)
 	}
 }
 
@@ -94,17 +91,34 @@ func TestValidateBindsExactRepositoryObjects(t *testing.T) {
 	t.Parallel()
 
 	descriptorPath := portableCLIRealDescriptor(t)
-	code, stdout, stderr := executeCLI([]string{"validate", "--descriptor", descriptorPath})
-	if code != 0 || !strings.Contains(stdout, `"binding_sha256":"sha256:`) ||
-		!strings.Contains(stdout, `"repository_id":"fixture"`) || !strings.Contains(stdout, `"status":"NOT_VERIFIED"`) {
+	code, stdout, stderr := executeCLI([]string{"validate", "--descriptor", descriptorPath, "--repository", filepath.Dir(descriptorPath)})
+	if code != 0 {
 		t.Fatalf("validate result = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
-	for _, forbidden := range []string{"repository_root", "config_path", "ledger_path"} {
-		if strings.Contains(stdout, forbidden) {
-			t.Fatalf("validate output leaked %q: %q", forbidden, stdout)
+	assertPortableValidationOutput(t, stdout)
+	assertPortableProgressStages(t, stderr)
+}
+
+func assertPortableValidationOutput(t *testing.T, stdout string) {
+	t.Helper()
+	for _, required := range []string{`"schema":"remote-ci-validation-result/v1"`, `"binding_sha256":"sha256:`, `"contract_id":"remote-ci-four-node/v1"`, `"authority":"LOCAL_NON_AUTHORITATIVE"`, `"execution_pool_contract":"remote-ci-four-node/v1"`, `"repository_id":"fixture"`, `"status":"validated"`} {
+		if !strings.Contains(stdout, required) {
+			t.Fatalf("validation output omitted %q: %q", required, stdout)
 		}
 	}
-	assertPortableProgressStages(t, stderr)
+	for _, forbidden := range []string{`"schema":"remote-ci-result/v1"`, `"node_id"`, "repository_root", "config_path", "ledger_path"} {
+		if strings.Contains(stdout, forbidden) {
+			t.Fatalf("validation output leaked or claimed %q: %q", forbidden, stdout)
+		}
+	}
+}
+
+func TestValidateOutputDeclaresMacOSNonExecutor(t *testing.T) {
+	descriptorPath := portableCLIRealDescriptor(t)
+	code, stdout, _ := executeCLI([]string{"validate", "--descriptor", descriptorPath, "--repository", filepath.Dir(descriptorPath)})
+	if code != 0 || !strings.Contains(stdout, `"authority":"LOCAL_NON_AUTHORITATIVE"`) || strings.Contains(stdout, `"node_id"`) || strings.Contains(stdout, `"schema":"remote-ci-result/v1"`) {
+		t.Fatalf("validate output incorrectly claims execution: code=%d stdout=%q", code, stdout)
+	}
 }
 
 // portableCLIRealDescriptor 建立真实 Git ODB 与 authority 文件并返回 canonical descriptor。
@@ -123,41 +137,30 @@ func portableCLIRealDescriptor(t *testing.T) string {
 	commit := runGitFixture(t, repository, "rev-parse", "HEAD")
 	tree := runGitFixture(t, repository, "rev-parse", "HEAD^{tree}")
 
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	ledgerPath := filepath.Join(t.TempDir(), "ledger.sqlite")
-	mustWriteTestFile(t, configPath, []byte(`{"schema":1}`))
-	mustWriteTestFile(t, ledgerPath, []byte("sqlite-fixture"))
-	reader := fileIdentityReader{}
-	ledgerIdentity := mustFileIdentity(t, reader, ledgerPath)
-	configDigest := mustFileDigest(t, reader, configPath)
-	input := portableCLIFixtureInput(t, repository, commit, tree, manifest, configPath, configDigest, ledgerPath, ledgerIdentity)
+	input := portableCLIFixtureInput(t, repository, commit, tree, manifest)
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptorPath := filepath.Join(t.TempDir(), "descriptor.json")
+	descriptorPath := filepath.Join(repository, "descriptor.json")
 	mustWriteTestFile(t, descriptorPath, raw)
-	return descriptorPath
+	resolvedRepository, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(resolvedRepository, "descriptor.json")
 }
 
-// portableCLIManifest 生成 target tree 所拥有的 strict workload manifest。
+// portableCLIManifest 生成 target tree 所拥有的 top-level portable manifest。
 func portableCLIManifest(t *testing.T) []byte {
 	t.Helper()
-	manifest := remoteci.RepositoryWorkloadManifest{
-		SchemaVersion:         remoteci.PortableWorkloadManifestSchemaVersion,
-		RepositoryID:          "fixture",
-		Modules:               []remoteci.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}},
-		ExcludedNestedModules: []string{},
-		Profiles:              []remoteci.RepositoryWorkloadProfile{{Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/example"}}},
-		Workloads: []remoteci.RepositoryWorkload{{
-			ID: "go-test/example", Kind: remoteci.RepositoryWorkloadKindGoTest, ModuleRoot: ".",
-			Package: "./example", Name: "TestExample", Platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64,
-			Runtime:             remoteci.RepositoryWorkloadRuntimeUbuntuContainer,
-			BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
-			ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
-		}},
+	digest := digestBytes([]byte("portable-fixture"))
+	engineFacts, err := currentPortableEngineFacts()
+	if err != nil {
+		t.Fatal(err)
 	}
-	encoded, err := manifest.CanonicalEncode()
+	manifest := remoteportable.PortableManifest{SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID, Engine: remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: engineFacts.ProtocolABIDigest, RequiredToolchainDigest: engineFacts.ToolchainDigest, RequiredCapabilities: []string{"go"}}, Target: remoteportable.PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"}, Workloads: []remoteportable.PortableManifestWorkload{{UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}}, Profile: remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"}, LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10}, Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"}, Modules: []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{}}
+	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,10 +170,30 @@ func portableCLIManifest(t *testing.T) []byte {
 // assertPortableProgressStages 验证 validate 的 bounded stage 日志完整可观察。
 func assertPortableProgressStages(t *testing.T, stderr string) {
 	t.Helper()
-	for _, stage := range []string{"descriptor path accepted", "descriptor decoded", "portable run bound"} {
-		if !strings.Contains(stderr, stage) {
-			t.Fatalf("validate log omitted stage %q: %q", stage, stderr)
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("validate event count = %d, stderr=%q", len(lines), stderr)
+	}
+	previousSeq := 0
+	for _, line := range lines {
+		var event struct {
+			Schema         string `json:"schema"`
+			OperationID    string `json:"operation_id"`
+			ManifestDigest string `json:"manifest_digest"`
+			Seq            int    `json:"seq"`
+			Time           string `json:"time"`
+			NodeIDDigest   string `json:"node_id_digest"`
 		}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Schema != "remote-ci-event/v1" || event.OperationID == "" || event.ManifestDigest == "" || event.NodeIDDigest == "" || event.Seq != previousSeq+1 {
+			t.Fatalf("invalid validation event: %q", line)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, event.Time); err != nil {
+			t.Fatalf("invalid event time: %q", event.Time)
+		}
+		previousSeq = event.Seq
 	}
 }
 
@@ -190,51 +213,10 @@ func mustWriteTestFile(t *testing.T, path string, data []byte) {
 	}
 }
 
-// mustFileIdentity 读取测试 ledger 身份，失败时终止当前测试。
-func mustFileIdentity(t *testing.T, reader fileIdentityReader, path string) string {
+// portableCLIFixtureInput 构造 locator-only 的 exact tree binding descriptor。
+func portableCLIFixtureInput(t *testing.T, repository, commit, tree string, manifest []byte) remoteportable.PortableRunInput {
 	t.Helper()
-	identity, err := reader.ReadFileIdentity(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return identity
-}
-
-// mustFileDigest 读取测试 config 摘要，失败时终止当前测试。
-func mustFileDigest(t *testing.T, reader fileIdentityReader, path string) string {
-	t.Helper()
-	digest, err := reader.ReadFileSHA256(context.Background(), path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return digest
-}
-
-// portableCLIFixtureInput 构造只用于真实适配器测试的完整 validate-only 描述符。
-func portableCLIFixtureInput(t *testing.T, repository, commit, tree string, manifest []byte, configPath, configDigest, ledgerPath, ledgerIdentity string) remoteci.PortableRunInput {
-	t.Helper()
-	digest := "sha256:" + strings.Repeat("a", 64)
-	abiDigest, err := remoteci.RepositoryWorkloadManifestABIDigest()
-	if err != nil {
-		t.Fatalf("derive workload manifest ABI digest: %v", err)
-	}
-	return remoteci.PortableRunInput{
-		ExecutionProvider: remoteci.PortableExecutionProvider,
-		ContractID:        remoteci.PortableRunContractID,
-		Mode:              remoteci.PortableRunModeValidateOnly,
-		Engine: remoteci.PortableRunEngine{RepositoryRoot: repository, CommitSHA: commit, TreeSHA: tree,
-			ProtocolABIDigest: digest, RuntimeArtifactSHA256: digest, ToolchainSHA256: digest},
-		Target: remoteci.PortableRunTarget{RepositoryRoot: repository, RepositoryID: "fixture", CommitSHA: commit, TreeSHA: tree,
-			BaseCommitSHA: commit, ObjectFormat: "sha1", SourceBaseline: remoteci.PortableSourceBaseline{
-				ObjectFormat: "sha1", BaselineTreeSHA: tree, BaselineCommitSHA: commit,
-				BundleContractID: remoteci.PortableBundleContractID, ArtifactKind: "source-baseline",
-				ArtifactKey: "fixture/baseline", ArtifactSHA256: digest, ArtifactSizeBytes: 1,
-			}},
-		WorkloadManifest: remoteci.PortableWorkloadManifest{RepoRelativePath: "ci/workloads.json", SHA256: digestBytes(manifest), ABIDigest: abiDigest,
-			SchemaVersion: remoteci.PortableWorkloadManifestSchemaVersion, RepositoryID: "fixture"},
-		Authority: remoteci.PortableRunAuthority{ConfigPath: configPath, ConfigSHA256: configDigest,
-			LedgerPath: ledgerPath, LedgerFileIdentity: ledgerIdentity},
-	}
+	return remoteportable.PortableRunInput{SchemaVersion: remoteportable.PortableRunRequestSchemaVersion, ContractID: remoteportable.PortableManifestContractID, OperationID: strings.Repeat("a", 64), RepositoryID: "fixture", ObjectFormat: "sha1", CommitSHA: commit, TreeSHA: tree, ManifestPath: "ci/workloads.json", ManifestBlobSHA256: digestBytes(manifest)}
 }
 
 // runGitFixture 执行测试仓库内的只读或 fixture Git 命令并返回单行输出。
@@ -286,7 +268,7 @@ func TestRetiredCommandsDoNotCreateExecutionPaths(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		code, stdout, stderr := executeCLI(testCase.args)
-		if code != 1 || stdout != "" || stderr != "super-dolphin-remote-ci: unknown command\n" {
+		if code != 1 || stdout != "" || stderr != "" {
 			t.Fatalf("command %q result = code %d stdout %q stderr %q", testCase.command, code, stdout, stderr)
 		}
 	}
@@ -469,4 +451,25 @@ func mustReadFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+type failingEventWriter struct{}
+
+func (failingEventWriter) Write([]byte) (int, error) {
+	return 0, errors.New("event writer failure")
+}
+
+func TestValidationEventWriterFailureBlocksPublication(t *testing.T) {
+	if err := writePortableValidationEvent(failingEventWriter{}, strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64), 1, "manifest_binding", "portable_run_bound"); err == nil {
+		t.Fatal("validation event writer failure was swallowed")
+	}
+}
+
+func TestValidateEventFailureBlocksStdoutPublication(t *testing.T) {
+	descriptorPath := portableCLIRealDescriptor(t)
+	var stdout bytes.Buffer
+	err := dispatchCLI([]string{"validate", "--descriptor", descriptorPath, "--repository", filepath.Dir(descriptorPath)}, &stdout, failingEventWriter{})
+	if err == nil || stdout.Len() != 0 {
+		t.Fatalf("validation event failure published result: err=%v stdout=%q", err, stdout.String())
+	}
 }

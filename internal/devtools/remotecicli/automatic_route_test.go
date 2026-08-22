@@ -8,14 +8,14 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
 // TestAutomaticRouteCLIIsNotPublic 锁定 route 不能推进 owner epoch。
 func TestAutomaticRouteCLIIsNotPublic(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"route", "--config", "/tmp/config", "--repository", "/tmp/repository"}, &stdout, &stderr)
-	if code != 1 || stdout.Len() != 0 || stderr.String() != "super-dolphin-remote-ci: unknown command\n" {
+	if code != 1 || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
@@ -25,7 +25,7 @@ func TestAutomaticRunCLIIsNotPublic(t *testing.T) {
 	for _, forbidden := range []string{"--node", "--node-id", "--tier", "--eci-tier", "--executor"} {
 		var stdout, stderr bytes.Buffer
 		code := Run([]string{"run", forbidden, "manual"}, &stdout, &stderr)
-		if code != 1 || stdout.Len() != 0 || stderr.String() != "super-dolphin-remote-ci: unknown command\n" {
+		if code != 1 || stdout.Len() != 0 || stderr.Len() != 0 {
 			t.Fatalf("flag=%s code=%d stdout=%q stderr=%q", forbidden, code, stdout.String(), stderr.String())
 		}
 	}
@@ -87,9 +87,10 @@ func TestAutomaticRunResultRejectsOversizeBeforeStdoutWrite(t *testing.T) {
 }
 
 func TestAutomaticBatchWorkloadMapsEveryManifestKind(t *testing.T) {
-	for _, workload := range []remoteci.RepositoryWorkload{
-		{ID: "test", Kind: remoteci.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./pkg", Name: "TestExact", ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal},
-		{ID: "package", Kind: remoteci.RepositoryWorkloadKindGoPackage, ModuleRoot: ".", Package: ".", ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal},
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, workload := range []remoteportable.PortableManifestWorkload{
+		{UnitID: "test", CommandDigest: digest, ExecutionDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1, HistoricalEstimateMS: 1, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./pkg", Name: "TestExact", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
+		{UnitID: "package", CommandDigest: digest, ExecutionDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1, HistoricalEstimateMS: 1, Kind: remoteportable.RepositoryWorkloadKindGoPackage, ModuleRoot: ".", Package: ".", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
 	} {
 		mapped := automaticBatchWorkload(workload)
 		if mapped.Kind != string(workload.Kind) {

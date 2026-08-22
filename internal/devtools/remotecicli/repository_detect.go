@@ -9,22 +9,23 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
 const portableWorkloadManifestRelativePath = ".super-dolphin/remote-ci-workloads.json"
 
 // DetectedRepository 是独立远程 CI 入口从当前 exact Git tree 取得的仓库身份。
 type DetectedRepository struct {
-	Root              string
-	RepositoryID      string
-	ObjectFormat      string
-	CommitSHA         string
-	TreeSHA           string
-	ManifestPath      string
-	ManifestSHA256    string
-	ManifestABIDigest string
-	Manifest          remoteci.RepositoryWorkloadManifest
+	Root               string
+	RepositoryID       string
+	ObjectFormat       string
+	CommitSHA          string
+	TreeSHA            string
+	ManifestPath       string
+	ManifestBlobSHA256 string
+	ManifestABIDigest  string
+	Manifest           remoteportable.PortableManifest
+	Workloads          []remoteportable.PortableManifestWorkload
 }
 
 // DetectRepository 自动解析 startPath 所属的唯一 clean Git 仓库，并严格绑定仓库自有 workload manifest。
@@ -111,23 +112,24 @@ func repositoryDetectionGitField(ctx context.Context, root string, args ...strin
 
 func bindDetectedRepositoryManifest(ctx context.Context, root, objectFormat, commit, tree string) (DetectedRepository, error) {
 	manifestPath := filepath.Join(root, filepath.FromSlash(portableWorkloadManifestRelativePath))
-	blob, err := (gitObjectResolver{}).ReadTreeBlob(ctx, root, tree, portableWorkloadManifestRelativePath)
+	blob, err := (gitObjectResolver{repositoryRoot: root}).ReadTreeBlob(ctx, tree, portableWorkloadManifestRelativePath)
 	if err != nil {
 		return DetectedRepository{}, errors.New("read repository workload manifest failed")
 	}
 	data := blob.Data
-	manifest, err := remoteci.DecodeRepositoryWorkloadManifest(data)
+	manifest, err := remoteportable.DecodePortableManifest(data)
 	if err != nil {
 		return DetectedRepository{}, fmt.Errorf("decode repository workload manifest: %w", err)
 	}
-	abiDigest, err := remoteci.RepositoryWorkloadManifestABIDigest()
+	abiDigest, err := remoteportable.PortableManifestABIDigest()
 	if err != nil {
 		return DetectedRepository{}, errors.New("derive repository workload manifest ABI failed")
 	}
 	return DetectedRepository{
-		Root: root, RepositoryID: manifest.RepositoryID, ObjectFormat: objectFormat,
+		Root: root, RepositoryID: manifest.Target.RepositoryID, ObjectFormat: objectFormat,
 		CommitSHA: commit, TreeSHA: tree, ManifestPath: manifestPath,
-		ManifestSHA256: digestBytes(data), ManifestABIDigest: abiDigest, Manifest: manifest,
+		ManifestBlobSHA256: digestBytes(data), ManifestABIDigest: abiDigest, Manifest: manifest,
+		Workloads: append([]remoteportable.PortableManifestWorkload(nil), manifest.Workloads...),
 	}, nil
 }
 

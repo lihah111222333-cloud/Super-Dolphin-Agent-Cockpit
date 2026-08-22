@@ -2,11 +2,14 @@
 
 状态：Accepted
 
-适用范围：独立的 super-dolphin-remote-ci 二进制、internal/devtools/remoteci、internal/devtools/heteroci、internal/devtools/heterociowner，以及 V3 和 WJ target adapter。本文是跨仓库共用的生产合同；目标仓库不复制执行器、权威库或调度策略。
+适用范围：独立的 super-dolphin-remote-ci 二进制、internal/devtools/remoteportable、internal/devtools/heteroci、internal/devtools/heterociowner，以及 V3 和 WJ target adapter。本文是跨仓库共用的生产合同；目标仓库不复制执行器、权威库或调度策略。
 
 契约身份：remote-ci-four-node/v1
-请求协议：remote-ci-portable-manifest/v1
-结果协议：remote-ci-result/v1
+请求协议：remote-ci-run-request/v1（外部 operation/locator binding）
+目标清单协议：remote-ci-portable-manifest/v1（target tree repository-owned static manifest）
+绑定摘要域：remote-ci-run-binding/v1（external locator + raw blob + actual engine facts）
+校验结果协议：remote-ci-validation-result/v1
+结果协议：remote-ci-result/v1（仅 execute terminal）
 事件协议：remote-ci-event/v1
 远程权威：remote-ci-postgresql-primary/v1
 唯一执行池：四台节点，Ubuntu-01、Ubuntu-02、Windows-01、Windows-02
@@ -22,26 +25,26 @@ super-dolphin-remote-ci 是独立构建、独立发布、独立运行的二进�
 
 每次请求必须显式绑定：
 
-- engine：二进制 SHA-256、协议 ABI 摘要、工具链摘要和 engine 版本；
+- engine：composition 从独立 binary/runtime 计算的二进制 SHA-256、协议 ABI 摘要、工具链摘要和能力；
 - target：repository_id、object_format、exact commit_sha、exact tree_sha；
-- workload：manifest 摘要、profile、capacity policy 摘要和 operation_id；
+- workload：manifest content/raw blob 摘要、profile、capacity policy 摘要和 operation_id；
 - authority：本合同的 contract_id 与 PostgreSQL authority identity。
 
 engine identity 与 target identity 属于不同域。相同 engine 二进制可以服务 V3 和 WJ；target 仓库、commit、tree、workload 或 manifest ABI 改变时，必须产生新的 target binding digest。不得从 cwd、HEAD、branch、默认仓库、宿主工作树或可执行文件位置推断任一 identity，也不得要求 target 仓库含有某个 Gate 路径。
 
 ## 2. Portable manifest
 
-唯一输入是 target tree 内的 repository-owned portable manifest。manifest 使用 canonical JSON，最大 1 MiB；decoder 和 encoder 共同拒绝 unknown、duplicate、null、missing、trailing、非 canonical bytes、过期 schema、零值 digest、无效 Git object、绝对宿主路径、符号链接路径和未绑定的临时目录。
+唯一 repository-owned workload/policy input 是 target tree 内的 portable manifest；external run request 只提供 operation、repository locator、exact commit/tree/path/raw blob digest，不复制 workload 内容或 engine facts。manifest 使用 canonical JSON，最大 1 MiB；decoder 和 encoder 共同拒绝 unknown、duplicate、null、missing、trailing、非 canonical bytes、过期 schema、零值 digest、无效 Git object、绝对宿主路径、符号链接路径和未绑定的临时目录。
 
 manifest 必须声明：
 
-- schema_version、contract_id、operation_id、manifest_sha256；
-- engine binary digest、protocol_abi_digest、toolchain_digest；
-- target repository_id、object_format、commit_sha、tree_sha 和 repo-relative worktree mount；
+- schema_version、contract_id；operation_id 属于外部 request binding，不能写入 repository-owned manifest；
+- engine static policy：required_protocol_abi_digest、required_toolchain_digest 和 required engine capabilities；actual binary/protocol/toolchain facts 由 composition 从正在运行的独立 binary 与 runtime 计算，不能由 manifest 或 descriptor 冒充；
+- target repository_id、object_format 和 repo-relative worktree mount；exact commit_sha、tree_sha、manifest_path 与 manifest_blob_sha256 只由外部 binding 显式携带，不能写入 target tree manifest；
 - workload 的稳定 unit_id、命令摘要、target platform、runtime capability、CPU/内存需求、历史估时和 execution digest；
 - profile、capacity_policy_digest、required node capabilities 和日志策略。
 
-manifest.sha256 必须由提交 tree 中 manifest blob 的原始字节计算，并在执行前重算；宿主绝对 manifest、宿主绝对 worktree、环境变量发现、默认路径和第二 loader 均拒绝。manifest 不携带凭据，不携带权威状态，不携带可执行器地址。
+repository-owned manifest 不携带自身 raw blob SHA-256、operation_id、actual engine identity、commit_sha/tree_sha 或 manifest_path，避免不可实现的自引用和重复事实；外部 binding 必须携带 operation_id、repo-relative manifest_path 与 manifest_blob_sha256，并从 exact target commit/tree blob 原始字节重算后逐字段比对。Bind 只能接受 composition 注入且已计算的 actual engine facts；这些 facts 必须进入 domain-separated binding digest，并与静态 engine policy exact 比对。若实现增加 content digest，只能使用省略 digest 字段后的 domain-separated canonical digest，不能命名或冒充 raw blob SHA-256。宿主绝对 manifest、宿主绝对 worktree、环境变量发现、默认路径和第二 loader 均拒绝。manifest 不携带凭据，不携带 PostgreSQL authority generation，不携带可执行器地址。
 
 ## 3. PostgreSQL remote authority
 
@@ -78,7 +81,7 @@ Windows 节点不共享 object store、repository、worktree、cache、manifest 
 
 ## 6. Observable logs
 
-stdout 对每个可解析调用只能输出一个 bounded canonical JSON object，协议为 remote-ci-result/v1。结果至少包含 status、operation_id、manifest_digest、plan_digest、node_id、executor_kind、started_at、finished_at、exit_code、cleanup_state，以及 CapacityBlocker 或执行错误的稳定 code。
+stdout 对每个可解析调用只能输出一个 bounded canonical JSON object。validate 只输出 remote-ci-validation-result/v1（status=validated、contract_id、authority=LOCAL_NON_AUTHORITATIVE、execution_pool_contract、operation_id、manifest_digest 和 binding facts），不得冒充 terminal result或声称已选择节点；只有 execute terminal 才输出 remote-ci-result/v1。terminal result 至少包含 status、operation_id、manifest_digest、plan_digest、node_id、executor_kind、started_at、finished_at、exit_code、cleanup_state，以及 CapacityBlocker 或执行错误的稳定 code。
 
 stderr 只允许 JSONL remote-ci-event/v1。每行必须包含 operation_id、manifest_digest、严格递增 seq、RFC3339 时间、固定 stage、state、node_id_digest 和稳定 code；允许阶段固定为 request_validation、manifest_binding、capacity_snapshot、reservation、materialize、execute、cleanup、terminal。禁止自由文本、凭据、token、绝对路径、raw command、raw provider response 和底层 error string。日志 channel 写失败必须阻断并在 PG 中保留 bounded failure code。
 

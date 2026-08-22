@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
 func TestDetectRepositoryAutomaticallyBindsCurrentGitIdentity(t *testing.T) {
@@ -34,10 +34,14 @@ func TestDetectRepositoryAutomaticallyBindsCurrentGitIdentity(t *testing.T) {
 
 func assertDetectedRepositoryIdentity(t *testing.T, detected DetectedRepository, root, repositoryID string) {
 	t.Helper()
-	if detected.Root != root || detected.RepositoryID != repositoryID || detected.ObjectFormat != "sha1" {
-		t.Fatalf("detected identity = %#v", detected)
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(detected.CommitSHA) != 40 || len(detected.TreeSHA) != 40 || detected.ManifestSHA256 == "" || detected.ManifestABIDigest == "" {
+	if detected.Root != resolvedRoot || detected.RepositoryID != repositoryID || detected.ObjectFormat != "sha1" {
+		t.Fatalf("detected identity root=%q want=%q id=%q want=%q format=%q", detected.Root, root, detected.RepositoryID, repositoryID, detected.ObjectFormat)
+	}
+	if len(detected.CommitSHA) != 40 || len(detected.TreeSHA) != 40 || detected.ManifestBlobSHA256 == "" || detected.ManifestABIDigest == "" {
 		t.Fatalf("detected immutable fields = %#v", detected)
 	}
 }
@@ -66,13 +70,13 @@ func TestDetectRepositoryReadsManifestFromExactTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := remoteci.DecodeRepositoryWorkloadManifest(raw)
+	manifest, err := remoteportable.DecodePortableManifest(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.RepositoryID = "worktree-shadow"
+	manifest.Target.RepositoryID = "worktree-shadow"
 	manifest.Modules[0].ModulePath = "example.invalid/worktree-shadow"
-	shadow, err := manifest.CanonicalEncode()
+	shadow, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,28 +125,18 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 	runDetectedFixtureGit(t, root, "init", "--quiet")
 	runDetectedFixtureGit(t, root, "config", "user.email", "fixture@example.invalid")
 	runDetectedFixtureGit(t, root, "config", "user.name", "Fixture")
-	manifest := remoteci.RepositoryWorkloadManifest{
-		SchemaVersion: remoteci.PortableWorkloadManifestSchemaVersion, RepositoryID: repositoryID,
-		Modules:               []remoteci.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/" + repositoryID}},
-		ExcludedNestedModules: []string{},
-		Profiles: []remoteci.RepositoryWorkloadProfile{{
-			Profile: "local-fast", RequiredWorkloadIDs: []string{"go-test/example/TestFixture", "go-test/windows/example/TestFixture"},
-		}},
-		Workloads: []remoteci.RepositoryWorkload{{
-			ID: "go-test/example/TestFixture", Kind: remoteci.RepositoryWorkloadKindGoTest,
-			ModuleRoot: ".", Package: "./example", Name: "TestFixture",
-			Platform: remoteci.RepositoryWorkloadPlatformLinuxAMD64, Runtime: remoteci.RepositoryWorkloadRuntimeUbuntuContainer,
-			BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
-			ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
-		}, {
-			ID: "go-test/windows/example/TestFixture", Kind: remoteci.RepositoryWorkloadKindGoTest,
-			ModuleRoot: ".", Package: "./example", Name: "TestFixture",
-			Platform: remoteci.RepositoryWorkloadPlatformWindowsAMD64, Runtime: remoteci.RepositoryWorkloadRuntimeWindowsNative,
-			BootstrapEstimateMS: 1_000, CPUMilli: 1_000, MemoryBytes: 1 << 30,
-			ExecutionPolicy: remoteci.RepositoryWorkloadExecutionPolicyNormal,
-		}},
+	digest := "sha256:" + strings.Repeat("a", 64)
+	manifest := remoteportable.PortableManifest{
+		SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID,
+		Engine:    remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: digest, RequiredToolchainDigest: digest, RequiredCapabilities: []string{"go"}},
+		Target:    remoteportable.PortableManifestTarget{RepositoryID: repositoryID, ObjectFormat: "sha1", WorktreeMount: "worktree"},
+		Workloads: []remoteportable.PortableManifestWorkload{{UnitID: "go-test/example/TestFixture", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestFixture", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {UnitID: "go-test/windows/example/TestFixture", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestFixture", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}},
+		Profile:   remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"},
+		LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
+		Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
+		Modules:   []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/" + repositoryID}}, ExcludedNestedModules: []string{},
 	}
-	encoded, err := manifest.CanonicalEncode()
+	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatalf("encode manifest: %v", err)
 	}
@@ -172,7 +166,11 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 		t.Fatalf("write Windows example test: %v", err)
 	}
 	commitDetectedFixture(t, root, "initial")
-	return root
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolvedRoot
 }
 
 func commitDetectedFixture(t *testing.T, root, message string) {

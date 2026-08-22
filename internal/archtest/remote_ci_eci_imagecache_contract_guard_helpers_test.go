@@ -54,16 +54,6 @@ func remoteCISelectorMatches(expression *ast.SelectorExpr, packageName, selector
 	return ok && identifier.Name == packageName && expression.Sel.Name == selectorName
 }
 
-func remoteCIFunctionExists(file *ast.File, want string) bool {
-	for _, declaration := range file.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if ok && function.Name.Name == want {
-			return true
-		}
-	}
-	return false
-}
-
 func remoteCIFunctionByName(file *ast.File, want string) *ast.FuncDecl {
 	for _, declaration := range file.Decls {
 		function, ok := declaration.(*ast.FuncDecl)
@@ -121,69 +111,6 @@ func remoteCIContainsAny(value string, markers []string) bool {
 		}
 	}
 	return false
-}
-
-func remoteCIConcurrencyCapViolations(file *ast.File) []string {
-	violations := map[string]bool{}
-	for identifier := range remoteCIForbiddenIdentifiers(file) {
-		remoteCIRecordAdmissionCapIdentifier(violations, identifier)
-	}
-	ast.Inspect(file, func(node ast.Node) bool {
-		remoteCIRecordConcurrencyCapCall(violations, node)
-		return true
-	})
-	return remoteCIViolationList(violations)
-}
-
-func remoteCIRecordAdmissionCapIdentifier(violations map[string]bool, identifier string) {
-	if identifier == "SetLimit" || remoteCIAdmissionCapIdentifier(identifier) {
-		violations["identifier "+identifier] = true
-	}
-}
-
-func remoteCIRecordConcurrencyCapCall(violations map[string]bool, node ast.Node) {
-	call, ok := node.(*ast.CallExpr)
-	if !ok {
-		return
-	}
-	if remoteCIIsSemaphoreNewWeightedCall(call) {
-		violations["call semaphore.NewWeighted"] = true
-	}
-	if channel, ok := remoteCIAdmissionChannelFromMakeCall(call); ok {
-		violations["buffered admission channel type "+remoteCIExpressionName(channel.Value)] = true
-	}
-}
-
-func remoteCIIsSemaphoreNewWeightedCall(call *ast.CallExpr) bool {
-	selector, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && remoteCISelectorMatches(selector, "semaphore", "NewWeighted")
-}
-
-func remoteCIAdmissionChannelFromMakeCall(call *ast.CallExpr) (*ast.ChanType, bool) {
-	identifier, ok := call.Fun.(*ast.Ident)
-	if !ok || identifier.Name != "make" || len(call.Args) != 2 {
-		return nil, false
-	}
-	channel, ok := call.Args[0].(*ast.ChanType)
-	if !ok || !remoteCIAdmissionChannelType(channel) {
-		return nil, false
-	}
-	return channel, true
-}
-
-func remoteCIAdmissionCapIdentifier(identifier string) bool {
-	normalized := strings.ToLower(identifier)
-	for _, marker := range []string{"maxshard", "maxconcurrency", "shardbatch", "batchlimit", "coordinatorlimit", "admissioncap", "admissionlimit", "globalhooklock", "activejoblock", "calibrationlock", "sharedrawtoken"} {
-		if strings.Contains(normalized, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func remoteCIAdmissionChannelType(channel *ast.ChanType) bool {
-	_, ok := channel.Value.(*ast.StructType)
-	return ok
 }
 
 func remoteCIExpressionName(expression ast.Expr) string {
@@ -470,9 +397,9 @@ func TestRemoteCIFourNodeContractTextGuard(t *testing.T) {
 	root := findRepoRoot(t)
 	contract := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash("docs/契约/remote-ci-eci-imagecache-contract.md")))
 	for _, required := range []string{
-		"状态：Accepted", "remote-ci-four-node/v1", "remote-ci-portable-manifest/v1",
+		"状态：Accepted", "remote-ci-four-node/v1", "remote-ci-run-request/v1", "remote-ci-portable-manifest/v1", "remote-ci-run-binding/v1", "remote-ci-validation-result/v1",
 		"remote-ci-postgresql-primary/v1", "Ubuntu-01", "Ubuntu-02", "Windows-01", "Windows-02",
-		"CapacityBlocker", "macOS 只编排", "不执行任何 workload", "private worktree/overlay",
+		"CapacityBlocker", "macOS 只编排", "不执行任何 workload", "private worktree/overlay", "authority=LOCAL_NON_AUTHORITATIVE", "execution_pool_contract",
 		"独立 repository、worktree、cache、overlay", "remote-ci-result/v1", "remote-ci-event/v1",
 		"engine identity 与 target identity 属于不同域", "PostgreSQL read-write primary",
 		"heteroci_owner", "heteroci_receipt", "<!-- remote-ci-four-node-contract:begin -->",

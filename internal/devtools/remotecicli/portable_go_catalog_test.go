@@ -5,10 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
 func TestExpandDetectedRepositoryGoCatalogExternalRepository(t *testing.T) {
@@ -24,54 +23,19 @@ func TestExpandDetectedRepositoryGoCatalogExternalRepository(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expandDetectedRepositoryGoCatalog() error = %v", err)
 	}
-	encoded, err := expanded.Manifest.CanonicalEncode()
+	encoded, err := remoteportable.PortableManifestCanonicalEncode(expanded.Manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(encoded) >= remoteci.RepositoryWorkloadManifestMaxBytes {
+	if len(encoded) >= 1<<20 {
 		t.Fatalf("expanded manifest size = %d", len(encoded))
 	}
-	if expectedRoot := os.Getenv("REMOTE_CI_EXPECT_MODULE_ROOT_PACKAGE"); expectedRoot != "" && !slices.ContainsFunc(expanded.Manifest.Workloads, func(workload remoteci.RepositoryWorkload) bool {
+	if expectedRoot := os.Getenv("REMOTE_CI_EXPECT_MODULE_ROOT_PACKAGE"); expectedRoot != "" && !slices.ContainsFunc(expanded.Workloads, func(workload remoteportable.PortableManifestWorkload) bool {
 		return workload.ModuleRoot == expectedRoot && workload.Package == "."
 	}) {
 		t.Fatalf("module root package %q was not projected", expectedRoot)
 	}
-	t.Logf("repository=%s tree=%s workloads=%d manifest_bytes=%d headroom=%d digest=%s", expanded.RepositoryID, expanded.TreeSHA, len(expanded.Manifest.Workloads), len(encoded), remoteci.RepositoryWorkloadManifestMaxBytes-len(encoded), expanded.ManifestSHA256)
-}
-
-func TestExpandDetectedRepositoryGoCatalogDerivesBothPlatformsFromExactTree(t *testing.T) {
-	root := newDetectedRepositoryFixture(t, "portable-catalog")
-	detected, err := DetectRepository(context.Background(), root)
-	if err != nil {
-		t.Fatalf("DetectRepository() error = %v", err)
-	}
-	originalDigest := detected.ManifestSHA256
-	expanded, err := expandDetectedRepositoryGoCatalog(context.Background(), detected)
-	if err != nil {
-		t.Fatalf("expandDetectedRepositoryGoCatalog() error = %v", err)
-	}
-	if expanded.ManifestSHA256 == originalDigest || len(expanded.Manifest.Workloads) != 3 {
-		t.Fatalf("expanded catalog identity/workloads = %q/%#v", expanded.ManifestSHA256, expanded.Manifest.Workloads)
-	}
-	if !slices.IsSortedFunc(expanded.Manifest.Workloads, func(left, right remoteci.RepositoryWorkload) int { return strings.Compare(left.ID, right.ID) }) {
-		t.Fatal("expanded workloads are not canonically sorted")
-	}
-	assertPortableProfileBinding(t, expanded.Manifest.Profiles)
-	assertPortablePackageWorkload(t, expanded.Manifest.Workloads[0], remoteci.RepositoryWorkloadPlatformLinuxAMD64)
-	if expanded.Manifest.Workloads[1].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[1].ID != "go-test/example/TestFixture" {
-		t.Fatalf("explicit Linux workload was not preserved: %#v", expanded.Manifest.Workloads[1])
-	}
-	if expanded.Manifest.Workloads[2].Kind != remoteci.RepositoryWorkloadKindGoTest || expanded.Manifest.Workloads[2].Platform != remoteci.RepositoryWorkloadPlatformWindowsAMD64 {
-		t.Fatalf("explicit Windows workload was not preserved: %#v", expanded.Manifest.Workloads[2])
-	}
-}
-
-// assertPortableProfileBinding 校验自动目录生成不会改写仓库显式 profile 绑定。
-func assertPortableProfileBinding(t *testing.T, profiles []remoteci.RepositoryWorkloadProfile) {
-	t.Helper()
-	if len(profiles) != 1 || !slices.Equal(profiles[0].RequiredWorkloadIDs, []string{"go-test/example/TestFixture", "go-test/windows/example/TestFixture"}) {
-		t.Fatalf("expanded catalog changed explicit profile binding: %#v", profiles)
-	}
+	t.Logf("repository=%s tree=%s workloads=%d manifest_bytes=%d headroom=%d blob_digest=%s", expanded.RepositoryID, expanded.TreeSHA, len(expanded.Workloads), len(encoded), (1<<20)-len(encoded), expanded.ManifestBlobSHA256)
 }
 
 func TestExpandDetectedRepositoryGoCatalogSupportsRootlessDeclaredModules(t *testing.T) {
@@ -84,10 +48,10 @@ func TestExpandDetectedRepositoryGoCatalogSupportsRootlessDeclaredModules(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPortablePackageCount(t, expanded.Manifest.Workloads, ".", "./example", 1)
-	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", ".", 1)
-	assertPortablePackageCount(t, expanded.Manifest.Workloads, "nested", "./sub", 1)
-	assertPortablePackageCount(t, expanded.Manifest.Workloads, "hidden", ".", 0)
+	assertPortablePackageCount(t, expanded.Workloads, ".", "./example", 1)
+	assertPortablePackageCount(t, expanded.Workloads, "nested", ".", 1)
+	assertPortablePackageCount(t, expanded.Workloads, "nested", "./sub", 1)
+	assertPortablePackageCount(t, expanded.Workloads, "hidden", ".", 0)
 }
 
 func newPortableMultiModuleFixture(t *testing.T) string {
@@ -98,12 +62,12 @@ func newPortableMultiModuleFixture(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := remoteci.DecodeRepositoryWorkloadManifest(raw)
+	manifest, err := remoteportable.DecodePortableManifest(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.Modules = append(manifest.Modules, remoteci.RepositoryWorkloadModule{Root: "nested", ModulePath: "example.invalid/portable-multi-module/nested"})
-	encoded, err := manifest.CanonicalEncode()
+	manifest.Modules = append(manifest.Modules, remoteportable.RepositoryWorkloadModule{Root: "nested", ModulePath: "example.invalid/portable-multi-module/nested"})
+	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,23 +95,15 @@ func writePortableFixtureFile(t *testing.T, root, relative, contents string) {
 	}
 }
 
-func assertPortablePackageCount(t *testing.T, workloads []remoteci.RepositoryWorkload, moduleRoot, packageTarget string, want int) {
+func assertPortablePackageCount(t *testing.T, workloads []remoteportable.PortableManifestWorkload, moduleRoot, packageTarget string, want int) {
 	t.Helper()
 	got := 0
 	for _, workload := range workloads {
-		if workload.Kind == remoteci.RepositoryWorkloadKindGoPackage && workload.ModuleRoot == moduleRoot && workload.Package == packageTarget {
+		if workload.Kind == remoteportable.RepositoryWorkloadKindGoPackage && workload.ModuleRoot == moduleRoot && workload.Package == packageTarget {
 			got++
 		}
 	}
 	if got != want {
 		t.Fatalf("package %s:%s count = %d, want %d", moduleRoot, packageTarget, got, want)
-	}
-}
-
-// assertPortablePackageWorkload 校验动态 package workload 的平台与 normal 策略。
-func assertPortablePackageWorkload(t *testing.T, workload remoteci.RepositoryWorkload, platform remoteci.RepositoryWorkloadPlatform) {
-	t.Helper()
-	if workload.Kind != remoteci.RepositoryWorkloadKindGoPackage || workload.Name != "" || workload.Package != "./example" || workload.ModuleRoot != "." || workload.Platform != platform || workload.ExecutionPolicy != remoteci.RepositoryWorkloadExecutionPolicyNormal {
-		t.Fatalf("expanded workload = %#v", workload)
 	}
 }
