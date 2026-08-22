@@ -20,16 +20,16 @@ import (
 )
 
 const (
-	sqliteReceiptRowSchema     = "heteroci-batch-receipt/v1"
-	sqliteReceiptClaimSchema   = "heteroci-batch-claim/v1"
-	sqliteReceiptStateClaimed  = "claimed"
-	sqliteReceiptStateTerminal = "terminal"
+	receiptRowSchema     = "heteroci-batch-receipt/v1"
+	receiptClaimSchema   = "heteroci-batch-claim/v1"
+	receiptStateClaimed  = "claimed"
+	receiptStateTerminal = "terminal"
 )
 
 const selectSQLiteReceiptRow = `SELECT schema_version, command_digest, state, claim_json, claim_digest, result_json, result_digest
 FROM heteroci_batch_receipts WHERE batch_id = ? AND material_digest = ?`
 
-type sqliteReceiptClaim struct {
+type receiptClaim struct {
 	SchemaVersion  string                       `json:"schema_version"`
 	BatchID        heterociworkflow.BatchID     `json:"batch_id"`
 	RunID          string                       `json:"run_id"`
@@ -39,7 +39,7 @@ type sqliteReceiptClaim struct {
 	UnitIDs        []string                     `json:"unit_ids"`
 }
 
-type sqliteReceiptRow struct {
+type receiptRow struct {
 	SchemaVersion string
 	CommandDigest string
 	State         string
@@ -49,13 +49,13 @@ type sqliteReceiptRow struct {
 	ResultDigest  sql.NullString
 }
 
-type sqliteReceiptQueryer interface {
+type receiptQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 // Claim 原子创建 batch_id+material_digest claim；既有 command 漂移必须失败。
 func (store *SQLiteReceiptStore) Claim(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (bool, error) {
-	claim, claimJSON, claimDigest, err := prepareSQLiteReceiptClaim(ctx, batch, commandDigest)
+	claim, claimJSON, claimDigest, err := prepareReceiptClaim(ctx, batch, commandDigest)
 	if err != nil {
 		return false, err
 	}
@@ -68,7 +68,7 @@ func (store *SQLiteReceiptStore) Claim(ctx context.Context, batch heterociworkfl
 		result, err := tx.ExecContext(ctx, `INSERT INTO heteroci_batch_receipts(
 schema_version, batch_id, material_digest, command_digest, state, claim_json, claim_digest, result_json, result_digest)
 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-ON CONFLICT(batch_id, material_digest) DO NOTHING`, sqliteReceiptRowSchema, claim.BatchID, claim.MaterialDigest, claim.CommandDigest, sqliteReceiptStateClaimed, claimJSON, claimDigest)
+ON CONFLICT(batch_id, material_digest) DO NOTHING`, receiptRowSchema, claim.BatchID, claim.MaterialDigest, claim.CommandDigest, receiptStateClaimed, claimJSON, claimDigest)
 		if err != nil {
 			return fmt.Errorf("%w: insert claim: %w", ErrSQLiteReceiptStore, err)
 		}
@@ -88,7 +88,7 @@ ON CONFLICT(batch_id, material_digest) DO NOTHING`, sqliteReceiptRowSchema, clai
 			if !found {
 				return fmt.Errorf("%w: conflicting claim disappeared", ErrSQLiteReceiptStore)
 			}
-			return validateSQLiteReceiptClaimRow(persisted, claim, claimJSON, claimDigest)
+			return validateReceiptClaimRow(persisted, claim, claimJSON, claimDigest)
 		default:
 			return fmt.Errorf("%w: claim insert affected %d rows", ErrSQLiteReceiptStore, rows)
 		}
@@ -101,7 +101,7 @@ ON CONFLICT(batch_id, material_digest) DO NOTHING`, sqliteReceiptRowSchema, clai
 
 // Read 只读取同一完整 batch material 与 command digest 的 terminal receipt。
 func (store *SQLiteReceiptStore) Read(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (heterociworkflow.BatchResult, bool, error) {
-	claim, claimJSON, claimDigest, err := prepareSQLiteReceiptClaim(ctx, batch, commandDigest)
+	claim, claimJSON, claimDigest, err := prepareReceiptClaim(ctx, batch, commandDigest)
 	if err != nil {
 		return heterociworkflow.BatchResult{}, false, err
 	}
@@ -113,16 +113,16 @@ func (store *SQLiteReceiptStore) Read(ctx context.Context, batch heterociworkflo
 	if err != nil || !found {
 		return heterociworkflow.BatchResult{}, false, err
 	}
-	if err := validateSQLiteReceiptClaimRow(row, claim, claimJSON, claimDigest); err != nil {
+	if err := validateReceiptClaimRow(row, claim, claimJSON, claimDigest); err != nil {
 		return heterociworkflow.BatchResult{}, false, err
 	}
-	if row.State == sqliteReceiptStateClaimed {
+	if row.State == receiptStateClaimed {
 		return heterociworkflow.BatchResult{}, false, nil
 	}
-	if row.State != sqliteReceiptStateTerminal {
+	if row.State != receiptStateTerminal {
 		return heterociworkflow.BatchResult{}, false, fmt.Errorf("%w: receipt state is invalid", ErrSQLiteReceiptStore)
 	}
-	result, err := decodeSQLiteBatchResult(row.ResultJSON, row.ResultDigest)
+	result, err := decodeBatchResult(row.ResultJSON, row.ResultDigest)
 	if err != nil {
 		return heterociworkflow.BatchResult{}, false, err
 	}
@@ -134,7 +134,7 @@ func (store *SQLiteReceiptStore) Read(ctx context.Context, batch heterociworkflo
 
 // WriteIfAbsent 只允许已存在 claim 原子迁移为唯一 terminal receipt。
 func (store *SQLiteReceiptStore) WriteIfAbsent(ctx context.Context, result heterociworkflow.BatchResult) error {
-	resultJSON, resultDigest, err := prepareSQLiteBatchResult(ctx, result)
+	resultJSON, resultDigest, err := prepareBatchResult(ctx, result)
 	if err != nil {
 		return err
 	}
@@ -157,36 +157,36 @@ func writeSQLiteReceiptTx(ctx context.Context, tx *sql.Tx, result heterociworkfl
 }
 
 // loadSQLiteReceiptForWrite 读取并校验待写入结果对应的唯一 claim。
-func loadSQLiteReceiptForWrite(ctx context.Context, tx *sql.Tx, result heterociworkflow.BatchResult) (sqliteReceiptRow, error) {
+func loadSQLiteReceiptForWrite(ctx context.Context, tx *sql.Tx, result heterociworkflow.BatchResult) (receiptRow, error) {
 	row, found, err := readSQLiteReceiptRow(ctx, tx, result.BatchID, result.MaterialDigest)
 	if err != nil {
-		return sqliteReceiptRow{}, err
+		return receiptRow{}, err
 	}
 	if !found {
-		return sqliteReceiptRow{}, fmt.Errorf("%w: terminal receipt has no claim", ErrSQLiteReceiptConflict)
+		return receiptRow{}, fmt.Errorf("%w: terminal receipt has no claim", ErrSQLiteReceiptConflict)
 	}
-	claim, err := decodeSQLiteReceiptClaim(row.ClaimJSON, row.ClaimDigest)
+	claim, err := decodeReceiptClaim(row.ClaimJSON, row.ClaimDigest)
 	if err != nil {
-		return sqliteReceiptRow{}, err
+		return receiptRow{}, err
 	}
-	if row.SchemaVersion != sqliteReceiptRowSchema || row.CommandDigest != claim.CommandDigest {
-		return sqliteReceiptRow{}, fmt.Errorf("%w: persisted claim envelope drifted", ErrSQLiteReceiptStore)
+	if row.SchemaVersion != receiptRowSchema || row.CommandDigest != claim.CommandDigest {
+		return receiptRow{}, fmt.Errorf("%w: persisted claim envelope drifted", ErrSQLiteReceiptStore)
 	}
-	if err := validateSQLiteResultAgainstClaim(result, claim); err != nil {
-		return sqliteReceiptRow{}, err
+	if err := validateResultAgainstClaim(result, claim); err != nil {
+		return receiptRow{}, err
 	}
 	return row, nil
 }
 
 // finishSQLiteReceiptWrite 只允许 claimed→terminal，或确认完全相同的幂等重写。
-func finishSQLiteReceiptWrite(ctx context.Context, tx *sql.Tx, row sqliteReceiptRow, result heterociworkflow.BatchResult, resultJSON []byte, resultDigest string) error {
-	if row.State == sqliteReceiptStateClaimed {
+func finishSQLiteReceiptWrite(ctx context.Context, tx *sql.Tx, row receiptRow, result heterociworkflow.BatchResult, resultJSON []byte, resultDigest string) error {
+	if row.State == receiptStateClaimed {
 		return writeSQLiteTerminalReceipt(ctx, tx, result, resultJSON, resultDigest)
 	}
-	if row.State != sqliteReceiptStateTerminal {
+	if row.State != receiptStateTerminal {
 		return fmt.Errorf("%w: receipt state is invalid", ErrSQLiteReceiptStore)
 	}
-	persisted, err := decodeSQLiteBatchResult(row.ResultJSON, row.ResultDigest)
+	persisted, err := decodeBatchResult(row.ResultJSON, row.ResultDigest)
 	if err != nil {
 		return err
 	}
@@ -196,19 +196,19 @@ func finishSQLiteReceiptWrite(ctx context.Context, tx *sql.Tx, row sqliteReceipt
 	return nil
 }
 
-// prepareSQLiteReceiptClaim 校验完整 batch 后生成唯一 canonical claim 材料。
-func prepareSQLiteReceiptClaim(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (sqliteReceiptClaim, []byte, string, error) {
+// prepareReceiptClaim 校验完整 batch 后生成唯一 canonical claim 材料。
+func prepareReceiptClaim(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (receiptClaim, []byte, string, error) {
 	if err := validateSQLiteReceiptContext(ctx); err != nil {
-		return sqliteReceiptClaim{}, nil, "", err
+		return receiptClaim{}, nil, "", err
 	}
 	if _, err := validateExecutionBatch(batch); err != nil {
-		return sqliteReceiptClaim{}, nil, "", errors.Join(ErrSQLiteReceiptStore, err)
+		return receiptClaim{}, nil, "", errors.Join(ErrSQLiteReceiptStore, err)
 	}
-	if !validSQLiteReceiptDigest(commandDigest) {
-		return sqliteReceiptClaim{}, nil, "", fmt.Errorf("%w: command digest is invalid", ErrSQLiteReceiptStore)
+	if !validReceiptDigest(commandDigest) {
+		return receiptClaim{}, nil, "", fmt.Errorf("%w: command digest is invalid", ErrSQLiteReceiptStore)
 	}
-	claim := sqliteReceiptClaim{
-		SchemaVersion:  sqliteReceiptClaimSchema,
+	claim := receiptClaim{
+		SchemaVersion:  receiptClaimSchema,
 		BatchID:        batch.BatchID,
 		RunID:          batch.RunID,
 		Executor:       batch.Key,
@@ -221,30 +221,30 @@ func prepareSQLiteReceiptClaim(ctx context.Context, batch heterociworkflow.Execu
 	}
 	encoded, err := json.Marshal(claim)
 	if err != nil {
-		return sqliteReceiptClaim{}, nil, "", fmt.Errorf("%w: encode claim: %w", ErrSQLiteReceiptStore, err)
+		return receiptClaim{}, nil, "", fmt.Errorf("%w: encode claim: %w", ErrSQLiteReceiptStore, err)
 	}
-	return claim, encoded, digestSQLiteReceiptBytes(encoded), nil
+	return claim, encoded, digestReceiptBytes(encoded), nil
 }
 
-// prepareSQLiteBatchResult 校验 terminal envelope 并生成 canonical JSON 与摘要。
-func prepareSQLiteBatchResult(ctx context.Context, result heterociworkflow.BatchResult) ([]byte, string, error) {
+// prepareBatchResult 校验 terminal envelope 并生成 canonical JSON 与摘要。
+func prepareBatchResult(ctx context.Context, result heterociworkflow.BatchResult) ([]byte, string, error) {
 	if err := validateSQLiteReceiptContext(ctx); err != nil {
 		return nil, "", err
 	}
-	if err := validateSQLiteBatchResultShape(result); err != nil {
+	if err := validateBatchResultShape(result); err != nil {
 		return nil, "", err
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: encode terminal receipt: %w", ErrSQLiteReceiptStore, err)
 	}
-	return encoded, digestSQLiteReceiptBytes(encoded), nil
+	return encoded, digestReceiptBytes(encoded), nil
 }
 
 func writeSQLiteTerminalReceipt(ctx context.Context, tx *sql.Tx, result heterociworkflow.BatchResult, resultJSON []byte, resultDigest string) error {
 	updated, err := tx.ExecContext(ctx, `UPDATE heteroci_batch_receipts
 SET state = ?, result_json = ?, result_digest = ?
-WHERE batch_id = ? AND material_digest = ? AND command_digest = ? AND state = ? AND result_json IS NULL AND result_digest IS NULL`, sqliteReceiptStateTerminal, resultJSON, resultDigest, result.BatchID, result.MaterialDigest, result.CommandDigest, sqliteReceiptStateClaimed)
+WHERE batch_id = ? AND material_digest = ? AND command_digest = ? AND state = ? AND result_json IS NULL AND result_digest IS NULL`, receiptStateTerminal, resultJSON, resultDigest, result.BatchID, result.MaterialDigest, result.CommandDigest, receiptStateClaimed)
 	if err != nil {
 		return fmt.Errorf("%w: write terminal receipt: %w", ErrSQLiteReceiptStore, err)
 	}
@@ -258,21 +258,21 @@ WHERE batch_id = ? AND material_digest = ? AND command_digest = ? AND state = ? 
 	return nil
 }
 
-func readSQLiteReceiptRow(ctx context.Context, queryer sqliteReceiptQueryer, batchID heterociworkflow.BatchID, materialDigest string) (sqliteReceiptRow, bool, error) {
-	var row sqliteReceiptRow
+func readSQLiteReceiptRow(ctx context.Context, queryer receiptQueryer, batchID heterociworkflow.BatchID, materialDigest string) (receiptRow, bool, error) {
+	var row receiptRow
 	err := queryer.QueryRowContext(ctx, selectSQLiteReceiptRow, batchID, materialDigest).Scan(&row.SchemaVersion, &row.CommandDigest, &row.State, &row.ClaimJSON, &row.ClaimDigest, &row.ResultJSON, &row.ResultDigest)
 	if errors.Is(err, sql.ErrNoRows) {
-		return sqliteReceiptRow{}, false, nil
+		return receiptRow{}, false, nil
 	}
 	if err != nil {
-		return sqliteReceiptRow{}, false, fmt.Errorf("%w: read receipt row: %w", ErrSQLiteReceiptStore, err)
+		return receiptRow{}, false, fmt.Errorf("%w: read receipt row: %w", ErrSQLiteReceiptStore, err)
 	}
 	return row, true, nil
 }
 
-// validateSQLiteReceiptClaimRow 将数据库 claim 与当前完整 batch 材料逐字段比对。
-func validateSQLiteReceiptClaimRow(row sqliteReceiptRow, want sqliteReceiptClaim, wantJSON []byte, wantDigest string) error {
-	if row.SchemaVersion != sqliteReceiptRowSchema {
+// validateReceiptClaimRow 将数据库 claim 与当前完整 batch 材料逐字段比对。
+func validateReceiptClaimRow(row receiptRow, want receiptClaim, wantJSON []byte, wantDigest string) error {
+	if row.SchemaVersion != receiptRowSchema {
 		return fmt.Errorf("%w: row schema drifted", ErrSQLiteReceiptStore)
 	}
 	if row.CommandDigest != want.CommandDigest {
@@ -281,24 +281,24 @@ func validateSQLiteReceiptClaimRow(row sqliteReceiptRow, want sqliteReceiptClaim
 	if row.ClaimDigest != wantDigest || !bytes.Equal(row.ClaimJSON, wantJSON) {
 		return fmt.Errorf("%w: claim material drifted", ErrSQLiteReceiptStore)
 	}
-	persisted, err := decodeSQLiteReceiptClaim(row.ClaimJSON, row.ClaimDigest)
+	persisted, err := decodeReceiptClaim(row.ClaimJSON, row.ClaimDigest)
 	if err != nil {
 		return err
 	}
-	if !sameSQLiteReceiptClaim(persisted, want) {
+	if !sameReceiptClaim(persisted, want) {
 		return fmt.Errorf("%w: decoded claim material drifted", ErrSQLiteReceiptStore)
 	}
-	return validateSQLiteReceiptRowState(row)
+	return validateReceiptRowState(row)
 }
 
-// validateSQLiteReceiptRowState 保证 claimed 与 terminal 两种持久化状态互斥且完整。
-func validateSQLiteReceiptRowState(row sqliteReceiptRow) error {
+// validateReceiptRowState 保证 claimed 与 terminal 两种持久化状态互斥且完整。
+func validateReceiptRowState(row receiptRow) error {
 	switch row.State {
-	case sqliteReceiptStateClaimed:
+	case receiptStateClaimed:
 		if row.ResultJSON != nil || row.ResultDigest.Valid {
 			return fmt.Errorf("%w: claimed row carries terminal result", ErrSQLiteReceiptStore)
 		}
-	case sqliteReceiptStateTerminal:
+	case receiptStateTerminal:
 		if row.ResultJSON == nil || !row.ResultDigest.Valid {
 			return fmt.Errorf("%w: terminal row lacks result", ErrSQLiteReceiptStore)
 		}
@@ -308,37 +308,37 @@ func validateSQLiteReceiptRowState(row sqliteReceiptRow) error {
 	return nil
 }
 
-// decodeSQLiteReceiptClaim 校验 claim 摘要、canonical JSON 和身份字段。
-func decodeSQLiteReceiptClaim(raw []byte, digest string) (sqliteReceiptClaim, error) {
-	if len(raw) == 0 || !validSQLiteReceiptDigest(digest) || digestSQLiteReceiptBytes(raw) != digest {
-		return sqliteReceiptClaim{}, fmt.Errorf("%w: claim digest mismatch", ErrSQLiteReceiptStore)
+// decodeReceiptClaim 校验 claim 摘要、canonical JSON 和身份字段。
+func decodeReceiptClaim(raw []byte, digest string) (receiptClaim, error) {
+	if len(raw) == 0 || !validReceiptDigest(digest) || digestReceiptBytes(raw) != digest {
+		return receiptClaim{}, fmt.Errorf("%w: claim digest mismatch", ErrSQLiteReceiptStore)
 	}
-	var claim sqliteReceiptClaim
-	if err := decodeCanonicalSQLiteReceiptJSON(raw, &claim); err != nil {
-		return sqliteReceiptClaim{}, fmt.Errorf("%w: decode claim: %w", ErrSQLiteReceiptStore, err)
+	var claim receiptClaim
+	if err := decodeCanonicalReceiptJSON(raw, &claim); err != nil {
+		return receiptClaim{}, fmt.Errorf("%w: decode claim: %w", ErrSQLiteReceiptStore, err)
 	}
-	if err := validateSQLiteReceiptClaimShape(claim); err != nil {
-		return sqliteReceiptClaim{}, err
+	if err := validateReceiptClaimShape(claim); err != nil {
+		return receiptClaim{}, err
 	}
 	return claim, nil
 }
 
-// decodeSQLiteBatchResult 校验 terminal receipt 的摘要、canonical JSON 和结果形状。
-func decodeSQLiteBatchResult(raw []byte, digest sql.NullString) (heterociworkflow.BatchResult, error) {
-	if len(raw) == 0 || !digest.Valid || !validSQLiteReceiptDigest(digest.String) || digestSQLiteReceiptBytes(raw) != digest.String {
+// decodeBatchResult 校验 terminal receipt 的摘要、canonical JSON 和结果形状。
+func decodeBatchResult(raw []byte, digest sql.NullString) (heterociworkflow.BatchResult, error) {
+	if len(raw) == 0 || !digest.Valid || !validReceiptDigest(digest.String) || digestReceiptBytes(raw) != digest.String {
 		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: terminal receipt digest mismatch", ErrSQLiteReceiptStore)
 	}
 	var result heterociworkflow.BatchResult
-	if err := decodeCanonicalSQLiteReceiptJSON(raw, &result); err != nil {
+	if err := decodeCanonicalReceiptJSON(raw, &result); err != nil {
 		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: decode terminal receipt: %w", ErrSQLiteReceiptStore, err)
 	}
-	if err := validateSQLiteBatchResultShape(result); err != nil {
+	if err := validateBatchResultShape(result); err != nil {
 		return heterociworkflow.BatchResult{}, err
 	}
 	return result, nil
 }
 
-func decodeCanonicalSQLiteReceiptJSON(raw []byte, target any) error {
+func decodeCanonicalReceiptJSON(raw []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -357,33 +357,33 @@ func decodeCanonicalSQLiteReceiptJSON(raw []byte, target any) error {
 	return nil
 }
 
-// validateSQLiteReceiptClaimShape 校验 claim 的 identity、digest 和有序 unit 集合。
-func validateSQLiteReceiptClaimShape(claim sqliteReceiptClaim) error {
-	if err := validateSQLiteClaimIdentity(claim); err != nil {
+// validateReceiptClaimShape 校验 claim 的 identity、digest 和有序 unit 集合。
+func validateReceiptClaimShape(claim receiptClaim) error {
+	if err := validateReceiptClaimIdentity(claim); err != nil {
 		return err
 	}
-	return validateSQLiteClaimUnits(claim.UnitIDs)
+	return validateReceiptClaimUnits(claim.UnitIDs)
 }
 
-// validateSQLiteClaimIdentity 校验 claim 的 schema、run、executor 与摘要字段。
-func validateSQLiteClaimIdentity(claim sqliteReceiptClaim) error {
-	if claim.SchemaVersion != sqliteReceiptClaimSchema || !validCommandBatchID(claim.BatchID) || !validSQLiteReceiptIdentity(claim.RunID) {
+// validateReceiptClaimIdentity 校验 claim 的 schema、run、executor 与摘要字段。
+func validateReceiptClaimIdentity(claim receiptClaim) error {
+	if claim.SchemaVersion != receiptClaimSchema || !validCommandBatchID(claim.BatchID) || !validReceiptIdentity(claim.RunID) {
 		return fmt.Errorf("%w: claim identity is invalid", ErrSQLiteReceiptStore)
 	}
 	if err := claim.Executor.Validate(); err != nil {
 		return fmt.Errorf("%w: claim executor is invalid", ErrSQLiteReceiptStore)
 	}
-	if !validSQLiteReceiptDigest(claim.MaterialDigest) || !validSQLiteReceiptDigest(claim.CommandDigest) || len(claim.UnitIDs) == 0 {
+	if !validReceiptDigest(claim.MaterialDigest) || !validReceiptDigest(claim.CommandDigest) || len(claim.UnitIDs) == 0 {
 		return fmt.Errorf("%w: claim digest or units are invalid", ErrSQLiteReceiptStore)
 	}
 	return nil
 }
 
-// validateSQLiteClaimUnits 拒绝空白或重复 unit，保持 claim 顺序可重放。
-func validateSQLiteClaimUnits(unitIDs []string) error {
+// validateReceiptClaimUnits 拒绝空白或重复 unit，保持 claim 顺序可重放。
+func validateReceiptClaimUnits(unitIDs []string) error {
 	seen := make(map[string]struct{}, len(unitIDs))
 	for _, unitID := range unitIDs {
-		if !validSQLiteReceiptIdentity(unitID) {
+		if !validReceiptIdentity(unitID) {
 			return fmt.Errorf("%w: claim unit identity is invalid", ErrSQLiteReceiptStore)
 		}
 		if _, duplicate := seen[unitID]; duplicate {
@@ -394,23 +394,23 @@ func validateSQLiteClaimUnits(unitIDs []string) error {
 	return nil
 }
 
-// validateSQLiteBatchResultShape 校验 terminal 结果的身份、状态和完整 coverage。
-func validateSQLiteBatchResultShape(result heterociworkflow.BatchResult) error {
-	if err := validateSQLiteResultIdentity(result); err != nil {
+// validateBatchResultShape 校验 terminal 结果的身份、状态和完整 coverage。
+func validateBatchResultShape(result heterociworkflow.BatchResult) error {
+	if err := validateResultIdentity(result); err != nil {
 		return err
 	}
-	return validateSQLiteOutcomes(result.Outcomes)
+	return validateReceiptOutcomes(result.Outcomes)
 }
 
-// validateSQLiteResultIdentity 校验 terminal 结果的 batch、executor、摘要和 authority header。
-func validateSQLiteResultIdentity(result heterociworkflow.BatchResult) error {
-	if !validCommandBatchID(result.BatchID) || !validSQLiteReceiptIdentity(result.RunID) {
+// validateResultIdentity 校验 terminal 结果的 batch、executor、摘要和 authority header。
+func validateResultIdentity(result heterociworkflow.BatchResult) error {
+	if !validCommandBatchID(result.BatchID) || !validReceiptIdentity(result.RunID) {
 		return fmt.Errorf("%w: terminal result identity is invalid", ErrSQLiteReceiptStore)
 	}
 	if err := result.Executor.Validate(); err != nil {
 		return fmt.Errorf("%w: terminal executor is invalid", ErrSQLiteReceiptStore)
 	}
-	if !validSQLiteReceiptDigest(result.MaterialDigest) || !validSQLiteReceiptDigest(result.CommandDigest) {
+	if !validReceiptDigest(result.MaterialDigest) || !validReceiptDigest(result.CommandDigest) {
 		return fmt.Errorf("%w: terminal digest is invalid", ErrSQLiteReceiptStore)
 	}
 	if err := validateReceiptHeader(result); err != nil {
@@ -419,14 +419,14 @@ func validateSQLiteResultIdentity(result heterociworkflow.BatchResult) error {
 	return nil
 }
 
-// validateSQLiteOutcomes 校验 terminal outcome 的状态、唯一性和非空覆盖。
-func validateSQLiteOutcomes(outcomes []heterociworkflow.BatchOutcome) error {
+// validateReceiptOutcomes 校验 terminal outcome 的状态、唯一性和非空覆盖。
+func validateReceiptOutcomes(outcomes []heterociworkflow.BatchOutcome) error {
 	if len(outcomes) == 0 {
 		return fmt.Errorf("%w: terminal outcomes are empty", ErrSQLiteReceiptStore)
 	}
 	seen := make(map[string]struct{}, len(outcomes))
 	for _, outcome := range outcomes {
-		if !validSQLiteReceiptIdentity(outcome.UnitID) || (outcome.State != heteroci.LeaseStateSucceeded && outcome.State != heteroci.LeaseStateFailed) {
+		if !validReceiptIdentity(outcome.UnitID) || (outcome.State != heteroci.LeaseStateSucceeded && outcome.State != heteroci.LeaseStateFailed) {
 			return fmt.Errorf("%w: terminal outcome is invalid", ErrSQLiteReceiptStore)
 		}
 		if _, duplicate := seen[outcome.UnitID]; duplicate {
@@ -437,8 +437,8 @@ func validateSQLiteOutcomes(outcomes []heterociworkflow.BatchOutcome) error {
 	return nil
 }
 
-// validateSQLiteResultAgainstClaim 确保 terminal 结果只能完成同一 claim 的 unit 顺序。
-func validateSQLiteResultAgainstClaim(result heterociworkflow.BatchResult, claim sqliteReceiptClaim) error {
+// validateResultAgainstClaim 确保 terminal 结果只能完成同一 claim 的 unit 顺序。
+func validateResultAgainstClaim(result heterociworkflow.BatchResult, claim receiptClaim) error {
 	if result.BatchID != claim.BatchID || result.RunID != claim.RunID || result.Executor != claim.Executor || result.MaterialDigest != claim.MaterialDigest || result.CommandDigest != claim.CommandDigest {
 		return fmt.Errorf("%w: terminal result identity drifted", ErrSQLiteReceiptConflict)
 	}
@@ -453,8 +453,8 @@ func validateSQLiteResultAgainstClaim(result heterociworkflow.BatchResult, claim
 	return nil
 }
 
-// sameSQLiteReceiptClaim 比较 claim 的完整 canonical identity，避免只比较主键。
-func sameSQLiteReceiptClaim(left, right sqliteReceiptClaim) bool {
+// sameReceiptClaim 比较 claim 的完整 canonical identity，避免只比较主键。
+func sameReceiptClaim(left, right receiptClaim) bool {
 	return left.SchemaVersion == right.SchemaVersion &&
 		left.BatchID == right.BatchID &&
 		left.RunID == right.RunID &&
@@ -464,15 +464,15 @@ func sameSQLiteReceiptClaim(left, right sqliteReceiptClaim) bool {
 		slices.Equal(left.UnitIDs, right.UnitIDs)
 }
 
-func validSQLiteReceiptIdentity(value string) bool {
+func validReceiptIdentity(value string) bool {
 	if value == "" || strings.TrimSpace(value) != value || len(value) > 256 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
 		return false
 	}
 	return true
 }
 
-// validSQLiteReceiptDigest 校验 sha256: 前缀和 64 位小写十六进制摘要。
-func validSQLiteReceiptDigest(value string) bool {
+// validReceiptDigest 校验 sha256: 前缀和 64 位小写十六进制摘要。
+func validReceiptDigest(value string) bool {
 	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
 		return false
 	}
@@ -484,7 +484,7 @@ func validSQLiteReceiptDigest(value string) bool {
 	return true
 }
 
-func digestSQLiteReceiptBytes(value []byte) string {
+func digestReceiptBytes(value []byte) string {
 	sum := sha256.Sum256(value)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

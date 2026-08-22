@@ -57,7 +57,7 @@ func testPostgreSQLReceiptContract(t *testing.T) {
 
 func assertPostgreSQLReceiptPrimaryKeyCoverage(t *testing.T) {
 	t.Helper()
-	if strings.Contains(PostgreSQLReceiptDDL, "CREATE INDEX") {
+	if strings.Contains(PostgreSQLReceiptDDL, "CREATE INDEX") && strings.Contains(PostgreSQLReceiptDDL, "ON heteroci_receipt.batch_receipts") {
 		t.Fatal("PostgreSQLReceiptDDL adds an index redundant with batch_receipts primary key")
 	}
 	assertPostgreSQLReceiptPrimaryKeyQuery(t, "read", selectPostgreSQLReceiptRow)
@@ -178,13 +178,13 @@ func assertPostgreSQLTestCanonicalBytes(t *testing.T, state *postgreSQLTestState
 	t.Helper()
 	state.mutex.Lock()
 	defer state.mutex.Unlock()
-	if state.row == nil || state.row.state != sqliteReceiptStateTerminal {
+	if state.row == nil || state.row.state != canonicalReceiptStateTerminal {
 		t.Fatal("terminal row was not persisted")
 	}
 	for _, producer := range []struct {
 		typeOf reflect.Type
 		raw    []byte
-	}{{typeOf: reflect.TypeFor[sqliteReceiptClaim](), raw: state.row.claimBytes}, {typeOf: reflect.TypeFor[heterociworkflow.BatchResult](), raw: state.row.resultBytes}} {
+	}{{typeOf: reflect.TypeFor[canonicalReceiptClaim](), raw: state.row.claimBytes}, {typeOf: reflect.TypeFor[heterociworkflow.BatchResult](), raw: state.row.resultBytes}} {
 		for _, field := range reflect.VisibleFields(producer.typeOf) {
 			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 			if name == "" || name == "-" || !bytes.Contains(producer.raw, []byte(`"`+name+`"`)) {
@@ -346,7 +346,7 @@ func (transaction *postgreSQLTestTransaction) insertClaim(arguments []driver.Nam
 }
 
 func (transaction *postgreSQLTestTransaction) writeTerminal(arguments []driver.NamedValue) (driver.Result, error) {
-	if transaction.row == nil || transaction.row.state != sqliteReceiptStateClaimed || transaction.row.commandDigest != testStringArgument(arguments, 5) {
+	if transaction.row == nil || transaction.row.state != canonicalReceiptStateClaimed || transaction.row.commandDigest != testStringArgument(arguments, 5) {
 		return driver.RowsAffected(0), nil
 	}
 	transaction.row.state = testStringArgument(arguments, 0)

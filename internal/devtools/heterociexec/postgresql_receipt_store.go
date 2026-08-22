@@ -26,17 +26,17 @@ WHERE batch_id = $4 AND material_digest = $5 AND command_digest = $6 AND state =
 
 // Claim 原子创建 batch/material/command claim；完全相同的重放返回 false。
 func (store *PostgreSQLReceiptStore) Claim(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (bool, error) {
-	claim, claimBytes, claimDigest, err := prepareSQLiteReceiptClaim(ctx, batch, commandDigest)
+	claim, claimBytes, claimDigest, err := prepareCanonicalReceiptClaim(ctx, batch, commandDigest)
 	if err != nil {
 		return false, postgreSQLReceiptDomainError(err)
 	}
-	for attempt := 0; attempt < postgreSQLReceiptMutationAttempts; attempt++ {
+	for range postgreSQLReceiptMutationAttempts {
 		claimed, ambiguous, err := store.claimOnce(ctx, claim, claimBytes, claimDigest)
 		if err == nil {
 			return claimed, nil
 		}
 		if !ambiguous {
-			if postgreSQLReceiptRetryable(err) && attempt+1 < postgreSQLReceiptMutationAttempts {
+			if postgreSQLReceiptRetryable(err) {
 				continue
 			}
 			return false, err
@@ -52,7 +52,7 @@ func (store *PostgreSQLReceiptStore) Claim(ctx context.Context, batch heterociwo
 	return false, fmt.Errorf("%w: claim retry budget exhausted", ErrPostgreSQLReceiptStore)
 }
 
-func (store *PostgreSQLReceiptStore) claimOnce(ctx context.Context, claim sqliteReceiptClaim, claimBytes []byte, claimDigest string) (bool, bool, error) {
+func (store *PostgreSQLReceiptStore) claimOnce(ctx context.Context, claim canonicalReceiptClaim, claimBytes []byte, claimDigest string) (bool, bool, error) {
 	tx, err := store.beginTransaction(ctx)
 	if err != nil {
 		return false, false, err
@@ -67,8 +67,8 @@ func (store *PostgreSQLReceiptStore) claimOnce(ctx context.Context, claim sqlite
 	return claimed, false, nil
 }
 
-func insertPostgreSQLClaim(ctx context.Context, tx *sql.Tx, claim sqliteReceiptClaim, claimBytes []byte, claimDigest string) (bool, error) {
-	result, err := tx.ExecContext(ctx, insertPostgreSQLReceiptClaim, sqliteReceiptRowSchema, claim.BatchID, claim.MaterialDigest, claim.CommandDigest, sqliteReceiptStateClaimed, claimBytes, claimDigest)
+func insertPostgreSQLClaim(ctx context.Context, tx *sql.Tx, claim canonicalReceiptClaim, claimBytes []byte, claimDigest string) (bool, error) {
+	result, err := tx.ExecContext(ctx, insertPostgreSQLReceiptClaim, canonicalReceiptRowSchema, claim.BatchID, claim.MaterialDigest, claim.CommandDigest, canonicalReceiptStateClaimed, claimBytes, claimDigest)
 	if err != nil {
 		return false, fmt.Errorf("%w: insert claim: %w", ErrPostgreSQLReceiptStore, err)
 	}
@@ -89,13 +89,13 @@ func insertPostgreSQLClaim(ctx context.Context, tx *sql.Tx, claim sqliteReceiptC
 	if !found {
 		return false, fmt.Errorf("%w: conflicting claim disappeared", ErrPostgreSQLReceiptStore)
 	}
-	if err := validateSQLiteReceiptClaimRow(row, claim, claimBytes, claimDigest); err != nil {
+	if err := validateCanonicalReceiptClaimRow(row, claim, claimBytes, claimDigest); err != nil {
 		return false, postgreSQLReceiptDomainError(err)
 	}
 	return false, nil
 }
 
-func (store *PostgreSQLReceiptStore) reconcileClaim(ctx context.Context, claim sqliteReceiptClaim, claimBytes []byte, claimDigest string, claimed bool) (bool, bool, error) {
+func (store *PostgreSQLReceiptStore) reconcileClaim(ctx context.Context, claim canonicalReceiptClaim, claimBytes []byte, claimDigest string, claimed bool) (bool, bool, error) {
 	tx, err := store.beginTransaction(ctx)
 	if err != nil {
 		return false, false, err
@@ -105,7 +105,7 @@ func (store *PostgreSQLReceiptStore) reconcileClaim(ctx context.Context, claim s
 		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
 	}
 	if found {
-		if err := validateSQLiteReceiptClaimRow(row, claim, claimBytes, claimDigest); err != nil {
+		if err := validateCanonicalReceiptClaimRow(row, claim, claimBytes, claimDigest); err != nil {
 			return false, false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
 		}
 	}
@@ -120,7 +120,7 @@ func (store *PostgreSQLReceiptStore) reconcileClaim(ctx context.Context, claim s
 
 // Read 只从已验证 primary 读取同一完整 batch/material/command 的 terminal receipt。
 func (store *PostgreSQLReceiptStore) Read(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string) (heterociworkflow.BatchResult, bool, error) {
-	claim, claimBytes, claimDigest, err := prepareSQLiteReceiptClaim(ctx, batch, commandDigest)
+	claim, claimBytes, claimDigest, err := prepareCanonicalReceiptClaim(ctx, batch, commandDigest)
 	if err != nil {
 		return heterociworkflow.BatchResult{}, false, postgreSQLReceiptDomainError(err)
 	}
@@ -138,18 +138,18 @@ func (store *PostgreSQLReceiptStore) Read(ctx context.Context, batch heterociwor
 	return result, found, nil
 }
 
-func readPostgreSQLTerminal(ctx context.Context, tx *sql.Tx, batch heterociworkflow.ExecutionBatch, commandDigest string, claim sqliteReceiptClaim, claimBytes []byte, claimDigest string) (heterociworkflow.BatchResult, bool, error) {
+func readPostgreSQLTerminal(ctx context.Context, tx *sql.Tx, batch heterociworkflow.ExecutionBatch, commandDigest string, claim canonicalReceiptClaim, claimBytes []byte, claimDigest string) (heterociworkflow.BatchResult, bool, error) {
 	row, found, err := readPostgreSQLReceiptRow(ctx, tx, batch.BatchID, batch.MaterialDigest, "")
 	if err != nil || !found {
 		return heterociworkflow.BatchResult{}, false, err
 	}
-	if err := validateSQLiteReceiptClaimRow(row, claim, claimBytes, claimDigest); err != nil {
+	if err := validateCanonicalReceiptClaimRow(row, claim, claimBytes, claimDigest); err != nil {
 		return heterociworkflow.BatchResult{}, false, postgreSQLReceiptDomainError(err)
 	}
-	if row.State == sqliteReceiptStateClaimed {
+	if row.State == canonicalReceiptStateClaimed {
 		return heterociworkflow.BatchResult{}, false, nil
 	}
-	result, err := decodeSQLiteBatchResult(row.ResultJSON, row.ResultDigest)
+	result, err := decodeCanonicalBatchResult(row.ResultJSON, row.ResultDigest)
 	if err != nil {
 		return heterociworkflow.BatchResult{}, false, postgreSQLReceiptDomainError(err)
 	}
@@ -161,17 +161,17 @@ func readPostgreSQLTerminal(ctx context.Context, tx *sql.Tx, batch heterociworkf
 
 // WriteIfAbsent 只允许同一 claim 原子迁移为唯一 terminal receipt。
 func (store *PostgreSQLReceiptStore) WriteIfAbsent(ctx context.Context, result heterociworkflow.BatchResult) error {
-	resultBytes, resultDigest, err := prepareSQLiteBatchResult(ctx, result)
+	resultBytes, resultDigest, err := prepareCanonicalBatchResult(ctx, result)
 	if err != nil {
 		return postgreSQLReceiptDomainError(err)
 	}
-	for attempt := 0; attempt < postgreSQLReceiptMutationAttempts; attempt++ {
+	for range postgreSQLReceiptMutationAttempts {
 		ambiguous, err := store.writeTerminalOnce(ctx, result, resultBytes, resultDigest)
 		if err == nil {
 			return nil
 		}
 		if !ambiguous {
-			if postgreSQLReceiptRetryable(err) && attempt+1 < postgreSQLReceiptMutationAttempts {
+			if postgreSQLReceiptRetryable(err) {
 				continue
 			}
 			return err
@@ -215,13 +215,13 @@ func writePostgreSQLTerminal(ctx context.Context, tx *sql.Tx, result heterociwor
 	if err := validatePostgreSQLResultClaim(row, result); err != nil {
 		return err
 	}
-	if row.State == sqliteReceiptStateTerminal {
+	if row.State == canonicalReceiptStateTerminal {
 		return validatePostgreSQLTerminalReplay(row, result, resultBytes, resultDigest)
 	}
-	if row.State != sqliteReceiptStateClaimed {
+	if row.State != canonicalReceiptStateClaimed {
 		return fmt.Errorf("%w: receipt state is invalid", ErrPostgreSQLReceiptStore)
 	}
-	updated, err := tx.ExecContext(ctx, updatePostgreSQLTerminalReceipt, sqliteReceiptStateTerminal, resultBytes, resultDigest, result.BatchID, result.MaterialDigest, result.CommandDigest, sqliteReceiptStateClaimed)
+	updated, err := tx.ExecContext(ctx, updatePostgreSQLTerminalReceipt, canonicalReceiptStateTerminal, resultBytes, resultDigest, result.BatchID, result.MaterialDigest, result.CommandDigest, canonicalReceiptStateClaimed)
 	if err != nil {
 		return fmt.Errorf("%w: write terminal receipt: %w", ErrPostgreSQLReceiptStore, err)
 	}
@@ -250,7 +250,7 @@ func (store *PostgreSQLReceiptStore) reconcileTerminal(ctx context.Context, resu
 	if err := validatePostgreSQLResultClaim(row, result); err != nil {
 		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
 	}
-	if row.State == sqliteReceiptStateClaimed {
+	if row.State == canonicalReceiptStateClaimed {
 		if err := tx.Commit(); err != nil {
 			return false, false, fmt.Errorf("%w: terminal replay commit: %w", ErrPostgreSQLReceiptStore, err)
 		}
@@ -265,25 +265,25 @@ func (store *PostgreSQLReceiptStore) reconcileTerminal(ctx context.Context, resu
 	return true, false, nil
 }
 
-func validatePostgreSQLResultClaim(row sqliteReceiptRow, result heterociworkflow.BatchResult) error {
-	claim, err := decodeSQLiteReceiptClaim(row.ClaimJSON, row.ClaimDigest)
+func validatePostgreSQLResultClaim(row canonicalReceiptRow, result heterociworkflow.BatchResult) error {
+	claim, err := decodeCanonicalReceiptClaim(row.ClaimJSON, row.ClaimDigest)
 	if err != nil {
 		return postgreSQLReceiptDomainError(err)
 	}
-	if row.SchemaVersion != sqliteReceiptRowSchema || row.CommandDigest != claim.CommandDigest {
+	if row.SchemaVersion != canonicalReceiptRowSchema || row.CommandDigest != claim.CommandDigest {
 		return fmt.Errorf("%w: persisted claim envelope drifted", ErrPostgreSQLReceiptStore)
 	}
-	if err := validateSQLiteResultAgainstClaim(result, claim); err != nil {
+	if err := validateCanonicalResultAgainstClaim(result, claim); err != nil {
 		return postgreSQLReceiptDomainError(err)
 	}
 	return nil
 }
 
-func validatePostgreSQLTerminalReplay(row sqliteReceiptRow, result heterociworkflow.BatchResult, resultBytes []byte, resultDigest string) error {
-	if row.State != sqliteReceiptStateTerminal {
+func validatePostgreSQLTerminalReplay(row canonicalReceiptRow, result heterociworkflow.BatchResult, resultBytes []byte, resultDigest string) error {
+	if row.State != canonicalReceiptStateTerminal {
 		return fmt.Errorf("%w: receipt state is invalid", ErrPostgreSQLReceiptStore)
 	}
-	persisted, err := decodeSQLiteBatchResult(row.ResultJSON, row.ResultDigest)
+	persisted, err := decodeCanonicalBatchResult(row.ResultJSON, row.ResultDigest)
 	if err != nil {
 		return postgreSQLReceiptDomainError(err)
 	}
@@ -293,20 +293,20 @@ func validatePostgreSQLTerminalReplay(row sqliteReceiptRow, result heterociworkf
 	return nil
 }
 
-func readPostgreSQLReceiptRow(ctx context.Context, queryer sqliteReceiptQueryer, batchID heterociworkflow.BatchID, materialDigest, lockClause string) (sqliteReceiptRow, bool, error) {
-	var row sqliteReceiptRow
+func readPostgreSQLReceiptRow(ctx context.Context, queryer canonicalReceiptQueryer, batchID heterociworkflow.BatchID, materialDigest, lockClause string) (canonicalReceiptRow, bool, error) {
+	var row canonicalReceiptRow
 	err := queryer.QueryRowContext(ctx, selectPostgreSQLReceiptRow+lockClause, batchID, materialDigest).Scan(&row.SchemaVersion, &row.CommandDigest, &row.State, &row.ClaimJSON, &row.ClaimDigest, &row.ResultJSON, &row.ResultDigest)
 	if errors.Is(err, sql.ErrNoRows) {
-		return sqliteReceiptRow{}, false, nil
+		return canonicalReceiptRow{}, false, nil
 	}
 	if err != nil {
-		return sqliteReceiptRow{}, false, fmt.Errorf("%w: read receipt row: %w", ErrPostgreSQLReceiptStore, err)
+		return canonicalReceiptRow{}, false, fmt.Errorf("%w: read receipt row: %w", ErrPostgreSQLReceiptStore, err)
 	}
 	return row, true, nil
 }
 
 func postgreSQLReceiptDomainError(err error) error {
-	if errors.Is(err, ErrSQLiteReceiptConflict) {
+	if errors.Is(err, ErrCanonicalReceiptConflict) {
 		return fmt.Errorf("%w: canonical receipt identity conflicts", ErrPostgreSQLReceiptConflict)
 	}
 	return fmt.Errorf("%w: canonical receipt is invalid", ErrPostgreSQLReceiptStore)

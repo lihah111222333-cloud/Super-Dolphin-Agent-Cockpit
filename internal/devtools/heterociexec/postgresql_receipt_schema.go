@@ -40,13 +40,15 @@ CREATE TABLE heteroci_receipt.batch_receipts (
 ALTER TABLE heteroci_receipt.batch_receipts OWNER TO heteroci_receipt_writer;
 REVOKE ALL ON TABLE heteroci_receipt.batch_receipts FROM PUBLIC;
 GRANT USAGE ON SCHEMA heteroci_receipt TO heteroci_receipt_writer;
-GRANT SELECT, INSERT, UPDATE ON TABLE heteroci_receipt.batch_receipts TO heteroci_receipt_writer;`
+GRANT SELECT, INSERT, UPDATE ON TABLE heteroci_receipt.batch_receipts TO heteroci_receipt_writer;` + "\n\n" + postgreSQLTerminalReceiptDDL
 
 var (
 	// ErrPostgreSQLReceiptStore 表示 PostgreSQL receipt authority 输入、连接或数据无效。
 	ErrPostgreSQLReceiptStore = errors.New("heteroci PostgreSQL receipt store is invalid")
 	// ErrPostgreSQLReceiptConflict 表示相同 batch/material identity 已绑定不同材料或终态。
 	ErrPostgreSQLReceiptConflict = errors.New("heteroci PostgreSQL receipt conflicts with persisted identity")
+	// ErrPostgreSQLReceiptCommitUncertain 表示提交确认丢失，必须通过 primary readback 收敛。
+	ErrPostgreSQLReceiptCommitUncertain = errors.New("heteroci PostgreSQL receipt commit outcome is uncertain")
 )
 
 const postgreSQLReceiptAuthorityQuery = `SELECT
