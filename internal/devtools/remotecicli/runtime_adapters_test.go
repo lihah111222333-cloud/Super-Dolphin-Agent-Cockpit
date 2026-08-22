@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociexec"
@@ -56,6 +57,7 @@ func TestExactExecutorBinderFourNodesCarriesTargetPlatformCGOAndDigests(t *testi
 	portable := adapterPortableRun(t)
 	expanded := append([]remoteportable.PortableManifestWorkload(nil), portable.Manifest.Workloads...)
 	portable.Manifest.Workloads = nil
+	portable.Manifest.CapacityPolicyDigest = mustAdapterCapacityDigest(t, portable.Manifest)
 	var digestErr error
 	portable.ManifestDigest, digestErr = remoteportable.PortableManifestContentDigest(portable.Manifest)
 	if digestErr != nil {
@@ -132,6 +134,7 @@ func TestExactExecutorBinderAcceptsManualCatalogExpandedSuperset(t *testing.T) {
 	expanded := append([]remoteportable.PortableManifestWorkload(nil), portable.Manifest.Workloads...)
 	extra := expanded[len(expanded)-1]
 	extra.UnitID = "windows/unit-03"
+	extra.ExecutionDigest = mustAdapterWorkloadDigest(t, extra)
 	expanded = append(expanded, extra)
 	topology := executeTopologyFixture()
 	config := executeRuntimeFixture("/tmp/remote-ci-topology.json", topology)
@@ -178,6 +181,88 @@ func TestExactExecutorBinderRejectsMissingCleanupWithoutRetry(t *testing.T) {
 	if runs != 1 {
 		t.Fatalf("runtime calls = %d, want exactly one", runs)
 	}
+}
+
+func TestSucceededExecuteTerminalShardsUseFourBoundNodes(t *testing.T) {
+	portable := adapterPortableRun(t)
+	topology := executeTopologyFixture()
+	config := executeRuntimeFixture("/tmp/remote-ci-topology.json", topology)
+	plan, batches := adapterBindingPlan(t, config, portable.Manifest.Workloads)
+	leases := make([]heteroci.RoutingLease, 0, len(batches))
+	units := make([]heteroci.ExecutionUnit, 0, len(batches))
+	unitResults := make([]heterociworkflow.UnitResult, 0, len(batches))
+	var fence heteroci.OwnerFence
+	for _, batch := range batches {
+		lease := batch.Started[0].Lease
+		lease.State, lease.StartedAtUnixMilli, lease.FinishedAtUnixMilli = heteroci.LeaseStateSucceeded, 2_000, 3_000
+		leases = append(leases, lease)
+		units = append(units, batch.Units[0])
+		unitResults = append(unitResults, heterociworkflow.UnitResult{UnitID: lease.UnitID, State: heteroci.LeaseStateSucceeded})
+		fence = batch.Started[0].Fence
+	}
+	snapshot := heterociworkflow.PreparedRunSnapshot{ExternalOperationID: plan.ExternalOperationID, Fence: fence, Units: units, BindingPlan: plan, BindingDigest: plan.BindingDigest}
+	resultFence := fence
+	resultFence.Revision++
+	result := heterociworkflow.RunResult{Authority: heteroci.AuthorityLocalNonAuthoritative, Status: heterociworkflow.ResultStatusNotVerified, Fence: resultFence, BindingPlan: plan, ExecutorBindingDigest: plan.BindingDigest, Leases: leases, Units: unitResults}
+	shards, startedAt, finishedAt, err := succeededExecuteTerminalShards(snapshot, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shards) != 4 || startedAt.UnixMilli() != 2_000 || finishedAt.UnixMilli() != 3_000 {
+		t.Fatalf("terminal shards/times = %d %v %v", len(shards), startedAt, finishedAt)
+	}
+	for index, shard := range shards {
+		if shard.NodeID != plan.Bindings[index].NodeID || shard.CleanupState != heterociexec.PostgreSQLReceiptCleanupVerified || shard.Status != heterociexec.PostgreSQLReceiptStatusSucceeded {
+			t.Fatalf("terminal shard %d = %#v", index, shard)
+		}
+	}
+}
+
+func TestExecuteWritersAreBoundedAndRejectShortWrite(t *testing.T) {
+	var output bytes.Buffer
+	if err := writeBoundedExecuteJSON(&output, []byte(`{"ok":true}`), 64); err != nil || output.String() != "{\"ok\":true}\n" {
+		t.Fatalf("bounded output = %q, %v", output.String(), err)
+	}
+	if err := writeBoundedExecuteJSON(shortExecuteWriter{}, []byte(`{}`), 64); !errors.Is(err, ErrExecuteComposition) {
+		t.Fatalf("short write error = %v", err)
+	}
+	if err := writeBoundedExecuteJSON(&output, []byte(`{"oversize":true}`), 2); !errors.Is(err, ErrExecuteComposition) {
+		t.Fatalf("oversize error = %v", err)
+	}
+}
+
+type shortExecuteWriter struct{}
+
+func (shortExecuteWriter) Write([]byte) (int, error) { return 0, nil }
+
+func TestRunPreparedExecuteFailureClosesWithoutTerminal(t *testing.T) {
+	closed := false
+	components := executeComponents{
+		owner: &executeOwnerStub{}, receipts: &executeReceiptAuthorityStub{}, probe: &executeProbeStub{}, binder: &executeBinderStub{},
+		close: func() error { closed = true; return nil },
+	}
+	dependencies := executeCommandDependencies{
+		clock: func() time.Time { return time.UnixMilli(10_000).UTC() },
+		components: func(context.Context, executePreparedInputs, func() time.Time) (executeComponents, error) {
+			return components, nil
+		},
+		run: func(context.Context, heterociworkflow.Dependencies, heterociworkflow.RunRequest) (heterociworkflow.RunResult, error) {
+			return heterociworkflow.RunResult{}, errors.New("workflow failed")
+		},
+	}
+	prepared := executePreparedInputs{Portable: remoteportable.BoundPortableRun{Manifest: remoteportable.PortableManifest{LogPolicy: remoteportable.PortableManifestLogPolicy{MaxResultBytes: 1024, MaxEventBytes: 1024}}}}
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	err := runPreparedExecute(context.Background(), prepared, stdout, stderr, dependencies)
+	if err == nil || !closed || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("failure close/output = err=%v closed=%t stdout=%q stderr=%q", err, closed, stdout, stderr)
+	}
+}
+
+type executeOwnerStub struct{ heterociworkflow.DurableOwner }
+type executeReceiptAuthorityStub struct{ executeReceiptAuthority }
+type executeProbeStub struct{ heteroci.ProbeTransport }
+type executeBinderStub struct {
+	heterociworkflow.ExecutorBinder
 }
 
 func readAdapterProbeBody(ctx context.Context, body heteroci.ProbeResponseBody) ([]byte, error) {
@@ -294,9 +379,12 @@ func adapterPortableRun(t *testing.T) remoteportable.BoundPortableRun {
 	digest := adapterDigest("manifest")
 	workloads := []remoteportable.PortableManifestWorkload{}
 	for _, item := range []struct{ id, platform, runtime string }{{"linux/unit-01", string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer)}, {"linux/unit-02", string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer)}, {"windows/unit-01", string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), string(remoteportable.RepositoryWorkloadRuntimeWindowsNative)}, {"windows/unit-02", string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), string(remoteportable.RepositoryWorkloadRuntimeWindowsNative)}} {
-		workloads = append(workloads, remoteportable.PortableManifestWorkload{UnitID: item.id, CommandDigest: adapterDigest(item.id + "-command"), TargetPlatform: item.platform, RuntimeCapability: item.runtime, CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: adapterDigest(item.id + "-execution"), Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)})
+		workload := remoteportable.PortableManifestWorkload{UnitID: item.id, CommandDigest: adapterDigest(item.id + "-command"), TargetPlatform: item.platform, RuntimeCapability: item.runtime, CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}
+		workload.ExecutionDigest = mustAdapterWorkloadDigest(t, workload)
+		workloads = append(workloads, workload)
 	}
-	manifest := remoteportable.PortableManifest{SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID, Engine: remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: digest, RequiredToolchainDigest: digest, RequiredCapabilities: []string{"go"}}, Target: remoteportable.PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"}, Workloads: workloads, CatalogPolicies: []remoteportable.PortableManifestCatalogPolicy{{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}}, Profile: remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"}, LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10}, Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"}, Modules: []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{}}
+	manifest := remoteportable.PortableManifest{SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID, Engine: remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: digest, RequiredToolchainDigest: digest, RequiredCapabilities: []string{"go"}}, Target: remoteportable.PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"}, Workloads: workloads, CatalogPolicies: []remoteportable.PortableManifestCatalogPolicy{{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}}, Profile: remoteportable.ProfileLocalFast, RequiredNodeCapabilities: []string{"go1.26.5"}, LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10}, Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"}, Modules: []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{}}
+	manifest.CapacityPolicyDigest = mustAdapterCapacityDigest(t, manifest)
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("portable manifest fixture: %v", err)
 	}
@@ -317,7 +405,7 @@ func adapterBindingPlan(t *testing.T, config remoteruntime.RuntimeConfig, worklo
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := heterociworkflow.ExecutorBindingPlan{SchemaVersion: heterociworkflow.ExecutorBindingPlanSchemaVersion, ExternalOperationID: operation, DurableRunID: identity.DurableRunID, RequestDigest: adapterDigest("request"), ManifestDigest: adapterDigest("manifest"), TopologyManifestDigest: adapterDigest("topology"), PlanDigest: adapterDigest("plan"), AuthorityGeneration: 1}
+	plan := heterociworkflow.ExecutorBindingPlan{SchemaVersion: heterociworkflow.ExecutorBindingPlanSchemaVersion, ExternalOperationID: operation, DurableRunID: identity.DurableRunID, RequestDigest: adapterDigest("request"), ManifestDigest: adapterDigest("manifest"), ExternalBindingDigest: adapterDigest("binding"), ManifestBlobSHA256: adapterDigest("blob"), RuntimePolicyDigest: adapterDigest("runtime"), TopologyManifestDigest: adapterDigest("topology"), PlanDigest: adapterDigest("plan"), AuthorityGeneration: 1}
 	batches := map[heterociworkflow.ExecutorKey]heterociworkflow.ExecutionBatch{}
 	for index, node := range config.Nodes {
 		key := heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: node.NodeID}
@@ -374,6 +462,25 @@ func mustAdapterBindingDigest(t *testing.T, plan heterociworkflow.ExecutorBindin
 func adapterTargetFacts() remoteruntime.TargetFacts {
 	return remoteruntime.TargetFacts{RepositoryID: "fixture", ObjectFormat: "sha1", CommitSHA: strings.Repeat("a", 40), TreeSHA: strings.Repeat("b", 40)}
 }
+
+func mustAdapterWorkloadDigest(t *testing.T, workload remoteportable.PortableManifestWorkload) string {
+	t.Helper()
+	digest, err := remoteportable.DerivePortableWorkloadExecutionDigest(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
+func mustAdapterCapacityDigest(t *testing.T, manifest remoteportable.PortableManifest) string {
+	t.Helper()
+	digest, err := remoteportable.DerivePortableCapacityPolicyDigest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
 func adapterDigest(string) string {
 	return "sha256:" + strings.Repeat("a", 64)
 }

@@ -395,14 +395,14 @@ func runGitFixture(t *testing.T, repository string, args ...string) string {
 	return strings.TrimSpace(string(output))
 }
 
-// TestExecuteRequiresContractUpgrade 锁定 execute 的 typed fail-fast 语义。
-func TestExecuteRequiresContractUpgrade(t *testing.T) {
+// TestExecuteRequiresExplicitProductionArguments 锁定 execute 不接受隐式仓库或配置。
+func TestExecuteRequiresExplicitProductionArguments(t *testing.T) {
 	t.Parallel()
 
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	err := dispatchCLI([]string{"execute"}, stdout, stderr)
-	if !errors.Is(err, ErrExecutionContractUpgradeRequired) {
-		t.Fatalf("dispatchCLI(execute) error = %v, want ErrExecutionContractUpgradeRequired", err)
+	if err == nil {
+		t.Fatal("dispatchCLI(execute) accepted missing production arguments")
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("execute wrote stdout: %q", stdout.String())
@@ -445,7 +445,7 @@ func TestRemoteCIPublicDispatchASTGuard(t *testing.T) {
 
 	cases := parseRemoteCIDispatchCases(t)
 	assertRemoteCIDispatchAllowlist(t, cases)
-	assertExecuteUpgradeSentinelCase(t, cases["execute"])
+	assertExecuteProductionDispatchCase(t, cases["execute"])
 	assertRemoteCIUsage(t)
 }
 
@@ -541,8 +541,8 @@ func recordRemoteCIDispatchClause(t *testing.T, cases map[string]*ast.CaseClause
 	}
 }
 
-// assertExecuteUpgradeSentinelCase 锁定 execute 只能直接返回升级哨兵。
-func assertExecuteUpgradeSentinelCase(t *testing.T, clause *ast.CaseClause) {
+// assertExecuteProductionDispatchCase 锁定 execute 只进入唯一 production composition。
+func assertExecuteProductionDispatchCase(t *testing.T, clause *ast.CaseClause) {
 	t.Helper()
 
 	if clause == nil || len(clause.Body) != 1 {
@@ -552,9 +552,13 @@ func assertExecuteUpgradeSentinelCase(t *testing.T, clause *ast.CaseClause) {
 	if !ok || len(statement.Results) != 1 {
 		t.Fatalf("execute case is not one direct return: %T", clause.Body[0])
 	}
-	identifier, ok := statement.Results[0].(*ast.Ident)
-	if !ok || identifier.Name != "ErrExecutionContractUpgradeRequired" {
-		t.Fatalf("execute case returns %T %v, want upgrade sentinel", statement.Results[0], statement.Results[0])
+	call, ok := statement.Results[0].(*ast.CallExpr)
+	if !ok {
+		t.Fatalf("execute case returns %T, want dispatchExecute call", statement.Results[0])
+	}
+	identifier, callOK := call.Fun.(*ast.Ident)
+	if !callOK || identifier.Name != "dispatchExecute" || len(call.Args) != 3 {
+		t.Fatalf("execute case returns %T %v, want dispatchExecute call", statement.Results[0], statement.Results[0])
 	}
 }
 

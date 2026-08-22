@@ -11,8 +11,15 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteruntime"
 )
 
 const (
@@ -345,4 +352,349 @@ func walkStrictJSONArray(decoder *json.Decoder) error {
 		return errors.New("JSON array is unterminated")
 	}
 	return nil
+}
+
+var (
+	// ErrExecuteCapacityBlocked 表示 canonical blocked terminal 已持久化并写入 stdout。
+	ErrExecuteCapacityBlocked = errors.New("remote CI execution is capacity blocked")
+	// ErrExecuteComposition 表示 execute production composition 缺失或状态不完整。
+	ErrExecuteComposition = errors.New("remote CI execute composition is invalid")
+)
+
+type executeReceiptAuthority interface {
+	heterociexec.ReceiptStore
+	AppendEvent(context.Context, heterociexec.PostgreSQLReceiptEvent) error
+	WriteTerminalReceipt(context.Context, heterociexec.PostgreSQLTerminalReceipt) error
+	ReadTerminalReceipt(context.Context, string) (heterociexec.PostgreSQLTerminalReceipt, bool, error)
+}
+
+type executeComponents struct {
+	owner    heterociworkflow.DurableOwner
+	receipts executeReceiptAuthority
+	probe    heteroci.ProbeTransport
+	binder   heterociworkflow.ExecutorBinder
+	close    func() error
+}
+
+func (components executeComponents) validate() error {
+	if isNilExecuteDependency(components.owner) || isNilExecuteDependency(components.receipts) || isNilExecuteDependency(components.probe) || isNilExecuteDependency(components.binder) || components.close == nil {
+		return ErrExecuteComposition
+	}
+	return nil
+}
+
+func isNilExecuteDependency(value any) bool {
+	if value == nil {
+		return true
+	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
+}
+
+type executeComponentFactory func(context.Context, executePreparedInputs, func() time.Time) (executeComponents, error)
+type executeWorkflowRunner func(context.Context, heterociworkflow.Dependencies, heterociworkflow.RunRequest) (heterociworkflow.RunResult, error)
+
+type executeCommandDependencies struct {
+	clock      func() time.Time
+	components executeComponentFactory
+	run        executeWorkflowRunner
+}
+
+func defaultExecuteCommandDependencies() executeCommandDependencies {
+	return executeCommandDependencies{
+		clock:      func() time.Time { return time.Now().UTC() },
+		components: openProductionExecuteComponents,
+		run:        heterociworkflow.Execute,
+	}
+}
+
+// dispatchExecute 是公开 execute 的唯一 production composition 入口。
+func dispatchExecute(args []string, stdout, stderr io.Writer) error {
+	return dispatchExecuteWithDependencies(args, stdout, stderr, defaultExecuteCommandDependencies())
+}
+
+func dispatchExecuteWithDependencies(args []string, stdout, stderr io.Writer, dependencies executeCommandDependencies) error {
+	if stdout == nil || stderr == nil || dependencies.clock == nil || dependencies.components == nil || dependencies.run == nil {
+		return ErrExecuteComposition
+	}
+	prepared, err := prepareExecuteInputs(context.Background(), args)
+	if err != nil {
+		return err
+	}
+	requestTimeout := time.Duration(prepared.Runtime.RequestTimeoutMS) * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	return runPreparedExecute(ctx, prepared, stdout, stderr, dependencies)
+}
+
+func runPreparedExecute(ctx context.Context, prepared executePreparedInputs, stdout, stderr io.Writer, dependencies executeCommandDependencies) error {
+	components, err := dependencies.components(ctx, prepared, dependencies.clock)
+	if err != nil {
+		return newCLIFailure("open execute components", err)
+	}
+	if err := components.validate(); err != nil {
+		return errors.Join(err, closeExecuteComponents(components))
+	}
+	coordinator := newExecuteLifecycleCoordinator(components.receipts, stderr, dependencies.clock, prepared.Portable.Manifest.LogPolicy)
+	result, runErr := dependencies.run(ctx, executeWorkflowDependencies(prepared, components, coordinator, dependencies.clock), prepared.RunRequest)
+	outcome, outcomeErr := coordinator.finish(ctx, result, runErr)
+	closeErr := components.close()
+	if outcomeErr != nil || closeErr != nil {
+		return errors.Join(outcomeErr, closeErr)
+	}
+	if err := writeExecuteTerminal(stdout, outcome.bytes, prepared.Portable.Manifest.LogPolicy.MaxResultBytes); err != nil {
+		return err
+	}
+	if outcome.blocked {
+		return ErrExecuteCapacityBlocked
+	}
+	return nil
+}
+
+func closeExecuteComponents(components executeComponents) error {
+	if components.close == nil {
+		return nil
+	}
+	return components.close()
+}
+
+func executeWorkflowDependencies(prepared executePreparedInputs, components executeComponents, coordinator *executeLifecycleCoordinator, clock func() time.Time) heterociworkflow.Dependencies {
+	return heterociworkflow.Dependencies{
+		Owner: components.owner, ProbeTransport: components.probe, Executors: components.binder,
+		LoadManifest: func(path string) (heteroci.Manifest, error) {
+			if path != prepared.Runtime.TopologyManifestPath {
+				return heteroci.Manifest{}, ErrExecuteComposition
+			}
+			return prepared.Topology, nil
+		},
+		AcquireSnapshot: heteroci.AcquireSnapshot, Now: clock,
+		CleanupTimeout:    time.Duration(prepared.Runtime.CleanupTimeoutMS) * time.Millisecond,
+		LifecycleObserver: coordinator, CapacityBlockedObserver: coordinator,
+	}
+}
+
+func openProductionExecuteComponents(ctx context.Context, prepared executePreparedInputs, clock func() time.Time) (executeComponents, error) {
+	authorityConfig := PostgreSQLAuthorityConfig{SchemaVersion: PostgreSQLAuthorityConfigSchema, OwnerDSNEnv: prepared.Runtime.OwnerDSNEnv, ReceiptDSNEnv: prepared.Runtime.ReceiptDSNEnv}
+	authorities, err := OpenPostgreSQLAuthorities(ctx, authorityConfig, DefaultPostgreSQLAuthorityDependencies())
+	if err != nil {
+		return executeComponents{}, err
+	}
+	components, err := bindProductionExecuteComponents(ctx, prepared, clock, authorities)
+	if err != nil {
+		return executeComponents{}, errors.Join(err, authorities.Close())
+	}
+	components.close = authorities.Close
+	return components, nil
+}
+
+func bindProductionExecuteComponents(ctx context.Context, prepared executePreparedInputs, clock func() time.Time, authorities *PostgreSQLAuthorities) (executeComponents, error) {
+	owner, err := heterociowner.NewPostgreSQLOwnerWithClock(ctx, authorities.Owner(), prepared.OwnerScope, clock)
+	if err != nil {
+		return executeComponents{}, err
+	}
+	durableOwner, err := heterociowner.NewPostgreSQLDurableOwner(owner)
+	if err != nil {
+		return executeComponents{}, err
+	}
+	receipts, err := heterociexec.NewPostgreSQLReceiptStore(ctx, authorities.Receipt())
+	if err != nil {
+		return executeComponents{}, err
+	}
+	runtimeTransport, err := remoteruntime.NewExecTransport(prepared.Runtime)
+	if err != nil {
+		return executeComponents{}, err
+	}
+	probe, err := NewRuntimeProbeTransport(runtimeTransport, prepared.RuntimeBinding.Target, prepared.Topology)
+	if err != nil {
+		return executeComponents{}, err
+	}
+	moduleIdentity, err := deriveDetectedRepositoryModuleIdentity(ctx, prepared.Repository)
+	if err != nil {
+		return executeComponents{}, err
+	}
+	binder, err := NewExactExecutorBinder(runtimeTransport, prepared.Portable, prepared.Repository.Workloads, moduleIdentity, func(remoteruntime.NodeBinding) (heterociexec.ReceiptStore, error) { return receipts, nil })
+	if err != nil {
+		return executeComponents{}, err
+	}
+	return executeComponents{owner: durableOwner, receipts: receipts, probe: probe, binder: binder}, nil
+}
+
+type executeTerminalOutcome struct {
+	bytes   []byte
+	blocked bool
+}
+
+type executeLifecycleCoordinator struct {
+	receipts   executeReceiptAuthority
+	stderr     io.Writer
+	clock      func() time.Time
+	logPolicy  remoteportable.PortableManifestLogPolicy
+	prepared   *heterociworkflow.PreparedRunSnapshot
+	first      []heterociexec.PostgreSQLReceiptEvent
+	stageTimes []time.Time
+	blocked    *executeTerminalOutcome
+}
+
+func newExecuteLifecycleCoordinator(receipts executeReceiptAuthority, stderr io.Writer, clock func() time.Time, policy remoteportable.PortableManifestLogPolicy) *executeLifecycleCoordinator {
+	return &executeLifecycleCoordinator{receipts: receipts, stderr: stderr, clock: clock, logPolicy: policy}
+}
+
+func (coordinator *executeLifecycleCoordinator) validateInitialObservation() error {
+	if coordinator == nil || coordinator.prepared != nil || coordinator.blocked != nil || coordinator.receipts == nil || coordinator.stderr == nil || coordinator.clock == nil {
+		return ErrExecuteComposition
+	}
+	return nil
+}
+
+// ObservePreparedRun 在首个 Start 前持久化并输出 request_validation 到 reservation。
+func (coordinator *executeLifecycleCoordinator) ObservePreparedRun(ctx context.Context, snapshot heterociworkflow.PreparedRunSnapshot) error {
+	if err := coordinator.validateInitialObservation(); err != nil {
+		return err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return err
+	}
+	stageTimes, err := preparedExecuteStageTimes(snapshot.SourceSnapshot, coordinator.clock)
+	if err != nil {
+		return err
+	}
+	shards, err := preparedExecuteTerminalShards(snapshot, stageTimes[3])
+	if err != nil {
+		return err
+	}
+	projection, err := projectPreparedExecuteLifecycle(snapshot, shards, stageTimes)
+	if err != nil {
+		return err
+	}
+	if err := coordinator.appendAndWriteEvents(ctx, projection.Events[:4]); err != nil {
+		return err
+	}
+	copy := snapshot
+	coordinator.prepared = &copy
+	coordinator.first = append([]heterociexec.PostgreSQLReceiptEvent(nil), projection.Events[:4]...)
+	coordinator.stageTimes = append([]time.Time(nil), stageTimes...)
+	return nil
+}
+
+// ObserveCapacityBlocked 发布完整八阶段空分片 blocked lifecycle 和 terminal receipt。
+func (coordinator *executeLifecycleCoordinator) ObserveCapacityBlocked(ctx context.Context, snapshot heterociworkflow.CapacityBlockedRunSnapshot) error {
+	if err := coordinator.validateInitialObservation(); err != nil {
+		return err
+	}
+	if err := snapshot.Validate(); err != nil {
+		return err
+	}
+	stageTimes, err := blockedExecuteStageTimes(snapshot.SourceSnapshot, coordinator.clock)
+	if err != nil {
+		return err
+	}
+	emptyShards := []heterociexec.PostgreSQLTerminalShard{}
+	nodeSetDigest, err := heterociexec.PostgreSQLTerminalNodeSetDigest(emptyShards)
+	if err != nil {
+		return err
+	}
+	input := heterociexec.PostgreSQLLifecycleProjectionInput{
+		OperationID: string(snapshot.ExternalOperationID), RequestDigest: snapshot.RequestDigest,
+		ManifestDigest: snapshot.ManifestDigest, PlanDigest: snapshot.PlanDigest,
+		ExecutorBindingDigest: blockedExecuteBindingDigest(snapshot.RequestDigest, snapshot.PlanDigest), NodeSetDigest: nodeSetDigest,
+		AuthorityGeneration: int64(snapshot.Fence.OwnerEpoch), StageTimes: stageTimes, TerminalShards: emptyShards,
+		Status: heterociexec.PostgreSQLReceiptStatusBlocked, CleanupState: heterociexec.PostgreSQLReceiptCleanupVerified,
+		ExitCode: -1, CapacityCode: "capacity_blocked",
+	}
+	projection, err := heterociexec.ProjectPostgreSQLLifecycle(input)
+	if err != nil {
+		return err
+	}
+	outcome, err := coordinator.persistTerminalProjection(ctx, projection, 0)
+	if err != nil {
+		return err
+	}
+	outcome.blocked = true
+	coordinator.blocked = &outcome
+	return nil
+}
+
+func (coordinator *executeLifecycleCoordinator) finish(ctx context.Context, result heterociworkflow.RunResult, runErr error) (executeTerminalOutcome, error) {
+	if runErr != nil {
+		var blocked *heterociworkflow.CapacityBlockedRunError
+		if errors.As(runErr, &blocked) && blocked != nil && coordinator.blocked != nil {
+			return *coordinator.blocked, nil
+		}
+		return executeTerminalOutcome{}, newCLIFailure("execute workflow failed", runErr)
+	}
+	if coordinator == nil || coordinator.prepared == nil || coordinator.blocked != nil {
+		return executeTerminalOutcome{}, ErrExecuteComposition
+	}
+	return coordinator.finishSucceeded(ctx, result)
+}
+
+func (coordinator *executeLifecycleCoordinator) finishSucceeded(ctx context.Context, result heterociworkflow.RunResult) (executeTerminalOutcome, error) {
+	shards, startedAt, finishedAt, err := succeededExecuteTerminalShards(*coordinator.prepared, result)
+	if err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	stageTimes := append([]time.Time(nil), coordinator.stageTimes...)
+	stageTimes[4], stageTimes[5] = startedAt, finishedAt
+	stageTimes[6], stageTimes[7] = coordinator.clock(), coordinator.clock()
+	if err := validateExecuteStageTimes(stageTimes); err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	nodeSetDigest, err := heterociexec.PostgreSQLTerminalNodeSetDigest(shards)
+	if err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	input := heterociexec.PostgreSQLLifecycleProjectionInput{
+		OperationID: string(coordinator.prepared.ExternalOperationID), RequestDigest: coordinator.prepared.RequestDigest,
+		ManifestDigest: coordinator.prepared.ManifestDigest, PlanDigest: result.BindingPlan.PlanDigest,
+		ExecutorBindingDigest: result.ExecutorBindingDigest, NodeSetDigest: nodeSetDigest,
+		AuthorityGeneration: int64(result.Fence.OwnerEpoch), StageTimes: stageTimes, TerminalShards: shards,
+		Status: heterociexec.PostgreSQLReceiptStatusSucceeded, CleanupState: heterociexec.PostgreSQLReceiptCleanupVerified, ExitCode: 0,
+	}
+	projection, err := heterociexec.ProjectPostgreSQLLifecycle(input)
+	if err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	if err := compareExecuteFirstEvents(coordinator.first, projection.Events[:4]); err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	return coordinator.persistTerminalProjection(ctx, projection, 4)
+}
+
+func (coordinator *executeLifecycleCoordinator) appendAndWriteEvents(ctx context.Context, events []heterociexec.PostgreSQLReceiptEvent) error {
+	for _, event := range events {
+		if err := coordinator.receipts.AppendEvent(ctx, event); err != nil {
+			return err
+		}
+		if err := writeExecuteEvent(coordinator.stderr, event, coordinator.logPolicy.MaxEventBytes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (coordinator *executeLifecycleCoordinator) persistTerminalProjection(ctx context.Context, projection heterociexec.PostgreSQLLifecycleProjection, eventOffset int) (executeTerminalOutcome, error) {
+	if err := coordinator.appendAndWriteEvents(ctx, projection.Events[eventOffset:]); err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	if err := coordinator.receipts.WriteTerminalReceipt(ctx, projection.Receipt); err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	persisted, found, err := coordinator.receipts.ReadTerminalReceipt(ctx, projection.Receipt.OperationID)
+	if err != nil || !found {
+		return executeTerminalOutcome{}, errors.Join(ErrExecuteComposition, err)
+	}
+	wantBytes, _, err := heterociexec.EncodePostgreSQLTerminalReceipt(projection.Receipt)
+	if err != nil {
+		return executeTerminalOutcome{}, err
+	}
+	gotBytes, _, err := heterociexec.EncodePostgreSQLTerminalReceipt(persisted)
+	if err != nil || !bytes.Equal(wantBytes, gotBytes) {
+		return executeTerminalOutcome{}, errors.Join(ErrExecuteComposition, err)
+	}
+	return executeTerminalOutcome{bytes: wantBytes}, nil
 }

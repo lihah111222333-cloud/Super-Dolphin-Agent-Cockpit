@@ -29,9 +29,6 @@ const (
 // usageText 只描述仍保留的公开 descriptor/execute 入口；云制品命令已退役。
 const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> --repository <absolute-root> | execute --request <absolute-file> --repository <absolute-root> --runtime-config <absolute-file>\n"
 
-// ErrExecutionContractUpgradeRequired 表示 execute 尚未获得可验证的执行合约。
-var ErrExecutionContractUpgradeRequired = errors.New("execution contract upgrade required")
-
 // Run 只暴露契约许可的窄命令，并保持 stdout 为机器协议流。
 func Run(args []string, stdout, stderr io.Writer) int {
 	err := dispatchCLI(args, stdout, stderr)
@@ -41,7 +38,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return 1
 }
 
-// dispatchCLI 分派受支持的窄命令，execute 只返回升级哨兵错误。
+// dispatchCLI 分派受支持的 validate 与唯一 production execute 入口。
 func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return newCLIFailure("missing command", nil)
@@ -50,7 +47,7 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 	case "validate":
 		return dispatchValidate(args[1:], stdout, stderr)
 	case "execute":
-		return ErrExecutionContractUpgradeRequired
+		return dispatchExecute(args[1:], stdout, stderr)
 	default:
 		return newCLIFailure("unknown command", nil)
 	}
