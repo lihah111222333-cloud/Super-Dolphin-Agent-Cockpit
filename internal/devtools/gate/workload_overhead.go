@@ -18,7 +18,7 @@ const ShardOrchestrationOverheadSchemaVersion uint32 = 2
 
 // ShardOrchestrationOverhead 是同一 accepted generation、校准资源和环境
 // 下由权威分片计时派生的 per-shard overhead P95。它独立于完整 duration
-// calibration，允许 generation one 先接受 overhead 再完成 workload calibration。
+// calibration，允许校准运行在 workload calibration 完成前采样 overhead。
 type ShardOrchestrationOverhead struct {
 	SchemaVersion                uint32  `json:"schema_version"`
 	PolicyVersion                string  `json:"policy_version"`
@@ -178,7 +178,7 @@ func validateShardOverheadMetadata(p95MS int64, sampleCount int, provenanceDiges
 }
 
 // ResolvePlanningContext 将规划绑定到同环境的 accepted overhead。
-// calibration mode 允许 generation one 在尚无 accepted overhead 时执行采样。
+// calibration mode 允许在尚无 accepted overhead 时执行采样。
 func ResolvePlanningContext(context PlanningContext, ledger DurationLedger) (PlanningContext, error) {
 	if err := validatePlanningContextBase(context); err != nil {
 		return PlanningContext{}, err

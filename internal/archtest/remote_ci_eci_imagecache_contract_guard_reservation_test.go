@@ -10,8 +10,8 @@ import (
 var remoteCIACRArtifactPattern = regexp.MustCompile(`\bACR\b|\bacr(?:Auth|Client|Repository|Registry|Role|Token)\b`)
 
 // TestRemoteCISuccessorExecutorArtifactsAreAbsent makes the accepted-only
-// boundary explicit: repository code may consume an accepted snapshot and
-// import a generation-one receipt, but it may not construct its successor.
+// boundary explicit: repository code may consume an accepted snapshot, but it
+// may not construct or promote a successor executor artifact.
 func TestRemoteCISuccessorExecutorArtifactsAreAbsent(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, file := range remoteCIProductionFiles(t, root) {

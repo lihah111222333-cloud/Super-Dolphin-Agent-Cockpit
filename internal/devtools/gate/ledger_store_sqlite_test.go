@@ -244,9 +244,9 @@ func TestLoadSQLiteShardOverheadRejectsOutsideAcceptedBaselineWindow(t *testing.
 	futureOverhead := oldOverhead
 	futureOverhead.AcceptedGeneration = 5
 	futureOverhead.ProvenanceDigest = "sha256:" + strings.Repeat("b", 64)
-	insertGenerationOneRunForTest(t, database, oldSample.JobID)
+	insertRemoteRunForTest(t, database, oldSample.JobID)
 	insertCalibrationExecutionIdentityForTest(t, database, oldSample.JobID, oldOverhead.Platform, oldOverhead.Runner, oldOverhead.Toolchain)
-	insertGenerationOneRunForTest(t, database, futureSample.JobID)
+	insertRemoteRunForTest(t, database, futureSample.JobID)
 	insertCalibrationExecutionIdentityForTest(t, database, futureSample.JobID, futureOverhead.Platform, futureOverhead.Runner, futureOverhead.Toolchain)
 	tx, err := database.Begin()
 	if err != nil {
@@ -348,7 +348,7 @@ func durationLedgerSQLiteRecordShardOverheadRoundTrip(t *testing.T, store *Durat
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertGenerationOneRunForTest(t, database, sample.JobID)
+	insertRemoteRunForTest(t, database, sample.JobID)
 	if _, err := database.Exec(`UPDATE ci_runs SET image_cache_snapshot_id = ? WHERE job_id = ?`, overhead.AcceptedSnapshotID, sample.JobID); err != nil {
 		database.Close()
 		t.Fatal(err)

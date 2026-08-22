@@ -211,7 +211,7 @@ func remoteCalibrationWorkloadKey(workload gatecontract.Workload) string {
 	return workload.ID + "\x00" + workload.CommandDigest + "\x00" + workload.InputDigest
 }
 
-// validateRemoteCalibrationRuns 拒绝三种 source、运行时或权威性在首代校准中发生漂移。
+// validateRemoteCalibrationRuns 拒绝三种 source、运行时或权威性在初始校准中发生漂移。
 func validateRemoteCalibrationRuns(inputs [3]remoteci.RunInput, results [3]remoteci.RunResult) error {
 	commitInput, pushInput, releaseInput := inputs[0], inputs[1], inputs[2]
 	if !remoteCalibrationInputSetMatches(commitInput, pushInput, releaseInput) {
@@ -316,7 +316,7 @@ func remoteCalibrationForceMatches(inputs [3]remoteci.RunInput, results [3]remot
 	return true
 }
 
-// remoteCalibrationSourcesMatch 核对首代三次运行分别使用树、范围和提交 source。
+// remoteCalibrationSourcesMatch 核对初始三次运行分别使用树、范围和提交 source。
 func remoteCalibrationSourcesMatch(commitInput remoteci.RunInput, pushInput remoteci.RunInput, releaseInput remoteci.RunInput) bool {
 	return commitInput.Source.Kind == gatecontract.SourceKindTree &&
 		pushInput.Source.Kind == gatecontract.SourceKindRange &&
@@ -432,7 +432,7 @@ func emitRemoteCalibrationResult(
 	return nil
 }
 
-// remoteCalibrationRunOptions 生成首代 commit、push、release 的固定入口与 source 身份。
+// remoteCalibrationRunOptions 生成初始 commit、push、release 的固定入口与 source 身份。
 func remoteCalibrationRunOptions(options remoteRunOptions, commit string, tree string, base string) (remoteRunOptions, remoteRunOptions, remoteRunOptions) {
 	commitOptions := options
 	commitOptions.Commit, commitOptions.Tree, commitOptions.ParentCommit = "", tree, base
@@ -479,7 +479,7 @@ func prepareRemoteCalibrationLedger(path string) (*gatecontract.DurationLedgerSt
 	return store, nil
 }
 
-// acceptRemoteDurationCalibration 用 CAS 接受每个 catalog workload 都有成功样本的旧式首代校准。
+// acceptRemoteDurationCalibration 用 CAS 接受每个 catalog workload 都有成功样本的初始校准。
 func acceptRemoteDurationCalibration(
 	store *gatecontract.DurationLedgerStore,
 	calibration gatecontract.DurationCalibration,

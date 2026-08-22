@@ -149,7 +149,7 @@ func TestSQLiteShardOverheadExcludesMissingExecutionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	insertGenerationOneRunForTest(t, database, sample.JobID)
+	insertRemoteRunForTest(t, database, sample.JobID)
 	insertCalibrationExecutionIdentityForTest(t, database, sample.JobID)
 	if _, err := database.Exec(`DELETE FROM ci_remote_run_execution_identities WHERE job_id = ?`, sample.JobID); err != nil {
 		database.Close()

@@ -6,7 +6,7 @@
 make remote-ci-init
 ```
 
-初始化脚本会把跟踪配置原子复制到当前仓库的 `.git/super-dolphin-remote/config.json`，并在相邻位置创建本地 `config.baseline-state.sqlite` 的当前 schema/index。数据库为空时只建立 schema；accepted baseline 仍由 normal run/hook 使用配置内的严格 generation-one 回执，在实时验证云端事实后首写。
+初始化脚本会把跟踪配置原子复制到当前仓库的 `.git/super-dolphin-remote/config.json`，并在相邻位置创建本地 `config.baseline-state.sqlite` 的当前 schema/index。数据库为空时只建立 schema；accepted baseline 必须由受信外部 authority 预先写入，normal run/hook 缺失时只返回 typed fail-fast。
 
 初始化还会安装仓库本地的 `git remote-ci` 别名。使用 `git remote-ci commit ...` 或 `git remote-ci push ...` 时，版本化启动器会从 GitHub CLI 的系统凭据存储读取当前 `github.com` 身份和短期 token，并从目标仓库的受信 Gate 为本次进程链签发 agent token，然后通过环境执行原始 Git 命令。启动器不把原始凭据写入 Git 配置、文件、SQLite、日志或命令参数。
 

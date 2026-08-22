@@ -41,22 +41,11 @@ func assertRemoteCIGoBuildCachePathIdentity(t *testing.T) {
 	}
 }
 
-func TestRemoteCIGenerationOneAndGoCachePathUseCanonicalOwners(t *testing.T) {
+func TestRemoteCIGoCachePathUsesCanonicalOwner(t *testing.T) {
 	root := findRepoRoot(t)
-	commandPath := filepath.Join(root, "cmd", "super-dolphin-gate", "remote_provision_generation_one.go")
-	command := parseRemoteCIContractGuardFile(t, commandPath)
-	for _, duplicate := range []string{
-		"decodeGenerationOneProvisionState", "validateGenerationOneProvisionStateBinding",
-		"validateGenerationOneStateCoreBinding", "generationOneStateCloudIdentityMatches",
-		"generationOneStateSourceIdentityMatches", "validateGenerationOneStateArtifactBinding",
-	} {
-		if remoteCIFunctionByName(command, duplicate) != nil {
-			t.Errorf("super-dolphin-gate retains duplicate generation-one owner %s", duplicate)
-		}
-	}
 	const cachePath = "/opt/super-dolphin/cache/go-build"
 	production := []string{
-		"internal/devtools/cicontract/generation_one.go",
+		"internal/devtools/cicontract/accepted_baseline.go",
 		"internal/devtools/gate/executor.go",
 		"internal/devtools/remoteci/coordinator_request.go",
 	}

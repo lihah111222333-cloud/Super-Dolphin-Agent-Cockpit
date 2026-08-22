@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -151,21 +152,17 @@ func validateRemotePreparedRunDependencies(dependencies remotePreparedRunDepende
 	return nil
 }
 
-// loadRunnableRemoteRunState 首代空库时原子导入已由 ECI 实测的严格回执，后续只读取 accepted baseline。
+// loadRunnableRemoteRunState 只读取已接受的远程基线；缺失 accepted baseline 必须 typed fail-fast。
 func loadRunnableRemoteRunState(options remoteRunOptions) (remoteRunConfig, remoteci.BaselineState, error) {
 	config, err := loadRemoteRunConfig(options.ConfigPath)
 	if err != nil {
 		return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("load remote CI config: %v", err)
 	}
 	state, err := loadAcceptedRemoteBaseline(options.LedgerPath)
-	if errors.Is(err, gatecontract.ErrRemoteBaselineStateNotFound) {
-		bootstrapErr := initializeConfiguredRemoteGenerationOne(config, options.LedgerPath)
-		if bootstrapErr != nil && !configuredRemoteGenerationOneAlreadyAccepted(config, options.LedgerPath) {
-			return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("initialize remote baseline generation one: %v", bootstrapErr)
-		}
-		state, err = loadAcceptedRemoteBaseline(options.LedgerPath)
-	}
 	if err != nil {
+		if errors.Is(err, gatecontract.ErrRemoteBaselineStateNotFound) {
+			return remoteRunConfig{}, remoteci.BaselineState{}, gatecontract.WithExitCode(gatecontract.ExitProtocol, fmt.Errorf("load accepted remote baseline: %w", err))
+		}
 		return remoteRunConfig{}, remoteci.BaselineState{}, protocolError("load accepted remote baseline: %v", err)
 	}
 	if err := validateRunnableRemoteBaseline(state); err != nil {

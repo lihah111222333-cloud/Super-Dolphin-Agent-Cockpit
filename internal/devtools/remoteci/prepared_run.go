@@ -757,7 +757,7 @@ func (prepared *PreparedRun) validateLocked() error {
 
 // validateFinalPlanningSnapshotLocked 在 normal miss 产生任何 OSS、临时目录或 ECI 副作用前，
 // 强制校验同一 SQLite authority 的最终规划快照。all-hit 仍允许在无 accepted
-// overhead 的 generation-one 状态下结束；normal miss 只依赖 accepted overhead aggregate，
+// accepted generation 初始尚无 accepted overhead 时结束；normal miss 只依赖 accepted overhead aggregate，
 // calibration metadata 可为空。
 func (prepared *PreparedRun) validateFinalPlanningSnapshotLocked() error {
 	if prepared.allReused || prepared.input.Calibration {

@@ -106,7 +106,7 @@ type DurationLedger struct {
 
 const DurationCalibrationSchemaVersion uint32 = 3
 
-// DurationCalibration 绑定首代完整 commit/push/release 校准和精确 runner 环境。
+// DurationCalibration 绑定初始完整 commit/push/release 校准和精确 runner 环境。
 type DurationCalibration struct {
 	SchemaVersion                uint32         `json:"schema_version"`
 	Commit                       string         `json:"commit"`
@@ -560,7 +560,7 @@ func ValidateDurationLedger(ledger DurationLedger) error {
 	return nil
 }
 
-// NewDurationLedger 返回首代校准可原子创建的空账本。
+// NewDurationLedger 返回初始校准可原子创建的空账本。
 func NewDurationLedger() DurationLedger {
 	return DurationLedger{Version: durationLedgerVersion, Samples: []DurationSample{}}
 }
@@ -624,7 +624,7 @@ func validateCalibrationCatalogs(calibration DurationCalibration) error {
 	return nil
 }
 
-// validateCalibrationEntrypoints 保证首代校准绑定三条权威入口。
+// validateCalibrationEntrypoints 保证初始校准绑定三条权威入口。
 func validateCalibrationEntrypoints(calibration DurationCalibration) error {
 	if calibration.CommitEntrypoint != CIEntrypointGitPreCommit || calibration.PushEntrypoint != CIEntrypointGitPrePush || calibration.ReleaseEntrypoint != CIEntrypointRelease {
 		return errors.New("duration calibration entrypoints are not authoritative")

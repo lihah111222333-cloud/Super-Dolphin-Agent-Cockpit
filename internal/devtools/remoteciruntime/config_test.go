@@ -13,7 +13,7 @@ func TestConfigJSONFieldRegistry(t *testing.T) {
 		typeOf reflect.Type
 		fields []string
 	}{
-		"config":   {typeOf: reflect.TypeFor[Config](), fields: []string{"aliyun_cli", "capacity", "credential_profile", "generation_one_provision", "oss", "region_id", "schema_version", "security_group_id", "vswitches", "worker_role_name"}},
+		"config":   {typeOf: reflect.TypeFor[Config](), fields: []string{"aliyun_cli", "capacity", "credential_profile", "oss", "region_id", "schema_version", "security_group_id", "vswitches", "worker_role_name"}},
 		"oss":      {typeOf: reflect.TypeFor[OSSConfig](), fields: []string{"bucket", "endpoint", "internal_endpoint", "source_prefix"}},
 		"capacity": {typeOf: reflect.TypeFor[CapacityConfig](), fields: []string{"resource_policy"}},
 	} {

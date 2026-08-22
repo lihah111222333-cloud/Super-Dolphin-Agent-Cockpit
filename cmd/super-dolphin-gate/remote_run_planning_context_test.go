@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
@@ -29,30 +28,6 @@ func TestRemoteRunPlanningContextRejectsCalibrationWithoutConfig(t *testing.T) {
 	_, err := remoteRunPlanningContext(remoteRunOptions{Calibration: true}, remoteci.BaselineState{}, "runner-current")
 	if err == nil {
 		t.Fatal("remoteRunPlanningContext() accepted calibration without config")
-	}
-}
-
-// TestLoadRemoteRunLedgerAllowsGenerationOneBeforeCalibration 覆盖首代 normal 在 PASS 判定和自动校准前只读元数据。
-func TestLoadRemoteRunLedgerAllowsGenerationOneBeforeCalibration(t *testing.T) {
-	config, _, verifier := generationOneConfiguredFixture(t)
-	ledgerPath := filepath.Join(t.TempDir(), "remote-ci.baseline-state.sqlite")
-	if err := initializeConfiguredRemoteGenerationOneWithVerifier(t.Context(), config, ledgerPath, verifier); err != nil {
-		t.Fatalf("initialize configured generation one: %v", err)
-	}
-	state, err := loadAcceptedRemoteBaseline(ledgerPath)
-	if err != nil {
-		t.Fatalf("load accepted generation one: %v", err)
-	}
-	snapshot, store, err := loadRemoteRunLedger(remoteRunOptions{LedgerPath: ledgerPath}, state, "runner-current")
-	if err != nil {
-		t.Fatalf("load normal preparation ledger without calibration: %v", err)
-	}
-	expectedAuthority, err := filepath.EvalSymlinks(ledgerPath)
-	if err != nil {
-		t.Fatalf("resolve expected ledger authority: %v", err)
-	}
-	if snapshot.Generation != 1 || snapshot.Ledger.Calibration != nil || snapshot.Ledger.ShardOverhead != nil || store.AuthorityPath() != expectedAuthority {
-		t.Fatalf("normal preparation snapshot = %#v, authority = %q", snapshot, store.AuthorityPath())
 	}
 }
 

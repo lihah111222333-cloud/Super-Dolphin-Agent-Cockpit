@@ -307,7 +307,7 @@ func resolveRemoteCommitTarget(
 	}, nil
 }
 
-// validateRemoteDurationCalibration 确保普通运行使用与已接受基线一致的首代校准。
+// validateRemoteDurationCalibration 确保普通运行使用与已接受基线一致的初始校准。
 func validateRemoteDurationCalibration(
 	options remoteRunOptions,
 	state remoteci.BaselineState,
@@ -319,7 +319,7 @@ func validateRemoteDurationCalibration(
 	}
 	calibration := ledger.Calibration
 	if calibration == nil {
-		return errors.New("remote CI duration ledger has not completed first-generation calibration")
+		return errors.New("remote CI duration ledger has not completed initial calibration")
 	}
 	if !remoteDurationCalibrationMatches(calibration, state, runnerIdentity) {
 		return errors.New("remote CI duration calibration does not match the accepted runner baseline")

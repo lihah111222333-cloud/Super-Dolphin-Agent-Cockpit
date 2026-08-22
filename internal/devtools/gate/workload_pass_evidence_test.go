@@ -368,9 +368,9 @@ func TestWorkloadPassEvidenceConcurrentPromotionKeepsJobsIsolated(t *testing.T) 
 
 // TestWorkloadPassEvidenceLookupRestrictsAcceptedGeneration 验证 lookup 只复用当前代向前最近三代的真实证据。
 func TestWorkloadPassEvidenceLookupRestrictsAcceptedGeneration(t *testing.T) {
-	t.Run("generation one expires when accepted singleton is four", func(t *testing.T) {
+	t.Run("old generation expires when accepted singleton is four", func(t *testing.T) {
 		store := newWorkloadPassEvidenceStore(t, 1)
-		record, identity, receipts := recordWorkloadPassRun(t, store, "expired-generation-one", 1, "workload-expired")
+		record, identity, receipts := recordWorkloadPassRun(t, store, "expired-accepted-generation", 1, "workload-expired")
 		if err := store.FinalizeRemoteCIRunAuthorityWithSamples(remoteCIRunAuthorityIdentity(record), receipts, nil, true); err != nil {
 			t.Fatal(err)
 		}

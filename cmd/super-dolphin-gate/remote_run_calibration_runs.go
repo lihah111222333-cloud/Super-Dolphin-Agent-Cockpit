@@ -51,7 +51,7 @@ func resolveRemoteCalibrationIdentity(repositoryRoot string, revision string) (r
 	return remoteCalibrationIdentity{commit: commit, tree: tree, base: base}, nil
 }
 
-// executeRemoteCalibrationRuns 保持首代 commit、push、release 的固定顺序和独立结果。
+// executeRemoteCalibrationRuns 保持初始 commit、push、release 的固定顺序和独立结果。
 func executeRemoteCalibrationRuns(
 	options remoteRunOptions,
 	identity remoteCalibrationIdentity,

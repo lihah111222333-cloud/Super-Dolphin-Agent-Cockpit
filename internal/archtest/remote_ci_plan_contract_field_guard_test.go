@@ -207,16 +207,6 @@ func TestRemoteCIStrictPlanAndProtocolDecoderGuard(t *testing.T) {
 			t.Errorf("%s decoder %s retains a permissive json.Unmarshal path", row.name, row.function)
 		}
 	}
-	for _, row := range []struct {
-		name, relative, function string
-	}{
-		{"generation-one receipt", "internal/devtools/cicontract/generation_one.go", "DecodeGenerationOneProvisionReceipt"},
-	} {
-		file := parseRemoteCIContractGuardFile(t, root+"/"+row.relative)
-		if !remoteCIFunctionCalls(file, row.function, "DisallowUnknownFields") || !remoteCIFunctionCalls(file, row.function, "Decode") {
-			t.Errorf("%s decoder %s must reject unknown fields with strict json.Decoder", row.name, row.function)
-		}
-	}
 	assertRemoteCIProtocolVersionAliases(t, root)
 }
 

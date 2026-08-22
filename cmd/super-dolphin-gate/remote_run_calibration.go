@@ -13,7 +13,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/shardresource"
 )
 
-// runRemoteCalibration 执行首代 commit、push 与 release 权威运行并接受完整时长校准。
+// runRemoteCalibration 执行初始 commit、push 与 release 权威运行并接受完整时长校准。
 func runRemoteCalibration(args []string, stdout io.Writer, progressWriters ...io.Writer) error {
 	if err := requireRemoteCIAgentToken([]string{"remote", "calibrate"}, args, stdout); err != nil {
 		return err

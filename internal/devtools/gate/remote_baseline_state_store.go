@@ -17,7 +17,7 @@ type RemoteBaselineStateRecord struct {
 
 func (store *DurationLedgerStore) LoadRemoteBaselineState() (RemoteBaselineStateRecord, error) {
 	// 首次读取允许原子创建空 authority 的 current schema；accepted baseline
-	// 仍必须由 generation-one 回执单独写入，缺失时继续 fail-fast。
+	// 必须由受信外部 authority 预先写入，缺失时 typed fail-fast。
 	db, err := store.openSQLiteAuthority(true)
 	if err != nil {
 		return RemoteBaselineStateRecord{}, err

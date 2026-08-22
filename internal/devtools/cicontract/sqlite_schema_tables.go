@@ -9,6 +9,8 @@ import (
 const (
 	// DurationLedgerMetaTable 是 duration-ledger authority 的 singleton 元数据表。
 	DurationLedgerMetaTable = "duration_ledger_meta"
+	// DurationCalibrationsTable 是校准摘要 singleton 的唯一 SQLite 权威表。
+	DurationCalibrationsTable = "duration_calibrations"
 	// DurationQueryMetaTable 是 SQLite schema 查询元数据表，不承载远程 CI 事实。
 	DurationQueryMetaTable = "ci_query_meta"
 	// ShardTerminalContainersTable 是 ECI 终态容器证据表。

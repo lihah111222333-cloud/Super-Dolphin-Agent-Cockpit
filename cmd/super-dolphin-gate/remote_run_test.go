@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,17 @@ func TestNormalizeRemoteSQLiteAuthorityMakesRelativeConfigAbsolute(t *testing.T)
 	}
 	if ledgerPath != want || !filepath.IsAbs(ledgerPath) {
 		t.Fatalf("normalized ledger path = %q, want absolute %q", ledgerPath, want)
+	}
+}
+
+func TestLoadRunnableRemoteRunStateFailsTypedWhenAcceptedBaselineIsMissing(t *testing.T) {
+	configPath := writeRemoteRunConfigFixture(t, validRemoteRunConfigJSON())
+	_, _, err := loadRunnableRemoteRunState(remoteRunOptions{
+		ConfigPath: configPath,
+		LedgerPath: filepath.Join(t.TempDir(), "remote-ci.baseline-state.sqlite"),
+	})
+	if err == nil || gatecontract.ExitCodeOf(err) != gatecontract.ExitProtocol || !errors.Is(err, gatecontract.ErrRemoteBaselineStateNotFound) || !strings.Contains(err.Error(), "load accepted remote baseline") {
+		t.Fatalf("loadRunnableRemoteRunState() error = %v, want typed missing-baseline protocol failure", err)
 	}
 }
 

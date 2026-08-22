@@ -570,7 +570,7 @@ func seedSQLiteNormalReserveEvidenceWithCompileTiming(t *testing.T, store *Durat
 	for index, resource := range resources {
 		jobID := "reserve-job-" + string(rune('a'+index))
 		shardID := "sha256:" + strings.Repeat(string(rune('a'+index)), 64)
-		insertGenerationOneRunForTest(t, database, jobID)
+		insertRemoteRunForTest(t, database, jobID)
 		if _, err := database.Exec(`UPDATE ci_runs SET image_cache_snapshot_id = 'snapshot-1', started_at_unix_ms = ?, completed_at_unix_ms = ? WHERE job_id = ?`, base.UnixMilli(), base.Add(10*time.Second).UnixMilli(), jobID); err != nil {
 			t.Fatal(err)
 		}

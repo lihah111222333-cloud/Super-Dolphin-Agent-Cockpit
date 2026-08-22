@@ -116,7 +116,7 @@ func seedSQLiteKeyedNormalReserveEvidence(t *testing.T, store *DurationLedgerSto
 	const sharedShard = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for index, resource := range resources {
 		jobID := fmt.Sprintf("keyed-reserve-job-%c", 'a'+index)
-		insertGenerationOneRunForTest(t, database, jobID)
+		insertRemoteRunForTest(t, database, jobID)
 		if _, err := database.Exec(`UPDATE ci_runs SET image_cache_snapshot_id = ?, started_at_unix_ms = ?, completed_at_unix_ms = ? WHERE job_id = ?`, overhead.AcceptedSnapshotID, base.UnixMilli(), base.Add(10*time.Second).UnixMilli(), jobID); err != nil {
 			t.Fatal(err)
 		}

@@ -31,7 +31,7 @@ func TestClient_CreateContainerGroupPinsCacheAndRejectsAutomaticMatching(t *test
 	}
 }
 
-// TestValidateReadyImageCacheRejectsUnboundIdentity 覆盖首代 live cache 的 Ready、snapshot 和 immutable image 门禁。
+// TestValidateReadyImageCacheRejectsUnboundIdentity 覆盖 accepted baseline live cache 的 Ready、snapshot 和 immutable image 门禁。
 func TestValidateReadyImageCacheRejectsUnboundIdentity(t *testing.T) {
 	valid := ImageCache{ID: "imc-ready", SnapshotID: "snapshot-ready", Name: "cache-1", Status: "Ready", Images: []string{testMainImageDigest}}
 	tests := []struct {

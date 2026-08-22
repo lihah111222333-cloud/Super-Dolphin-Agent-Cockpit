@@ -12,7 +12,7 @@ const (
 	expandedGoPackageBootstrapEstimateMS     int64 = 4_000
 	expandedGoRacePackageBootstrapEstimateMS int64 = 8_000
 	// expandedNilnessTotalBootstrapEstimateMS 保守估计拆包后整个 analyzer gate 的冷启动总量。
-	// 每个包只分得该预算的一部分，避免首代账本将每个 nilness 包误判为独立长任务。
+	// 每个包只分得该预算的一部分，避免初始账本将每个 nilness 包误判为独立长任务。
 	expandedNilnessTotalBootstrapEstimateMS int64 = 180_000
 	// expandedPlaywrightBootstrapEstimateMS 让每个 describe target 在首个 authoritative
 	// timing sample 到达前保持在 medium resource tier。
@@ -145,7 +145,7 @@ func BuildExpandedWorkloadCatalog(plan GatePlan, policy WorkloadBootstrapPolicy,
 	return buildExpandedWorkloadCatalog(plan, policy, inventory, false)
 }
 
-// BuildCalibrationWorkloadCatalog 展开首代校准目录，并为每个 Go 包生成 race workload。
+// BuildCalibrationWorkloadCatalog 展开初始校准目录，并为每个 Go 包生成 race workload。
 func BuildCalibrationWorkloadCatalog(plan GatePlan, policy WorkloadBootstrapPolicy, inventory WorkloadInventory) (WorkloadCatalog, error) {
 	return buildExpandedWorkloadCatalog(plan, policy, inventory, true)
 }
@@ -315,7 +315,7 @@ func canonicalWorkload(spec GateSpec, bootstrap WorkloadBootstrap) (Workload, er
 	return Workload{ID: string(spec.ID), Kind: bootstrap.Kind, CommandDigest: digest, BootstrapEstimateMS: bootstrap.EstimateMS, Shardable: bootstrap.Shardable}, nil
 }
 
-// expandedTargetsForGateMode 返回 gate 在普通或首代校准模式下的原子目标。
+// expandedTargetsForGateMode 返回 gate 在普通或初始校准模式下的原子目标。
 func expandedTargetsForGateMode(id GateID, inventory WorkloadInventory, allRacePackages bool) (string, []string) {
 	switch id {
 	case GateIDBackendTestWithGuard:
@@ -489,7 +489,7 @@ func validateWorkloadBootstrap(id GateID, bootstrap WorkloadBootstrap) error {
 	return nil
 }
 
-// buildExpandedWorkloadCatalog 按目标清单展开目录，并保留首代全包 race 选择。
+// buildExpandedWorkloadCatalog 按目标清单展开目录，并保留初始全包 race 选择。
 func buildExpandedWorkloadCatalog(plan GatePlan, policy WorkloadBootstrapPolicy, inventory WorkloadInventory, allRacePackages bool) (WorkloadCatalog, error) {
 	if err := plan.Validate(); err != nil {
 		return WorkloadCatalog{}, fmt.Errorf("validate gate plan: %w", err)

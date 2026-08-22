@@ -30,16 +30,15 @@ type CapacityConfig struct {
 
 // Config 是 Gate 与未来独立 host 共享的 strict remote runtime 配置。
 type Config struct {
-	SchemaVersion          uint32                                    `json:"schema_version"`
-	AliyunCLI              string                                    `json:"aliyun_cli"`
-	CredentialProfile      string                                    `json:"credential_profile"`
-	RegionID               string                                    `json:"region_id"`
-	VSwitches              []cicontract.ECIVSwitch                   `json:"vswitches"`
-	SecurityGroupID        string                                    `json:"security_group_id"`
-	WorkerRoleName         string                                    `json:"worker_role_name"`
-	OSS                    OSSConfig                                 `json:"oss"`
-	Capacity               CapacityConfig                            `json:"capacity"`
-	GenerationOneProvision *cicontract.GenerationOneProvisionReceipt `json:"generation_one_provision,omitempty"`
+	SchemaVersion     uint32                  `json:"schema_version"`
+	AliyunCLI         string                  `json:"aliyun_cli"`
+	CredentialProfile string                  `json:"credential_profile"`
+	RegionID          string                  `json:"region_id"`
+	VSwitches         []cicontract.ECIVSwitch `json:"vswitches"`
+	SecurityGroupID   string                  `json:"security_group_id"`
+	WorkerRoleName    string                  `json:"worker_role_name"`
+	OSS               OSSConfig               `json:"oss"`
+	Capacity          CapacityConfig          `json:"capacity"`
 }
 
 // LoadConfig 从显式路径 strict decode 并完整校验 remote runtime 配置。
@@ -76,11 +75,6 @@ func (config Config) Validate() error {
 	}
 	if err := validateShardCapacity(config); err != nil {
 		return err
-	}
-	if config.GenerationOneProvision != nil {
-		if err := config.GenerationOneProvision.Validate(); err != nil {
-			return errors.New("remote CI generation_one_provision is invalid: " + err.Error())
-		}
 	}
 	return nil
 }

@@ -92,12 +92,9 @@ func TestRunRemoteLedgerInitCanonicalizesSingleDashAndRejectsMixedDuplicates(t *
 
 func TestTrackedRemoteCIConfigPassesStrictValidation(t *testing.T) {
 	configPath := filepath.Join("..", "..", "config", "remote-ci", "aliyun.json")
-	config, err := loadRemoteRunConfig(configPath)
+	_, err := loadRemoteRunConfig(configPath)
 	if err != nil {
 		t.Fatalf("load tracked remote CI config: %v", err)
-	}
-	if config.GenerationOneProvision == nil {
-		t.Fatal("tracked remote CI config is missing generation-one provision receipt")
 	}
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
@@ -116,24 +113,17 @@ func TestTrackedRemoteCIConfigPassesStrictValidation(t *testing.T) {
 	}
 }
 
-func TestTrackedRemoteCIConfigRejectsNonCanonicalEmbeddedReceipt(t *testing.T) {
+func TestTrackedRemoteCIConfigRejectsRetiredGenerationOneField(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "config", "remote-ci", "aliyun.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	document := string(data)
-	for name, replacement := range map[string]string{
-		"case alias":     `"generation_one_provision":{"SCHEMA_VERSION":5`,
-		"case duplicate": `"generation_one_provision":{"schema_version":5,"SCHEMA_VERSION":5`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			mutated := strings.Replace(document, `"generation_one_provision":{"schema_version":5`, replacement, 1)
-			if mutated == document {
-				t.Fatal("tracked config fixture did not contain generation-one receipt")
-			}
-			if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, mutated)); err == nil {
-				t.Fatal("loadRemoteRunConfig() accepted non-canonical embedded receipt")
-			}
-		})
+	document := strings.TrimSpace(string(data))
+	if !strings.HasSuffix(document, "}") {
+		t.Fatal("tracked remote CI config is not a JSON object")
+	}
+	mutated := strings.TrimSuffix(document, "}") + `,"generation_one_provision":{}}`
+	if _, err := loadRemoteRunConfig(writeRemoteRunConfigFixture(t, mutated)); err == nil {
+		t.Fatal("loadRemoteRunConfig() accepted retired generation-one configuration field")
 	}
 }

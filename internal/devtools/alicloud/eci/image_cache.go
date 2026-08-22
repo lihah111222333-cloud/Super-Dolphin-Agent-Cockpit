@@ -19,7 +19,7 @@ func (c *Client) DescribeImageCache(ctx context.Context, imageCacheID string) (I
 	return c.describeImageCache(ctx, []string{"--ImageCacheId", imageCacheID}, imageCacheID)
 }
 
-// ValidateReadyImageCache 校验外部首代回执绑定的 live ECI identity 与 Ready 镜像。
+// ValidateReadyImageCache 校验 accepted baseline 绑定的 live ECI identity 与 Ready 镜像。
 func ValidateReadyImageCache(cache ImageCache, expectedID, expectedName, expectedImage string) error {
 	if err := validateReadyImageCacheIdentity(cache, expectedID, expectedName); err != nil {
 		return err
@@ -50,7 +50,7 @@ func validateReadyImageCacheImages(images []string, expectedImage string) error 
 		}
 	}
 	if seen != 1 {
-		return errors.New("ECI Ready ImageCache runtime image does not match the provision receipt exactly once")
+		return errors.New("ECI Ready ImageCache runtime image does not match the accepted baseline exactly once")
 	}
 	return nil
 }

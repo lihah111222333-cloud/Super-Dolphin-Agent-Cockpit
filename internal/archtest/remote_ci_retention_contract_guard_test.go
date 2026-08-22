@@ -76,27 +76,6 @@ func TestRemoteCIRetentionRootsShareOneAcceptedGenerationWindow(t *testing.T) {
 	remoteCIRetentionAssertRetiredCapsAbsent(t, root)
 }
 
-// TestRemoteCIGenerationOneDerivesEveryAuthorityHistoryTableFromContract
-// 防止首代 bootstrap 重新维护一份会漏根的静态表清单。
-func TestRemoteCIGenerationOneDerivesEveryAuthorityHistoryTableFromContract(t *testing.T) {
-	root := findRepoRoot(t)
-	source := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "gate", "remote_baseline_generation_one.go"))
-	for _, required := range []string{
-		"cicontract.RetentionRootBindings()",
-		"cicontract.GenerationOneAuthoritySupportingTables()",
-		"SELECT EXISTS(SELECT 1 FROM %s LIMIT 1)",
-	} {
-		if !strings.Contains(source, required) {
-			t.Errorf("generation-one authority history check lacks %q", required)
-		}
-	}
-	for _, binding := range cicontract.RetentionRootBindings() {
-		if strings.Contains(source, `"`+binding.Table+`"`) {
-			t.Errorf("generation-one authority history check duplicated retention root %q", binding.Table)
-		}
-	}
-}
-
 // TestRemoteCITimingWarningLifecycleIsTransientAndAtomic 锁定 live 事实不成为第六根，
 // 且只在最终 run 写事务中移动到 cascade 子表。
 func TestRemoteCITimingWarningLifecycleIsTransientAndAtomic(t *testing.T) {

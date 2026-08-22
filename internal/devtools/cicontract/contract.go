@@ -33,9 +33,6 @@ const (
 	// GitHub Actions 不得提供远程 CI runner、编译、测试、cache-prime 或镜像构建能力。
 	// 独立产品发布 workflow 不签发远程 CI 结论，不属于本契约执行面。
 	CIExecutionBoundary = "aliyun-eci-only-no-github-runner/v1"
-	// GenerationOneBootstrapPathID 标识 normal run/hook 在空 singleton 时消费配置 strict ECI receipt 的唯一首代路径。
-	// 非空 singleton 继续提供 correctness identity；执行物料可消费实时验证的有限期刷新 snapshot。
-	GenerationOneBootstrapPathID = "normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1"
 	// SQLAuthorityID 标识 accepted state、规划、回执和校准共用的唯一数据源。
 	SQLAuthorityID = "duration-ledger-sqlite/v1"
 	// DurationLedgerSQLiteSchemaVersion 是 duration-ledger SQLite 物理 schema 的唯一版本 owner。
@@ -43,7 +40,7 @@ const (
 	// RemoteCITargetBindingManifestSchemaVersion 是 normal portable target binding 可持久化的唯一 workload manifest schema。
 	RemoteCITargetBindingManifestSchemaVersion = "portable-workload-manifest/v5"
 	// CacheMaterialSchemaID 标识 OCI 构建阶段可生成的非权威缓存材料 manifest。
-	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或首代检查回执。
+	// 它只描述将被阿里云 ECI ImageCache 消费的镜像内容，绝不是 CI 或检查回执。
 	CacheMaterialSchemaID = "remote-ci-cache-material/v1"
 	// CacheMaterialAuthority 冻结缓存材料不得进入任何 authoritative receipt 或 SQLite PASS 路径。
 	CacheMaterialAuthority = "non_authoritative_material"
@@ -162,7 +159,7 @@ const (
 	// ECIEphemeralStorageGiB 冻结每个 CI、镜像物料构建和 cache-prime
 	// 容器组的原始临时盘容量，避免默认小盘导致构建中途耗尽。
 	ECIEphemeralStorageGiB = 100
-	// ECIMultiZoneScheduleStrategy 冻结 normal、校准与首代检查的多可用区随机调度策略。
+	// ECIMultiZoneScheduleStrategy 冻结 normal 与校准运行的多可用区随机调度策略。
 	ECIMultiZoneScheduleStrategy = "VSwitchRandom"
 	// ECIMinVSwitchCount 禁止单可用区库存成为全部并发分片的串行瓶颈。
 	ECIMinVSwitchCount = 2
@@ -255,7 +252,7 @@ const (
 )
 
 // RetentionGenerationWindow 返回当前 accepted 代及连续保留的前代窗口；零值保持零，
-// 让调用方在使用窗口前可以 fail-fast，低于首代的前代统一钳制为一。
+// 让调用方在使用窗口前可以 fail-fast，低于最早保留代的前代统一钳制为一。
 func RetentionGenerationWindow(current uint64) [RetentionGenerations]uint64 {
 	var window [RetentionGenerations]uint64
 	for offset := range RetentionGenerations {
@@ -397,58 +394,6 @@ type CheckObservation struct {
 	ReceiptSHA256      string        `json:"receipt_sha256"`
 }
 
-// ProvisionCheck 是外部 generation-one strict receipt 的内容验证目录；它不是仓库内 refresh executor 或 ImageCache writer。
-type ProvisionCheck string
-
-const (
-	ProvisionCheckGateBuild     ProvisionCheck = "gate_build"
-	ProvisionCheckNormalCompile ProvisionCheck = "normal_compile"
-	ProvisionCheckE2ECompile    ProvisionCheck = "e2e_compile"
-	ProvisionCheckRaceCompile   ProvisionCheck = "race_compile"
-	ProvisionCheckFrontendBuild ProvisionCheck = "frontend_build"
-	ProvisionCheckDependency    ProvisionCheck = "dependency"
-)
-
-// ProvisionCheckObservation 是外部 generation-one receipt 中已完成内容验证的严格编码。
-// 它不得被解释为 normal CI PASS，也不得授权仓库创建 successor ImageCache。
-type ProvisionCheckObservation struct {
-	Check                         ProvisionCheck `json:"check"`
-	ExecutionProvider             string         `json:"execution_provider"`
-	RegionID                      string         `json:"region_id"`
-	ContainerGroupID              string         `json:"container_group_id"`
-	ContainerName                 string         `json:"container_name"`
-	ResourceClassID               string         `json:"resource_class_id"`
-	ResourceCPU                   float64        `json:"resource_cpu"`
-	ResourceMemoryGiB             float64        `json:"resource_memory_gib"`
-	Executed                      bool           `json:"executed"`
-	Passed                        bool           `json:"passed"`
-	SourceTree                    string         `json:"source_tree"`
-	ProvisionSnapshotID           string         `json:"provision_snapshot_id"`
-	PlanDigest                    string         `json:"plan_digest"`
-	StartedAtUnixMS               int64          `json:"started_at_unix_ms"`
-	CompletedAtUnixMS             int64          `json:"completed_at_unix_ms"`
-	DurationMS                    int64          `json:"duration_ms"`
-	CandidateCompileMS            int64          `json:"candidate_compile_ms"`
-	CandidateCompileNotApplicable bool           `json:"candidate_compile_not_applicable"`
-	TestBodyNotApplicable         bool           `json:"test_body_not_applicable"`
-	ReceiptSHA256                 string         `json:"receipt_sha256"`
-}
-
-const (
-	// GenerationOneECITagProvider 将 provision group 绑定到唯一接受的 cloud executor。
-	GenerationOneECITagProvider = "super-dolphin-ci-provider"
-	// GenerationOneECITagImageCache 将 provision group 绑定到精确的 Ready ImageCache identity。
-	GenerationOneECITagImageCache = "super-dolphin-ci-image-cache"
-	// GenerationOneECITagSnapshot 将 provision group 绑定到正在测试的 Ready ImageCache snapshot。
-	GenerationOneECITagSnapshot = "super-dolphin-ci-snapshot"
-	// GenerationOneECITagSourceTree 将 provision group 绑定到正在测试的精确 source tree。
-	GenerationOneECITagSourceTree = "super-dolphin-ci-source-tree"
-	// GenerationOneECITagCheck 将 provision group 绑定到唯一的 generation-one check。
-	GenerationOneECITagCheck = "super-dolphin-ci-provision-check"
-	// GenerationOneECITagPlanDigest 将 provision group 绑定到 immutable execution plan。
-	GenerationOneECITagPlanDigest = "super-dolphin-ci-plan-digest"
-)
-
 // SQLDomain 是必须由同一个 duration-ledger SQLite authority 持久化的事实域。
 type SQLDomain string
 
@@ -500,7 +445,7 @@ type Requirement struct {
 
 var requirements = [...]Requirement{
 	{ID: "1.1", Section: 1, Summary: "基准镜像消费单一 Go 1.26.5 锁，并包含锁定工具、Go module/build cache 与前端依赖/构建 cache", Enforcement: "build closure + runtime manifest + archtest"},
-	{ID: "1.2", Section: 1, Summary: "normal CI 仅在空 singleton 时原子首写 accepted correctness identity；pre-push 按 exact pushed tree 非阻塞刷新有限期 ImageCache，normal run 严格读取 OSS 回执并实时复核 Ready identity 后只替换执行镜像与 snapshot，绝不改写 SQLite", Enforcement: "runtime call graph + hook dispatch + strict receipt + live ECI verification + archtest"},
+	{ID: "1.2", Section: 1, Summary: "normal CI 仅消费已接受 SQLite correctness identity；pre-push 按 exact pushed tree 非阻塞刷新有限期 ImageCache，normal run 严格读取 OSS 回执并实时复核 Ready identity 后只替换执行镜像与 snapshot，绝不写入或重建 accepted state", Enforcement: "runtime call graph + hook dispatch + strict refresh receipt + live ECI verification + archtest"},
 	{ID: "1.3", Section: 1, Summary: "hook、job 与动态 shards 无仓库并发上限；index.lock 仅保护 Git index", Enforcement: "cicontract concurrency policy + archtest"},
 	{ID: "1.5", Section: 1, Summary: "所有远程 CI 动作、镜像构建与 cache-prime 只能在阿里云 ECI 执行；禁止 GitHub Actions 或其他环境承载远程 CI", Enforcement: "provider identity + ECI request/receipt field guard + remote-CI workflow deletion + archtest"},
 	{ID: "1.6", Section: 1, Summary: "100 秒只触发一次目标超限告警；不得取消、中断、kill 或标失败", Enforcement: "planner + non-terminating timing warning"},
@@ -512,9 +457,9 @@ var requirements = [...]Requirement{
 	{ID: "2.3", Section: 2, Summary: "候选源码和 Gate 编译分别绑定 exact Git identity 与根 module 跨代稳定传递编译闭包；Gate 禁止导入 repository-local replace module，嵌套 module metadata 只进 worker execution digest", Enforcement: "materializer + receipt + closure guard"},
 	{ID: "2.4", Section: 2, Summary: "严格 JSON 仅作协议编码，OSS refresh receipt 仅选择可实时复核的加速物料；二者均不得提供 PASS、accepted generation 或 correctness 权威", Enforcement: "strict decoders + live ECI readback + archtest"},
 	{ID: "2.5", Section: 2, Summary: "accepted state、check receipts、timing 与 warnings 只写同一个 SQLite authority", Enforcement: "SQLite schema + receipt store"},
-	{ID: "2.6", Section: 2, Summary: "generation-one 只能由 normal CI 消费配置外部回执首写；唯一刷新脚本按 OSS strict receipt 的 24h 成功间隔创建有限期 ImageCache，normal run 可在 strict decode、accepted OCI base 绑定和实时 Ready 复核后消费该加速层，但不得晋级或改写 SQLite", Enforcement: "strict receipt boundary + accepted-base binding + live ECI guard + archtest"},
+	{ID: "2.6", Section: 2, Summary: "候选 ImageCache refresh 只创建有限期非权威加速物料；normal run 仅在 strict decode、accepted OCI base 绑定和实时 Ready 复核后消费该加速层，不得晋级或改写 SQLite", Enforcement: "strict refresh receipt boundary + accepted-base binding + live ECI guard + archtest"},
 	{ID: "2.7", Section: 2, Summary: "无 token 请求只返回 --agent-token=issue 与 env=issue 申请方式和实际 token 的 flag/env 使用方式；仅单一显式 issue 才签发 raw token，前两阶段均不执行 CI/ECI；git hook 无状态且只继承/验证实际 env token，跨 SQLite/OSS/ECI/log/tag/checkpoint/receipt 只传 sha256 digest", Enforcement: "agent-token contract + field guard + archtest"},
-	{ID: "2.8", Section: 2, Summary: "首次读取缺失 SQLite 时原子初始化 schema/index；normal run/hook 仅凭显式 strict ECI receipt 原子首写 baseline 与账本元数据，缺失或漂移仍 fail-fast", Enforcement: "SQLite initializer + generation-one bootstrap test"},
+	{ID: "2.8", Section: 2, Summary: "首次读取缺失 SQLite 时只原子初始化 schema/index；accepted baseline 必须预先存在，缺失或漂移只能 typed fail-fast，normal run/hook 不得通过配置回执自动写入", Enforcement: "SQLite initializer + missing-baseline fail-fast test"},
 	{ID: "2.9", Section: 2, Summary: "authoritative JobID 的全部 SQLite 投影不可重写；晋级前必须精确回读 aggregate/workload execution 的状态、摘要、时序与执行画像", Enforcement: "provisional write guard + strict aggregate/workload readback tests"},
 	{ID: "2.10", Section: 2, Summary: "每次阿里云 CLI 调用同时受 context 超时与进程管道 WaitDelay 约束；子孙进程持有输出管道不得使轮询、汇总或清理无界等待", Enforcement: "ECI CLI process watchdog + inherited-pipe regression test"},
 	{ID: "2.11", Section: 2, Summary: "normal portable target binding 仅以 immutable job_id 一对一 additive side table 绑定 target repository/object/commit/tree/mount、manifest path/SHA/schema/ABI/manifest digest 与 profile 的 gate.WorkloadCatalogDigest(mapped selected profile catalog)；禁止 manifest/declared command digest 替代，只提供 record+exact readback，runtime/Coordinator/finalizer 仍未接线且不回填 legacy run", Enforcement: "SQLite v23 side table + strict record/readback + migration/field/arch guards; runtime not wired"},
@@ -525,8 +470,8 @@ var requirements = [...]Requirement{
 	{ID: "3.5", Section: 3, Summary: "accepted ImageCache 在 /opt/super-dolphin-gate/source-baseline.git 提供 RunnerBaseTree 的 tree/blob closure 与确定性无 parent baseline commit；每次 CI 只上传标准 v2 git-bundle-thin，bundle 由 tree=SourceSpec parent/base tree 的 candidate-parent synthetic commit（唯一 parent=baseline）再连接 tree=候选的 transport commit，且 header 恰好一个 prerequisite、物化 refs/source/base 指向 synthetic base；严禁自包含/full fallback/raw whole repo，bundle 与 strict manifest 完整上传后才按 SQLite LPT 创建全部并发 shards", Enforcement: "source baseline + deterministic transport commit + strict bundle/manifest verifier + upload barrier + archtest"},
 	{ID: "3.6", Section: 3, Summary: "accepted GHCR 镜像路径仍延迟加载固定 ghcr.io 短期凭据；实时验证的 refresh cache-only 路径要求主/init 为同一 cached immutable image 且不编码 registry 凭据，禁止访问已删除临时 registry 或回退拉取", Enforcement: "explicit cache-only request + credential omission + dynamic field guard + redaction tests"},
 	{ID: "3.7", Section: 3, Summary: "MISS-only 路径按唯一矩阵构造并 create-only 上传同 job 内容寻址的 accepted schema14/nested CompileGroup1/临时 manifest1 bootstrap request、current ShardRequest15 与 worker manifest2；accepted bootstrap 的 gate_ids 仅在 accepted encoder/identity 边界投影，current request/manifest 保留精确 per-package IDs。两个请求各限 1 MiB，旧版本、unknown fields、schema 协商、兼容 fallback 或刷新镜像绕过升级均严格拒绝", Enforcement: "catalog/fingerprint/worker-digest lookup barrier + protocol matrix guard + dual-request manifest guard + request byte-limit tests"},
-	{ID: "4.1", Section: 4, Summary: "唯一写 accepted singleton 的路径是 normal run/hook 空库 bootstrap；首写前必须消费配置 strict receipt 并实时 Describe 阿里云 ECI cache/container groups，绑定 provider、region、唯一 group/container、Ready snapshot、immutable image、tags、零退出、真实时间、逐项 normal CPU/内存、generation=1、state SHA、源码/工具链/策略/seed 与固定规格；外部 operator 仅可用只读 ConfigFileVolume 投影控制文本和小型增量 bundle，禁止投影依赖、缓存、registry 凭据或第二状态源；公网私有 registry 的 ImageCache 临时 ECI 必须绑定 EIP 或已验证 NAT，并只在进程和 API 密文参数传短期凭据，终态后确认 EIP 解绑", Enforcement: "receipt validation + live ECI API verification + SQLite INSERT + archtest"},
-	{ID: "4.2", Section: 4, Summary: "首写只允许空 singleton 原子 INSERT baseline 与账本元数据；同态并发幂等收敛，异态、非空、缺字段或非首代 receipt 必须 fail-fast", Enforcement: "strict bootstrap boundary"},
+	{ID: "4.1", Section: 4, Summary: "V3 Gate 不拥有 accepted singleton 的生产写入口；normal run/hook 只读取已接受 baseline，并绑定 provider、region、Ready snapshot、immutable image、源码、工具链、策略、seed 与固定规格，缺失或身份漂移必须 fail-fast", Enforcement: "accepted-state read validation + runtime call graph + archtest"},
+	{ID: "4.2", Section: 4, Summary: "本地 init-ledger 只允许空库建立 schema/index；accepted baseline 与账本元数据必须由受信外部 authority 预先写入，normal run/hook 不得通过配置回执或 fallback 首写", Enforcement: "typed missing-baseline boundary + SQLite initializer"},
 	{ID: "4.3", Section: 4, Summary: "pre-push 从 exact pushed tree 后台静默启动唯一 dispatcher；仅当 OSS strict 成功回执超过 24h 才在 ECI 内创建有限期非权威 ImageCache；normal run 每次 strict 读取并实时复核该物料后显式使用，维护锁只去重刷新", Enforcement: "exact-tree hook dispatch + scheduling receipt + live runtime selection + maintenance lock + archtest"},
 	{ID: "5.1", Section: 5, Summary: "shard 数只受可分片原子 workload 数量限制", Enforcement: "LPT planner + archtest"}, {ID: "5.2", Section: 5, Summary: "云配额与 API 限流必须显式失败，不得静默降并发或转本地", Enforcement: "runtime + archtest"},
 	{ID: "5.3", Section: 5, Summary: "normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；每档 reserve resolution 必须是 measured 或 bootstrap 并进入估时、规划和 plan digest：有 identity-bound measured reserve 时从 100 秒扣除 `eci_wait + source_materialize + candidate_compile + orchestration` fixed-front interval-union nearest-rank P95，workload total 与 test-binary compile 留在 packable cost 且不得重计；约 64.8s 只可作为观测值，禁止硬编码。缺少该档可靠实测时使用 isolated-reserve-bootstrap/v1，将当前 MISS 的每个普通 workload 或不可拆 compile group 各放一片，禁止调用 EffectiveTarget/D-CPAP；partial MISS 按档独立决议，unknown、空 resolution、重复档或伪造数值必须 fail-fast，all-hit 仍不进入 planner；首次升档无新档 exact sample 时携带上一档权威实测 workload 估值，不伪造样本或回退资源；固定 5s/70s 阈值、bootstrap 资源和其他资源隔离约束保持不变", Enforcement: "tiered resolution + fixed-front interval-union + isolated bootstrap + workload plan digest + reserve field guard"},
@@ -732,7 +677,7 @@ func Validate() error {
 
 // validateContractIdentity 校验代码契约的稳定身份与唯一 owner 路径均已定义。
 func validateContractIdentity() error {
-	values := []string{ID, DocumentPath, ExecutionPathID, ExecutionProviderID, CIExecutionBoundary, GenerationOneBootstrapPathID, SQLAuthorityID, CacheMaterialSchemaID, CacheMaterialAuthority, CompileGroupExecutionPathID}
+	values := []string{ID, DocumentPath, ExecutionPathID, ExecutionProviderID, CIExecutionBoundary, SQLAuthorityID, CacheMaterialSchemaID, CacheMaterialAuthority, CompileGroupExecutionPathID}
 	if slices.Contains(values, "") {
 		return errors.New("remote CI contract identity is incomplete")
 	}

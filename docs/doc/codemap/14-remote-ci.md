@@ -8,7 +8,6 @@
 
 - `cmd/super-dolphin-gate/main.go`：Gate CLI 总入口；远程命令进入 run、hook、materializer、manifest installer 与 worker。
 - `cmd/super-dolphin-gate/remote_run.go`：读取 strict 配置和 SQLite accepted baseline，构造 normal/calibration 运行并输出权威账本。
-- `cmd/super-dolphin-gate/remote_provision_generation_one.go`：仅由 normal run/hook 在空 singleton 时消费外部 generation-one strict receipt；不是独立 provision command。
 - `.githooks/pre-commit`：绑定 exact staged tree 的本地代码守卫入口，不启动 remote CI。
 - `.githooks/pre-push`：绑定 exact pushed ref update 的唯一 Git remote ECI 门禁入口。
 
@@ -24,7 +23,7 @@
 
 - `internal/devtools/cicontract/contract.go`：远程 CI provider、并发、资源、timing、retention 与 forbidden legacy capability 的代码 owner。
 - `internal/devtools/gate/ledger_store_sqlite.go`：duration ledger SQLite authority 的打开、读取与 CAS 边界。
-- `internal/devtools/gate/remote_baseline_generation_one.go`：accepted baseline singleton 的唯一生产 INSERT 路径。
+- `cmd/super-dolphin-gate/remote_baseline_state_store.go`：读取并严格校验已接受 baseline singleton；缺失状态直接 fail-fast。
 - `internal/devtools/alicloud/eci/client.go`：阿里云 ECI container group 生命周期；正常 shard 必须绑定 accepted ImageCache snapshot。
 - `internal/devtools/alicloud/eci/image_cache.go`：ImageCache 只读 Describe/验证，不提供仓库内 writer。
 - `internal/devtools/alicloud/oss/client.go`：source/request/report 的内容寻址 OSS 传输，不是状态权威。
@@ -34,7 +33,7 @@
 - `config/remote-ci/aliyun.json`：strict remote run 配置样例；原始 registry/agent 凭据不得持久化其中。
 - `scripts/git_with_remote_ci_credentials.sh`：从受信凭据存储取得短期 GHCR 凭据并以环境继承执行 Git。
 - `scripts/init_remote_ci_local.sh`：安装本地配置、SQLite 路径与 credential-aware Git alias，不创建 ImageCache。
-- `internal/archtest/remote_ci_eci_imagecache_contract_guard_test.go`：静态拒绝本地/第二 executor、旧 cache authority、并发上限和仓库内 refresh writer。
+- `internal/archtest/remote_ci_eci_imagecache_contract_guard_reservation_test.go`：静态拒绝本地/第二 executor、旧 cache authority、并发上限和仓库内 refresh writer。
 - `internal/archtest/remote_ci_retired_legacy_artifacts_guard_test.go`：拒绝已退役 JSON/cache/bundle artifact 复活。
 
 ## 定位顺序

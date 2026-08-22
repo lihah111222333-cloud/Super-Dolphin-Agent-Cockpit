@@ -68,12 +68,6 @@ func TestClassifyWorkloadResourceDurationUsesFrozenNormalTiers(t *testing.T) {
 	}
 }
 
-func TestGenerationOneBootstrapIsTheOnlyWritePathIdentity(t *testing.T) {
-	if GenerationOneBootstrapPathID != "normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1" {
-		t.Fatalf("GenerationOneBootstrapPathID = %q", GenerationOneBootstrapPathID)
-	}
-}
-
 func TestCIExecutionBoundaryIsAlibabaECIOnly(t *testing.T) {
 	if CIExecutionBoundary != "aliyun-eci-only-no-github-runner/v1" {
 		t.Fatalf("CIExecutionBoundary = %q", CIExecutionBoundary)
@@ -522,30 +516,6 @@ func TestRetentionRootsBindExactlyThreeAcceptedGenerations(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing retention roots: %v", want)
-	}
-}
-
-// TestGenerationOneAuthoritySupportingTablesAreCanonical 锁定首代 schema-only 边界的
-// 非历史根表，并确保它们不会悄然加入三代 retention 根集合。
-func TestGenerationOneAuthoritySupportingTablesAreCanonical(t *testing.T) {
-	want := map[string]bool{
-		DurationCalibrationsTable: true,
-		WorkloadCatalogsTable:     true,
-		LiveTimingWarningsTable:   true,
-	}
-	for _, table := range GenerationOneAuthoritySupportingTables() {
-		if !want[table] {
-			t.Fatalf("unexpected generation-one supporting table %q", table)
-		}
-		delete(want, table)
-		for _, binding := range RetentionRootBindings() {
-			if binding.Table == table {
-				t.Fatalf("generation-one supporting table %q became a retention root", table)
-			}
-		}
-	}
-	if len(want) != 0 {
-		t.Fatalf("missing generation-one supporting tables: %v", want)
 	}
 }
 
