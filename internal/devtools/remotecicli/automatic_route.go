@@ -320,3 +320,70 @@ func validateAutomaticWindowsNodeFields(binding AutomaticProbeNode) error {
 	}
 	return nil
 }
+
+// rejectRuntimeJSONDuplicates 拒绝 automatic config 中的 null、重复键和异常容器。
+func rejectRuntimeJSONDuplicates(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	return walkRuntimeJSON(decoder)
+}
+
+func walkRuntimeJSON(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if token == nil {
+		return errors.New("JSON null is not allowed")
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		return walkRuntimeJSONObject(decoder)
+	case '[':
+		return walkRuntimeJSONArray(decoder)
+	default:
+		return errors.New("JSON delimiter is invalid")
+	}
+}
+
+func walkRuntimeJSONObject(decoder *json.Decoder) error {
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		name, ok := key.(string)
+		if !ok {
+			return errors.New("JSON object key is invalid")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return errors.New("JSON object key is duplicated")
+		}
+		seen[name] = struct{}{}
+		if err := walkRuntimeJSON(decoder); err != nil {
+			return err
+		}
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') {
+		return errors.New("JSON object is unterminated")
+	}
+	return nil
+}
+
+func walkRuntimeJSONArray(decoder *json.Decoder) error {
+	for decoder.More() {
+		if err := walkRuntimeJSON(decoder); err != nil {
+			return err
+		}
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim(']') {
+		return errors.New("JSON array is unterminated")
+	}
+	return nil
+}

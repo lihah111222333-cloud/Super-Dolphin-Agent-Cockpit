@@ -279,6 +279,10 @@ func TestRetiredCommandsDoNotCreateExecutionPaths(t *testing.T) {
 		{command: "status", args: []string{"status"}},
 		{command: "worker", args: []string{"worker"}},
 		{command: "remote", args: []string{"remote"}},
+		{command: "_artifact-build", args: []string{"_artifact-build"}},
+		{command: "_runtime-artifact-build", args: []string{"_runtime-artifact-build"}},
+		{command: "_artifact-identity", args: []string{"_artifact-identity"}},
+		{command: "builder-simulate", args: []string{"builder-simulate"}},
 	}
 	for _, testCase := range cases {
 		code, stdout, stderr := executeCLI(testCase.args)
@@ -302,7 +306,7 @@ func TestRemoteCIPublicDispatchASTGuard(t *testing.T) {
 func assertRemoteCIDispatchAllowlist(t *testing.T, cases map[string]*ast.CaseClause) {
 	t.Helper()
 
-	want := map[string]bool{"validate": true, "_artifact-build": true, "_runtime-artifact-build": true, "_artifact-identity": true, "builder-simulate": true, "execute": true}
+	want := map[string]bool{"validate": true, "execute": true}
 	if len(cases) != len(want) {
 		t.Fatalf("dispatch command count = %d, want %d: %v", len(cases), len(want), cases)
 	}
@@ -322,7 +326,7 @@ func assertRemoteCIUsage(t *testing.T) {
 			t.Fatalf("usageText advertises retired local command %q: %q", retired, usageText)
 		}
 	}
-	for _, public := range []string{" validate ", " builder-simulate "} {
+	for _, public := range []string{" validate ", " execute"} {
 		if !strings.Contains(" "+usageText, public) {
 			t.Fatalf("usageText is missing public command %q: %q", public, usageText)
 		}
@@ -465,24 +469,4 @@ func mustReadFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
-}
-
-// TestArtifactBuildDispatchIsStrict 锁定内部 builder 子命令的 fail-fast 分派。
-func TestArtifactBuildDispatchIsStrict(t *testing.T) {
-	t.Parallel()
-
-	code, stdout, stderr := executeCLI([]string{"_artifact-build"})
-	if code == 0 || stdout != "" || stderr == "" {
-		t.Fatalf("artifact-build dispatch result = code %d stdout %q stderr %q", code, stdout, stderr)
-	}
-}
-
-// TestArtifactIdentityDispatchIsStrict locks the internal observed identity command.
-func TestArtifactIdentityDispatchIsStrict(t *testing.T) {
-	t.Parallel()
-
-	code, stdout, stderr := executeCLI([]string{"_artifact-identity", "--unexpected"})
-	if code == 0 || stdout != "" || stderr == "" {
-		t.Fatalf("artifact-identity unknown flag result = code %d stdout %q stderr %q", code, stdout, stderr)
-	}
 }
