@@ -3,12 +3,459 @@ package heterociowner
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
+
+func TestPostgreSQLOwnerLifecycleSurface(t *testing.T) {
+	t.Helper()
+	var _ interface {
+		Start(context.Context, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID, string, heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error)
+		Finish(context.Context, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID, string, heteroci.RoutingLeaseState) (DurableLeaseTransition, error)
+		CancelPlanned(context.Context, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID, string) (DurableLeaseTransition, error)
+		LocateRun(context.Context, heteroci.TopologyRunID) ([]DurableRunState, error)
+		ReadRun(context.Context, heteroci.TopologyRunID) (DurableRunState, error)
+	} = (*PostgreSQLOwner)(nil)
+	var _ interface {
+		Acquire(context.Context) (heteroci.OwnerFence, error)
+		LocateRun(context.Context, heteroci.TopologyRunID) ([]DurableRunState, error)
+		PlanAndReserve(context.Context, heteroci.OwnerFence, heteroci.TopologyPlanRequest) (DurableReservedRoutingPlan, error)
+		Start(context.Context, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID, string, heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error)
+		Finish(context.Context, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID, string, heteroci.RoutingLeaseState) (DurableLeaseTransition, error)
+		CancelPlanned(context.Context, heteroci.OwnerFence, heteroci.OperationID, heteroci.TopologyRunID, string) (DurableLeaseTransition, error)
+		ReadRun(context.Context, heteroci.TopologyRunID) (DurableRunState, error)
+	} = (*PostgreSQLDurableOwner)(nil)
+}
+
+func TestPostgreSQLOwnerLifecycleExactReplayAndRelease(t *testing.T) {
+	owner, state, request, planned := newPostgreSQLLifecycleFixture(t)
+	started := assertPostgreSQLStartReplay(t, owner, state, request, planned)
+	finished := assertPostgreSQLFinishReplay(t, owner, state, request, started)
+	runState, err := owner.ReadRun(context.Background(), request.RunIdentity.DurableRunID)
+	if err != nil {
+		t.Fatalf("ReadRun: %v", err)
+	}
+	if !runState.Released || len(runState.Leases) != 1 || runState.Leases[0].State != heteroci.LeaseStateSucceeded || finished.Lease.State != heteroci.LeaseStateSucceeded {
+		t.Fatalf("ReadRun release projection = %#v", runState)
+	}
+}
+
+func TestPostgreSQLOwnerStartsTwoUnitsWithOneReservationUpdate(t *testing.T) {
+	owner, request, planned := newPostgreSQLTwoUnitFixture(t)
+	startPostgreSQLTwoUnits(t, owner, request, planned)
+	run, err := owner.ReadRun(context.Background(), request.RunIdentity.DurableRunID)
+	if err != nil || len(run.Leases) != 2 || run.Released {
+		t.Fatalf("two-unit ReadRun = %#v, %v", run, err)
+	}
+	for _, lease := range run.Leases {
+		if lease.State != heteroci.LeaseStateStarted {
+			t.Fatalf("two-unit lease state = %#v", run.Leases)
+		}
+	}
+}
+
+func newPostgreSQLTwoUnitFixture(t *testing.T) (*PostgreSQLOwner, heteroci.TopologyPlanRequest, heteroci.TopologyReservedPlan) {
+	t.Helper()
+	database, _ := openPostgreSQLOwnerTestDB(t)
+	now := time.UnixMilli(durableRoutingNowUnixMilli)
+	owner, err := NewPostgreSQLOwnerWithClock(context.Background(), database, validOwnerScope(), func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("NewPostgreSQLOwnerWithClock: %v", err)
+	}
+	fence, err := owner.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	session, err := heteroci.NewTopologySession(fence)
+	if err != nil {
+		t.Fatalf("NewTopologySession: %v", err)
+	}
+	request := postgresqlPlanRequestFixture(t, fence, now)
+	request.Units = append(request.Units, heteroci.ExecutionUnit{UnitID: "unit-b", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer, EstimatedDurationMS: 1_000, CPUMilli: 500, MemoryBytes: 512 * 1024 * 1024})
+	planned, err := owner.PlanAndReserve(context.Background(), session, request)
+	if err != nil || len(planned.Leases) != 2 {
+		t.Fatalf("PlanAndReserve two-unit result = %#v, %v", planned, err)
+	}
+	return owner, request, planned
+}
+
+func startPostgreSQLTwoUnits(t *testing.T, owner *PostgreSQLOwner, request heteroci.TopologyPlanRequest, planned heteroci.TopologyReservedPlan) {
+	t.Helper()
+	firstID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-a")
+	if err != nil {
+		t.Fatalf("derive first start: %v", err)
+	}
+	first, err := owner.Start(context.Background(), planned.Fence, firstID, request.RunIdentity.DurableRunID, "unit-a", request.SourceSnapshot)
+	if err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	secondID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-b")
+	if err != nil {
+		t.Fatalf("derive second start: %v", err)
+	}
+	if _, err := owner.Start(context.Background(), first.Fence, secondID, request.RunIdentity.DurableRunID, "unit-b", request.SourceSnapshot); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+}
+
+func TestPostgreSQLOwnerStartReusesPersistedSnapshotAfterTTL(t *testing.T) {
+	database, _ := openPostgreSQLOwnerTestDB(t)
+	now := time.UnixMilli(durableRoutingNowUnixMilli)
+	owner, err := NewPostgreSQLOwnerWithClock(context.Background(), database, validOwnerScope(), func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("NewPostgreSQLOwnerWithClock: %v", err)
+	}
+	fence, err := owner.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	session, err := heteroci.NewTopologySession(fence)
+	if err != nil {
+		t.Fatalf("NewTopologySession: %v", err)
+	}
+	request := postgresqlPlanRequestFixture(t, fence, now)
+	planned, err := owner.PlanAndReserve(context.Background(), session, request)
+	if err != nil {
+		t.Fatalf("PlanAndReserve: %v", err)
+	}
+	now = now.Add(request.HeartbeatTTL * 2)
+	startID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-a")
+	if err != nil {
+		t.Fatalf("derive start: %v", err)
+	}
+	if _, err := owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-a", request.SourceSnapshot); err != nil {
+		t.Fatalf("Start after TTL: %v", err)
+	}
+	drifted := request.SourceSnapshot
+	drifted.Nodes[0].Available.CPUMilli++
+	if _, err := owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-a", drifted); err == nil {
+		t.Fatal("Start accepted snapshot content drift on replay")
+	}
+}
+
+func newPostgreSQLLifecycleFixture(t *testing.T) (*PostgreSQLOwner, *postgresqlOwnerTestState, heteroci.TopologyPlanRequest, heteroci.TopologyReservedPlan) {
+	t.Helper()
+	database, state := openPostgreSQLOwnerTestDB(t)
+	now := time.UnixMilli(durableRoutingNowUnixMilli)
+	owner, err := NewPostgreSQLOwnerWithClock(context.Background(), database, validOwnerScope(), func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("NewPostgreSQLOwnerWithClock: %v", err)
+	}
+	fence, err := owner.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	session, err := heteroci.NewTopologySession(fence)
+	if err != nil {
+		t.Fatalf("NewTopologySession: %v", err)
+	}
+	request := postgresqlPlanRequestFixture(t, fence, now)
+	planned, err := owner.PlanAndReserve(context.Background(), session, request)
+	if err != nil {
+		t.Fatalf("PlanAndReserve: %v", err)
+	}
+	return owner, state, request, planned
+}
+
+func assertPostgreSQLStartReplay(t *testing.T, owner *PostgreSQLOwner, state *postgresqlOwnerTestState, request heteroci.TopologyPlanRequest, planned heteroci.TopologyReservedPlan) heteroci.StartedRoutingLease {
+	t.Helper()
+	state.mu.Lock()
+	state.commitAppliedError = errors.New("network dropped after Start commit")
+	state.mu.Unlock()
+	startID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-a")
+	if err != nil {
+		t.Fatalf("derive start operation: %v", err)
+	}
+	started, err := owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-a", request.SourceSnapshot)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	replayed, err := owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-a", request.SourceSnapshot)
+	if err != nil {
+		t.Fatalf("Start replay: %v", err)
+	}
+	if !reflect.DeepEqual(started, replayed) {
+		t.Fatalf("Start replay drifted: got %#v want %#v", replayed, started)
+	}
+	return started
+}
+
+func assertPostgreSQLFinishReplay(t *testing.T, owner *PostgreSQLOwner, state *postgresqlOwnerTestState, request heteroci.TopologyPlanRequest, started heteroci.StartedRoutingLease) DurableLeaseTransition {
+	t.Helper()
+	state.mu.Lock()
+	state.commitAppliedError = errors.New("network dropped after Finish commit")
+	state.mu.Unlock()
+	finishID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseFinish, "unit-a")
+	if err != nil {
+		t.Fatalf("derive finish operation: %v", err)
+	}
+	finished, err := owner.Finish(context.Background(), started.Fence, finishID, request.RunIdentity.DurableRunID, "unit-a", heteroci.LeaseStateSucceeded)
+	if err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	replayed, err := owner.Finish(context.Background(), started.Fence, finishID, request.RunIdentity.DurableRunID, "unit-a", heteroci.LeaseStateSucceeded)
+	if err != nil {
+		t.Fatalf("Finish replay: %v", err)
+	}
+	if !reflect.DeepEqual(finished, replayed) {
+		t.Fatalf("Finish replay drifted: got %#v want %#v", replayed, finished)
+	}
+	return finished
+}
+
+func assertPostgreSQLCancelReplay(t *testing.T, owner *PostgreSQLOwner, request heteroci.TopologyPlanRequest, planned heteroci.TopologyReservedPlan) {
+	t.Helper()
+	cancelID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseCancelPlanned, "unit-a")
+	if err != nil {
+		t.Fatalf("derive cancel operation: %v", err)
+	}
+	cancelled, err := owner.CancelPlanned(context.Background(), planned.Fence, cancelID, request.RunIdentity.DurableRunID, "unit-a")
+	if err != nil {
+		t.Fatalf("CancelPlanned: %v", err)
+	}
+	replayed, err := owner.CancelPlanned(context.Background(), planned.Fence, cancelID, request.RunIdentity.DurableRunID, "unit-a")
+	if err != nil {
+		t.Fatalf("CancelPlanned replay: %v", err)
+	}
+	if !reflect.DeepEqual(cancelled, replayed) || cancelled.Lease.State != heteroci.LeaseStateCancelled {
+		t.Fatalf("CancelPlanned replay = %#v want %#v", replayed, cancelled)
+	}
+}
+
+func TestPostgreSQLOwnerCancelPlannedReplayAndRelease(t *testing.T) {
+	owner, _, request, planned := newPostgreSQLLifecycleFixture(t)
+	assertPostgreSQLCancelReplay(t, owner, request, planned)
+	runState, err := owner.ReadRun(context.Background(), request.RunIdentity.DurableRunID)
+	if err != nil {
+		t.Fatalf("ReadRun after CancelPlanned: %v", err)
+	}
+	if !runState.Released || runState.Leases[0].State != heteroci.LeaseStateCancelled {
+		t.Fatalf("cancelled run state = %#v", runState)
+	}
+}
+
+func TestPostgreSQLOwnerLifecycleReplayConflictMatrix(t *testing.T) {
+	owner, state, request, planned := newPostgreSQLLifecycleFixture(t)
+	started := assertPostgreSQLStartReplay(t, owner, state, request, planned)
+	assertPostgreSQLStartConflicts(t, owner, request, planned, started)
+	finished := assertPostgreSQLFinishReplay(t, owner, state, request, started)
+	assertPostgreSQLFinishConflict(t, owner, request, started, finished)
+	cancelOwner, _, cancelRequest, cancelPlan := newPostgreSQLLifecycleFixture(t)
+	assertPostgreSQLCancelConflict(t, cancelOwner, cancelRequest, cancelPlan)
+}
+
+func assertPostgreSQLStartConflicts(t *testing.T, owner *PostgreSQLOwner, request heteroci.TopologyPlanRequest, planned heteroci.TopologyReservedPlan, started heteroci.StartedRoutingLease) {
+	t.Helper()
+	startID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-a")
+	if err != nil {
+		t.Fatalf("derive start operation: %v", err)
+	}
+	differentSnapshot := request.SourceSnapshot
+	differentSnapshot.CapturedAtUnixMilli++
+	_, conflictErr := owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-a", differentSnapshot)
+	mustPostgreSQLOwnerConflict(t, conflictErr)
+	_, conflictErr = owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-other", request.SourceSnapshot)
+	mustPostgreSQLOwnerConflict(t, conflictErr)
+	newOperation, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-other")
+	if err != nil {
+		t.Fatalf("derive stale-fence operation: %v", err)
+	}
+	if _, err := owner.Start(context.Background(), planned.Fence, newOperation, request.RunIdentity.DurableRunID, "unit-other", request.SourceSnapshot); err == nil {
+		t.Fatal("Start accepted stale fence for a new operation")
+	}
+	current, err := owner.CurrentFence(context.Background())
+	if err != nil || current != started.Fence {
+		t.Fatalf("stale/conflict Start advanced fence: current=%#v err=%v want=%#v", current, err, started.Fence)
+	}
+}
+
+func assertPostgreSQLFinishConflict(t *testing.T, owner *PostgreSQLOwner, request heteroci.TopologyPlanRequest, started heteroci.StartedRoutingLease, finished DurableLeaseTransition) {
+	t.Helper()
+	finishID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseFinish, "unit-a")
+	if err != nil {
+		t.Fatalf("derive finish operation: %v", err)
+	}
+	_, conflictErr := owner.Finish(context.Background(), started.Fence, finishID, request.RunIdentity.DurableRunID, "unit-a", heteroci.LeaseStateFailed)
+	mustPostgreSQLOwnerConflict(t, conflictErr)
+	current, err := owner.CurrentFence(context.Background())
+	if err != nil || current != finished.Fence {
+		t.Fatalf("conflict Finish advanced fence: current=%#v err=%v want=%#v", current, err, finished.Fence)
+	}
+}
+
+func assertPostgreSQLCancelConflict(t *testing.T, owner *PostgreSQLOwner, request heteroci.TopologyPlanRequest, planned heteroci.TopologyReservedPlan) {
+	t.Helper()
+	cancelID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseCancelPlanned, "unit-a")
+	if err != nil {
+		t.Fatalf("derive cancel operation: %v", err)
+	}
+	cancelled, err := owner.CancelPlanned(context.Background(), planned.Fence, cancelID, request.RunIdentity.DurableRunID, "unit-a")
+	if err != nil {
+		t.Fatalf("CancelPlanned: %v", err)
+	}
+	differentRun := heteroci.TopologyRunID(strings.Repeat("f", len(string(request.RunIdentity.DurableRunID))))
+	_, conflictErr := owner.CancelPlanned(context.Background(), planned.Fence, cancelID, differentRun, "unit-a")
+	mustPostgreSQLOwnerConflict(t, conflictErr)
+	current, err := owner.CurrentFence(context.Background())
+	if err != nil || current != cancelled.Fence {
+		t.Fatalf("conflict CancelPlanned advanced fence: current=%#v err=%v want=%#v", current, err, cancelled.Fence)
+	}
+}
+
+func mustPostgreSQLOwnerConflict(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("operation conflict error = %v, want ErrOperationConflict", err)
+	}
+}
+
+func TestPostgreSQLOwnerRejectsCorruptLifecycleJournal(t *testing.T) {
+	owner, state, request, planned := newPostgreSQLLifecycleFixture(t)
+	assertPostgreSQLStartReplay(t, owner, state, request, planned)
+	startID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-a")
+	if err != nil {
+		t.Fatalf("derive start operation: %v", err)
+	}
+	state.mu.Lock()
+	state.data.operations[string(startID)][9] = "sha256:" + strings.Repeat("0", 64)
+	state.mu.Unlock()
+	if _, err := owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-a", request.SourceSnapshot); err == nil || !strings.Contains(err.Error(), "journal chain") {
+		t.Fatalf("corrupt lifecycle journal error = %v", err)
+	}
+}
+
+func TestPostgreSQLOwnerRejectsCorruptPersistedPlanOperation(t *testing.T) {
+	cases := []struct {
+		name      string
+		mutate    func([]driver.Value, heteroci.TopologyReservedPlan)
+		startAlso bool
+	}{
+		{name: "journal_digest", mutate: func(operation []driver.Value, _ heteroci.TopologyReservedPlan) {
+			operation[9] = "sha256:" + strings.Repeat("0", 64)
+		}, startAlso: true},
+		{name: "previous_journal_digest", mutate: func(operation []driver.Value, _ heteroci.TopologyReservedPlan) {
+			operation[8] = "sha256:" + strings.Repeat("1", 64)
+		}},
+		{name: "owner_epoch", mutate: func(operation []driver.Value, planned heteroci.TopologyReservedPlan) {
+			operation[1] = int64(planned.Fence.OwnerEpoch) + 1
+		}},
+		{name: "revision", mutate: func(operation []driver.Value, _ heteroci.TopologyReservedPlan) { operation[2] = int64(1) }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) { assertCorruptPostgreSQLPlanOperation(t, testCase.mutate, testCase.startAlso) })
+	}
+}
+
+func assertCorruptPostgreSQLPlanOperation(t *testing.T, mutate func([]driver.Value, heteroci.TopologyReservedPlan), startAlso bool) {
+	t.Helper()
+	owner, state, request, planned := newPostgreSQLLifecycleFixture(t)
+	state.mu.Lock()
+	mutate(state.data.operations[string(planned.OperationID)], planned)
+	state.mu.Unlock()
+	before, err := owner.CurrentFence(context.Background())
+	if err != nil {
+		t.Fatalf("CurrentFence before corruption: %v", err)
+	}
+	if _, err := owner.ReadRun(context.Background(), request.RunIdentity.DurableRunID); err == nil {
+		t.Fatal("ReadRun accepted corrupt persisted plan operation")
+	}
+	if startAlso {
+		startID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseStart, "unit-a")
+		if err != nil {
+			t.Fatalf("derive start: %v", err)
+		}
+		if _, err := owner.Start(context.Background(), planned.Fence, startID, request.RunIdentity.DurableRunID, "unit-a", request.SourceSnapshot); err == nil {
+			t.Fatal("Start accepted corrupt persisted plan operation")
+		}
+	}
+	after, err := owner.CurrentFence(context.Background())
+	if err != nil || after != before {
+		t.Fatalf("corrupt plan operation advanced fence: before=%#v after=%#v err=%v", before, after, err)
+	}
+}
+
+func TestPostgreSQLOwnerRejectsReservationCapacityDrift(t *testing.T) {
+	owner, state, request, _ := newPostgreSQLLifecycleFixture(t)
+	state.mu.Lock()
+	for _, reservation := range state.data.reservations {
+		reservation[7] = int64(reservation[7].(int64) + 1)
+	}
+	state.mu.Unlock()
+	if _, err := owner.ReadRun(context.Background(), request.RunIdentity.DurableRunID); err == nil {
+		t.Fatalf("ReadRun capacity drift error = %v", err)
+	}
+}
+
+func TestPostgreSQLOwnerReleaseRowsFailFast(t *testing.T) {
+	t.Run("missing reservation", func(t *testing.T) { assertPostgreSQLReleaseRowsFail(t, false) })
+	t.Run("zero update", func(t *testing.T) { assertPostgreSQLReleaseRowsFail(t, true) })
+}
+
+func assertPostgreSQLReleaseRowsFail(t *testing.T, zeroUpdate bool) {
+	t.Helper()
+	owner, state, request, planned := newPostgreSQLLifecycleFixture(t)
+	started := assertPostgreSQLStartReplay(t, owner, state, request, planned)
+	state.mu.Lock()
+	if zeroUpdate {
+		state.zeroReservationReleaseUpdate = true
+	} else {
+		state.data.reservations = make(map[string][]driver.Value)
+	}
+	state.mu.Unlock()
+	finishID, err := heteroci.DeriveTopologyOperationID(request.RunIdentity.DurableRunID, heteroci.TopologyOperationPhaseFinish, "unit-a")
+	if err != nil {
+		t.Fatalf("derive finish operation: %v", err)
+	}
+	if _, err := owner.Finish(context.Background(), started.Fence, finishID, request.RunIdentity.DurableRunID, "unit-a", heteroci.LeaseStateSucceeded); err == nil {
+		t.Fatal("Finish accepted missing or zero reservation release rows")
+	}
+	current, err := owner.CurrentFence(context.Background())
+	if err != nil || current != started.Fence {
+		t.Fatalf("failed release advanced fence: current=%#v err=%v want=%#v", current, err, started.Fence)
+	}
+}
+
+func TestPostgreSQLOwnerReadRetainsRollbackFailure(t *testing.T) {
+	database, state := openPostgreSQLOwnerTestDB(t)
+	owner, err := NewPostgreSQLOwner(context.Background(), database, validOwnerScope())
+	if err != nil {
+		t.Fatalf("NewPostgreSQLOwner: %v", err)
+	}
+	if _, err := owner.Acquire(context.Background()); err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	rollbackErr := errors.New("read rollback failed")
+	state.mu.Lock()
+	state.rollbackError = rollbackErr
+	state.data.head = append([]driver.Value(nil), state.data.head...)
+	state.data.head[0] = "corrupt-owner-id"
+	state.mu.Unlock()
+	if _, err := owner.LocateRun(context.Background(), heteroci.TopologyRunID(strings.Repeat("a", 64))); !errors.Is(err, rollbackErr) {
+		t.Fatalf("LocateRun rollback error = %v, want %v", err, rollbackErr)
+	}
+}
+
+func TestPostgreSQLOwnerReadAndRollbackFailuresJoin(t *testing.T) {
+	database, state := openPostgreSQLOwnerTestDB(t)
+	owner, err := NewPostgreSQLOwner(context.Background(), database, validOwnerScope())
+	if err != nil {
+		t.Fatalf("NewPostgreSQLOwner: %v", err)
+	}
+	rollbackErr := errors.New("read rollback failed after missing head")
+	state.mu.Lock()
+	state.rollbackError = rollbackErr
+	state.mu.Unlock()
+	if _, err := owner.LocateRun(context.Background(), heteroci.TopologyRunID(strings.Repeat("a", 64))); err == nil || !errors.Is(err, rollbackErr) {
+		t.Fatalf("LocateRun read+rollback error = %v", err)
+	}
+}
 
 func TestPostgreSQLOwnerAuthorityAcquireAndCurrentFence(t *testing.T) {
 	database, state := openPostgreSQLOwnerTestDB(t)

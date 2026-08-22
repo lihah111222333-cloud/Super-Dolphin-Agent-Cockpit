@@ -116,6 +116,9 @@ func (owner *PostgreSQLOwner) beginPostgreSQLOwnerTx(ctx context.Context) (*sql.
 	if err != nil {
 		return nil, fmt.Errorf("begin PostgreSQL heteroci owner transaction: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, "SET LOCAL synchronous_commit = 'remote_apply'"); err != nil {
+		return nil, rollbackPostgreSQLOwnerTx(tx, fmt.Errorf("set PostgreSQL owner synchronous_commit: %w", err))
+	}
 	if err := validatePostgreSQLOwnerServer(ctx, tx); err != nil {
 		return nil, rollbackPostgreSQLOwnerTx(tx, err)
 	}
@@ -259,8 +262,8 @@ func (owner *PostgreSQLOwner) nowUnixMilli() (int64, error) {
 		return 0, fmt.Errorf("heteroci PostgreSQL owner clock is nil")
 	}
 	nowUnixMilli := owner.now().UnixMilli()
-	if nowUnixMilli < 0 {
-		return 0, fmt.Errorf("heteroci PostgreSQL owner clock is before Unix epoch")
+	if nowUnixMilli <= 0 {
+		return 0, fmt.Errorf("heteroci PostgreSQL owner clock must be after Unix epoch")
 	}
 	return nowUnixMilli, nil
 }
@@ -272,6 +275,17 @@ func requireOnePostgreSQLRow(result sql.Result, action string) error {
 	}
 	if rows != 1 {
 		return fmt.Errorf("%s changed %d rows", action, rows)
+	}
+	return nil
+}
+
+func requirePostgreSQLRows(result sql.Result, expected int, action string) error {
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s rows affected: %w", action, err)
+	}
+	if rows != int64(expected) {
+		return fmt.Errorf("%s changed %d rows, expected %d", action, rows, expected)
 	}
 	return nil
 }
