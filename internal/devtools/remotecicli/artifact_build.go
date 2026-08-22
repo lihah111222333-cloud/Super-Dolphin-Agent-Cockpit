@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -455,4 +456,130 @@ func boundedArtifactBuildJSON(result remoteci.SourceBaselineBuilderWorkerResult)
 		return nil, errors.New("artifact build result exceeds bounded size")
 	}
 	return data, nil
+}
+
+// dispatchRuntimeArtifactBuild 执行同一 binary 的 normal runtime artifact ECI worker。
+func dispatchRuntimeArtifactBuild(args []string, stdout, _ io.Writer) error {
+	flags, err := parseRuntimeArtifactBuildFlags(args)
+	if err != nil {
+		return err
+	}
+	input, err := flags.runtimeArtifactBuildInput()
+	if err != nil {
+		return newCLIFailure("validate runtime artifact build input", nil)
+	}
+	deps := artifactBuildDependencies{httpClient: http.DefaultClient, observedIdentity: observeArtifactBuilderIdentity}
+	inputClient, err := newArtifactBuildClient(flags, flags.inputKey, flags.inputSizeBytes, deps)
+	if err != nil {
+		return newCLIFailure("configure runtime artifact input client", nil)
+	}
+	state := &artifactBuildUploadState{}
+	artifactIO := remoteci.ArtifactIO{DownloadInput: func(ctx context.Context, key string, destination io.Writer) (int64, error) {
+		if key != flags.inputKey {
+			return 0, errors.New("runtime artifact input key drifted")
+		}
+		return inputClient.Download(ctx, destination)
+	}, UploadArtifact: newRuntimeArtifactBuildUpload(flags, deps, artifactBuildArtifactUpload, state), UploadReceipt: newRuntimeArtifactBuildUpload(flags, deps, artifactBuildReceiptUpload, state)}
+	observer := func(ctx context.Context) (remoteci.ObservedArtifactBuilderIdentity, error) {
+		return observeArtifactBuilderIdentity(ctx, flags.compilerPath)
+	}
+	compiler := func(ctx context.Context, sourceRoot, outputPath string) error {
+		return compileRuntimeArtifact(ctx, flags.compilerPath, sourceRoot, outputPath)
+	}
+	worker, err := remoteci.NewRuntimeArtifactBuilderWorker(artifactIO, observer, compiler)
+	if err != nil {
+		return newCLIFailure("configure runtime artifact worker", nil)
+	}
+	result, err := worker.Build(context.Background(), input)
+	if err != nil {
+		return newCLIFailure("runtime artifact build failed", nil)
+	}
+	output, err := boundedRuntimeArtifactBuildJSON(result)
+	if err != nil {
+		return newCLIFailure("render runtime artifact result", nil)
+	}
+	if _, err := stdout.Write(output); err != nil {
+		return newCLIFailure("write runtime artifact result", err)
+	}
+	return nil
+}
+
+// parseRuntimeArtifactBuildFlags 复用同一 strict parser，并固定 runtime kind/ref/provider。
+func parseRuntimeArtifactBuildFlags(args []string) (artifactBuildFlags, error) {
+	values, err := parseArtifactBuildFlagValues(args)
+	if err != nil {
+		return artifactBuildFlags{}, err
+	}
+	flags := artifactBuildFlagsFromValues(values)
+	if validateCompilerPathShape(flags.compilerPath) != nil || flags.executionProvider != remoteci.PortableExecutionProvider || flags.artifactKind != remoteci.PortableExecutionRuntimeArtifactKind || flags.artifactRef != remoteci.RuntimeArtifactExecutableName {
+		return artifactBuildFlags{}, newCLIFailure("runtime artifact protocol identity is invalid", nil)
+	}
+	return flags, nil
+}
+
+func (flags artifactBuildFlags) runtimeArtifactBuildInput() (remoteci.RuntimeArtifactBuildInput, error) {
+	input := remoteci.RuntimeArtifactBuildInput{SchemaVersion: remoteci.RuntimeArtifactBuilderInputSchema, ContractID: remoteci.PortableExecutionRuntimeArtifactContractID, ArtifactKind: flags.artifactKind, ExecutionProvider: flags.executionProvider, ArtifactPrefix: flags.artifactPrefix, RepositoryID: flags.repositoryID, ObjectFormat: flags.objectFormat, CommitSHA: flags.sourceCommitSHA, TreeSHA: flags.sourceTreeSHA, InputObjectKey: flags.inputKey, InputSHA256: flags.inputSHA256, InputSizeBytes: flags.inputSizeBytes, ExpectedBuilderDigest: flags.expectedBuilderDigest, ExpectedToolchainDigest: flags.expectedToolchainDigest, ProtocolABIDigest: flags.protocolABIDigest, WorkloadManifestABIDigest: flags.workloadManifestABIDigest}
+	if err := input.Validate(); err != nil {
+		return remoteci.RuntimeArtifactBuildInput{}, err
+	}
+	return input, nil
+}
+
+// newRuntimeArtifactBuildUpload 复用同一 OSS client，并锁定 artifact-first pair 顺序。
+func newRuntimeArtifactBuildUpload(flags artifactBuildFlags, dependencies artifactBuildDependencies, uploadKind int, state *artifactBuildUploadState) func(context.Context, string, string, remoteci.SourceBaselineArtifactMetadata) error {
+	return func(ctx context.Context, localPath, key string, metadata remoteci.SourceBaselineArtifactMetadata) error {
+		if err := validateRuntimeArtifactUpload(flags, uploadKind, state, key, metadata); err != nil {
+			return err
+		}
+		if err := uploadArtifactBuildFile(ctx, flags, dependencies, localPath, key, metadata); err != nil {
+			return err
+		}
+		if uploadKind == artifactBuildArtifactUpload {
+			state.artifactSHA256, state.artifactIdentityDigest = metadata.SHA256, metadata.ArtifactIdentityDigest
+		}
+		return nil
+	}
+}
+
+// validateRuntimeArtifactUpload 校验 pair 顺序、canonical keys 与同一 artifact identity。
+func validateRuntimeArtifactUpload(flags artifactBuildFlags, uploadKind int, state *artifactBuildUploadState, key string, metadata remoteci.SourceBaselineArtifactMetadata) error {
+	if !validRuntimeArtifactUploadMetadata(state, metadata) {
+		return errors.New("runtime artifact upload metadata is invalid")
+	}
+	artifactKey, receiptKey, err := remoteci.CanonicalRuntimeArtifactBuilderKeys(flags.artifactPrefix, flags.repositoryID, flags.objectFormat, flags.sourceTreeSHA, metadata.ArtifactIdentityDigest)
+	if err != nil {
+		return err
+	}
+	switch uploadKind {
+	case artifactBuildArtifactUpload:
+		if key != artifactKey {
+			return errors.New("runtime artifact upload key is not canonical")
+		}
+	case artifactBuildReceiptUpload:
+		if !runtimeArtifactReceiptUploadMatches(state, key, receiptKey, metadata.ArtifactIdentityDigest) {
+			return errors.New("runtime artifact receipt upload drifted")
+		}
+	default:
+		return errors.New("runtime artifact upload kind is invalid")
+	}
+	return nil
+}
+
+func validRuntimeArtifactUploadMetadata(state *artifactBuildUploadState, metadata remoteci.SourceBaselineArtifactMetadata) bool {
+	return state != nil && metadata.SizeBytes > 0 && isDigest(metadata.SHA256) && isDigest(metadata.ArtifactIdentityDigest)
+}
+
+func runtimeArtifactReceiptUploadMatches(state *artifactBuildUploadState, key, receiptKey, identity string) bool {
+	return state.artifactIdentityDigest != "" && key == receiptKey && identity == state.artifactIdentityDigest
+}
+
+func compileRuntimeArtifact(ctx context.Context, compilerPath, sourceRoot, outputPath string) error {
+	command := exec.CommandContext(ctx, compilerPath, "build", "-trimpath", "-buildvcs=false", "-mod=readonly", "-o", outputPath, "./cmd/super-dolphin-remote-ci")
+	command.Dir = sourceRoot
+	command.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0", "GOWORK=off", "GOENV=off", "GOPROXY=off", "GOSUMDB=off")
+	command.Stdout, command.Stderr = io.Discard, io.Discard
+	if err := command.Run(); err != nil {
+		return errors.New("ECI runtime artifact compiler failed")
+	}
+	return os.Chmod(outputPath, 0o500)
 }
