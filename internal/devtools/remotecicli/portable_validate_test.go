@@ -291,15 +291,16 @@ func portableCLIManifest(t *testing.T) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workload := remoteportable.PortableManifestWorkload{UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}
+	workload.ExecutionDigest, err = remoteportable.DerivePortableWorkloadExecutionDigest(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
 	manifest := remoteportable.PortableManifest{
 		SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID,
-		Engine: remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: engineFacts.ProtocolABIDigest, RequiredToolchainDigest: engineFacts.ToolchainDigest, RequiredCapabilities: []string{"go"}},
-		Target: remoteportable.PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"},
-		Workloads: []remoteportable.PortableManifestWorkload{{
-			UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer),
-			CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest,
-			Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal),
-		}},
+		Engine:    remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: engineFacts.ProtocolABIDigest, RequiredToolchainDigest: engineFacts.ToolchainDigest, RequiredCapabilities: []string{"go"}},
+		Target:    remoteportable.PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"},
+		Workloads: []remoteportable.PortableManifestWorkload{workload},
 		CatalogPolicies: []remoteportable.PortableManifestCatalogPolicy{
 			{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 500, MemoryBytes: 512 << 20, HistoricalEstimateMS: 500, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
 			{Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 500, MemoryBytes: 512 << 20, HistoricalEstimateMS: 750, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
@@ -363,7 +364,7 @@ func mustWriteTestFile(t *testing.T, path string, data []byte) {
 }
 
 // portableCLIFixtureInput 构造 locator-only 的 exact tree binding descriptor。
-func portableCLIFixtureInput(t *testing.T, repository, commit, tree string, manifest []byte) remoteportable.PortableRunInput {
+func portableCLIFixtureInput(t *testing.T, _ string, commit, tree string, manifest []byte) remoteportable.PortableRunInput {
 	t.Helper()
 	return remoteportable.PortableRunInput{SchemaVersion: remoteportable.PortableRunRequestSchemaVersion, ContractID: remoteportable.PortableManifestContractID, OperationID: strings.Repeat("a", 64), RepositoryID: "fixture", ObjectFormat: "sha1", CommitSHA: commit, TreeSHA: tree, ManifestPath: "ci/workloads.json", ManifestBlobSHA256: digestBytes(manifest)}
 }

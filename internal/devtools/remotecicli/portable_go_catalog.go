@@ -136,11 +136,17 @@ func portableGoPackageWorkloads(modules []remoteportable.RepositoryWorkloadModul
 			return nil, err
 		}
 		unitID := portablePackageWorkloadID(target.name, policy.ExecutionPolicy, packageTarget)
-		workloads = append(workloads, remoteportable.PortableManifestWorkload{
+		workload := remoteportable.PortableManifestWorkload{
 			UnitID: unitID, CommandDigest: digestBytes([]byte(unitID)), TargetPlatform: string(target.platform), RuntimeCapability: string(target.runtime),
-			CPUMilli: policy.CPUMilli, MemoryBytes: policy.MemoryBytes, HistoricalEstimateMS: policy.HistoricalEstimateMS, ExecutionDigest: digestBytes([]byte("execution/v1\x00" + unitID)),
+			CPUMilli: policy.CPUMilli, MemoryBytes: policy.MemoryBytes, HistoricalEstimateMS: policy.HistoricalEstimateMS,
 			Kind: remoteportable.RepositoryWorkloadKindGoPackage, ModuleRoot: moduleRoot, Package: relativePackage, ExecutionPolicy: policy.ExecutionPolicy,
-		})
+		}
+		executionDigest, err := remoteportable.DerivePortableWorkloadExecutionDigest(workload)
+		if err != nil {
+			return nil, fmt.Errorf("derive portable workload execution digest: %w", err)
+		}
+		workload.ExecutionDigest = executionDigest
+		workloads = append(workloads, workload)
 	}
 	return workloads, nil
 }

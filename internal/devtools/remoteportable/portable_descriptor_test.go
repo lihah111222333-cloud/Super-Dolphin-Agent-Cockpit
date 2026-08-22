@@ -111,7 +111,7 @@ func assertPortableMalformedRequests(t *testing.T, valid []byte) {
 			t.Fatalf("descriptor accepted malformed input %s", raw)
 		}
 	}
-	if _, err := DecodePortableRunDescriptor(mustPortableManifestBytes(t, topManifestFixture())); err == nil {
+	if _, err := DecodePortableRunDescriptor(mustPortableManifestBytes(t, topManifestFixture(t))); err == nil {
 		t.Fatal("run request decoder accepted a target manifest")
 	}
 }
@@ -129,7 +129,7 @@ func assertPortableOperationIDs(t *testing.T, input PortableRunInput) {
 }
 
 func TestPortableManifestRejectsSelfReferentialTargetObjects(t *testing.T) {
-	manifestBytes := mustPortableManifestBytes(t, topManifestFixture())
+	manifestBytes := mustPortableManifestBytes(t, topManifestFixture(t))
 	withSelfReference := bytes.Replace(manifestBytes, []byte(`"object_format":"sha1","worktree_mount"`), []byte(`"object_format":"sha1","commit_sha":"`+strings.Repeat("9", 40)+`","tree_sha":"`+strings.Repeat("8", 40)+`","manifest_path":"ci/workloads.json","worktree_mount"`), 1)
 	if bytes.Equal(manifestBytes, withSelfReference) {
 		t.Fatal("fixture did not contain target object anchor")
@@ -164,10 +164,10 @@ func TestPortableBindingSeparatesOperationAndRejectsEnginePolicyDrift(t *testing
 
 func TestPortableBindingCrossRepositoryV3WJFixturesUseSameEngineFacts(t *testing.T) {
 	facts := portableEngineFactsFixture()
-	manifestV3 := topManifestFixture()
+	manifestV3 := topManifestFixture(t)
 	manifestV3.Target.RepositoryID = "super-agent-v3"
 	manifestV3.Modules[0].ModulePath = "example.invalid/super-agent-v3"
-	manifestWJ := topManifestFixture()
+	manifestWJ := topManifestFixture(t)
 	manifestWJ.Target.RepositoryID = "wjboot-v2"
 	manifestWJ.Modules[0].ModulePath = "example.invalid/wjboot-v2"
 	assertPortableDualPlatformFixture(t, manifestV3)
@@ -200,7 +200,7 @@ func portableCrossRepositoryInput(manifest PortableManifest, data []byte, operat
 
 func portableBindingFixture(t *testing.T) ([]byte, PortableRunInput, memoryPortableGitResolver) {
 	t.Helper()
-	manifest := topManifestFixture()
+	manifest := topManifestFixture(t)
 	manifestBytes, err := PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)

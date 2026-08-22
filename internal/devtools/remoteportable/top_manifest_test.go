@@ -10,7 +10,7 @@ import (
 )
 
 func TestPortableManifestTopLevelStrictRoundTrip(t *testing.T) {
-	manifest := topManifestFixture()
+	manifest := topManifestFixture(t)
 	encoded, err := PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -28,8 +28,69 @@ func TestPortableManifestTopLevelStrictRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPortableManifestWorkloadExecutionDigestRoundTripAndTamperMatrix(t *testing.T) {
+	manifest := topManifestFixture(t)
+	workload := manifest.Workloads[0]
+	expected, err := DerivePortableWorkloadExecutionDigest(workload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workload.ExecutionDigest != expected {
+		t.Fatalf("fixture execution digest = %q, want %q", workload.ExecutionDigest, expected)
+	}
+	encoded, err := PortableManifestCanonicalEncode(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodePortableManifest(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := DerivePortableWorkloadExecutionDigest(decoded.Workloads[0]); err != nil || got != decoded.Workloads[0].ExecutionDigest {
+		t.Fatalf("decoded execution digest = %q, err = %v", got, err)
+	}
+	cases := []struct {
+		name   string
+		mutate func(*PortableManifestWorkload)
+	}{
+		{name: "unit_id", mutate: func(value *PortableManifestWorkload) { value.UnitID = "go-test/changed" }},
+		{name: "command_digest", mutate: func(value *PortableManifestWorkload) { value.CommandDigest = "sha256:" + strings.Repeat("b", 64) }},
+		{name: "target_platform", mutate: func(value *PortableManifestWorkload) {
+			value.TargetPlatform = string(RepositoryWorkloadPlatformWindowsAMD64)
+		}},
+		{name: "runtime_capability", mutate: func(value *PortableManifestWorkload) {
+			value.RuntimeCapability = string(RepositoryWorkloadRuntimeWindowsNative)
+		}},
+		{name: "cpu_milli", mutate: func(value *PortableManifestWorkload) { value.CPUMilli++ }},
+		{name: "memory_bytes", mutate: func(value *PortableManifestWorkload) { value.MemoryBytes++ }},
+		{name: "historical_estimate_ms", mutate: func(value *PortableManifestWorkload) { value.HistoricalEstimateMS++ }},
+		{name: "execution_digest", mutate: func(value *PortableManifestWorkload) { value.ExecutionDigest = "sha256:" + strings.Repeat("c", 64) }},
+		{name: "kind", mutate: func(value *PortableManifestWorkload) { value.Kind = RepositoryWorkloadKindGoPackage }},
+		{name: "module_root", mutate: func(value *PortableManifestWorkload) { value.ModuleRoot = "nested" }},
+		{name: "package", mutate: func(value *PortableManifestWorkload) { value.Package = "./nested" }},
+		{name: "name", mutate: func(value *PortableManifestWorkload) { value.Name = "TestChanged" }},
+		{name: "execution_policy", mutate: func(value *PortableManifestWorkload) {
+			value.ExecutionPolicy = string(RepositoryWorkloadExecutionPolicyRace)
+		}},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			candidate := workload
+			testCase.mutate(&candidate)
+			if testCase.name != "execution_digest" {
+				candidate.ExecutionDigest = workload.ExecutionDigest
+			}
+			candidateManifest := manifest
+			candidateManifest.Workloads = []PortableManifestWorkload{candidate}
+			if _, err := PortableManifestCanonicalEncode(candidateManifest); err == nil {
+				t.Fatalf("single-field tamper %q was accepted", testCase.name)
+			}
+		})
+	}
+}
+
 func TestPortableManifestTopLevelRejectsMalformedJSON(t *testing.T) {
-	valid, err := PortableManifestCanonicalEncode(topManifestFixture())
+	valid, err := PortableManifestCanonicalEncode(topManifestFixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,15 +113,15 @@ func TestPortableManifestFieldAndABIGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	fieldMaterial := strings.Join(fields, "\x00")
-	for _, field := range []string{"PortableManifest.modules", "PortableManifest.excluded_nested_modules", "RepositoryWorkloadModule.root", "RepositoryWorkloadModule.module_path", "PortableManifest.catalog_policies", "PortableManifestCatalogPolicy.platform", "PortableManifestCatalogPolicy.runtime", "PortableManifestCatalogPolicy.cpu_milli", "PortableManifestCatalogPolicy.memory_bytes", "PortableManifestCatalogPolicy.historical_estimate_ms", "PortableManifestCatalogPolicy.execution_policy"} {
+	for _, field := range []string{"PortableManifest.modules", "PortableManifest.excluded_nested_modules", "PortableManifestWorkload.execution_digest", "RepositoryWorkloadModule.root", "RepositoryWorkloadModule.module_path", "PortableManifest.catalog_policies", "PortableManifestCatalogPolicy.platform", "PortableManifestCatalogPolicy.runtime", "PortableManifestCatalogPolicy.cpu_milli", "PortableManifestCatalogPolicy.memory_bytes", "PortableManifestCatalogPolicy.historical_estimate_ms", "PortableManifestCatalogPolicy.execution_policy"} {
 		if !strings.Contains(fieldMaterial, field) {
-			t.Fatalf("catalog policy field %q is absent from dynamic ABI field registry", field)
+			t.Fatalf("manifest field %q is absent from dynamic ABI field registry", field)
 		}
 	}
 	if _, err := PortableManifestABIDigest(); err != nil {
 		t.Fatal(err)
 	}
-	if digest, err := PortableManifestContentDigest(topManifestFixture()); err != nil || !validPortableDigest(digest) {
+	if digest, err := PortableManifestContentDigest(topManifestFixture(t)); err != nil || !validPortableDigest(digest) {
 		t.Fatalf("portable content digest = %q, err = %v", digest, err)
 	}
 	if digest, err := PortableBindingProtocolABIDigest(); err != nil || !validPortableDigest(digest) {
@@ -86,7 +147,7 @@ func TestPortableManifestRejectsUnsafeWorkloadTargetsAndUnboundedLogs(t *testing
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manifest := topManifestFixture()
+			manifest := topManifestFixture(t)
 			testCase.mutate(&manifest)
 			if _, err := PortableManifestCanonicalEncode(manifest); err == nil {
 				t.Fatal("unsafe portable manifest was accepted")
@@ -111,7 +172,7 @@ func TestPortableManifestCatalogPoliciesAreSortedDualPlatformAndExplicit(t *test
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manifest := topManifestFixture()
+			manifest := topManifestFixture(t)
 			testCase.mutate(&manifest)
 			if _, err := PortableManifestCanonicalEncode(manifest); err == nil {
 				t.Fatal("invalid catalog policy was accepted")
@@ -121,7 +182,7 @@ func TestPortableManifestCatalogPoliciesAreSortedDualPlatformAndExplicit(t *test
 }
 
 func TestPortableManifestAllowsManualOrAutoOnlyInputs(t *testing.T) {
-	manualOnly := topManifestFixture()
+	manualOnly := topManifestFixture(t)
 	manualOnly.CatalogPolicies = nil
 	encoded, err := PortableManifestCanonicalEncode(manualOnly)
 	if err != nil {
@@ -130,7 +191,7 @@ func TestPortableManifestAllowsManualOrAutoOnlyInputs(t *testing.T) {
 	if !bytes.Contains(encoded, []byte(`"catalog_policies":[]`)) {
 		t.Fatalf("manual-only manifest did not canonicalize empty catalog policies: %s", encoded)
 	}
-	autoOnly := topManifestFixture()
+	autoOnly := topManifestFixture(t)
 	autoOnly.Workloads = nil
 	autoEncoded, err := PortableManifestCanonicalEncode(autoOnly)
 	if err != nil {
@@ -171,13 +232,22 @@ func TestPortableGoFileMatchesPlatformUsesExactGoFilenameSuffix(t *testing.T) {
 	}
 }
 
-func topManifestFixture() PortableManifest {
+func topManifestFixture(t testing.TB) PortableManifest {
+	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
+	workloads := []PortableManifestWorkload{{UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}, {UnitID: "go-test/windows/example", CommandDigest: digest, TargetPlatform: string(RepositoryWorkloadPlatformWindowsAMD64), RuntimeCapability: string(RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 2_000, MemoryBytes: 2 << 30, HistoricalEstimateMS: 2_000, Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}}
+	for index := range workloads {
+		executionDigest, err := DerivePortableWorkloadExecutionDigest(workloads[index])
+		if err != nil {
+			t.Fatal(err)
+		}
+		workloads[index].ExecutionDigest = executionDigest
+	}
 	return PortableManifest{
 		SchemaVersion: PortableManifestSchemaVersion, ContractID: PortableManifestContractID,
 		Engine:          PortableManifestEngine{RequiredProtocolABIDigest: digest, RequiredToolchainDigest: digest, RequiredCapabilities: []string{"go"}},
 		Target:          PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"},
-		Workloads:       []PortableManifestWorkload{{UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}, {UnitID: "go-test/windows/example", CommandDigest: digest, TargetPlatform: string(RepositoryWorkloadPlatformWindowsAMD64), RuntimeCapability: string(RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 2_000, MemoryBytes: 2 << 30, HistoricalEstimateMS: 2_000, ExecutionDigest: digest, Kind: RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}},
+		Workloads:       workloads,
 		CatalogPolicies: []PortableManifestCatalogPolicy{{Platform: string(RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}, {Platform: string(RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 2_000, MemoryBytes: 2 << 30, HistoricalEstimateMS: 2_000, ExecutionPolicy: string(RepositoryWorkloadExecutionPolicyNormal)}},
 		Profile:         ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"},
 		LogPolicy: PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},

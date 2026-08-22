@@ -113,6 +113,10 @@ func assertGeneratedPortableGoPackage(t *testing.T, workload remoteportable.Port
 	if !strings.Contains(workload.UnitID, strings.TrimSuffix(workload.TargetPlatform, "/amd64")) || workload.CommandDigest == workload.ExecutionDigest {
 		t.Fatalf("generated workload identity/digests are not platform-bound: %#v", workload)
 	}
+	wantExecutionDigest, err := remoteportable.DerivePortableWorkloadExecutionDigest(workload)
+	if err != nil || wantExecutionDigest != workload.ExecutionDigest {
+		t.Fatalf("generated execution digest = %q, want %q, err = %v", workload.ExecutionDigest, wantExecutionDigest, err)
+	}
 }
 
 func assertGeneratedPortableGoPolicy(t *testing.T, workload remoteportable.PortableManifestWorkload, runtime string, cpu, memory, estimate int64) {

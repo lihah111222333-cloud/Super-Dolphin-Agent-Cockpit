@@ -126,11 +126,12 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 	runDetectedFixtureGit(t, root, "config", "user.email", "fixture@example.invalid")
 	runDetectedFixtureGit(t, root, "config", "user.name", "Fixture")
 	digest := "sha256:" + strings.Repeat("a", 64)
+	workloads := detectedFixtureWorkloads(t, digest)
 	manifest := remoteportable.PortableManifest{
 		SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID,
 		Engine:          remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: digest, RequiredToolchainDigest: digest, RequiredCapabilities: []string{"go"}},
 		Target:          remoteportable.PortableManifestTarget{RepositoryID: repositoryID, ObjectFormat: "sha1", WorktreeMount: "worktree"},
-		Workloads:       []remoteportable.PortableManifestWorkload{{UnitID: "go-test/example/TestFixture", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestFixture", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {UnitID: "go-test/windows/example/TestFixture", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestFixture", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}},
+		Workloads:       workloads,
 		CatalogPolicies: []remoteportable.PortableManifestCatalogPolicy{{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 2_000, MemoryBytes: 2 << 30, HistoricalEstimateMS: 2_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}},
 		Profile:         remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"},
 		LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
@@ -172,6 +173,19 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 		t.Fatal(err)
 	}
 	return resolvedRoot
+}
+
+func detectedFixtureWorkloads(t *testing.T, digest string) []remoteportable.PortableManifestWorkload {
+	t.Helper()
+	workloads := []remoteportable.PortableManifestWorkload{{UnitID: "go-test/example/TestFixture", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestFixture", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {UnitID: "go-test/windows/example/TestFixture", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestFixture", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}}
+	for index := range workloads {
+		executionDigest, err := remoteportable.DerivePortableWorkloadExecutionDigest(workloads[index])
+		if err != nil {
+			t.Fatal(err)
+		}
+		workloads[index].ExecutionDigest = executionDigest
+	}
+	return workloads
 }
 
 func commitDetectedFixture(t *testing.T, root, message string) {

@@ -21,8 +21,10 @@ const (
 	PortableManifestDigestDomain = "remote-ci-portable-manifest/v1"
 	// PortableManifestABIDigestDomain separates top-level wire ABI identity.
 	PortableManifestABIDigestDomain = "remote-ci-portable-manifest-abi/v1"
-	PortableManifestMaxResultBytes  = 1 << 20
-	PortableManifestMaxEventBytes   = 64 << 10
+	// PortableManifestWorkloadExecutionDigestDomain separates one workload's execution identity.
+	PortableManifestWorkloadExecutionDigestDomain = "remote-ci-portable-workload-execution/v1"
+	PortableManifestMaxResultBytes                = 1 << 20
+	PortableManifestMaxEventBytes                 = 64 << 10
 )
 
 // PortableManifest 是 remote-ci-portable-manifest/v1 的唯一顶层输入。
@@ -129,6 +131,20 @@ func PortableManifestContentDigest(manifest PortableManifest) (string, error) {
 		return "", err
 	}
 	return portableFramedDigest(PortableManifestDigestDomain, encoded), nil
+}
+
+// DerivePortableWorkloadExecutionDigest derives the canonical execution identity
+// from one workload with execution_digest itself blanked from the material.
+func DerivePortableWorkloadExecutionDigest(workload PortableManifestWorkload) (string, error) {
+	workload.ExecutionDigest = ""
+	if err := validatePortableWorkloadMaterial(workload); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(workload)
+	if err != nil {
+		return "", fmt.Errorf("encode portable workload execution material: %w", err)
+	}
+	return portableFramedDigest(PortableManifestWorkloadExecutionDigestDomain, encoded), nil
 }
 
 // DecodePortableManifest 严格解码 remote-ci-portable-manifest/v1。
@@ -287,11 +303,25 @@ func validatePortableManifestWorkloads(workloads []PortableManifestWorkload) err
 }
 
 func validatePortableManifestWorkload(workload PortableManifestWorkload) error {
+	if err := validatePortableWorkloadMaterial(workload); err != nil {
+		return err
+	}
+	expected, err := DerivePortableWorkloadExecutionDigest(workload)
+	if err != nil {
+		return err
+	}
+	if workload.ExecutionDigest != expected {
+		return errors.New("portable workload execution_digest does not match canonical material")
+	}
+	return nil
+}
+
+func validatePortableWorkloadMaterial(workload PortableManifestWorkload) error {
 	if err := validatePortableIdentifier(workload.UnitID, "workload.unit_id"); err != nil {
 		return err
 	}
-	if err := validatePortableWorkloadDigests(workload); err != nil {
-		return err
+	if !validPortableDigest(workload.CommandDigest) {
+		return errors.New("portable workload command_digest is invalid")
 	}
 	if err := validatePortableWorkloadRouting(workload); err != nil {
 		return err
@@ -335,13 +365,6 @@ func validatePortableManifestCatalogPolicy(policy PortableManifestCatalogPolicy)
 
 func validPortableCatalogPolicyPlatformRuntime(platform, runtime string) bool {
 	return platform == string(RepositoryWorkloadPlatformLinuxAMD64) && runtime == string(RepositoryWorkloadRuntimeUbuntuContainer) || platform == string(RepositoryWorkloadPlatformWindowsAMD64) && runtime == string(RepositoryWorkloadRuntimeWindowsNative)
-}
-
-func validatePortableWorkloadDigests(workload PortableManifestWorkload) error {
-	if !validPortableDigest(workload.CommandDigest) || !validPortableDigest(workload.ExecutionDigest) {
-		return errors.New("portable workload digest is invalid")
-	}
-	return nil
 }
 
 func validatePortableWorkloadRouting(workload PortableManifestWorkload) error {
