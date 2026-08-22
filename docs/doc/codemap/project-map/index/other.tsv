@@ -1053,6 +1053,11 @@ internal/devtools/remoteportable/routing_top.go	internal	other	go-source	2554	�
 internal/devtools/remoteportable/top_manifest_test.go	internal	other	go-test	9281	开发工具与生成器辅助包	internal,devtools,remoteportable,top,manifest,test,开发工具与生成器辅助包
 internal/devtools/remoteportable/tree_reader.go	internal	other	go-source	1347	开发工具与生成器辅助包	internal,devtools,remoteportable,tree,reader,开发工具与生成器辅助包
 internal/devtools/remoteportable/workload_contract.go	internal	other	go-source	6159	开发工具与生成器辅助包	internal,devtools,remoteportable,workload,contract,开发工具与生成器辅助包
+internal/devtools/remoteruntime/config.go	internal	other	go-source	22756	开发工具与生成器辅助包	internal,devtools,remoteruntime,config,开发工具与生成器辅助包
+internal/devtools/remoteruntime/config_test.go	internal	other	go-test	8310	开发工具与生成器辅助包	internal,devtools,remoteruntime,config,test,开发工具与生成器辅助包
+internal/devtools/remoteruntime/target.go	internal	other	go-source	5723	开发工具与生成器辅助包	internal,devtools,remoteruntime,target,开发工具与生成器辅助包
+internal/devtools/remoteruntime/transport.go	internal	other	go-source	20121	开发工具与生成器辅助包	internal,devtools,remoteruntime,transport,开发工具与生成器辅助包
+internal/devtools/remoteruntime/transport_test.go	internal	other	go-test	6490	开发工具与生成器辅助包	internal,devtools,remoteruntime,transport,test,开发工具与生成器辅助包
 internal/devtools/shardresource/planner.go	internal	other	go-source	20508	开发工具与生成器辅助包	internal,devtools,shardresource,planner,开发工具与生成器辅助包
 internal/devtools/shardresource/planner_test.go	internal	other	go-test	16541	开发工具与生成器辅助包	internal,devtools,shardresource,planner,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/errors.go	internal	other	go-source	1294	开发工具与生成器辅助包	internal,devtools,sourceexport,errors,开发工具与生成器辅助包
