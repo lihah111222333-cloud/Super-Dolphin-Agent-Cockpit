@@ -107,9 +107,20 @@ func TestValidateBindsExactRepositoryObjects(t *testing.T) {
 
 func assertPortableValidationOutput(t *testing.T, stdout string) {
 	t.Helper()
-	decoded, err := remoteportable.DecodePortableValidationResult(bytes.TrimSpace([]byte(stdout)))
+	stdoutBytes := []byte(stdout)
+	if len(stdoutBytes) == 0 || stdoutBytes[len(stdoutBytes)-1] != '}' {
+		t.Fatalf("validation stdout is not a single canonical JSON object: %q", stdout)
+	}
+	decoded, err := remoteportable.DecodePortableValidationResult(stdoutBytes)
 	if err != nil {
 		t.Fatalf("DecodePortableValidationResult: %v; stdout=%q", err, stdout)
+	}
+	canonical, err := remoteportable.EncodePortableValidationResult(decoded)
+	if err != nil {
+		t.Fatalf("EncodePortableValidationResult: %v; stdout=%q", err, stdout)
+	}
+	if !bytes.Equal(canonical, stdoutBytes) {
+		t.Fatalf("validation stdout is not exactly EncodePortableValidationResult output: got=%q want=%q", stdout, canonical)
 	}
 	assertPortableValidationTarget(t, decoded)
 	assertPortableValidationWire(t, stdout)

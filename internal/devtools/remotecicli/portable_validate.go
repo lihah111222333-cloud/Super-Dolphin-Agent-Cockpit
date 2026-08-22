@@ -231,10 +231,9 @@ func boundedBindingJSON(descriptor []byte, binding remoteportable.BoundPortableR
 	if err != nil {
 		return nil, err
 	}
-	if len(data)+1 > outputMaxBytes {
+	if len(data) > outputMaxBytes {
 		return nil, errors.New("binding result exceeds the bounded size")
 	}
-	data = append(data, '\n')
 	return data, nil
 }
 
