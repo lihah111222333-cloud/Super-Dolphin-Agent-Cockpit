@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 // GitTreeEntry 是 exact tree listing 的 provider-neutral 投影。
@@ -23,13 +25,10 @@ type ExactGitTreeReader interface {
 	ReadBlob(context.Context, string, string) ([]byte, error)
 }
 
-// BuildPortableGoWorkloadInventory 从 exact tree 和 manifest module 声明构建 Go package inventory。
-func BuildPortableGoWorkloadInventory(ctx context.Context, reader ExactGitTreeReader, tree, platform string, modules []RepositoryWorkloadModule) (PortableGoWorkloadInventory, error) {
-	if ctx == nil || reader == nil || tree == "" || len(modules) == 0 {
-		return PortableGoWorkloadInventory{}, errors.New("portable Go inventory inputs are incomplete")
-	}
-	if platform != string(RepositoryWorkloadPlatformLinuxAMD64) && platform != string(RepositoryWorkloadPlatformWindowsAMD64) {
-		return PortableGoWorkloadInventory{}, errors.New("portable Go inventory platform is unsupported")
+// BuildPortableGoWorkloadInventory 从 exact tree、manifest module 声明和排除项构建 Go package inventory。
+func BuildPortableGoWorkloadInventory(ctx context.Context, reader ExactGitTreeReader, tree, platform string, modules []RepositoryWorkloadModule, excludedNestedModules []string) (PortableGoWorkloadInventory, error) {
+	if err := validatePortableGoInventoryRequest(ctx, reader, tree, platform, modules, excludedNestedModules); err != nil {
+		return PortableGoWorkloadInventory{}, err
 	}
 	entries, err := reader.ListTree(ctx, tree)
 	if err != nil {
@@ -38,12 +37,29 @@ func BuildPortableGoWorkloadInventory(ctx context.Context, reader ExactGitTreeRe
 	if err := validatePortableTreeEntries(entries); err != nil {
 		return PortableGoWorkloadInventory{}, err
 	}
-	moduleDirs, modulePaths, err := loadDeclaredPortableModules(ctx, reader, tree, entries, modules)
+	moduleDirs, err := loadDeclaredPortableModules(ctx, reader, tree, entries, modules, excludedNestedModules)
 	if err != nil {
 		return PortableGoWorkloadInventory{}, err
 	}
-	packages := portableGoPackages(entries, moduleDirs, modulePaths, platform)
+	packages := portableGoPackages(entries, moduleDirs, excludedNestedModules, platform)
 	return PortableGoWorkloadInventory{GoPackages: packages, NestedGoModules: moduleDirs}, nil
+}
+
+// validatePortableGoInventoryRequest 校验 exact-tree inventory 的调用输入和 manifest 集合。
+func validatePortableGoInventoryRequest(ctx context.Context, reader ExactGitTreeReader, tree, platform string, modules []RepositoryWorkloadModule, excludedNestedModules []string) error {
+	if ctx == nil || reader == nil || tree == "" || len(modules) == 0 {
+		return errors.New("portable Go inventory inputs are incomplete")
+	}
+	if platform != string(RepositoryWorkloadPlatformLinuxAMD64) && platform != string(RepositoryWorkloadPlatformWindowsAMD64) {
+		return errors.New("portable Go inventory platform is unsupported")
+	}
+	if err := validatePortableModules(modules); err != nil {
+		return fmt.Errorf("validate portable declared modules: %w", err)
+	}
+	if err := validatePortableExcludedModules(excludedNestedModules); err != nil {
+		return fmt.Errorf("validate portable excluded nested modules: %w", err)
+	}
+	return nil
 }
 
 func validatePortableTreeEntries(entries []GitTreeEntry) error {
@@ -63,36 +79,177 @@ func validatePortableTreeEntries(entries []GitTreeEntry) error {
 	return nil
 }
 
-func loadDeclaredPortableModules(ctx context.Context, reader ExactGitTreeReader, tree string, entries []GitTreeEntry, modules []RepositoryWorkloadModule) ([]string, map[string]string, error) {
+// loadDeclaredPortableModules 枚举 exact tree 模块边界并加载 manifest 声明模块。
+func loadDeclaredPortableModules(ctx context.Context, reader ExactGitTreeReader, tree string, entries []GitTreeEntry, modules []RepositoryWorkloadModule, excludedNestedModules []string) ([]string, error) {
+	actualDirectories, err := discoverPortableGoModuleDirectories(entries)
+	if err != nil {
+		return nil, err
+	}
+	byPath := portableTreeEntriesByPath(entries)
+	directories, declaredSet, err := readPortableDeclaredModules(ctx, reader, tree, byPath, modules)
+	if err != nil {
+		return nil, err
+	}
+	if err := validatePortableModuleTopology(actualDirectories, declaredSet, excludedNestedModules); err != nil {
+		return nil, err
+	}
+	return directories, nil
+}
+
+// discoverPortableGoModuleDirectories 从 exact tree 枚举全部 go.mod 目录。
+func discoverPortableGoModuleDirectories(entries []GitTreeEntry) ([]string, error) {
+	directories := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, entry := range entries {
+		if path.Base(entry.Path) != "go.mod" {
+			continue
+		}
+		directory := path.Dir(entry.Path)
+		if !validPortableGoModuleDirectory(directory) {
+			return nil, fmt.Errorf("portable exact tree module path %q is invalid", directory)
+		}
+		if _, duplicate := seen[directory]; duplicate {
+			return nil, fmt.Errorf("portable exact tree repeats module %q", directory)
+		}
+		seen[directory] = struct{}{}
+		directories = append(directories, directory)
+	}
+	if len(directories) == 0 {
+		return nil, errors.New("portable exact tree has no go.mod")
+	}
+	sort.Strings(directories)
+	return directories, nil
+}
+
+// portableTreeEntriesByPath 建立 exact tree 路径索引，供声明模块存在性核对。
+func portableTreeEntriesByPath(entries []GitTreeEntry) map[string]GitTreeEntry {
 	byPath := make(map[string]GitTreeEntry, len(entries))
 	for _, entry := range entries {
 		byPath[entry.Path] = entry
 	}
-	directories := make([]string, 0, len(modules))
-	modulePaths := make(map[string]string, len(modules))
-	for _, module := range modules {
-		moduleFile := "go.mod"
-		if module.Root != "." {
-			moduleFile = path.Join(module.Root, "go.mod")
-		}
-		if _, ok := byPath[moduleFile]; !ok {
-			return nil, nil, fmt.Errorf("portable declared module %q go.mod is missing", module.Root)
-		}
-		data, err := reader.ReadBlob(ctx, tree, moduleFile)
-		if err != nil {
-			return nil, nil, fmt.Errorf("read portable module %q: %w", module.Root, err)
-		}
-		if !strings.Contains(string(data), "module "+module.ModulePath) {
-			return nil, nil, fmt.Errorf("portable module %q path drifted", module.Root)
-		}
-		directories = append(directories, module.Root)
-		modulePaths[module.Root] = module.ModulePath
-	}
-	sort.Strings(directories)
-	return directories, modulePaths, nil
+	return byPath
 }
 
-func portableGoPackages(entries []GitTreeEntry, moduleDirs []string, modulePaths map[string]string, platform string) []string {
+// readPortableDeclaredModules 读取并逐项核对 manifest 声明的 module path。
+func readPortableDeclaredModules(ctx context.Context, reader ExactGitTreeReader, tree string, byPath map[string]GitTreeEntry, modules []RepositoryWorkloadModule) ([]string, map[string]struct{}, error) {
+	directories := make([]string, 0, len(modules))
+	declaredSet := make(map[string]struct{}, len(modules))
+	for _, module := range modules {
+		if err := verifyPortableDeclaredModule(ctx, reader, tree, byPath, module); err != nil {
+			return nil, nil, err
+		}
+		directories = append(directories, module.Root)
+		declaredSet[module.Root] = struct{}{}
+	}
+	sort.Strings(directories)
+	return directories, declaredSet, nil
+}
+
+// verifyPortableDeclaredModule 确认声明模块的 go.mod 存在且 module path exact。
+func verifyPortableDeclaredModule(ctx context.Context, reader ExactGitTreeReader, tree string, byPath map[string]GitTreeEntry, module RepositoryWorkloadModule) error {
+	moduleFile := "go.mod"
+	if module.Root != "." {
+		moduleFile = path.Join(module.Root, "go.mod")
+	}
+	if _, ok := byPath[moduleFile]; !ok {
+		return fmt.Errorf("portable declared module %q go.mod is missing", module.Root)
+	}
+	data, err := reader.ReadBlob(ctx, tree, moduleFile)
+	if err != nil {
+		return fmt.Errorf("read portable module %q: %w", module.Root, err)
+	}
+	actualPath, err := parsePortableModulePath(moduleFile, data)
+	if err != nil || actualPath != module.ModulePath {
+		return fmt.Errorf("portable module %q path drifted: got %q, want %q", module.Root, actualPath, module.ModulePath)
+	}
+	return nil
+}
+
+// parsePortableModulePath 解析 go.mod 的唯一 module 指令。
+func parsePortableModulePath(moduleFile string, data []byte) (string, error) {
+	parsed, err := modfile.Parse(moduleFile, data, nil)
+	if err != nil {
+		return "", err
+	}
+	if parsed == nil || parsed.Module == nil {
+		return "", errors.New("go.mod module directive is missing")
+	}
+	return parsed.Module.Mod.Path, nil
+}
+
+// validPortableGoModuleDirectory 校验 exact tree 中的仓库相对 module 目录。
+func validPortableGoModuleDirectory(directory string) bool {
+	return directory != "" && !path.IsAbs(directory) && path.Clean(directory) == directory && directory != ".." && !strings.HasPrefix(directory, "../") && !strings.Contains(directory, "\\")
+}
+
+// validatePortableModuleTopology 校验 declared、excluded 与 exact-tree module 边界的闭包关系。
+func validatePortableModuleTopology(actualDirectories []string, declared map[string]struct{}, excluded []string) error {
+	actualSet := make(map[string]struct{}, len(actualDirectories))
+	for _, directory := range actualDirectories {
+		actualSet[directory] = struct{}{}
+	}
+	for _, excludedRoot := range excluded {
+		if err := validatePortableExcludedModule(excludedRoot, actualSet, declared); err != nil {
+			return err
+		}
+	}
+	for _, directory := range actualDirectories {
+		if err := validatePortableActualModule(directory, declared, excluded); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validatePortableExcludedModule 校验一个排除项存在、未声明且位于 declared module 下。
+func validatePortableExcludedModule(excludedRoot string, actual map[string]struct{}, declared map[string]struct{}) error {
+	if _, exists := actual[excludedRoot]; !exists {
+		return fmt.Errorf("portable excluded nested module %q is stale", excludedRoot)
+	}
+	for declaredRoot := range declared {
+		if declaredRoot == excludedRoot || strings.HasPrefix(declaredRoot, excludedRoot+"/") {
+			return fmt.Errorf("portable excluded nested module %q contains declared module %q", excludedRoot, declaredRoot)
+		}
+	}
+	if !portablePathUnderAnyDeclaredModule(excludedRoot, declared) {
+		return fmt.Errorf("portable excluded nested module %q is outside declared modules", excludedRoot)
+	}
+	return nil
+}
+
+// validatePortableActualModule 拒绝未声明且未由排除 subtree 覆盖的 nested module。
+func validatePortableActualModule(directory string, declared map[string]struct{}, excluded []string) error {
+	if directory == "." {
+		return nil
+	}
+	if _, exists := declared[directory]; exists || portablePathUnderAnyExcludedModule(directory, excluded) {
+		return nil
+	}
+	return fmt.Errorf("portable nested Go module %q is undeclared and not excluded", directory)
+}
+
+// portablePathUnderAnyDeclaredModule 判断路径是否属于任一 declared module。
+func portablePathUnderAnyDeclaredModule(directory string, declared map[string]struct{}) bool {
+	for module := range declared {
+		if module == "." || directory == module || strings.HasPrefix(directory, module+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// portablePathUnderAnyExcludedModule 判断路径是否落入任一 excluded module subtree。
+func portablePathUnderAnyExcludedModule(directory string, excluded []string) bool {
+	for _, module := range excluded {
+		if directory == module || strings.HasPrefix(directory, module+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// portableGoPackages 过滤 excluded subtree 后构建确定性 module/package 目标。
+func portableGoPackages(entries []GitTreeEntry, moduleDirs, excludedNestedModules []string, platform string) []string {
 	moduleSet := make(map[string]struct{}, len(moduleDirs))
 	for _, directory := range moduleDirs {
 		moduleSet[directory] = struct{}{}
@@ -103,6 +260,9 @@ func portableGoPackages(entries []GitTreeEntry, moduleDirs []string, modulePaths
 			continue
 		}
 		directory := path.Dir(entry.Path)
+		if portablePathUnderAnyExcludedModule(directory, excludedNestedModules) {
+			continue
+		}
 		moduleRoot := portableOwningModule(directory, moduleDirs)
 		if moduleRoot == "" || !portablePathUnderDeclaredModule(directory, moduleRoot, moduleSet) {
 			continue
@@ -120,7 +280,6 @@ func portableGoPackages(entries []GitTreeEntry, moduleDirs []string, modulePaths
 		result = append(result, key)
 	}
 	slices.Sort(result)
-	_ = modulePaths
 	return result
 }
 

@@ -138,6 +138,7 @@ func newPortableMultiModuleFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	manifest.Modules = append(manifest.Modules, remoteportable.RepositoryWorkloadModule{Root: "nested", ModulePath: "example.invalid/portable-multi-module/nested"})
+	manifest.ExcludedNestedModules = []string{"hidden"}
 	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)

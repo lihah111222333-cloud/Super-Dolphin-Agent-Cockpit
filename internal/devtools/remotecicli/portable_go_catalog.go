@@ -39,7 +39,7 @@ func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedR
 	}
 	reader := gitObjectResolver{repositoryRoot: repository.Root}
 	for _, target := range portableGoCatalogPlatforms() {
-		workloads, err := portableGoTargetWorkloads(ctx, reader, repository.TreeSHA, repository.Manifest.Modules, repository.Manifest.CatalogPolicies, target)
+		workloads, err := portableGoTargetWorkloads(ctx, reader, repository.TreeSHA, repository.Manifest.Modules, repository.Manifest.ExcludedNestedModules, repository.Manifest.CatalogPolicies, target)
 		if err != nil {
 			return DetectedRepository{}, err
 		}
@@ -54,12 +54,12 @@ func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedR
 }
 
 // portableGoTargetWorkloads 为一个平台读取 manifest policy 并从 exact tree 生成 package workload。
-func portableGoTargetWorkloads(ctx context.Context, reader remoteportable.ExactGitTreeReader, tree string, modules []remoteportable.RepositoryWorkloadModule, policies []remoteportable.PortableManifestCatalogPolicy, target portableGoPlatform) ([]remoteportable.PortableManifestWorkload, error) {
+func portableGoTargetWorkloads(ctx context.Context, reader remoteportable.ExactGitTreeReader, tree string, modules []remoteportable.RepositoryWorkloadModule, excludedNestedModules []string, policies []remoteportable.PortableManifestCatalogPolicy, target portableGoPlatform) ([]remoteportable.PortableManifestWorkload, error) {
 	policy, err := portableGoCatalogPolicy(policies, target)
 	if err != nil {
 		return nil, err
 	}
-	inventory, err := remoteportable.BuildPortableGoWorkloadInventory(ctx, reader, tree, string(target.platform), modules)
+	inventory, err := remoteportable.BuildPortableGoWorkloadInventory(ctx, reader, tree, string(target.platform), modules, excludedNestedModules)
 	if err != nil {
 		return nil, fmt.Errorf("build %s portable Go inventory: %w", target.name, err)
 	}
