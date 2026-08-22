@@ -18,9 +18,10 @@ type portableGoPlatform struct {
 	runtime  remoteportable.RepositoryWorkloadRuntime
 }
 
-func portableGoCatalogPlatforms() [1]portableGoPlatform {
-	return [1]portableGoPlatform{
+func portableGoCatalogPlatforms() [2]portableGoPlatform {
+	return [2]portableGoPlatform{
 		{name: "linux-amd64", platform: remoteportable.RepositoryWorkloadPlatformLinuxAMD64, runtime: remoteportable.RepositoryWorkloadRuntimeUbuntuContainer},
+		{name: "windows-amd64", platform: remoteportable.RepositoryWorkloadPlatformWindowsAMD64, runtime: remoteportable.RepositoryWorkloadRuntimeWindowsNative},
 	}
 }
 
@@ -29,17 +30,22 @@ func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedR
 	if ctx == nil || repository.Root == "" || repository.TreeSHA == "" {
 		return DetectedRepository{}, errors.New("portable Go catalog repository identity is invalid")
 	}
+	if err := repository.Manifest.Validate(); err != nil {
+		return DetectedRepository{}, fmt.Errorf("validate portable Go catalog manifest: %w", err)
+	}
+	seenUnitIDs, err := portableWorkloadUnitIDs(repository.Workloads)
+	if err != nil {
+		return DetectedRepository{}, err
+	}
 	reader := gitObjectResolver{repositoryRoot: repository.Root}
 	for _, target := range portableGoCatalogPlatforms() {
-		inventory, err := remoteportable.BuildPortableGoWorkloadInventory(ctx, reader, repository.TreeSHA, string(target.platform), repository.Manifest.Modules)
-		if err != nil {
-			return DetectedRepository{}, fmt.Errorf("build %s portable Go inventory: %w", target.name, err)
-		}
-		workloads, err := portableGoPackageWorkloads(repository.Manifest.Modules, inventory.GoPackages, target)
+		workloads, err := portableGoTargetWorkloads(ctx, reader, repository.TreeSHA, repository.Manifest.Modules, repository.Manifest.CatalogPolicies, target)
 		if err != nil {
 			return DetectedRepository{}, err
 		}
-		repository.Workloads = append(repository.Workloads, workloads...)
+		if err := appendPortableGeneratedWorkloads(&repository.Workloads, seenUnitIDs, workloads); err != nil {
+			return DetectedRepository{}, err
+		}
 	}
 	slices.SortFunc(repository.Workloads, func(left, right remoteportable.PortableManifestWorkload) int {
 		return strings.Compare(left.UnitID, right.UnitID)
@@ -47,18 +53,72 @@ func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedR
 	return repository, nil
 }
 
-func portableGoPackageWorkloads(modules []remoteportable.RepositoryWorkloadModule, packages []string, target portableGoPlatform) ([]remoteportable.PortableManifestWorkload, error) {
+// portableGoTargetWorkloads 为一个平台读取 manifest policy 并从 exact tree 生成 package workload。
+func portableGoTargetWorkloads(ctx context.Context, reader remoteportable.ExactGitTreeReader, tree string, modules []remoteportable.RepositoryWorkloadModule, policies []remoteportable.PortableManifestCatalogPolicy, target portableGoPlatform) ([]remoteportable.PortableManifestWorkload, error) {
+	policy, err := portableGoCatalogPolicy(policies, target)
+	if err != nil {
+		return nil, err
+	}
+	inventory, err := remoteportable.BuildPortableGoWorkloadInventory(ctx, reader, tree, string(target.platform), modules)
+	if err != nil {
+		return nil, fmt.Errorf("build %s portable Go inventory: %w", target.name, err)
+	}
+	workloads, err := portableGoPackageWorkloads(modules, inventory.GoPackages, target, policy)
+	if err != nil {
+		return nil, err
+	}
+	return workloads, nil
+}
+
+// portableWorkloadUnitIDs 校验并索引手工 workload 的稳定 UnitID。
+func portableWorkloadUnitIDs(workloads []remoteportable.PortableManifestWorkload) (map[string]struct{}, error) {
+	seen := make(map[string]struct{}, len(workloads))
+	for _, workload := range workloads {
+		if _, duplicate := seen[workload.UnitID]; duplicate {
+			return nil, fmt.Errorf("portable workload unit %q is duplicated", workload.UnitID)
+		}
+		seen[workload.UnitID] = struct{}{}
+	}
+	return seen, nil
+}
+
+// appendPortableGeneratedWorkloads 追加 exact-tree 目录并拒绝与手工 workload 冲突。
+func appendPortableGeneratedWorkloads(workloads *[]remoteportable.PortableManifestWorkload, seen map[string]struct{}, generated []remoteportable.PortableManifestWorkload) error {
+	for _, workload := range generated {
+		if _, duplicate := seen[workload.UnitID]; duplicate {
+			return fmt.Errorf("portable workload unit %q is duplicated", workload.UnitID)
+		}
+		seen[workload.UnitID] = struct{}{}
+		*workloads = append(*workloads, workload)
+	}
+	return nil
+}
+
+// portableGoCatalogPolicy 读取目标平台的显式资源策略并校验 runtime 配对。
+func portableGoCatalogPolicy(policies []remoteportable.PortableManifestCatalogPolicy, target portableGoPlatform) (remoteportable.PortableManifestCatalogPolicy, error) {
+	for _, policy := range policies {
+		if policy.Platform == string(target.platform) {
+			if policy.Runtime != string(target.runtime) {
+				return remoteportable.PortableManifestCatalogPolicy{}, fmt.Errorf("portable Go catalog policy runtime for %s is invalid", target.name)
+			}
+			return policy, nil
+		}
+	}
+	return remoteportable.PortableManifestCatalogPolicy{}, fmt.Errorf("portable Go catalog policy for %s is missing", target.name)
+}
+
+func portableGoPackageWorkloads(modules []remoteportable.RepositoryWorkloadModule, packages []string, target portableGoPlatform, policy remoteportable.PortableManifestCatalogPolicy) ([]remoteportable.PortableManifestWorkload, error) {
 	workloads := make([]remoteportable.PortableManifestWorkload, 0, len(packages))
 	for _, packageTarget := range packages {
 		moduleRoot, relativePackage, err := portablePackageModule(modules, packageTarget)
 		if err != nil {
 			return nil, err
 		}
-		unitID := portablePackageWorkloadID(target.name, string(remoteportable.RepositoryWorkloadExecutionPolicyNormal), packageTarget)
+		unitID := portablePackageWorkloadID(target.name, policy.ExecutionPolicy, packageTarget)
 		workloads = append(workloads, remoteportable.PortableManifestWorkload{
 			UnitID: unitID, CommandDigest: digestBytes([]byte(unitID)), TargetPlatform: string(target.platform), RuntimeCapability: string(target.runtime),
-			CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 15_000, ExecutionDigest: digestBytes([]byte("execution/v1\x00" + unitID)),
-			Kind: remoteportable.RepositoryWorkloadKindGoPackage, ModuleRoot: moduleRoot, Package: relativePackage, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal),
+			CPUMilli: policy.CPUMilli, MemoryBytes: policy.MemoryBytes, HistoricalEstimateMS: policy.HistoricalEstimateMS, ExecutionDigest: digestBytes([]byte("execution/v1\x00" + unitID)),
+			Kind: remoteportable.RepositoryWorkloadKindGoPackage, ModuleRoot: moduleRoot, Package: relativePackage, ExecutionPolicy: policy.ExecutionPolicy,
 		})
 	}
 	return workloads, nil

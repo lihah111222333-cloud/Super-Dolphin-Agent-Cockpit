@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
@@ -48,10 +49,80 @@ func TestExpandDetectedRepositoryGoCatalogSupportsRootlessDeclaredModules(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPortablePackageCount(t, expanded.Workloads, ".", "./example", 1)
-	assertPortablePackageCount(t, expanded.Workloads, "nested", ".", 1)
-	assertPortablePackageCount(t, expanded.Workloads, "nested", "./sub", 1)
+	assertPortablePackageCount(t, expanded.Workloads, ".", "./example", 2)
+	assertPortablePackageCount(t, expanded.Workloads, "nested", ".", 2)
+	assertPortablePackageCount(t, expanded.Workloads, "nested", "./sub", 2)
 	assertPortablePackageCount(t, expanded.Workloads, "hidden", ".", 0)
+}
+
+func TestExpandDetectedRepositoryGoCatalogBindsDualPlatformPoliciesAndStableDigests(t *testing.T) {
+	root := newDetectedRepositoryFixture(t, "portable-dual-platform")
+	detected, err := DetectRepository(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expanded, err := expandDetectedRepositoryGoCatalog(context.Background(), detected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.IsSortedFunc(expanded.Workloads, func(left, right remoteportable.PortableManifestWorkload) int {
+		return strings.Compare(left.UnitID, right.UnitID)
+	}) {
+		t.Fatal("expanded workloads are not sorted by UnitID")
+	}
+	platforms := map[string]struct{}{}
+	for _, workload := range expanded.Workloads {
+		if workload.Kind != remoteportable.RepositoryWorkloadKindGoPackage {
+			continue
+		}
+		platforms[workload.TargetPlatform] = struct{}{}
+		assertGeneratedPortableGoPackage(t, workload)
+	}
+	if len(platforms) != 2 {
+		t.Fatalf("generated platform set = %#v, want Linux and Windows", platforms)
+	}
+}
+
+func assertGeneratedPortableGoPackage(t *testing.T, workload remoteportable.PortableManifestWorkload) {
+	t.Helper()
+	switch workload.TargetPlatform {
+	case string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64):
+		assertGeneratedPortableGoPolicy(t, workload, string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), 1_000, 1<<30, 1_000)
+	case string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64):
+		assertGeneratedPortableGoPolicy(t, workload, string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), 2_000, 2<<30, 2_000)
+	default:
+		t.Fatalf("unexpected generated platform: %#v", workload)
+	}
+	if !strings.Contains(workload.UnitID, strings.TrimSuffix(workload.TargetPlatform, "/amd64")) || workload.CommandDigest == workload.ExecutionDigest {
+		t.Fatalf("generated workload identity/digests are not platform-bound: %#v", workload)
+	}
+}
+
+func assertGeneratedPortableGoPolicy(t *testing.T, workload remoteportable.PortableManifestWorkload, runtime string, cpu, memory, estimate int64) {
+	t.Helper()
+	if workload.RuntimeCapability != runtime || workload.CPUMilli != cpu || workload.MemoryBytes != memory || workload.HistoricalEstimateMS != estimate {
+		t.Fatalf("catalog policy was not bound: %#v", workload)
+	}
+}
+
+func TestExpandDetectedRepositoryGoCatalogRejectsMissingPolicyAndDuplicateManualUnit(t *testing.T) {
+	root := newDetectedRepositoryFixture(t, "portable-policy-fail-fast")
+	detected, err := DetectRepository(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detected.Manifest.CatalogPolicies = detected.Manifest.CatalogPolicies[:1]
+	if _, err := expandDetectedRepositoryGoCatalog(context.Background(), detected); err == nil || !strings.Contains(err.Error(), "catalog_policies") {
+		t.Fatalf("missing catalog policy error = %v", err)
+	}
+	detected, err = DetectRepository(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detected.Workloads = append(detected.Workloads, detected.Workloads[0])
+	if _, err := expandDetectedRepositoryGoCatalog(context.Background(), detected); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("duplicate manual unit error = %v", err)
+	}
 }
 
 func newPortableMultiModuleFixture(t *testing.T) string {

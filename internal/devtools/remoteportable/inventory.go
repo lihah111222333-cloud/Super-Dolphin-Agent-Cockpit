@@ -143,10 +143,63 @@ func portablePathUnderDeclaredModule(directory, module string, modules map[strin
 	return module == "." || directory == module || strings.HasPrefix(directory, module+"/")
 }
 
+// portableGoFileMatchesPlatform 按 Go 文件名的精确 OS/架构后缀筛选目标平台。
 func portableGoFileMatchesPlatform(filePath, platform string) bool {
-	base := path.Base(filePath)
-	if platform == string(RepositoryWorkloadPlatformWindowsAMD64) {
-		return !strings.Contains(base, "_linux") && !strings.Contains(base, "_darwin") && !strings.Contains(base, "_unix")
+	fileOS, fileArch, ok := portableGoFilenameTarget(filePath)
+	if !ok {
+		return false
 	}
-	return !strings.Contains(base, "_windows") && !strings.Contains(base, "_darwin")
+	if fileArch != "" && fileArch != "amd64" {
+		return false
+	}
+	if fileOS == "unix" {
+		return platform == string(RepositoryWorkloadPlatformLinuxAMD64)
+	}
+	switch platform {
+	case string(RepositoryWorkloadPlatformLinuxAMD64):
+		return fileOS == "" || fileOS == "linux"
+	case string(RepositoryWorkloadPlatformWindowsAMD64):
+		return fileOS == "" || fileOS == "windows"
+	default:
+		return false
+	}
+}
+
+// portableGoFilenameTarget 解析 Go 文件名末尾的 OS 与架构选择器。
+func portableGoFilenameTarget(filePath string) (string, string, bool) {
+	stem, ok := strings.CutSuffix(path.Base(filePath), ".go")
+	if !ok {
+		return "", "", false
+	}
+	components := strings.Split(strings.TrimSuffix(stem, "_test"), "_")
+	fileOS, fileArch := "", ""
+	last := len(components) - 1
+	if last >= 0 && portableGoFilenameOS(components[last]) {
+		fileOS = components[last]
+	} else if last >= 0 && portableGoFilenameArch(components[last]) {
+		fileArch = components[last]
+		last--
+		if last >= 0 && portableGoFilenameOS(components[last]) {
+			fileOS = components[last]
+		}
+	}
+	return fileOS, fileArch, true
+}
+
+func portableGoFilenameOS(value string) bool {
+	switch value {
+	case "aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux", "nacl", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos", "unix":
+		return true
+	default:
+		return false
+	}
+}
+
+func portableGoFilenameArch(value string) bool {
+	switch value {
+	case "386", "amd64", "arm", "arm64", "loong64", "mips", "mips64", "mips64le", "mipsle", "ppc64", "ppc64le", "riscv64", "s390x", "wasm":
+		return true
+	default:
+		return false
+	}
 }

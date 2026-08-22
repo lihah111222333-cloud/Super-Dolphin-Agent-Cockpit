@@ -27,18 +27,19 @@ const (
 
 // PortableManifest 是 remote-ci-portable-manifest/v1 的唯一顶层输入。
 type PortableManifest struct {
-	SchemaVersion            string                     `json:"schema_version"`
-	ContractID               string                     `json:"contract_id"`
-	Engine                   PortableManifestEngine     `json:"engine"`
-	Target                   PortableManifestTarget     `json:"target"`
-	Workloads                []PortableManifestWorkload `json:"workloads"`
-	Profile                  Profile                    `json:"profile"`
-	CapacityPolicyDigest     string                     `json:"capacity_policy_digest"`
-	RequiredNodeCapabilities []string                   `json:"required_node_capabilities"`
-	LogPolicy                PortableManifestLogPolicy  `json:"log_policy"`
-	Authority                PortableManifestAuthority  `json:"authority"`
-	Modules                  []RepositoryWorkloadModule `json:"modules"`
-	ExcludedNestedModules    []string                   `json:"excluded_nested_modules"`
+	SchemaVersion            string                          `json:"schema_version"`
+	ContractID               string                          `json:"contract_id"`
+	Engine                   PortableManifestEngine          `json:"engine"`
+	Target                   PortableManifestTarget          `json:"target"`
+	Workloads                []PortableManifestWorkload      `json:"workloads"`
+	CatalogPolicies          []PortableManifestCatalogPolicy `json:"catalog_policies"`
+	Profile                  Profile                         `json:"profile"`
+	CapacityPolicyDigest     string                          `json:"capacity_policy_digest"`
+	RequiredNodeCapabilities []string                        `json:"required_node_capabilities"`
+	LogPolicy                PortableManifestLogPolicy       `json:"log_policy"`
+	Authority                PortableManifestAuthority       `json:"authority"`
+	Modules                  []RepositoryWorkloadModule      `json:"modules"`
+	ExcludedNestedModules    []string                        `json:"excluded_nested_modules"`
 }
 
 // PortableManifestEngine 只声明独立 engine 的静态协议、工具链和能力要求；actual facts 在 composition 绑定时注入。
@@ -72,6 +73,16 @@ type PortableManifestWorkload struct {
 	ExecutionPolicy      string `json:"execution_policy"`
 }
 
+// PortableManifestCatalogPolicy 是 exact-tree Go catalog 自动扩展使用的显式平台资源策略。
+type PortableManifestCatalogPolicy struct {
+	Platform             string `json:"platform"`
+	Runtime              string `json:"runtime"`
+	CPUMilli             int64  `json:"cpu_milli"`
+	MemoryBytes          int64  `json:"memory_bytes"`
+	HistoricalEstimateMS int64  `json:"historical_estimate_ms"`
+	ExecutionPolicy      string `json:"execution_policy"`
+}
+
 // PortableManifestLogPolicy 绑定 result/event schema 与输出边界。
 type PortableManifestLogPolicy struct {
 	ResultSchema   string `json:"result_schema"`
@@ -91,9 +102,16 @@ func PortableManifestCanonicalEncode(manifest PortableManifest) ([]byte, error) 
 	if err := manifest.validateTopLevel(); err != nil {
 		return nil, err
 	}
+	if manifest.CatalogPolicies == nil {
+		manifest.CatalogPolicies = []PortableManifestCatalogPolicy{}
+	}
+	if manifest.Workloads == nil {
+		manifest.Workloads = []PortableManifestWorkload{}
+	}
 	manifest.Modules = slices.Clone(manifest.Modules)
 	manifest.ExcludedNestedModules = slices.Clone(manifest.ExcludedNestedModules)
 	manifest.RequiredNodeCapabilities = slices.Clone(manifest.RequiredNodeCapabilities)
+	manifest.CatalogPolicies = slices.Clone(manifest.CatalogPolicies)
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		return nil, fmt.Errorf("encode portable manifest: %w", err)
@@ -157,6 +175,12 @@ func (manifest PortableManifest) validateTopLevel() error {
 	}
 	if err := manifest.validateModuleDeclarations(); err != nil {
 		return err
+	}
+	if err := validatePortableManifestCatalogPolicies(manifest.CatalogPolicies); err != nil {
+		return err
+	}
+	if len(manifest.Workloads) == 0 && len(manifest.CatalogPolicies) == 0 {
+		return errors.New("portable manifest must declare workloads or catalog_policies")
 	}
 	return validatePortableManifestWorkloads(manifest.Workloads)
 }
@@ -249,9 +273,6 @@ func validatePortableCapabilities(capabilities []string) error {
 }
 
 func validatePortableManifestWorkloads(workloads []PortableManifestWorkload) error {
-	if len(workloads) == 0 {
-		return errors.New("portable manifest workloads are required")
-	}
 	seen := make(map[string]struct{}, len(workloads))
 	for index, workload := range workloads {
 		if err := validatePortableManifestWorkload(workload); err != nil {
@@ -276,6 +297,44 @@ func validatePortableManifestWorkload(workload PortableManifestWorkload) error {
 		return err
 	}
 	return validatePortableWorkloadTarget(workload)
+}
+
+// validatePortableManifestCatalogPolicies 校验 Linux/Windows 双平台策略的排序与完整性。
+func validatePortableManifestCatalogPolicies(policies []PortableManifestCatalogPolicy) error {
+	if len(policies) == 0 {
+		return nil
+	}
+	if len(policies) != 2 {
+		return errors.New("portable manifest catalog_policies must contain exactly two platforms")
+	}
+	wantPlatforms := [...]string{string(RepositoryWorkloadPlatformLinuxAMD64), string(RepositoryWorkloadPlatformWindowsAMD64)}
+	for index, policy := range policies {
+		if policy.Platform != wantPlatforms[index] {
+			return errors.New("portable manifest catalog_policies must be sorted linux then windows")
+		}
+		if index > 0 && policies[index-1].Platform >= policy.Platform {
+			return errors.New("portable manifest catalog_policies must be sorted and unique")
+		}
+		if err := validatePortableManifestCatalogPolicy(policy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validatePortableManifestCatalogPolicy 校验单个平台的 runtime、资源和执行策略。
+func validatePortableManifestCatalogPolicy(policy PortableManifestCatalogPolicy) error {
+	if !validPortableCatalogPolicyPlatformRuntime(policy.Platform, policy.Runtime) || policy.CPUMilli <= 0 || policy.MemoryBytes <= 0 || policy.HistoricalEstimateMS <= 0 {
+		return errors.New("portable manifest catalog policy resource fields are invalid")
+	}
+	if policy.ExecutionPolicy != string(RepositoryWorkloadExecutionPolicyNormal) && policy.ExecutionPolicy != string(RepositoryWorkloadExecutionPolicyRace) {
+		return errors.New("portable manifest catalog policy execution policy is invalid")
+	}
+	return nil
+}
+
+func validPortableCatalogPolicyPlatformRuntime(platform, runtime string) bool {
+	return platform == string(RepositoryWorkloadPlatformLinuxAMD64) && runtime == string(RepositoryWorkloadRuntimeUbuntuContainer) || platform == string(RepositoryWorkloadPlatformWindowsAMD64) && runtime == string(RepositoryWorkloadRuntimeWindowsNative)
 }
 
 func validatePortableWorkloadDigests(workload PortableManifestWorkload) error {
@@ -326,7 +385,7 @@ func validPortablePackagePath(value string) bool {
 	if !strings.HasPrefix(value, "./") || len(value) <= 2 || !validPortableRepoRelativePath(value[2:]) {
 		return false
 	}
-	for _, component := range strings.Split(value[2:], "/") {
+	for component := range strings.SplitSeq(value[2:], "/") {
 		if strings.HasPrefix(component, "-") {
 			return false
 		}
@@ -380,7 +439,7 @@ func portableTopLevelABIMaterial() ([]byte, error) {
 func portableManifestWireTypes() []reflect.Type {
 	return []reflect.Type{
 		reflect.TypeFor[PortableManifest](), reflect.TypeFor[PortableManifestEngine](), reflect.TypeFor[PortableManifestTarget](),
-		reflect.TypeFor[PortableManifestWorkload](), reflect.TypeFor[PortableManifestLogPolicy](), reflect.TypeFor[PortableManifestAuthority](),
+		reflect.TypeFor[PortableManifestWorkload](), reflect.TypeFor[PortableManifestCatalogPolicy](), reflect.TypeFor[PortableManifestLogPolicy](), reflect.TypeFor[PortableManifestAuthority](),
 		reflect.TypeFor[RepositoryWorkloadModule](),
 	}
 }

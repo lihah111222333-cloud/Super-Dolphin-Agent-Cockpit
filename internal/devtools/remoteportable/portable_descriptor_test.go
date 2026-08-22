@@ -170,6 +170,8 @@ func TestPortableBindingCrossRepositoryV3WJFixturesUseSameEngineFacts(t *testing
 	manifestWJ := topManifestFixture()
 	manifestWJ.Target.RepositoryID = "wjboot-v2"
 	manifestWJ.Modules[0].ModulePath = "example.invalid/wjboot-v2"
+	assertPortableDualPlatformFixture(t, manifestV3)
+	assertPortableDualPlatformFixture(t, manifestWJ)
 	bytesV3 := mustPortableManifestBytes(t, manifestV3)
 	bytesWJ := mustPortableManifestBytes(t, manifestWJ)
 	inputV3 := portableCrossRepositoryInput(manifestV3, bytesV3, "a", "ci/v3.json")
@@ -178,6 +180,17 @@ func TestPortableBindingCrossRepositoryV3WJFixturesUseSameEngineFacts(t *testing
 	bindingWJ := mustBindPortableRun(t, inputWJ, memoryPortableGitResolver{tree: inputWJ.TreeSHA, data: bytesWJ}, facts)
 	if bindingV3.ManifestDigest == bindingWJ.ManifestDigest || bindingV3.BindingSHA256 == bindingWJ.BindingSHA256 {
 		t.Fatal("cross-repository V3/WJ fixtures collapsed distinct target identities")
+	}
+}
+
+func assertPortableDualPlatformFixture(t *testing.T, manifest PortableManifest) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, workload := range manifest.Workloads {
+		seen[workload.TargetPlatform] = true
+	}
+	if !seen[string(RepositoryWorkloadPlatformLinuxAMD64)] || !seen[string(RepositoryWorkloadPlatformWindowsAMD64)] {
+		t.Fatalf("portable fixture platforms = %#v, want Linux and Windows", seen)
 	}
 }
 
