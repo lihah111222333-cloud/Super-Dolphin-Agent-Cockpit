@@ -27,7 +27,7 @@ func TestTransportProbeUsesBoundedContextAndSeparateChannels(t *testing.T) {
 		t.Fatalf("command calls = %d, want 1", calls.Load())
 	}
 	assertProbeCommand(t, config, gotSpec)
-	if !bytes.Equal(result.Bytes(), []byte(`{"identity":"Ubuntu-01-probe","node_id":"Ubuntu-01","status":"ok"}`)) {
+	if !bytes.Equal(result.Bytes(), []byte(`{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`)) {
 		t.Fatalf("result bytes changed: %s", result.Bytes())
 	}
 }
@@ -40,7 +40,7 @@ func probeTransportFixture(t *testing.T, specOut *CommandSpec, calls *atomic.Int
 		if _, ok := ctx.Deadline(); !ok {
 			t.Error("command context has no deadline")
 		}
-		mustWriteTestOutput(t, spec.Stdout, `{"identity":"Ubuntu-01-probe","node_id":"Ubuntu-01","status":"ok"}`)
+		mustWriteTestOutput(t, spec.Stdout, `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`)
 		mustWriteTestOutput(t, spec.Stderr, "raw remote log must not be projected")
 		return CommandResult{}, nil
 	}))
@@ -71,12 +71,12 @@ func mustWriteTestOutput(t *testing.T, writer io.Writer, value string) {
 func TestTransportRejectsMultipleOrNonCanonicalResults(t *testing.T) {
 	config := runtimeFixture()
 	cases := map[string]string{
-		"duplicate objects": `{"identity":"Ubuntu-01-probe","node_id":"Ubuntu-01","status":"ok"}{"identity":"Ubuntu-01-probe","node_id":"Ubuntu-01","status":"ok"}`,
-		"trailing newline": `{"identity":"Ubuntu-01-probe","node_id":"Ubuntu-01","status":"ok"}
+		"duplicate objects": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`,
+		"trailing newline": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}
 `,
-		"identity drift": `{"identity":"wrong","node_id":"Ubuntu-01","status":"ok"}`,
-		"node drift":     `{"identity":"Ubuntu-01-probe","node_id":"Ubuntu-02","status":"ok"}`,
-		"missing status": `{"identity":"Ubuntu-01-probe","node_id":"Ubuntu-01"}`,
+		"identity drift": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"wrong","status":"ok"}`,
+		"node drift":     `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-02","probe_identity":"Ubuntu-01-probe","status":"ok"}`,
+		"missing status": `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe"}`,
 	}
 	for name, output := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -158,7 +158,32 @@ func TestTransportLinuxRunnerUsesDaemonContract(t *testing.T) {
 
 func TestDecodeNodeResultRequiresBindingIdentity(t *testing.T) {
 	node := runtimeFixture().Nodes[0]
-	if _, err := DecodeNodeResult([]byte(`{"identity":"wrong","node_id":"Ubuntu-01","status":"ok"}`), node, OperationProbe); !errors.Is(err, ErrNodeResultInvalid) {
+	if _, err := DecodeNodeResult([]byte(`{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"wrong","status":"ok"}`), node, OperationProbe); !errors.Is(err, ErrNodeResultInvalid) {
 		t.Fatalf("DecodeNodeResult() error = %v, want identity error", err)
+	}
+}
+
+func TestDecodeNodeResultUsesOperationSpecificAllowlist(t *testing.T) {
+	node := runtimeFixture().Nodes[0]
+	cases := []struct {
+		name  string
+		data  string
+		op    Operation
+		valid bool
+	}{
+		{name: "probe valid", data: `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok"}`, op: OperationProbe, valid: true},
+		{name: "run valid", data: `{"schema_version":"remote-ci-node-run-result/v1","node_id":"Ubuntu-01","runner_identity":"Ubuntu-01-runner","status":"ok"}`, op: OperationRun, valid: true},
+		{name: "worker valid", data: `{"schema_version":"remote-ci-node-worker-result/v1","node_id":"Ubuntu-01","worker_identity":"Ubuntu-01-worker","status":"ok"}`, op: OperationWorker, valid: true},
+		{name: "endpoint unknown", data: `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","probe_identity":"Ubuntu-01-probe","status":"ok","endpoint":"/private"}`, op: OperationProbe},
+		{name: "generic identity rejected", data: `{"schema_version":"remote-ci-node-probe-result/v1","node_id":"Ubuntu-01","identity":"Ubuntu-01-probe","status":"ok"}`, op: OperationProbe},
+		{name: "run identity drift", data: `{"schema_version":"remote-ci-node-run-result/v1","node_id":"Ubuntu-01","runner_identity":"Ubuntu-01-worker","status":"ok"}`, op: OperationRun},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := DecodeNodeResult([]byte(tc.data), node, tc.op)
+			if (err == nil) != tc.valid {
+				t.Fatalf("DecodeNodeResult() error = %v, valid=%v", err, tc.valid)
+			}
+		})
 	}
 }

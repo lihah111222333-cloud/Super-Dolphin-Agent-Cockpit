@@ -3,6 +3,9 @@ package remoteruntime
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -205,4 +208,86 @@ func TestRuntimeConfigABIRejectsForbiddenLegacyNames(t *testing.T) {
 	if err := (RuntimeConfig{}).Validate(); err == nil {
 		t.Fatal("zero runtime config unexpectedly validates")
 	}
+}
+
+func TestLoadConfigRejectsHandleReplacementAfterRead(t *testing.T) {
+	encoded, err := EncodeConfig(runtimeFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "runtime.json")
+	replacement := filepath.Join(root, "replacement.json")
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(replacement, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	initial, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, err := os.Lstat(replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := &scriptedConfigHandle{reader: bytes.NewReader(encoded), stats: []os.FileInfo{initial, final}}
+	loaded, err := loadConfigWithOps(path, configFileOps{
+		lstat: os.Lstat,
+		open:  func(string) (configHandle, error) { return handle, nil },
+	})
+	if err == nil {
+		t.Fatalf("loadConfigWithOps() accepted replacement: loaded=%+v err=%v", loaded, err)
+	}
+	if !handle.closed {
+		t.Fatal("loadConfigWithOps() did not close replaced handle")
+	}
+}
+
+func TestLoadConfigRejectsSymlinkComponent(t *testing.T) {
+	encoded, err := EncodeConfig(runtimeFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	link := filepath.Join(root, "link")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "runtime.json"), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := LoadConfig(filepath.Join(link, "runtime.json")); err == nil {
+		t.Fatal("LoadConfig() accepted a symlink component")
+	}
+}
+
+type scriptedConfigHandle struct {
+	reader *bytes.Reader
+	stats  []os.FileInfo
+	index  int
+	closed bool
+}
+
+func (handle *scriptedConfigHandle) Read(data []byte) (int, error) {
+	return handle.reader.Read(data)
+}
+
+func (handle *scriptedConfigHandle) Stat() (os.FileInfo, error) {
+	if handle.index >= len(handle.stats) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	stat := handle.stats[handle.index]
+	handle.index++
+	return stat, nil
+}
+
+func (handle *scriptedConfigHandle) Close() error {
+	handle.closed = true
+	return nil
 }

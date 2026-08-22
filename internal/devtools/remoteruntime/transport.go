@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -217,36 +216,6 @@ func (transport *Transport) RunBytes(ctx context.Context, target TargetFacts, no
 	return result.Bytes(), nil
 }
 
-// DecodeNodeResult 严格解析一个 node result object，并校验 node_id 与 optional identity。
-func DecodeNodeResult(data []byte, node NodeBinding, operation Operation) (NodeResult, error) {
-	if err := validateOperation(operation); err != nil {
-		return NodeResult{}, err
-	}
-	canonical, err := canonicalNodeObject(data)
-	if err != nil {
-		return NodeResult{}, err
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(canonical, &fields); err != nil {
-		return NodeResult{}, errors.Join(ErrNodeResultInvalid, err)
-	}
-	nodeID, err := requiredStringField(fields, "node_id")
-	if err != nil || nodeID != node.NodeID {
-		return NodeResult{}, fmt.Errorf("%w: node_id", ErrNodeResultInvalid)
-	}
-	if _, err := requiredStringField(fields, "status"); err != nil {
-		return NodeResult{}, fmt.Errorf("%w: status", ErrNodeResultInvalid)
-	}
-	identityKey, identity, err := resultIdentity(fields, operation)
-	if err != nil {
-		return NodeResult{}, err
-	}
-	if !resultIdentityMatches(identityKey, identity, node, operation) {
-		return NodeResult{}, fmt.Errorf("%w: identity", ErrNodeResultInvalid)
-	}
-	return NodeResult{NodeID: nodeID, Identity: identity, Raw: canonical}, nil
-}
-
 func (transport *Transport) execute(ctx context.Context, operation Operation, target TargetFacts, nodeID string, request []byte) (NodeResult, error) {
 	node, err := transport.prepareExecution(ctx, operation, target, nodeID, request)
 	if err != nil {
@@ -427,92 +396,6 @@ func validateRequest(request []byte) error {
 		return fmt.Errorf("%w: request size", ErrInvalidTransportRequest)
 	}
 	return nil
-}
-
-func requiredStringField(fields map[string]json.RawMessage, name string) (string, error) {
-	raw, ok := fields[name]
-	if !ok {
-		return "", ErrNodeResultInvalid
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil || value == "" || strings.TrimSpace(value) != value {
-		return "", ErrNodeResultInvalid
-	}
-	return value, nil
-}
-
-func resultIdentity(fields map[string]json.RawMessage, operation Operation) (string, string, error) {
-	keys := []string{"node_identity", "identity"}
-	switch operation {
-	case OperationProbe:
-		keys = append(keys, "probe_identity")
-	case OperationRun:
-		keys = append(keys, "runner_identity", "worker_identity")
-	case OperationWorker:
-		keys = append(keys, "worker_identity")
-	}
-	for _, key := range keys {
-		if raw, ok := fields[key]; ok {
-			var value string
-			if err := json.Unmarshal(raw, &value); err != nil || value == "" {
-				return "", "", fmt.Errorf("%w: identity", ErrNodeResultInvalid)
-			}
-			return key, value, nil
-		}
-	}
-	return "", "", fmt.Errorf("%w: identity", ErrNodeResultInvalid)
-}
-
-func resultIdentityMatches(key, value string, node NodeBinding, operation Operation) bool {
-	switch key {
-	case "probe_identity":
-		return operation == OperationProbe && value == node.ProbeIdentity
-	case "runner_identity":
-		return operation == OperationRun && value == node.RunnerIdentity
-	case "worker_identity":
-		return (operation == OperationRun || operation == OperationWorker) && value == node.WorkerIdentity
-	case "node_identity", "identity":
-		return genericIdentityMatches(value, node, operation)
-	default:
-		return false
-	}
-}
-
-func genericIdentityMatches(value string, node NodeBinding, operation Operation) bool {
-	switch operation {
-	case OperationProbe:
-		return value == node.ProbeIdentity
-	case OperationRun:
-		return value == node.RunnerIdentity || value == node.WorkerIdentity
-	case OperationWorker:
-		return value == node.WorkerIdentity
-	default:
-		return false
-	}
-}
-
-func canonicalNodeObject(data []byte) ([]byte, error) {
-	if len(data) == 0 || len(data) > MaxNodeResultBytes {
-		return nil, ErrNodeResultInvalid
-	}
-	if err := walkStrictJSON(data); err != nil {
-		return nil, errors.Join(ErrNodeResultInvalid, err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, errors.Join(ErrNodeResultInvalid, err)
-	}
-	object, ok := value.(map[string]any)
-	if !ok || object == nil {
-		return nil, ErrNodeResultInvalid
-	}
-	canonical, err := json.Marshal(object)
-	if err != nil || !bytes.Equal(canonical, data) {
-		return nil, ErrNodeResultInvalid
-	}
-	return slices.Clone(data), nil
 }
 
 type boundedWriter struct {

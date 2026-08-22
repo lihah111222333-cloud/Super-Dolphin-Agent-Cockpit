@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -178,27 +180,144 @@ func Decode(data []byte) (RuntimeConfig, error) {
 	return DecodeConfig(data)
 }
 
+type configHandle interface {
+	io.Reader
+	Stat() (os.FileInfo, error)
+	Close() error
+}
+
+type configFileOps struct {
+	lstat func(string) (os.FileInfo, error)
+	open  func(string) (configHandle, error)
+}
+
+func realConfigFileOps() configFileOps {
+	return configFileOps{lstat: os.Lstat, open: func(path string) (configHandle, error) { return os.Open(path) }}
+}
+
 // LoadConfig 从调用方指定的文件读取并严格解码 runtime config。
 func LoadConfig(path string) (RuntimeConfig, error) {
-	if _, err := canonicalAbsolutePath(path, false); err != nil {
-		return RuntimeConfig{}, errors.New("runtime config path is invalid")
+	return loadConfigWithOps(path, realConfigFileOps())
+}
+
+func loadConfigWithOps(path string, ops configFileOps) (RuntimeConfig, error) {
+	if err := validateLoadConfigInput(path, ops); err != nil {
+		return RuntimeConfig{}, err
 	}
-	file, err := os.Open(path)
+	initial, err := lstatInitialConfig(path, ops.lstat)
 	if err != nil {
-		return RuntimeConfig{}, fmt.Errorf("read runtime config: %w", err)
+		return RuntimeConfig{}, err
 	}
-	data, err := io.ReadAll(io.LimitReader(file, MaxConfigBytes+1))
-	closeErr := file.Close()
+	if err := rejectConfigSymlinkComponents(path, ops.lstat); err != nil {
+		return RuntimeConfig{}, err
+	}
+	handle, err := ops.open(path)
 	if err != nil {
-		return RuntimeConfig{}, fmt.Errorf("read runtime config: %w", err)
+		return RuntimeConfig{}, fmt.Errorf("open runtime config: %w", err)
+	}
+	if handle == nil || isNilInterface(handle) {
+		return RuntimeConfig{}, errors.New("open runtime config returned an invalid handle")
+	}
+	data, readErr := readStableConfigHandle(handle, initial)
+	closeErr := handle.Close()
+	if readErr != nil {
+		return RuntimeConfig{}, readErr
 	}
 	if closeErr != nil {
 		return RuntimeConfig{}, fmt.Errorf("close runtime config: %w", closeErr)
 	}
-	if len(data) > MaxConfigBytes {
-		return RuntimeConfig{}, errors.New("runtime config size is invalid")
-	}
 	return DecodeConfig(data)
+}
+
+func validateLoadConfigInput(path string, ops configFileOps) error {
+	if _, err := canonicalAbsolutePath(path, false); err != nil {
+		return errors.New("runtime config path is invalid")
+	}
+	if ops.lstat == nil || ops.open == nil {
+		return errors.New("runtime config file operations are invalid")
+	}
+	return nil
+}
+
+func lstatInitialConfig(path string, lstat func(string) (os.FileInfo, error)) (os.FileInfo, error) {
+	initial, err := lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat runtime config: %w", err)
+	}
+	if err := validateConfigFileInfo(initial); err != nil {
+		return nil, err
+	}
+	return initial, nil
+}
+
+func readStableConfigHandle(handle configHandle, initial os.FileInfo) ([]byte, error) {
+	opened, err := handle.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat opened runtime config: %w", err)
+	}
+	if err := compareConfigFileInfo(initial, opened); err != nil {
+		return nil, err
+	}
+	data, err := io.ReadAll(io.LimitReader(handle, MaxConfigBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read runtime config: %w", err)
+	}
+	final, err := handle.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("restat runtime config: %w", err)
+	}
+	if err := compareConfigFileInfo(initial, final); err != nil {
+		return nil, err
+	}
+	if len(data) > MaxConfigBytes || int64(len(data)) != final.Size() {
+		return nil, errors.New("runtime config changed while reading")
+	}
+	return data, nil
+}
+
+func validateConfigFileInfo(info os.FileInfo) error {
+	if info == nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("runtime config must be a regular non-symlink file")
+	}
+	if info.Size() < 0 || info.Size() > MaxConfigBytes {
+		return errors.New("runtime config size is invalid")
+	}
+	return nil
+}
+
+func compareConfigFileInfo(expected, actual os.FileInfo) error {
+	if err := validateConfigFileInfo(actual); err != nil {
+		return err
+	}
+	if !os.SameFile(expected, actual) || expected.Size() != actual.Size() {
+		return errors.New("runtime config identity or size changed")
+	}
+	return nil
+}
+
+func rejectConfigSymlinkComponents(path string, lstat func(string) (os.FileInfo, error)) error {
+	clean := filepath.Clean(path)
+	current := string(filepath.Separator)
+	for component := range strings.SplitSeq(strings.TrimPrefix(clean, current), string(filepath.Separator)) {
+		if component == "" {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("lstat runtime config component: %w", err)
+		}
+		if info == nil {
+			return errors.New("lstat runtime config component returned no identity")
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("runtime config path contains a symlink component")
+		}
+	}
+	return nil
 }
 
 // Validate 校验 runtime config 的 ABI、调用方字段、四节点拓扑和隔离根。
@@ -542,7 +661,7 @@ func validatePathComponents(normalized string, isWindows bool) error {
 	if isWindows {
 		start = 3
 	}
-	for _, component := range strings.Split(normalized[start:], "/") {
+	for component := range strings.SplitSeq(normalized[start:], "/") {
 		if component == "" || component == "." || component == ".." {
 			return errors.New("path component is invalid")
 		}
