@@ -37,7 +37,7 @@ func validatePostgreSQLBindingIdentity(plan heteroci.ExecutorBindingPlan, epoch 
 	return plan.DurableRunID.Validate()
 }
 func validatePostgreSQLBindingDigests(plan heteroci.ExecutorBindingPlan) error {
-	for _, digest := range []string{plan.RequestDigest, plan.ManifestDigest, plan.TopologyManifestDigest, plan.PlanDigest, plan.BindingDigest} {
+	for _, digest := range []string{plan.RequestDigest, plan.ManifestDigest, plan.ExternalBindingDigest, plan.ManifestBlobSHA256, plan.RuntimePolicyDigest, plan.TopologyManifestDigest, plan.PlanDigest, plan.BindingDigest} {
 		if !validPostgreSQLDigest(digest) {
 			return fmt.Errorf("heteroci PostgreSQL binding digest is invalid")
 		}
@@ -104,10 +104,21 @@ func validatePostgreSQLBindingAgainstPlan(ctx context.Context, queryer postgresq
 	return validatePostgreSQLBindingCoverage(mutation.Plan, persisted)
 }
 func validatePostgreSQLBindingPlanIdentity(envelope postgresqlPlanEnvelope, persisted heteroci.TopologyReservedPlan, mutation heteroci.ExecutorBindingMutation, planOperationID heteroci.OperationID) error {
+	if err := validatePersistedPostgreSQLBindingIdentity(envelope, persisted, mutation, planOperationID); err != nil {
+		return err
+	}
+	return validatePersistedPostgreSQLBindingAudit(envelope, mutation)
+}
+
+func validatePersistedPostgreSQLBindingIdentity(envelope postgresqlPlanEnvelope, persisted heteroci.TopologyReservedPlan, mutation heteroci.ExecutorBindingMutation, planOperationID heteroci.OperationID) error {
 	if persisted.OperationID != planOperationID || envelope.Request.RunIdentity.DurableRunID != mutation.Plan.DurableRunID || persisted.Fence.OwnerEpoch != mutation.Fence.OwnerEpoch {
 		return fmt.Errorf("persisted topology plan identity drifted")
 	}
-	if envelope.Request.ExternalOperationID != mutation.Plan.ExternalOperationID || envelope.Request.RequestDigest != mutation.Plan.RequestDigest || envelope.Request.ManifestDigest != mutation.Plan.ManifestDigest || envelope.Request.TopologyManifestDigest != mutation.Plan.TopologyManifestDigest {
+	return nil
+}
+
+func validatePersistedPostgreSQLBindingAudit(envelope postgresqlPlanEnvelope, mutation heteroci.ExecutorBindingMutation) error {
+	if envelope.Request.ExternalOperationID != mutation.Plan.ExternalOperationID || envelope.Request.RequestDigest != mutation.Plan.RequestDigest || envelope.Request.ManifestDigest != mutation.Plan.ManifestDigest || envelope.Request.ExternalBindingDigest != mutation.Plan.ExternalBindingDigest || envelope.Request.ManifestBlobSHA256 != mutation.Plan.ManifestBlobSHA256 || envelope.Request.RuntimePolicyDigest != mutation.Plan.RuntimePolicyDigest || envelope.Request.TopologyManifestDigest != mutation.Plan.TopologyManifestDigest {
 		return fmt.Errorf("persisted topology plan request audit drifted")
 	}
 	return nil

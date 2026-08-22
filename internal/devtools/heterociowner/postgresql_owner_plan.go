@@ -23,7 +23,10 @@ type postgresqlPlanEnvelope struct {
 
 type postgresqlOperationRecord struct {
 	OperationRecord
-	OwnerID heteroci.RoutingOwnerID
+	OwnerID               heteroci.RoutingOwnerID
+	ExternalBindingDigest sql.NullString
+	ManifestBlobSHA256    sql.NullString
+	RuntimePolicyDigest   sql.NullString
 }
 
 // PlanAndReserve 在同一 scope-locked SERIALIZABLE transaction 内重算 domain plan 并持久化 journal/projection。
@@ -170,7 +173,7 @@ func persistPostgreSQLPlan(ctx context.Context, tx *sql.Tx, current heteroci.Own
 	requestDigest, resultDigest := digestBytes(requestBytes), digestBytes(resultBytes)
 	operation := OperationRequest{Fence: current, OperationID: request.OperationID, Kind: postgresqlPlanAndReserveOperationKind, RequestBytes: requestBytes, ResultBytes: resultBytes, ProjectionDigest: resultDigest, CommittedAtUnixMilli: nowUnixMilli}
 	journalDigest := journalChainDigest(current, operation, previousJournal, requestDigest, resultDigest, result.Fence.Revision)
-	_, err = tx.ExecContext(ctx, "INSERT INTO heteroci_owner.operation_journal (scope, operation_id, owner_id, owner_epoch, revision, kind, request_bytes, request_digest, result_bytes, result_digest, previous_journal_digest, journal_digest, projection_digest, committed_at_unix_milli) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)", current.Scope, request.OperationID, current.OwnerID, current.OwnerEpoch, result.Fence.Revision, operation.Kind, requestBytes, requestDigest, resultBytes, resultDigest, previousJournal, journalDigest, resultDigest, nowUnixMilli)
+	_, err = tx.ExecContext(ctx, "INSERT INTO heteroci_owner.operation_journal (scope, operation_id, owner_id, owner_epoch, revision, kind, request_bytes, request_digest, result_bytes, result_digest, previous_journal_digest, journal_digest, projection_digest, committed_at_unix_milli, external_binding_digest, manifest_blob_sha256, runtime_policy_digest) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)", current.Scope, request.OperationID, current.OwnerID, current.OwnerEpoch, result.Fence.Revision, operation.Kind, requestBytes, requestDigest, resultBytes, resultDigest, previousJournal, journalDigest, resultDigest, nowUnixMilli, request.ExternalBindingDigest, request.ManifestBlobSHA256, request.RuntimePolicyDigest)
 	if err != nil {
 		return fmt.Errorf("insert PostgreSQL topology operation: %w", err)
 	}
@@ -213,7 +216,7 @@ func readPostgreSQLJournalHead(ctx context.Context, queryer postgresqlOwnerQuery
 func readPostgreSQLOperation(ctx context.Context, queryer postgresqlOwnerQueryRower, scope heteroci.RoutingOwnerScope, operationID heteroci.OperationID) (postgresqlOperationRecord, bool, error) {
 	var row postgresqlOperationRecord
 	row.Scope, row.OperationID = scope, operationID
-	err := queryer.QueryRowContext(ctx, "SELECT owner_id, owner_epoch, revision, kind, request_bytes, request_digest, result_bytes, result_digest, previous_journal_digest, journal_digest, projection_digest, committed_at_unix_milli FROM heteroci_owner.operation_journal WHERE scope = $1 AND operation_id = $2", scope, operationID).Scan(&row.OwnerID, &row.OwnerEpoch, &row.Revision, &row.Kind, &row.RequestBytes, &row.RequestDigest, &row.ResultBytes, &row.ResultDigest, &row.PreviousJournal, &row.JournalDigest, &row.ProjectionDigest, &row.CommittedAtUnixMilli)
+	err := queryer.QueryRowContext(ctx, "SELECT owner_id, owner_epoch, revision, kind, request_bytes, request_digest, result_bytes, result_digest, previous_journal_digest, journal_digest, projection_digest, committed_at_unix_milli, external_binding_digest, manifest_blob_sha256, runtime_policy_digest FROM heteroci_owner.operation_journal WHERE scope = $1 AND operation_id = $2", scope, operationID).Scan(&row.OwnerID, &row.OwnerEpoch, &row.Revision, &row.Kind, &row.RequestBytes, &row.RequestDigest, &row.ResultBytes, &row.ResultDigest, &row.PreviousJournal, &row.JournalDigest, &row.ProjectionDigest, &row.CommittedAtUnixMilli, &row.ExternalBindingDigest, &row.ManifestBlobSHA256, &row.RuntimePolicyDigest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return postgresqlOperationRecord{}, false, nil
 	}
@@ -227,11 +230,8 @@ func readPostgreSQLOperation(ctx context.Context, queryer postgresqlOwnerQueryRo
 }
 
 func replayPostgreSQLPlan(record postgresqlOperationRecord, session heteroci.TopologySession, request heteroci.TopologyPlanRequest, requestBytes []byte) (heteroci.TopologyReservedPlan, error) {
-	if record.Kind != postgresqlPlanAndReserveOperationKind || !bytes.Equal(record.RequestBytes, requestBytes) {
-		return heteroci.TopologyReservedPlan{}, ErrOperationConflict
-	}
-	if record.OwnerID != session.OwnerID || record.OwnerEpoch != session.OwnerEpoch || record.Revision <= 1 {
-		return heteroci.TopologyReservedPlan{}, fmt.Errorf("PostgreSQL topology operation owner identity drifted: owner_match=%t epoch_match=%t revision_valid=%t", record.OwnerID == session.OwnerID, record.OwnerEpoch == session.OwnerEpoch, record.Revision > 1)
+	if err := validatePostgreSQLPlanReplayIdentity(record, session, request, requestBytes); err != nil {
+		return heteroci.TopologyReservedPlan{}, err
 	}
 	previousFence, err := heteroci.NewOwnerFence(session.Scope, session.OwnerID, session.OwnerEpoch, record.Revision-1)
 	if err != nil {
@@ -250,6 +250,29 @@ func replayPostgreSQLPlan(record postgresqlOperationRecord, session heteroci.Top
 		return heteroci.TopologyReservedPlan{}, err
 	}
 	return result, nil
+}
+
+func validatePostgreSQLPlanReplayIdentity(record postgresqlOperationRecord, session heteroci.TopologySession, request heteroci.TopologyPlanRequest, requestBytes []byte) error {
+	if record.Kind != postgresqlPlanAndReserveOperationKind || !bytes.Equal(record.RequestBytes, requestBytes) {
+		return ErrOperationConflict
+	}
+	if err := validatePostgreSQLPlanRequestAudit(record, request); err != nil {
+		return err
+	}
+	if record.OwnerID != session.OwnerID || record.OwnerEpoch != session.OwnerEpoch || record.Revision <= 1 {
+		return fmt.Errorf("PostgreSQL topology operation owner identity drifted: owner_match=%t epoch_match=%t revision_valid=%t", record.OwnerID == session.OwnerID, record.OwnerEpoch == session.OwnerEpoch, record.Revision > 1)
+	}
+	return nil
+}
+
+func validatePostgreSQLPlanRequestAudit(record postgresqlOperationRecord, request heteroci.TopologyPlanRequest) error {
+	if !record.ExternalBindingDigest.Valid || !record.ManifestBlobSHA256.Valid || !record.RuntimePolicyDigest.Valid {
+		return ErrOperationConflict
+	}
+	if record.ExternalBindingDigest.String != request.ExternalBindingDigest || record.ManifestBlobSHA256.String != request.ManifestBlobSHA256 || record.RuntimePolicyDigest.String != request.RuntimePolicyDigest {
+		return ErrOperationConflict
+	}
+	return nil
 }
 
 func (owner *PostgreSQLOwner) reconcilePostgreSQLPlan(ctx context.Context, session heteroci.TopologySession, request heteroci.TopologyPlanRequest, requestBytes []byte) (heteroci.TopologyReservedPlan, bool, error) {

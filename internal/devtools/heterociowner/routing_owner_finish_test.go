@@ -96,7 +96,7 @@ func topologyPlanRequest(t *testing.T, fence heteroci.OwnerFence, operationID he
 		t.Fatalf("DeriveTopologyManifestDigest: %v", err)
 	}
 	return heteroci.TopologyPlanRequest{
-		OperationID: operationID, ExternalOperationID: heteroci.OperationID(strings.Repeat("c", 64)), RequestDigest: digestBytes([]byte("topology-request-" + runID)), ManifestDigest: "sha256:" + strings.Repeat("9", 64), TopologyManifestDigest: topologyManifestDigest, RunIdentity: runIdentity,
+		OperationID: operationID, ExternalOperationID: heteroci.OperationID(strings.Repeat("c", 64)), RequestDigest: digestBytes([]byte("topology-request-" + runID)), ManifestDigest: "sha256:" + strings.Repeat("9", 64), ExternalBindingDigest: "sha256:" + strings.Repeat("8", 64), ManifestBlobSHA256: "sha256:" + strings.Repeat("7", 64), RuntimePolicyDigest: "sha256:" + strings.Repeat("6", 64), TopologyManifestDigest: topologyManifestDigest, RunIdentity: runIdentity,
 		Manifest: manifest, SourceSnapshot: snapshot, Units: units, HeartbeatTTL: heartbeatTTL,
 	}
 }

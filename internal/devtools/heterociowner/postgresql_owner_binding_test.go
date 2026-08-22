@@ -78,7 +78,7 @@ func postgreSQLBindingPlanFixture(t *testing.T, request heteroci.TopologyPlanReq
 		nodeIDDigest, _ := heteroci.DeriveExecutorBindingNodeIDDigest(shard.NodeID, heteroci.ExecutorKindLocalNode)
 		bindings = append(bindings, heteroci.ExecutorBinding{NodeID: shard.NodeID, NodeIDDigest: nodeIDDigest, ExecutorKind: heteroci.ExecutorKindLocalNode, BatchIDs: batchIDs, ShardDigest: shardDigest, BatchSetDigest: batchDigest, UnitSetDigest: unitDigest, NodeFactsDigest: nodeDigest})
 	}
-	plan := heteroci.ExecutorBindingPlan{SchemaVersion: "remote-ci-executor-binding/v1", ExternalOperationID: request.ExternalOperationID, DurableRunID: request.RunIdentity.DurableRunID, RequestDigest: request.RequestDigest, ManifestDigest: request.ManifestDigest, TopologyManifestDigest: topologyManifestDigest, PlanDigest: planDigest, AuthorityGeneration: planned.Fence.OwnerEpoch, Bindings: bindings}
+	plan := heteroci.ExecutorBindingPlan{SchemaVersion: "remote-ci-executor-binding/v1", ExternalOperationID: request.ExternalOperationID, DurableRunID: request.RunIdentity.DurableRunID, RequestDigest: request.RequestDigest, ManifestDigest: request.ManifestDigest, ExternalBindingDigest: request.ExternalBindingDigest, ManifestBlobSHA256: request.ManifestBlobSHA256, RuntimePolicyDigest: request.RuntimePolicyDigest, TopologyManifestDigest: topologyManifestDigest, PlanDigest: planDigest, AuthorityGeneration: planned.Fence.OwnerEpoch, Bindings: bindings}
 	plan.BindingDigest, err = heteroci.DeriveExecutorBindingAggregateDigest(plan)
 	if err != nil {
 		t.Fatalf("DeriveExecutorBindingAggregateDigest: %v", err)
@@ -150,6 +150,31 @@ func TestPostgreSQLOwnerBindExecutorsRejectsPlanJournalTamperAndNodeFacts(t *tes
 		t.Fatal("BindExecutors accepted tampered node facts digest")
 	}
 }
+
+func TestPostgreSQLOwnerBindExecutorsRejectsExternalBindingJournalTamperMatrix(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		index int
+	}{
+		{name: "engine binding", index: 12},
+		{name: "raw manifest blob", index: 13},
+		{name: "runtime policy", index: 14},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			owner, state, mutation := newPostgreSQLBindingMutationFixture(t)
+			planOperationID := mutationPlanOperationIDForBindingTest(t, mutation.Plan.DurableRunID)
+			state.mu.Lock()
+			operation := state.data.operations[string(planOperationID)]
+			operation[test.index] = "sha256:" + strings.Repeat("e", 64)
+			state.data.operations[string(planOperationID)] = operation
+			state.mu.Unlock()
+			if _, err := owner.BindExecutors(context.Background(), mutation); err == nil {
+				t.Fatalf("BindExecutors accepted %s journal drift", test.name)
+			}
+		})
+	}
+}
+
 func TestPostgreSQLOwnerBindExecutorsRejectsRequestAuditTamper(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -160,6 +185,15 @@ func TestPostgreSQLOwnerBindExecutorsRejectsRequestAuditTamper(t *testing.T) {
 		}},
 		{name: "request digest", mutate: func(plan *heteroci.ExecutorBindingPlan) { plan.RequestDigest = "sha256:" + strings.Repeat("8", 64) }},
 		{name: "portable manifest digest", mutate: func(plan *heteroci.ExecutorBindingPlan) { plan.ManifestDigest = "sha256:" + strings.Repeat("8", 64) }},
+		{name: "external binding digest", mutate: func(plan *heteroci.ExecutorBindingPlan) {
+			plan.ExternalBindingDigest = "sha256:" + strings.Repeat("e", 64)
+		}},
+		{name: "manifest blob digest", mutate: func(plan *heteroci.ExecutorBindingPlan) {
+			plan.ManifestBlobSHA256 = "sha256:" + strings.Repeat("8", 64)
+		}},
+		{name: "runtime policy digest", mutate: func(plan *heteroci.ExecutorBindingPlan) {
+			plan.RuntimePolicyDigest = "sha256:" + strings.Repeat("8", 64)
+		}},
 		{name: "topology manifest digest", mutate: func(plan *heteroci.ExecutorBindingPlan) {
 			plan.TopologyManifestDigest = "sha256:" + strings.Repeat("8", 64)
 		}},

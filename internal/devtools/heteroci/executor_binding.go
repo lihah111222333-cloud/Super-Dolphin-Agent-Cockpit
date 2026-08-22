@@ -60,7 +60,7 @@ func DeriveExecutorBindingAggregateDigest(plan ExecutorBindingPlan) (string, err
 		}
 		items[index] = item
 	}
-	parts := []string{string(plan.ExternalOperationID), string(plan.DurableRunID), plan.RequestDigest, plan.ManifestDigest, plan.TopologyManifestDigest, plan.PlanDigest}
+	parts := []string{string(plan.ExternalOperationID), string(plan.DurableRunID), plan.RequestDigest, plan.ManifestDigest, plan.ExternalBindingDigest, plan.ManifestBlobSHA256, plan.RuntimePolicyDigest, plan.TopologyManifestDigest, plan.PlanDigest}
 	parts = append(parts, items...)
 	return "sha256:" + topologyDigest("heteroci-workflow-executor-binding-aggregate/v1", parts...), nil
 }
@@ -77,11 +77,14 @@ func DeriveExecutorBindingPlanDigest(plan ExecutorBindingPlan) (string, error) {
 		DurableRunID           TopologyRunID                   `json:"durable_run_id"`
 		RequestDigest          string                          `json:"request_digest"`
 		ManifestDigest         string                          `json:"manifest_digest"`
+		ExternalBindingDigest  string                          `json:"external_binding_digest"`
+		ManifestBlobSHA256     string                          `json:"manifest_blob_sha256"`
+		RuntimePolicyDigest    string                          `json:"runtime_policy_digest"`
 		TopologyManifestDigest string                          `json:"topology_manifest_digest"`
 		PlanDigest             string                          `json:"plan_digest"`
 		AuthorityGeneration    RoutingOwnerEpoch               `json:"authority_generation"`
 		Bindings               []executorBindingDigestMaterial `json:"bindings"`
-	}{plan.SchemaVersion, plan.ExternalOperationID, plan.DurableRunID, plan.RequestDigest, plan.ManifestDigest, plan.TopologyManifestDigest, plan.PlanDigest, plan.AuthorityGeneration, bindings}
+	}{plan.SchemaVersion, plan.ExternalOperationID, plan.DurableRunID, plan.RequestDigest, plan.ManifestDigest, plan.ExternalBindingDigest, plan.ManifestBlobSHA256, plan.RuntimePolicyDigest, plan.TopologyManifestDigest, plan.PlanDigest, plan.AuthorityGeneration, bindings}
 	encoded, err := json.Marshal(material)
 	if err != nil {
 		return "", err
@@ -91,7 +94,7 @@ func DeriveExecutorBindingPlanDigest(plan ExecutorBindingPlan) (string, error) {
 
 // ValidateTopologyPlanBindingAudit 校验 plan journal 必须持久化的 request-level audit fields。
 func ValidateTopologyPlanBindingAudit(request TopologyPlanRequest) error {
-	for _, digest := range []string{request.RequestDigest, request.ManifestDigest, request.TopologyManifestDigest} {
+	for _, digest := range []string{request.RequestDigest, request.ManifestDigest, request.ExternalBindingDigest, request.ManifestBlobSHA256, request.RuntimePolicyDigest, request.TopologyManifestDigest} {
 		if !validTopologyDigest(digest) {
 			return fmt.Errorf("topology plan binding audit digest is invalid")
 		}
@@ -121,6 +124,9 @@ func DeriveExecutorBindingValueDigest(domain string, value any) (string, error) 
 
 // ValidateExecutorBindingPlanAgainstReservedPlan 检查 binding 与已持久 plan、node/shard/unit facts 的 exact 一致性。
 func ValidateExecutorBindingPlanAgainstReservedPlan(plan ExecutorBindingPlan, reserved TopologyReservedPlan) error {
+	if err := validateExecutorBindingRequestDigests(plan); err != nil {
+		return err
+	}
 	if len(plan.Bindings) != len(reserved.Plan.NodeShards) {
 		return fmt.Errorf("executor binding node set does not match persisted plan")
 	}
@@ -138,6 +144,16 @@ func ValidateExecutorBindingPlanAgainstReservedPlan(plan ExecutorBindingPlan, re
 	}
 	return nil
 }
+
+func validateExecutorBindingRequestDigests(plan ExecutorBindingPlan) error {
+	for _, digest := range []string{plan.RequestDigest, plan.ManifestDigest, plan.ExternalBindingDigest, plan.ManifestBlobSHA256, plan.RuntimePolicyDigest, plan.TopologyManifestDigest, plan.PlanDigest, plan.BindingDigest} {
+		if !validTopologyDigest(digest) {
+			return fmt.Errorf("executor binding request audit digest is invalid")
+		}
+	}
+	return nil
+}
+
 func executorBindingExpectedSets(plan ExecutorBindingPlan, shards []NodeShard) (map[string][]string, map[string][]string, error) {
 	expected := make(map[string][]string, len(shards))
 	unitSets := make(map[string][]string, len(shards))

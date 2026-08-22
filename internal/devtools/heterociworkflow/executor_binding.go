@@ -45,6 +45,9 @@ type runRequestDigestMaterial struct {
 	ExternalOperationID    heteroci.OperationID     `json:"external_operation_id"`
 	DurableRunID           heteroci.TopologyRunID   `json:"durable_run_id"`
 	ManifestDigest         string                   `json:"manifest_digest"`
+	ExternalBindingDigest  string                   `json:"external_binding_digest"`
+	ManifestBlobSHA256     string                   `json:"manifest_blob_sha256"`
+	RuntimePolicyDigest    string                   `json:"runtime_policy_digest"`
 	TopologyManifestDigest string                   `json:"topology_manifest_digest"`
 	RepositoryID           string                   `json:"repository_id"`
 	SourceTreeSHA          string                   `json:"source_tree_sha"`
@@ -62,7 +65,7 @@ func DeriveManifestDigest(manifest heteroci.Manifest) (string, error) {
 func DeriveRunRequestDigest(request RunRequest) (string, error) {
 	units := append([]heteroci.ExecutionUnit(nil), request.Units...)
 	sort.Slice(units, func(left, right int) bool { return units[left].UnitID < units[right].UnitID })
-	material := runRequestDigestMaterial{SchemaVersion: RunRequestSchemaVersion, ExternalOperationID: request.ExternalOperationID, DurableRunID: request.DurableRunID, ManifestDigest: request.ManifestDigest, TopologyManifestDigest: request.TopologyManifestDigest, RepositoryID: request.RepositoryID, SourceTreeSHA: request.SourceTreeSHA, RunID: request.RunID, Units: units, HeartbeatTTLMillis: request.HeartbeatTTL.Milliseconds()}
+	material := runRequestDigestMaterial{SchemaVersion: RunRequestSchemaVersion, ExternalOperationID: request.ExternalOperationID, DurableRunID: request.DurableRunID, ManifestDigest: request.ManifestDigest, ExternalBindingDigest: request.ExternalBindingDigest, ManifestBlobSHA256: request.ManifestBlobSHA256, RuntimePolicyDigest: request.RuntimePolicyDigest, TopologyManifestDigest: request.TopologyManifestDigest, RepositoryID: request.RepositoryID, SourceTreeSHA: request.SourceTreeSHA, RunID: request.RunID, Units: units, HeartbeatTTLMillis: request.HeartbeatTTL.Milliseconds()}
 	encoded, err := json.Marshal(material)
 	if err != nil {
 		return "", fmt.Errorf("encode run request digest material: %w", err)
@@ -137,7 +140,7 @@ func DeriveExecutorBindingAggregateDigest(plan ExecutorBindingPlan) (string, err
 		}
 		bindings[index] = heteroci.ExecutorBinding{NodeID: binding.NodeID, NodeIDDigest: binding.NodeIDDigest, ExecutorKind: binding.ExecutorKind, BatchIDs: batchIDs, ShardDigest: binding.ShardDigest, BatchSetDigest: binding.BatchSetDigest, UnitSetDigest: binding.UnitSetDigest, NodeFactsDigest: binding.NodeFactsDigest}
 	}
-	return heteroci.DeriveExecutorBindingAggregateDigest(heteroci.ExecutorBindingPlan{ExternalOperationID: normalized.ExternalOperationID, DurableRunID: normalized.DurableRunID, RequestDigest: normalized.RequestDigest, ManifestDigest: normalized.ManifestDigest, TopologyManifestDigest: normalized.TopologyManifestDigest, PlanDigest: normalized.PlanDigest, Bindings: bindings})
+	return heteroci.DeriveExecutorBindingAggregateDigest(heteroci.ExecutorBindingPlan{ExternalOperationID: normalized.ExternalOperationID, DurableRunID: normalized.DurableRunID, RequestDigest: normalized.RequestDigest, ManifestDigest: normalized.ManifestDigest, ExternalBindingDigest: normalized.ExternalBindingDigest, ManifestBlobSHA256: normalized.ManifestBlobSHA256, RuntimePolicyDigest: normalized.RuntimePolicyDigest, TopologyManifestDigest: normalized.TopologyManifestDigest, PlanDigest: normalized.PlanDigest, Bindings: bindings})
 }
 
 // DeriveExecutorBindingNodeIDDigest 委托给 storage-neutral domain，避免 PG/workflow 漂移。
@@ -179,7 +182,7 @@ func validateDurableBindingIdentity(plan ExecutorBindingPlan) error {
 	if err := plan.AuthorityGeneration.Validate(); err != nil {
 		return fmt.Errorf("executor binding authority generation is invalid: %w", err)
 	}
-	return validateDurableBindingDigests(plan.RequestDigest, plan.ManifestDigest, plan.PlanDigest, plan.BindingDigest)
+	return validateDurableBindingDigests(plan.RequestDigest, plan.ManifestDigest, plan.ExternalBindingDigest, plan.ManifestBlobSHA256, plan.RuntimePolicyDigest, plan.PlanDigest, plan.BindingDigest)
 }
 func validateDurableBindingDigests(digests ...string) error {
 	for _, digest := range digests {
@@ -254,7 +257,7 @@ func buildExecutorBindingPlan(request RunRequest, prepared preparedRun) (Executo
 		}
 		bindings = append(bindings, binding)
 	}
-	plan := ExecutorBindingPlan{SchemaVersion: ExecutorBindingPlanSchemaVersion, ExternalOperationID: request.ExternalOperationID, DurableRunID: prepared.runIdentity.DurableRunID, RequestDigest: request.RequestDigest, ManifestDigest: request.ManifestDigest, TopologyManifestDigest: request.TopologyManifestDigest, PlanDigest: planDigest, AuthorityGeneration: prepared.planned.Fence.OwnerEpoch, Bindings: bindings}
+	plan := ExecutorBindingPlan{SchemaVersion: ExecutorBindingPlanSchemaVersion, ExternalOperationID: request.ExternalOperationID, DurableRunID: prepared.runIdentity.DurableRunID, RequestDigest: request.RequestDigest, ManifestDigest: request.ManifestDigest, ExternalBindingDigest: request.ExternalBindingDigest, ManifestBlobSHA256: request.ManifestBlobSHA256, RuntimePolicyDigest: request.RuntimePolicyDigest, TopologyManifestDigest: request.TopologyManifestDigest, PlanDigest: planDigest, AuthorityGeneration: prepared.planned.Fence.OwnerEpoch, Bindings: bindings}
 	plan.BindingDigest, err = DeriveExecutorBindingAggregateDigest(plan)
 	if err != nil {
 		return ExecutorBindingPlan{}, err
@@ -324,7 +327,7 @@ func toDomainExecutorBindingPlan(plan ExecutorBindingPlan) heteroci.ExecutorBind
 		}
 		bindings[index] = heteroci.ExecutorBinding{NodeID: binding.NodeID, NodeIDDigest: binding.NodeIDDigest, ExecutorKind: binding.ExecutorKind, BatchIDs: batchIDs, ShardDigest: binding.ShardDigest, BatchSetDigest: binding.BatchSetDigest, UnitSetDigest: binding.UnitSetDigest, NodeFactsDigest: binding.NodeFactsDigest}
 	}
-	return heteroci.ExecutorBindingPlan{SchemaVersion: plan.SchemaVersion, ExternalOperationID: plan.ExternalOperationID, DurableRunID: plan.DurableRunID, RequestDigest: plan.RequestDigest, ManifestDigest: plan.ManifestDigest, TopologyManifestDigest: plan.TopologyManifestDigest, PlanDigest: plan.PlanDigest, AuthorityGeneration: plan.AuthorityGeneration, Bindings: bindings, BindingDigest: plan.BindingDigest}
+	return heteroci.ExecutorBindingPlan{SchemaVersion: plan.SchemaVersion, ExternalOperationID: plan.ExternalOperationID, DurableRunID: plan.DurableRunID, RequestDigest: plan.RequestDigest, ManifestDigest: plan.ManifestDigest, ExternalBindingDigest: plan.ExternalBindingDigest, ManifestBlobSHA256: plan.ManifestBlobSHA256, RuntimePolicyDigest: plan.RuntimePolicyDigest, TopologyManifestDigest: plan.TopologyManifestDigest, PlanDigest: plan.PlanDigest, AuthorityGeneration: plan.AuthorityGeneration, Bindings: bindings, BindingDigest: plan.BindingDigest}
 }
 func fromDomainExecutorBindingPlan(plan heteroci.ExecutorBindingPlan) ExecutorBindingPlan {
 	bindings := make([]ExecutorBinding, len(plan.Bindings))
@@ -335,7 +338,7 @@ func fromDomainExecutorBindingPlan(plan heteroci.ExecutorBindingPlan) ExecutorBi
 		}
 		bindings[index] = ExecutorBinding{NodeID: binding.NodeID, NodeIDDigest: binding.NodeIDDigest, ExecutorKind: binding.ExecutorKind, BatchIDs: batchIDs, ShardDigest: binding.ShardDigest, BatchSetDigest: binding.BatchSetDigest, UnitSetDigest: binding.UnitSetDigest, NodeFactsDigest: binding.NodeFactsDigest}
 	}
-	return ExecutorBindingPlan{SchemaVersion: plan.SchemaVersion, ExternalOperationID: plan.ExternalOperationID, DurableRunID: plan.DurableRunID, RequestDigest: plan.RequestDigest, ManifestDigest: plan.ManifestDigest, TopologyManifestDigest: plan.TopologyManifestDigest, PlanDigest: plan.PlanDigest, AuthorityGeneration: plan.AuthorityGeneration, Bindings: bindings, BindingDigest: plan.BindingDigest}
+	return ExecutorBindingPlan{SchemaVersion: plan.SchemaVersion, ExternalOperationID: plan.ExternalOperationID, DurableRunID: plan.DurableRunID, RequestDigest: plan.RequestDigest, ManifestDigest: plan.ManifestDigest, ExternalBindingDigest: plan.ExternalBindingDigest, ManifestBlobSHA256: plan.ManifestBlobSHA256, RuntimePolicyDigest: plan.RuntimePolicyDigest, TopologyManifestDigest: plan.TopologyManifestDigest, PlanDigest: plan.PlanDigest, AuthorityGeneration: plan.AuthorityGeneration, Bindings: bindings, BindingDigest: plan.BindingDigest}
 }
 func validatePersistedExecutorBinding(previous heteroci.OwnerFence, expected ExecutorBindingPlan, persisted heteroci.ExecutorBindingMutationResult) error {
 	if err := persisted.Fence.Validate(); err != nil || !validNextFence(previous, persisted.Fence) {
@@ -391,7 +394,7 @@ func validateRunRequestIdentity(request RunRequest) error {
 	return validateRunRequestDigests(request)
 }
 func validateRunRequestDigests(request RunRequest) error {
-	if !validWorkflowDigest(request.RequestDigest) || !validWorkflowDigest(request.ManifestDigest) || !validWorkflowDigest(request.TopologyManifestDigest) {
+	if !validWorkflowDigest(request.RequestDigest) || !validWorkflowDigest(request.ManifestDigest) || !validWorkflowDigest(request.ExternalBindingDigest) || !validWorkflowDigest(request.ManifestBlobSHA256) || !validWorkflowDigest(request.RuntimePolicyDigest) || !validWorkflowDigest(request.TopologyManifestDigest) {
 		return fmt.Errorf("%w: request or manifest digest is invalid", ErrInvalidRequest)
 	}
 	return nil

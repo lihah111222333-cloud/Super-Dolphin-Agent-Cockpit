@@ -136,7 +136,7 @@ func (conn *postgresqlOwnerTestConn) queryPostgreSQLBase(query string, args []dr
 		conn.noteAuthorityRead()
 		data := conn.currentData()
 		operationID := fmt.Sprint(args[1].Value)
-		return newPostgreSQLOwnerTestRows([]string{"owner_id", "owner_epoch", "revision", "kind", "request_bytes", "request_digest", "result_bytes", "result_digest", "previous_journal_digest", "journal_digest", "projection_digest", "committed_at_unix_milli"}, valuesAsRows(data.operations[operationID])), nil
+		return newPostgreSQLOwnerTestRows([]string{"owner_id", "owner_epoch", "revision", "kind", "request_bytes", "request_digest", "result_bytes", "result_digest", "previous_journal_digest", "journal_digest", "projection_digest", "committed_at_unix_milli", "external_binding_digest", "manifest_blob_sha256", "runtime_policy_digest"}, valuesAsRows(data.operations[operationID])), nil
 	case strings.Contains(query, "FROM heteroci_owner.routing_reservations"):
 		conn.noteAuthorityRead()
 		return newPostgreSQLOwnerTestRows([]string{"node_id", "probe_identity", "probe_boot_id", "cpu_milli", "memory_bytes", "max_concurrency"}, nil), nil
@@ -363,7 +363,13 @@ func (conn *postgresqlOwnerTestConn) execPostgreSQLOwnerStatement(query string, 
 		if data.operations == nil {
 			data.operations = make(map[string][]driver.Value)
 		}
-		data.operations[fmt.Sprint(args[1].Value)] = namedValues(args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13])
+		values := namedValues(args[2], args[3], args[4], args[5], args[6], args[7], args[8], args[9], args[10], args[11], args[12], args[13])
+		if len(args) >= 17 {
+			values = append(values, args[14].Value, args[15].Value, args[16].Value)
+		} else {
+			values = append(values, nil, nil, nil)
+		}
+		data.operations[fmt.Sprint(args[1].Value)] = values
 	case strings.HasPrefix(query, "INSERT INTO heteroci_owner.owner_epochs"), strings.HasPrefix(query, "INSERT INTO heteroci_owner.routing_"), strings.HasPrefix(query, "UPDATE heteroci_owner.owner_epochs"):
 	default:
 		return fmt.Errorf("unexpected PostgreSQL owner exec: %s", query)

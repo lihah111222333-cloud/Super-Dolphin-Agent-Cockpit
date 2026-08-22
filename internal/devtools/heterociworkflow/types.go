@@ -101,6 +101,9 @@ type ExecutorBindingPlan struct {
 	DurableRunID           heteroci.TopologyRunID     `json:"durable_run_id"`
 	RequestDigest          string                     `json:"request_digest"`
 	ManifestDigest         string                     `json:"manifest_digest"`
+	ExternalBindingDigest  string                     `json:"external_binding_digest"`
+	ManifestBlobSHA256     string                     `json:"manifest_blob_sha256"`
+	RuntimePolicyDigest    string                     `json:"runtime_policy_digest"`
 	TopologyManifestDigest string                     `json:"topology_manifest_digest"`
 	PlanDigest             string                     `json:"plan_digest"`
 	AuthorityGeneration    heteroci.RoutingOwnerEpoch `json:"authority_generation"`
@@ -175,6 +178,9 @@ type RunRequest struct {
 	DurableRunID           heteroci.TopologyRunID
 	RequestDigest          string
 	ManifestDigest         string
+	ExternalBindingDigest  string
+	ManifestBlobSHA256     string
+	RuntimePolicyDigest    string
 	TopologyManifestDigest string
 	ManifestPath           string
 	RepositoryID           string

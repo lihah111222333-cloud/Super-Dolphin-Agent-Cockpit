@@ -28,6 +28,9 @@ type TopologyPlanRequest struct {
 	ExternalOperationID    OperationID         `json:"external_operation_id"`
 	RequestDigest          string              `json:"request_digest"`
 	ManifestDigest         string              `json:"manifest_digest"`
+	ExternalBindingDigest  string              `json:"external_binding_digest"`
+	ManifestBlobSHA256     string              `json:"manifest_blob_sha256"`
+	RuntimePolicyDigest    string              `json:"runtime_policy_digest"`
 	TopologyManifestDigest string              `json:"topology_manifest_digest"`
 	RunIdentity            TopologyRunIdentity `json:"run_identity"`
 	Manifest               Manifest            `json:"manifest"`
@@ -242,6 +245,9 @@ type ExecutorBindingPlan struct {
 	DurableRunID           TopologyRunID     `json:"durable_run_id"`
 	RequestDigest          string            `json:"request_digest"`
 	ManifestDigest         string            `json:"manifest_digest"`
+	ExternalBindingDigest  string            `json:"external_binding_digest"`
+	ManifestBlobSHA256     string            `json:"manifest_blob_sha256"`
+	RuntimePolicyDigest    string            `json:"runtime_policy_digest"`
 	TopologyManifestDigest string            `json:"topology_manifest_digest"`
 	PlanDigest             string            `json:"plan_digest"`
 	AuthorityGeneration    RoutingOwnerEpoch `json:"authority_generation"`

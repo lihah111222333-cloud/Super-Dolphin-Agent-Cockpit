@@ -79,7 +79,7 @@ func testTopologySessionAcceptsCurrentRevisionWithinIncarnation(t *testing.T) {
 
 func testTopologyPlanRequestFieldGuardAndValidation(t *testing.T) {
 	typeOf := reflect.TypeFor[TopologyPlanRequest]()
-	want := []string{"OperationID", "ExternalOperationID", "RequestDigest", "ManifestDigest", "TopologyManifestDigest", "RunIdentity", "Manifest", "SourceSnapshot", "Units", "HeartbeatTTL"}
+	want := []string{"OperationID", "ExternalOperationID", "RequestDigest", "ManifestDigest", "ExternalBindingDigest", "ManifestBlobSHA256", "RuntimePolicyDigest", "TopologyManifestDigest", "RunIdentity", "Manifest", "SourceSnapshot", "Units", "HeartbeatTTL"}
 	got := make([]string, 0, typeOf.NumField())
 	for field := range typeOf.Fields() {
 		got = append(got, field.Name)
@@ -129,7 +129,7 @@ func topologyPlanFixture(t *testing.T) (TopologySession, TopologyPlanRequest) {
 	capacity := ResourceCapacity{CPUMilli: 1_000, MemoryBytes: 1 << 30, MaxConcurrency: 1}
 	runIdentity := topologyRunIdentity(t, "repo-a", strings.Repeat("b", 40), "repo-a/run")
 	request := TopologyPlanRequest{
-		OperationID: topologyOperationID(t, runIdentity.DurableRunID, TopologyOperationPhasePlan, ""), ExternalOperationID: OperationID(strings.Repeat("c", 64)), RequestDigest: "sha256:" + strings.Repeat("3", 64), ManifestDigest: "sha256:" + strings.Repeat("4", 64), TopologyManifestDigest: topologyManifestDigest,
+		OperationID: topologyOperationID(t, runIdentity.DurableRunID, TopologyOperationPhasePlan, ""), ExternalOperationID: OperationID(strings.Repeat("c", 64)), RequestDigest: "sha256:" + strings.Repeat("3", 64), ManifestDigest: "sha256:" + strings.Repeat("4", 64), ExternalBindingDigest: "sha256:" + strings.Repeat("5", 64), ManifestBlobSHA256: "sha256:" + strings.Repeat("6", 64), RuntimePolicyDigest: "sha256:" + strings.Repeat("7", 64), TopologyManifestDigest: topologyManifestDigest,
 		RunIdentity: runIdentity,
 		Manifest:    manifest,
 		SourceSnapshot: SnapshotSet{

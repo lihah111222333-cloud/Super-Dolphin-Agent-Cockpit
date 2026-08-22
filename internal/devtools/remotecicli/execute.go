@@ -223,7 +223,7 @@ func assembleExecutePreparedInputs(locator executeLocatorBinding, runtimePolicy 
 func newExecuteRunRequest(portable remoteportable.BoundPortableRun, runtimePolicy executeRuntimePolicy, catalog executeCatalogBinding, topologyDigest string, operationID heteroci.OperationID, durableRunID heteroci.TopologyRunID) heterociworkflow.RunRequest {
 	return heterociworkflow.RunRequest{
 		SchemaVersion: heterociworkflow.RunRequestSchemaVersion, ExternalOperationID: operationID, DurableRunID: durableRunID,
-		ManifestDigest: portable.ManifestDigest, TopologyManifestDigest: topologyDigest,
+		ManifestDigest: portable.ManifestDigest, ExternalBindingDigest: portable.BindingSHA256, ManifestBlobSHA256: portable.ManifestBlobSHA256, RuntimePolicyDigest: runtimePolicy.policyDigest, TopologyManifestDigest: topologyDigest,
 		ManifestPath: runtimePolicy.config.TopologyManifestPath, RepositoryID: portable.RepositoryID,
 		SourceTreeSHA: portable.TreeSHA, RunID: portable.OperationID, Units: catalog.units,
 		HeartbeatTTL: time.Duration(runtimePolicy.config.HeartbeatTTLMS) * time.Millisecond,

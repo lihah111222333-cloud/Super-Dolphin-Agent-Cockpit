@@ -280,7 +280,7 @@ func TestRunRequestPlanAuditFieldRegistry(t *testing.T) {
 	}
 	consumer := map[string]string{
 		"SchemaVersion": "strict request decoder", "ExternalOperationID": "bind operation journal", "DurableRunID": "derived topology identity",
-		"RequestDigest": "canonical request digest", "ManifestDigest": "portable target binding", "TopologyManifestDigest": "topology manifest digest",
+		"RequestDigest": "canonical request digest", "ManifestDigest": "portable target content binding", "ExternalBindingDigest": "portable external engine binding", "ManifestBlobSHA256": "exact raw manifest blob", "RuntimePolicyDigest": "runtime policy binding", "TopologyManifestDigest": "topology manifest digest",
 		"ManifestPath": "strict manifest loader", "RepositoryID": "topology plan audit request", "SourceTreeSHA": "topology plan audit request",
 		"RunID": "topology plan and execution identity", "Units": "topology planner and executor", "HeartbeatTTL": "snapshot and lease validation",
 	}
@@ -302,13 +302,40 @@ func TestRunRequestPlanAuditFieldRegistry(t *testing.T) {
 	}
 }
 
+func TestRunRequestDigestBindsExternalPortableAndRuntimeFacts(t *testing.T) {
+	base := newWorkflowFixture(t, &fakeExecutor{}).request
+	for _, test := range []struct {
+		name   string
+		mutate func(*RunRequest)
+	}{
+		{name: "engine binding", mutate: func(request *RunRequest) { request.ExternalBindingDigest = "sha256:" + strings.Repeat("1", 64) }},
+		{name: "raw manifest blob", mutate: func(request *RunRequest) { request.ManifestBlobSHA256 = "sha256:" + strings.Repeat("2", 64) }},
+		{name: "runtime policy", mutate: func(request *RunRequest) { request.RuntimePolicyDigest = "sha256:" + strings.Repeat("3", 64) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := base
+			test.mutate(&request)
+			derived, err := DeriveRunRequestDigest(request)
+			if err != nil {
+				t.Fatalf("DeriveRunRequestDigest: %v", err)
+			}
+			if derived == base.RequestDigest {
+				t.Fatal("external binding mutation did not change request digest")
+			}
+			if err := validateRunRequest(context.Background(), request); !errors.Is(err, ErrInvalidRequest) {
+				t.Fatalf("validateRunRequest error = %v, want ErrInvalidRequest", err)
+			}
+		})
+	}
+}
+
 func TestExecutorBindingPlanFieldRegistry(t *testing.T) {
 	planFields := reflect.TypeFor[ExecutorBindingPlan]()
-	planConsumers := map[string]string{"SchemaVersion": "PG bind journal", "ExternalOperationID": "PG operation identity", "DurableRunID": "persisted run", "RequestDigest": "request binding", "ManifestDigest": "portable target binding", "TopologyManifestDigest": "topology manifest binding", "PlanDigest": "persisted plan", "AuthorityGeneration": "owner epoch", "Bindings": "sorted node bindings", "BindingDigest": "aggregate receipt projection"}
+	planConsumers := map[string]string{"SchemaVersion": "PG bind journal", "ExternalOperationID": "PG operation identity", "DurableRunID": "persisted run", "RequestDigest": "request binding", "ManifestDigest": "portable target content binding", "ExternalBindingDigest": "portable external engine binding", "ManifestBlobSHA256": "exact raw manifest blob", "RuntimePolicyDigest": "runtime policy binding", "TopologyManifestDigest": "topology manifest binding", "PlanDigest": "persisted plan", "AuthorityGeneration": "owner epoch", "Bindings": "sorted node bindings", "BindingDigest": "aggregate receipt projection"}
 	var missing, stale []string
-	for index := 0; index < planFields.NumField(); index++ {
-		if planConsumers[planFields.Field(index).Name] == "" {
-			missing = append(missing, planFields.Field(index).Name)
+	for field := range planFields.Fields() {
+		if planConsumers[field.Name] == "" {
+			missing = append(missing, field.Name)
 		}
 	}
 	for field := range planConsumers {
@@ -371,13 +398,16 @@ func TestAutomaticWorkflowRunRequestConsumesRepositoryAudit(t *testing.T) {
 	if !ok {
 		t.Fatal("resolve workflow field guard source path")
 	}
-	source, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "..", "remotecicli", "automatic_run.go"))
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "..", "remotecicli", "execute.go"))
 	if err != nil {
 		t.Fatalf("read automatic workflow caller: %v", err)
 	}
 	for _, binding := range []string{
-		"RepositoryID:  inputs.repository.RepositoryID",
-		"SourceTreeSHA: inputs.repository.TreeSHA",
+		"RepositoryID: portable.RepositoryID",
+		"SourceTreeSHA: portable.TreeSHA",
+		"ExternalBindingDigest: portable.BindingSHA256",
+		"ManifestBlobSHA256: portable.ManifestBlobSHA256",
+		"RuntimePolicyDigest: runtimePolicy.policyDigest",
 	} {
 		if !strings.Contains(string(source), binding) {
 			t.Fatalf("automatic workflow caller is missing plan audit binding %q", binding)

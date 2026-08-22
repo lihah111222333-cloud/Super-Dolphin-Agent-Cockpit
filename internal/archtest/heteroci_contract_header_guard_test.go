@@ -25,6 +25,9 @@ func TestHeterociAcceptedContractDefinesFourNodePostgreSQLBoundary(t *testing.T)
 		"SERIALIZABLE transaction",
 		"canonical owner scope 的 transaction advisory lock",
 		"synchronous_commit=remote_apply",
+		"external_binding_digest",
+		"manifest_blob_sha256",
+		"runtime_policy_digest",
 		"本地 SQLite、JSON 文件和内存状态都不能成为读写权威",
 		"不得双写、交叉提交或互相降级",
 		"一次请求只允许一次 fresh snapshot、一次 reservation 和一次 executor binding",
@@ -178,6 +181,9 @@ func TestHeterociPostgreSQLOwnerCoreBoundary(t *testing.T) {
 		"postgresqlOwnerSchemaStatements",
 		"REVOKE ALL ON SCHEMA",
 		"CREATE TABLE heteroci_owner.operation_journal",
+		"external_binding_digest TEXT",
+		"manifest_blob_sha256 TEXT",
+		"runtime_policy_digest TEXT",
 	})
 	assertHeterociSourceMarkers(t, "PostgreSQL owner runtime", owner, []string{
 		"sql.LevelSerializable",
@@ -193,6 +199,10 @@ func TestHeterociPostgreSQLOwnerCoreBoundary(t *testing.T) {
 		"readPostgreSQLOperation",
 		"planPostgreSQLTopology",
 		"persistPostgreSQLPlan",
+		"request.ExternalBindingDigest",
+		"request.ManifestBlobSHA256",
+		"request.RuntimePolicyDigest",
+		"validatePostgreSQLPlanRequestAudit",
 	})
 	assertHeterociNoLocalPostgreSQLAuthority(t, map[string]string{
 		"postgresql_owner.go":                   owner,
@@ -201,6 +211,26 @@ func TestHeterociPostgreSQLOwnerCoreBoundary(t *testing.T) {
 		"postgresql_terminal_receipt.go":        terminalReceipt,
 		"postgresql_terminal_receipt_schema.go": terminalSchema,
 	})
+}
+
+func TestHeterociExternalBindingFieldsStayOnEveryIdentityBoundary(t *testing.T) {
+	root := findRepoRoot(t)
+	paths := []string{
+		"internal/devtools/heterociworkflow/types.go",
+		"internal/devtools/heterociworkflow/executor_binding.go",
+		"internal/devtools/heteroci/topology_session.go",
+		"internal/devtools/heteroci/executor_binding.go",
+		"internal/devtools/remotecicli/execute.go",
+		"internal/devtools/heterociowner/postgresql_owner_plan.go",
+	}
+	for _, relative := range paths {
+		source := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(relative)))
+		for _, field := range []string{"ExternalBindingDigest", "ManifestBlobSHA256", "RuntimePolicyDigest"} {
+			if !strings.Contains(source, field) {
+				t.Errorf("%s is missing strict external binding field %q", relative, field)
+			}
+		}
+	}
 }
 
 // assertHeterociSourceMarkers keeps each production boundary tied to its own source file.

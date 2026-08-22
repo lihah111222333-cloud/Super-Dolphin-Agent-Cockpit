@@ -51,7 +51,7 @@ repository-owned manifest 不携带自身 raw blob SHA-256、operation_id、actu
 
 远程 PostgreSQL read-write primary 是 operation、manifest binding、capacity snapshot、reservation、execution lease、start/finish、terminal result、event sequence 和 receipt 的唯一权威。owner 使用 heteroci_owner schema 与 heteroci_owner_writer role，receipt 使用 heteroci_receipt schema 与 heteroci_receipt_writer role；两域事务独立，不得双写、交叉提交或互相降级。
 
-所有 mutation 只能进入已验证的 read-write primary，使用 SERIALIZABLE transaction、canonical owner scope 的 transaction advisory lock 和 operation_id + request_digest 的不可变 journal。synchronous_commit=remote_apply；standby、只读副本、本地副本、本地 SQLite、JSON 文件和内存状态都不能成为读写权威。连接失败、commit 结果不确定、journal 缺失或 digest 冲突必须返回稳定错误并阻断，不得以内存 plan 继续执行。
+所有 mutation 只能进入已验证的 read-write primary，使用 SERIALIZABLE transaction、canonical owner scope 的 transaction advisory lock 和 operation_id + request_digest 的不可变 journal。synchronous_commit=remote_apply；standby、只读副本、本地副本、本地 SQLite、JSON 文件和内存状态都不能成为读写权威。连接失败、commit 结果不确定、journal 缺失或 digest 冲突必须返回稳定错误并阻断，不得以内存 plan 继续执行。workflow request、topology plan request 和 owner plan journal 必须逐字段保留并 exact readback `external_binding_digest`、`manifest_blob_sha256`、`runtime_policy_digest` 三项 strict `sha256:` 摘要；它们分别绑定 actual engine/external locator、manifest raw blob 和 runtime policy，不能折叠、改名或冒充 `manifest_digest`，缺失即拒绝。
 
 PG 记录必须逐字段 exact readback。reservation、lease、request aggregate terminal result 和 event sequence 都必须带 manifest_digest、plan_digest、operation_id、executor_binding_digest、node_set_digest 与 authority generation；实际 node_id、executor_kind、shard/batch/unit digest 和逐节点终态只出现在按 node_id 排序的 shards 中。过期 owner、旧 epoch、重复 operation 或 stale digest 必须拒绝。事务提交后才发布对外状态；失败路径仍写 bounded error code 和清理事实，不写 raw credential、宿主绝对路径或底层错误树。
 

@@ -371,7 +371,7 @@ func strictWorkflowTestRequest(t testing.TB, manifest heteroci.Manifest, reposit
 	if err != nil {
 		t.Fatalf("DeriveManifestDigest: %v", err)
 	}
-	request := RunRequest{SchemaVersion: RunRequestSchemaVersion, ExternalOperationID: externalOperationID, DurableRunID: runIdentity.DurableRunID, ManifestDigest: "sha256:" + strings.Repeat("9", 64), TopologyManifestDigest: topologyManifestDigest, ManifestPath: "manifest.json", RepositoryID: repositoryID, SourceTreeSHA: sourceTreeSHA, RunID: runID, Units: units, HeartbeatTTL: ttl}
+	request := RunRequest{SchemaVersion: RunRequestSchemaVersion, ExternalOperationID: externalOperationID, DurableRunID: runIdentity.DurableRunID, ManifestDigest: "sha256:" + strings.Repeat("9", 64), ExternalBindingDigest: "sha256:" + strings.Repeat("8", 64), ManifestBlobSHA256: "sha256:" + strings.Repeat("7", 64), RuntimePolicyDigest: "sha256:" + strings.Repeat("6", 64), TopologyManifestDigest: topologyManifestDigest, ManifestPath: "manifest.json", RepositoryID: repositoryID, SourceTreeSHA: sourceTreeSHA, RunID: runID, Units: units, HeartbeatTTL: ttl}
 	request.RequestDigest, err = DeriveRunRequestDigest(request)
 	if err != nil {
 		t.Fatalf("DeriveRunRequestDigest: %v", err)
@@ -382,12 +382,19 @@ func workflowPlanRequest(t *testing.T, fixture *workflowFixture, operationID het
 	t.Helper()
 	runIdentity := workflowRunIdentity(t, fixture)
 	return heteroci.TopologyPlanRequest{
-		OperationID:    operationID,
-		RunIdentity:    runIdentity,
-		Manifest:       fixture.manifest,
-		SourceSnapshot: fixture.snapshot,
-		Units:          units,
-		HeartbeatTTL:   fixture.request.HeartbeatTTL,
+		OperationID:            operationID,
+		ExternalOperationID:    fixture.request.ExternalOperationID,
+		RequestDigest:          fixture.request.RequestDigest,
+		ManifestDigest:         fixture.request.ManifestDigest,
+		ExternalBindingDigest:  fixture.request.ExternalBindingDigest,
+		ManifestBlobSHA256:     fixture.request.ManifestBlobSHA256,
+		RuntimePolicyDigest:    fixture.request.RuntimePolicyDigest,
+		TopologyManifestDigest: fixture.request.TopologyManifestDigest,
+		RunIdentity:            runIdentity,
+		Manifest:               fixture.manifest,
+		SourceSnapshot:         fixture.snapshot,
+		Units:                  units,
+		HeartbeatTTL:           fixture.request.HeartbeatTTL,
 	}
 }
 
