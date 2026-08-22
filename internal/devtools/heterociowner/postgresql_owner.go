@@ -75,13 +75,29 @@ func validatePostgreSQLOwnerServer(ctx context.Context, queryer postgresqlOwnerQ
 }
 
 func validatePostgreSQLOwnerObjects(ctx context.Context, queryer postgresqlOwnerQueryRower) error {
-	var schemaOwner, schemaVersion, tableOwnership string
-	query := "SELECT pg_get_userbyid(n.nspowner), COALESCE(obj_description(n.oid, 'pg_namespace'), ''), COALESCE(string_agg(c.relname || ':' || pg_get_userbyid(c.relowner), ',' ORDER BY c.relname), '') FROM pg_namespace n LEFT JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind = 'r' WHERE n.nspname = $1 GROUP BY n.oid, n.nspowner"
-	if err := queryer.QueryRowContext(ctx, query, PostgreSQLOwnerSchema).Scan(&schemaOwner, &schemaVersion, &tableOwnership); err != nil {
-		return fmt.Errorf("%w: inspect owner schema and tables: %w", ErrPostgreSQLOwnerTopology, err)
+	var schemaOwner, schemaVersion, tableOwnership, indexNames string
+	query := `SELECT pg_get_userbyid(n.nspowner),
+       COALESCE(obj_description(n.oid, 'pg_namespace'), ''),
+       COALESCE(string_agg(c.relname || ':' || pg_get_userbyid(c.relowner), ',' ORDER BY c.relname), ''),
+       COALESCE((
+           SELECT string_agg(index_class.relname, ',' ORDER BY index_class.relname)
+           FROM pg_class AS index_class
+           JOIN pg_index AS index_catalog ON index_catalog.indexrelid = index_class.oid
+           JOIN pg_class AS table_class ON table_class.oid = index_catalog.indrelid
+           WHERE table_class.relnamespace = n.oid
+             AND left(index_class.relname, length('idx_heteroci_owner_')) = 'idx_heteroci_owner_'
+             AND index_catalog.indisvalid
+             AND index_catalog.indisready
+       ), '')
+FROM pg_namespace AS n
+LEFT JOIN pg_class AS c ON c.relnamespace = n.oid AND c.relkind = 'r'
+WHERE n.nspname = $1
+GROUP BY n.oid, n.nspowner`
+	if err := queryer.QueryRowContext(ctx, query, PostgreSQLOwnerSchema).Scan(&schemaOwner, &schemaVersion, &tableOwnership, &indexNames); err != nil {
+		return fmt.Errorf("%w: inspect owner schema, tables, and indexes: %w", ErrPostgreSQLOwnerTopology, err)
 	}
-	if schemaOwner != PostgreSQLOwnerRole || schemaVersion != PostgreSQLOwnerRuntimeSchemaVersion || tableOwnership != expectedPostgreSQLOwnerTableOwnership() {
-		return fmt.Errorf("%w: owner table set or ownership drifted", ErrPostgreSQLOwnerTopology)
+	if schemaOwner != PostgreSQLOwnerRole || schemaVersion != PostgreSQLOwnerRuntimeSchemaVersion || tableOwnership != expectedPostgreSQLOwnerTableOwnership() || indexNames != strings.Join(postgresqlOwnerIndexNames(), ",") {
+		return fmt.Errorf("%w: owner table, index, or ownership set drifted", ErrPostgreSQLOwnerTopology)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,7 @@ func TestPostgreSQLOwnerRejectsUntrustedAuthorityBeforeMutation(t *testing.T) {
 		{name: "missing_schema", mutate: func(state *postgresqlOwnerTestState) { state.schemaOwner = "" }},
 		{name: "schema_version_drift", mutate: func(state *postgresqlOwnerTestState) { state.schemaVersion = "heteroci-owner-postgresql/old" }},
 		{name: "missing_table", mutate: func(state *postgresqlOwnerTestState) { delete(state.tableOwners, "routing_leases") }},
+		{name: "missing_index", mutate: func(state *postgresqlOwnerTestState) { delete(state.indexNames, PostgreSQLOwnerScopeRunIndex) }},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -105,6 +107,7 @@ func TestPostgreSQLOwnerDDLIsIndependentCanonicalBYTEASchema(t *testing.T) {
 		t.Fatalf("PostgreSQL owner DDL does not create %s first: %#v", PostgreSQLOwnerSchema, statements)
 	}
 	joined := PostgreSQLOwnerDDL()
+	additive := PostgreSQLOwnerAdditiveIndexDDL()
 	if !strings.HasSuffix(joined, ";") {
 		t.Fatal("PostgreSQL owner operator DDL is not statement terminated")
 	}
@@ -131,5 +134,84 @@ func TestPostgreSQLOwnerDDLIsIndependentCanonicalBYTEASchema(t *testing.T) {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("PostgreSQL owner DDL contains forbidden %q", forbidden)
 		}
+	}
+	assertPostgreSQLOwnerAdditiveIndexDDL(t, joined, additive)
+}
+
+func assertPostgreSQLOwnerAdditiveIndexDDL(t *testing.T, clean, additive string) {
+	t.Helper()
+	for _, definition := range postgresqlOwnerIndexDefinitions() {
+		if strings.Count(clean, definition.statement) != 1 {
+			t.Fatalf("clean owner DDL count for %q = %d, want 1", definition.name, strings.Count(clean, definition.statement))
+		}
+		if strings.Count(additive, definition.statement) != 1 {
+			t.Fatalf("additive owner DDL count for %q = %d, want 1", definition.name, strings.Count(additive, definition.statement))
+		}
+	}
+	for _, forbidden := range []string{"CREATE SCHEMA", "CREATE TABLE", "IF NOT EXISTS", PostgreSQLReceiptSchema} {
+		if strings.Contains(additive, forbidden) {
+			t.Fatalf("PostgreSQL owner additive index DDL contains forbidden %q", forbidden)
+		}
+	}
+}
+
+func TestPostgreSQLOwnerIndexRegistryIsMinimalAndQueryBound(t *testing.T) {
+	definitions := postgresqlOwnerIndexDefinitions()
+	if len(definitions) != 3 {
+		t.Fatalf("explicit PostgreSQL owner indexes = %d, want 3", len(definitions))
+	}
+	seen := make(map[string]struct{}, len(definitions))
+	for _, definition := range definitions {
+		if definition.name == "" || definition.statement == "" {
+			t.Fatalf("empty PostgreSQL owner index definition: %#v", definition)
+		}
+		if _, exists := seen[definition.name]; exists {
+			t.Fatalf("duplicate PostgreSQL owner index %q", definition.name)
+		}
+		seen[definition.name] = struct{}{}
+	}
+	for _, required := range []string{
+		"CREATE UNIQUE INDEX " + PostgreSQLOwnerActiveEpochIndex + " ON heteroci_owner.owner_epochs (scope) WHERE retired_at_unix_milli IS NULL",
+		"CREATE INDEX " + PostgreSQLOwnerScopeRunIndex + " ON heteroci_owner.routing_runs (scope, run_id, owner_epoch)",
+		"CREATE INDEX " + PostgreSQLOwnerActiveReservationIndex + " ON heteroci_owner.routing_reservations (scope, owner_epoch, run_id) WHERE state IN ('planned', 'started')",
+	} {
+		if !strings.Contains(PostgreSQLOwnerAdditiveIndexDDL(), required) {
+			t.Fatalf("PostgreSQL owner index registry missing %q", required)
+		}
+	}
+	for _, redundant := range []string{
+		"ON heteroci_owner.owner_heads (scope)",
+		"ON heteroci_owner.operation_journal (scope, operation_id)",
+		"ON heteroci_owner.routing_leases (scope, owner_epoch, run_id, unit_id)",
+	} {
+		if strings.Contains(PostgreSQLOwnerAdditiveIndexDDL(), redundant) {
+			t.Fatalf("PostgreSQL owner index registry duplicates constraint index %q", redundant)
+		}
+	}
+}
+
+func TestPostgreSQL14IndexExplainFixtureCoversOwnerAndReceiptPaths(t *testing.T) {
+	fixture, err := os.ReadFile("postgresql_index_explain_pg14_test.sql")
+	if err != nil {
+		t.Fatalf("read PostgreSQL 14 EXPLAIN fixture: %v", err)
+	}
+	sqlText := string(fixture)
+	for _, required := range []string{
+		"EXPLAIN (FORMAT JSON, COSTS OFF)",
+		PostgreSQLOwnerActiveEpochIndex,
+		PostgreSQLOwnerScopeRunIndex,
+		PostgreSQLOwnerActiveReservationIndex,
+		"routing_leases_pkey",
+		"batch_receipts_pkey",
+		"ORDER BY owner_epoch",
+		"ORDER BY unit_id",
+		"state IN ('planned', 'started')",
+	} {
+		if !strings.Contains(sqlText, required) {
+			t.Fatalf("PostgreSQL 14 EXPLAIN fixture missing %q", required)
+		}
+	}
+	if strings.Contains(sqlText, "EXPLAIN ANALYZE") || !strings.HasSuffix(sqlText, "ROLLBACK;\n") {
+		t.Fatal("PostgreSQL 14 EXPLAIN fixture may execute mutations or is not rollback bounded")
 	}
 }

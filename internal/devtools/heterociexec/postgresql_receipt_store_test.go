@@ -45,12 +45,29 @@ func testPostgreSQLReceiptContract(t *testing.T) {
 	if strings.Contains(strings.ToLower(PostgreSQLReceiptDDL), "sqlite") {
 		t.Fatal("PostgreSQLReceiptDDL contains SQLite")
 	}
+	assertPostgreSQLReceiptPrimaryKeyCoverage(t)
 	fields := reflect.VisibleFields(reflect.TypeFor[PostgreSQLReceiptStore]())
 	if len(fields) != 1 || fields[0].Name != "database" || fields[0].Type != reflect.TypeFor[*sql.DB]() {
 		t.Fatalf("PostgreSQLReceiptStore fields = %#v", fields)
 	}
 	if _, err := NewPostgreSQLReceiptStore(context.Background(), nil); !errors.Is(err, ErrPostgreSQLReceiptStore) {
 		t.Fatalf("NewPostgreSQLReceiptStore(nil) error = %v", err)
+	}
+}
+
+func assertPostgreSQLReceiptPrimaryKeyCoverage(t *testing.T) {
+	t.Helper()
+	if strings.Contains(PostgreSQLReceiptDDL, "CREATE INDEX") {
+		t.Fatal("PostgreSQLReceiptDDL adds an index redundant with batch_receipts primary key")
+	}
+	assertPostgreSQLReceiptPrimaryKeyQuery(t, "read", selectPostgreSQLReceiptRow)
+	assertPostgreSQLReceiptPrimaryKeyQuery(t, "update", updatePostgreSQLTerminalReceipt)
+}
+
+func assertPostgreSQLReceiptPrimaryKeyQuery(t *testing.T, name, query string) {
+	t.Helper()
+	if !strings.Contains(query, "WHERE batch_id = $") || !strings.Contains(query, "AND material_digest = $") {
+		t.Fatalf("PostgreSQL receipt %s query does not bind the complete primary key: %s", name, query)
 	}
 }
 

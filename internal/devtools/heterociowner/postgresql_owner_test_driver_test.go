@@ -31,6 +31,7 @@ type postgresqlOwnerTestState struct {
 	schemaOwner          string
 	schemaVersion        string
 	tableOwners          map[string]string
+	indexNames           map[string]struct{}
 	data                 postgresqlOwnerTestData
 	commitAppliedError   error
 	serializableBegins   int
@@ -130,7 +131,7 @@ func (conn *postgresqlOwnerTestConn) queryAuthorityMetadata(query string) (drive
 		return newPostgreSQLOwnerTestRows([]string{"in_recovery", "transaction_read_only", "synchronous_commit", "server_address", "current_user"}, [][]driver.Value{{conn.state.inRecovery, conn.state.readOnly, conn.state.synchronousCommit, conn.state.serverAddress, conn.state.currentUser}}), true
 	case strings.Contains(query, "string_agg"):
 		if conn.state.schemaOwner == "" {
-			return newPostgreSQLOwnerTestRows([]string{"schema_owner", "table_ownership"}, nil), true
+			return newPostgreSQLOwnerTestRows([]string{"schema_owner", "schema_version", "table_ownership", "index_names"}, nil), true
 		}
 		parts := make([]string, 0, len(conn.state.tableOwners))
 		for _, name := range postgresqlOwnerTableNames() {
@@ -138,7 +139,13 @@ func (conn *postgresqlOwnerTestConn) queryAuthorityMetadata(query string) (drive
 				parts = append(parts, name+":"+owner)
 			}
 		}
-		return newPostgreSQLOwnerTestRows([]string{"schema_owner", "schema_version", "table_ownership"}, [][]driver.Value{{conn.state.schemaOwner, conn.state.schemaVersion, strings.Join(parts, ",")}}), true
+		indexes := make([]string, 0, len(conn.state.indexNames))
+		for _, name := range postgresqlOwnerIndexNames() {
+			if _, ok := conn.state.indexNames[name]; ok {
+				indexes = append(indexes, name)
+			}
+		}
+		return newPostgreSQLOwnerTestRows([]string{"schema_owner", "schema_version", "table_ownership", "index_names"}, [][]driver.Value{{conn.state.schemaOwner, conn.state.schemaVersion, strings.Join(parts, ","), strings.Join(indexes, ",")}}), true
 	default:
 		return nil, false
 	}
@@ -235,9 +242,12 @@ func valuesAsRows(values []driver.Value) [][]driver.Value {
 
 func openPostgreSQLOwnerTestDB(t *testing.T) (*sql.DB, *postgresqlOwnerTestState) {
 	t.Helper()
-	state := &postgresqlOwnerTestState{readOnly: "off", synchronousCommit: PostgreSQLOwnerSynchronousCommitRemoteApply, serverAddress: "203.0.113.10", currentUser: PostgreSQLOwnerRole, schemaOwner: PostgreSQLOwnerRole, schemaVersion: PostgreSQLOwnerRuntimeSchemaVersion, tableOwners: make(map[string]string)}
+	state := &postgresqlOwnerTestState{readOnly: "off", synchronousCommit: PostgreSQLOwnerSynchronousCommitRemoteApply, serverAddress: "203.0.113.10", currentUser: PostgreSQLOwnerRole, schemaOwner: PostgreSQLOwnerRole, schemaVersion: PostgreSQLOwnerRuntimeSchemaVersion, tableOwners: make(map[string]string), indexNames: make(map[string]struct{})}
 	for _, name := range postgresqlOwnerTableNames() {
 		state.tableOwners[name] = PostgreSQLOwnerRole
+	}
+	for _, name := range postgresqlOwnerIndexNames() {
+		state.indexNames[name] = struct{}{}
 	}
 	name := "heteroci-postgresql-owner-test-" + strings.ReplaceAll(t.Name(), "/", "-")
 	sql.Register(name, &postgresqlOwnerTestDriver{state: state})

@@ -1,9 +1,45 @@
 package heterociowner
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // PostgreSQLOwnerRuntimeSchemaVersion 是 remote PostgreSQL-only owner schema 的冻结版本。
 const PostgreSQLOwnerRuntimeSchemaVersion = "heteroci-owner-postgresql/v1"
+
+const (
+	// PostgreSQLOwnerActiveEpochIndex 保证一个 owner scope 只有一个未退休 epoch。
+	PostgreSQLOwnerActiveEpochIndex = "idx_heteroci_owner_epochs_active_scope"
+	// PostgreSQLOwnerScopeRunIndex 支持跨 epoch 按 scope/run 定位并按 epoch 排序。
+	PostgreSQLOwnerScopeRunIndex = "idx_heteroci_owner_routing_runs_scope_run_epoch"
+	// PostgreSQLOwnerActiveReservationIndex 支持规划时只读取 planned/started 容量占用。
+	PostgreSQLOwnerActiveReservationIndex = "idx_heteroci_owner_routing_reservations_active_scope_epoch"
+)
+
+type postgresqlOwnerIndexDefinition struct {
+	name      string
+	statement string
+}
+
+// postgresqlOwnerIndexDefinitions 是显式 owner index 的唯一注册表。
+// PRIMARY KEY 与 UNIQUE 约束生成的隐式索引不在这里重复登记。
+func postgresqlOwnerIndexDefinitions() []postgresqlOwnerIndexDefinition {
+	return []postgresqlOwnerIndexDefinition{
+		{
+			name:      PostgreSQLOwnerActiveEpochIndex,
+			statement: "CREATE UNIQUE INDEX " + PostgreSQLOwnerActiveEpochIndex + " ON heteroci_owner.owner_epochs (scope) WHERE retired_at_unix_milli IS NULL",
+		},
+		{
+			name:      PostgreSQLOwnerScopeRunIndex,
+			statement: "CREATE INDEX " + PostgreSQLOwnerScopeRunIndex + " ON heteroci_owner.routing_runs (scope, run_id, owner_epoch)",
+		},
+		{
+			name:      PostgreSQLOwnerActiveReservationIndex,
+			statement: "CREATE INDEX " + PostgreSQLOwnerActiveReservationIndex + " ON heteroci_owner.routing_reservations (scope, owner_epoch, run_id) WHERE state IN ('planned', 'started')",
+		},
+	}
+}
 
 // postgresqlOwnerSchemaStatements 返回 operator clean create-only DDL；重复应用必须 fail-fast。
 // 管理员必须预创建 LOGIN 最小权限 writer role；backend 不创建 role、credential 或运行这些语句。
@@ -17,8 +53,11 @@ func postgresqlOwnerSchemaStatements() []string {
 		`CREATE TABLE heteroci_owner.routing_runs (scope TEXT NOT NULL, owner_epoch BIGINT NOT NULL, run_id TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 512), repository_id TEXT NOT NULL CHECK (length(repository_id) BETWEEN 1 AND 512), source_tree_sha TEXT NOT NULL CHECK (source_tree_sha ~ '^([0-9a-f]{40}|[0-9a-f]{64})$'), plan_operation_id TEXT NOT NULL, heartbeat_ttl_milli BIGINT NOT NULL CHECK (heartbeat_ttl_milli > 0), last_revision BIGINT NOT NULL CHECK (last_revision > 1), created_at_unix_milli BIGINT NOT NULL CHECK (created_at_unix_milli >= 0), PRIMARY KEY (scope, owner_epoch, run_id), UNIQUE (scope, plan_operation_id), FOREIGN KEY (scope, plan_operation_id) REFERENCES heteroci_owner.operation_journal(scope, operation_id), FOREIGN KEY (scope, owner_epoch) REFERENCES heteroci_owner.owner_epochs(scope, owner_epoch))`,
 		`CREATE TABLE heteroci_owner.routing_reservations (scope TEXT NOT NULL, owner_epoch BIGINT NOT NULL, run_id TEXT NOT NULL, node_id TEXT NOT NULL, probe_identity TEXT NOT NULL, probe_boot_id TEXT NOT NULL, cpu_milli BIGINT NOT NULL CHECK (cpu_milli > 0), memory_bytes BIGINT NOT NULL CHECK (memory_bytes > 0), max_concurrency BIGINT NOT NULL CHECK (max_concurrency > 0), state TEXT NOT NULL CHECK (state IN ('planned', 'started', 'finished')), last_revision BIGINT NOT NULL CHECK (last_revision > 1), PRIMARY KEY (scope, owner_epoch, run_id, node_id, probe_identity, probe_boot_id), FOREIGN KEY (scope, owner_epoch, run_id) REFERENCES heteroci_owner.routing_runs(scope, owner_epoch, run_id))`,
 		`CREATE TABLE heteroci_owner.routing_leases (scope TEXT NOT NULL, owner_epoch BIGINT NOT NULL, run_id TEXT NOT NULL, unit_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('planned', 'started', 'finished')), lease_bytes BYTEA NOT NULL CHECK (octet_length(lease_bytes) > 0), started_bytes BYTEA, terminal_bytes BYTEA, last_revision BIGINT NOT NULL CHECK (last_revision > 1), started_at_unix_milli BIGINT CHECK (started_at_unix_milli >= 0), finished_at_unix_milli BIGINT CHECK (finished_at_unix_milli >= started_at_unix_milli), PRIMARY KEY (scope, owner_epoch, run_id, unit_id), FOREIGN KEY (scope, owner_epoch, run_id) REFERENCES heteroci_owner.routing_runs(scope, owner_epoch, run_id))`,
-		"REVOKE ALL ON SCHEMA " + PostgreSQLOwnerSchema + " FROM PUBLIC",
 	}
+	for _, index := range postgresqlOwnerIndexDefinitions() {
+		statements = append(statements, index.statement)
+	}
+	statements = append(statements, "REVOKE ALL ON SCHEMA "+PostgreSQLOwnerSchema+" FROM PUBLIC")
 	for _, table := range postgresqlOwnerTableNames() {
 		statements = append(statements, "ALTER TABLE "+PostgreSQLOwnerSchema+"."+table+" OWNER TO "+PostgreSQLOwnerRole)
 		statements = append(statements, "REVOKE ALL ON TABLE "+PostgreSQLOwnerSchema+"."+table+" FROM PUBLIC")
@@ -30,6 +69,27 @@ func postgresqlOwnerSchemaStatements() []string {
 // backend 不调用本函数；重复应用必须由 PostgreSQL 原子拒绝。
 func PostgreSQLOwnerDDL() string {
 	return strings.Join(postgresqlOwnerSchemaStatements(), ";\n") + ";"
+}
+
+// PostgreSQLOwnerAdditiveIndexDDL 返回供已创建空库一次性应用的 create-only index DDL。
+// 它不创建 schema/table，不使用 IF NOT EXISTS，重复应用必须由 PostgreSQL 拒绝。
+func PostgreSQLOwnerAdditiveIndexDDL() string {
+	definitions := postgresqlOwnerIndexDefinitions()
+	statements := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		statements = append(statements, definition.statement)
+	}
+	return strings.Join(statements, ";\n") + ";"
+}
+
+func postgresqlOwnerIndexNames() []string {
+	definitions := postgresqlOwnerIndexDefinitions()
+	names := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		names = append(names, definition.name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func postgresqlOwnerTableNames() []string {
