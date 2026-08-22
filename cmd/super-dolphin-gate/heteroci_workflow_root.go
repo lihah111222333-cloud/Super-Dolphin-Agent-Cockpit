@@ -34,6 +34,10 @@ type HeterociRootInput struct {
 	RepositoryID string
 	// SourceTreeSHA 是本次 run 显式审计绑定的 canonical Git tree OID。
 	SourceTreeSHA string
+	// ExternalOperationID 是外部 request 的不可变 operation identity。
+	ExternalOperationID heteroci.OperationID
+	// ManifestDigest 是外部 binding 提供的 portable manifest raw blob 摘要。
+	ManifestDigest string
 	// RunID 是本次 workflow 的稳定运行 identity。
 	RunID string
 	// Units 是待规划的异构 execution units。
@@ -44,6 +48,8 @@ type HeterociRootInput struct {
 	ProbeTransport heteroci.ProbeTransport
 	// ExecutorBinder 是显式注入的 local/ECI executor 绑定端口。
 	ExecutorBinder heterociworkflow.ExecutorBinder
+	// LifecycleObserver 是生产 lifecycle 事件持久化的显式注入端口。
+	LifecycleObserver heterociworkflow.LifecycleObserver
 	// CleanupTimeout 是 workflow bounded cleanup 的正超时。
 	CleanupTimeout time.Duration
 	// Now 是 workflow 使用的显式时钟。
@@ -76,22 +82,40 @@ func RunHeterociWorkflow(ctx context.Context, input HeterociRootInput) (result h
 		return result, fmt.Errorf("%w: construct durable owner: %w", ErrHeterociRootInput, err)
 	}
 	manifestCopy := cloneHeterociRootManifest(manifest)
+	runIdentity, err := heteroci.DeriveTopologyRunIdentity(input.RepositoryID, input.SourceTreeSHA, input.RunID)
+	if err != nil {
+		return result, fmt.Errorf("%w: derive durable run identity: %w", ErrHeterociRootInput, err)
+	}
+	topologyManifestDigest, err := heterociworkflow.DeriveManifestDigest(manifest)
+	if err != nil {
+		return result, fmt.Errorf("%w: derive topology manifest digest: %w", ErrHeterociRootInput, err)
+	}
 	dependencies := heterociworkflow.Dependencies{
-		Owner:           owner,
-		ProbeTransport:  input.ProbeTransport,
-		Executors:       input.ExecutorBinder,
-		LoadManifest:    fixedHeterociRootManifestLoader(input.ManifestPath, manifestCopy),
-		AcquireSnapshot: heteroci.AcquireSnapshot,
-		Now:             input.Now,
-		CleanupTimeout:  input.CleanupTimeout,
+		Owner:             owner,
+		ProbeTransport:    input.ProbeTransport,
+		Executors:         input.ExecutorBinder,
+		LifecycleObserver: input.LifecycleObserver,
+		LoadManifest:      fixedHeterociRootManifestLoader(input.ManifestPath, manifestCopy),
+		AcquireSnapshot:   heteroci.AcquireSnapshot,
+		Now:               input.Now,
+		CleanupTimeout:    input.CleanupTimeout,
 	}
 	request := heterociworkflow.RunRequest{
-		ManifestPath:  input.ManifestPath,
-		RepositoryID:  input.RepositoryID,
-		SourceTreeSHA: input.SourceTreeSHA,
-		RunID:         input.RunID,
-		Units:         cloneHeterociRootUnits(input.Units),
-		HeartbeatTTL:  input.HeartbeatTTL,
+		SchemaVersion:          heterociworkflow.RunRequestSchemaVersion,
+		ExternalOperationID:    input.ExternalOperationID,
+		DurableRunID:           runIdentity.DurableRunID,
+		ManifestDigest:         input.ManifestDigest,
+		TopologyManifestDigest: topologyManifestDigest,
+		ManifestPath:           input.ManifestPath,
+		RepositoryID:           input.RepositoryID,
+		SourceTreeSHA:          input.SourceTreeSHA,
+		RunID:                  input.RunID,
+		Units:                  cloneHeterociRootUnits(input.Units),
+		HeartbeatTTL:           input.HeartbeatTTL,
+	}
+	request.RequestDigest, err = heterociworkflow.DeriveRunRequestDigest(request)
+	if err != nil {
+		return result, fmt.Errorf("%w: derive request digest: %w", ErrHeterociRootInput, err)
 	}
 	return heterociworkflow.Execute(ctx, dependencies, request)
 }
@@ -130,6 +154,9 @@ func validateHeterociRootRouting(input HeterociRootInput) error {
 	if err := heteroci.ValidateTopologyAuditIdentity(input.RepositoryID, input.SourceTreeSHA, input.RunID); err != nil {
 		return fmt.Errorf("%w: run audit identity is invalid: %w", ErrHeterociRootInput, err)
 	}
+	if err := input.ExternalOperationID.Validate(); err != nil || input.ManifestDigest == "" {
+		return fmt.Errorf("%w: external operation and manifest digest are required", ErrHeterociRootInput)
+	}
 	if err := heteroci.ValidateExecutionUnits(input.Units); err != nil {
 		return fmt.Errorf("%w: execution units are invalid: %w", ErrHeterociRootInput, err)
 	}
@@ -149,8 +176,8 @@ func validateHeterociRootTiming(input HeterociRootInput) error {
 
 // validateHeterociRootDependencies 校验 probe 与 executor 的显式注入对象。
 func validateHeterociRootDependencies(input HeterociRootInput) error {
-	if isNilHeterociRootDependency(input.ProbeTransport) || isNilHeterociRootDependency(input.ExecutorBinder) {
-		return fmt.Errorf("%w: probe transport and executor binder are required", ErrHeterociRootInput)
+	if isNilHeterociRootDependency(input.ProbeTransport) || isNilHeterociRootDependency(input.ExecutorBinder) || isNilHeterociRootDependency(input.LifecycleObserver) {
+		return fmt.Errorf("%w: probe transport, executor binder, and lifecycle observer are required", ErrHeterociRootInput)
 	}
 	return nil
 }

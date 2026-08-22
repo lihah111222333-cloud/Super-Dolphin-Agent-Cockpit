@@ -92,6 +92,8 @@ func NormalizeExecutorBindingPlan(plan ExecutorBindingPlan) (ExecutorBindingPlan
 	})
 	return clone, nil
 }
+
+// normalizeExecutorBinding 规范化单节点 binding 的 batch 顺序和 identity。
 func normalizeExecutorBinding(binding ExecutorBinding) (ExecutorBinding, error) {
 	if binding.NodeID == "" || binding.ExecutorKind == "" {
 		return ExecutorBinding{}, errors.New("executor binding node or executor kind is missing")
@@ -221,6 +223,8 @@ func executorBindingPlansEqual(left, right []ExecutorBinding) bool {
 	}
 	return true
 }
+
+// sameExecutorBindingIdentity 比较两个 binding 是否具有完全相同的持久身份。
 func sameExecutorBindingIdentity(left, right ExecutorBinding) bool {
 	return left.NodeID == right.NodeID && left.ExecutorKind == right.ExecutorKind && left.NodeIDDigest == right.NodeIDDigest && left.ShardDigest == right.ShardDigest && left.BatchSetDigest == right.BatchSetDigest && left.UnitSetDigest == right.UnitSetDigest && left.NodeFactsDigest == right.NodeFactsDigest
 }
@@ -235,6 +239,8 @@ func equalBatchIDs(left, right []BatchID) bool {
 	}
 	return true
 }
+
+// buildExecutorBindingPlan 为已构建的 batches 生成一次性 durable binding 计划。
 func buildExecutorBindingPlan(request RunRequest, prepared preparedRun) (ExecutorBindingPlan, error) {
 	planDigest, err := deriveDurablePlanDigest(prepared.planned)
 	if err != nil {
@@ -267,6 +273,8 @@ func buildExecutorBindingPlan(request RunRequest, prepared preparedRun) (Executo
 	}
 	return plan, nil
 }
+
+// buildExecutorBinding 生成单个 executor lane 的 canonical digest 集合。
 func buildExecutorBinding(key ExecutorKey, batches []BatchPlan, snapshot heteroci.SnapshotSet, shards []heteroci.NodeShard) (ExecutorBinding, error) {
 	if err := key.Validate(); err != nil {
 		return ExecutorBinding{}, err
@@ -353,6 +361,8 @@ func validatePersistedExecutorBinding(previous heteroci.OwnerFence, expected Exe
 	}
 	return nil
 }
+
+// validateRunRequest 校验请求上下文、审计 identity、payload 和 request digest。
 func validateRunRequest(ctx context.Context, request RunRequest) error {
 	if err := validateRunRequestContext(ctx); err != nil {
 		return err
@@ -378,6 +388,8 @@ func validateRunRequestContext(ctx context.Context) error {
 	}
 	return nil
 }
+
+// validateRunRequestIdentity 校验 request schema、operation/run identity 和 digest 格式。
 func validateRunRequestIdentity(request RunRequest) error {
 	if request.ManifestPath == "" || strings.TrimSpace(request.ManifestPath) != request.ManifestPath {
 		return fmt.Errorf("%w: manifest path is invalid", ErrInvalidRequest)
@@ -399,6 +411,8 @@ func validateRunRequestDigests(request RunRequest) error {
 	}
 	return nil
 }
+
+// validateRunRequestPayload 校验请求中的仓库审计字段、TTL 和 execution units。
 func validateRunRequestPayload(request RunRequest) error {
 	if err := heteroci.ValidateTopologyAuditIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID); err != nil {
 		return fmt.Errorf("%w: run audit identity is invalid: %w", ErrInvalidRequest, err)
@@ -480,5 +494,8 @@ func (workflow *Workflow) prepareExecution(ctx context.Context, request RunReque
 	prepared.bindingPlan = fromDomainExecutorBindingPlan(persisted.Plan)
 	prepared.state.fence = persisted.Fence
 	prepared.executors, err = workflow.bindExecutors(ctx, prepared.bindingPlan)
-	return err
+	if err != nil {
+		return err
+	}
+	return workflow.observePreparedRun(ctx, request, prepared)
 }
