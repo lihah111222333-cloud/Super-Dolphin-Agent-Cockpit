@@ -90,6 +90,10 @@ func TestExpandDetectedRepositoryGoCatalogSupportsExplicitWorkloadOnlyManifest(t
 		t.Fatal(err)
 	}
 	detected.Manifest.CatalogPolicies = nil
+	detected.Manifest.CapacityPolicyDigest, err = remoteportable.DerivePortableCapacityPolicyDigest(detected.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := append([]remoteportable.PortableManifestWorkload(nil), detected.Workloads...)
 	expanded, err := expandDetectedRepositoryGoCatalog(context.Background(), detected)
 	if err != nil {

@@ -27,7 +27,7 @@ const (
 )
 
 // usageText 只描述仍保留的公开 descriptor/execute 入口；云制品命令已退役。
-const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> --repository <absolute-root> | execute\n"
+const usageText = "Usage: super-dolphin-remote-ci validate --descriptor <absolute-file> --repository <absolute-root> | execute --request <absolute-file> --repository <absolute-root> --runtime-config <absolute-file>\n"
 
 // ErrExecutionContractUpgradeRequired 表示 execute 尚未获得可验证的执行合约。
 var ErrExecutionContractUpgradeRequired = errors.New("execution contract upgrade required")

@@ -1021,8 +1021,8 @@ internal/devtools/projectmaptrusted/project_map_test.go	internal	other	go-test	1
 internal/devtools/remotecicli/engine_facts_test.go	internal	other	go-test	2566	开发工具与生成器辅助包	internal,devtools,remotecicli,engine,facts,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/execute.go	internal	other	go-source	13321	开发工具与生成器辅助包	internal,devtools,remotecicli,execute,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_go_catalog.go	internal	other	go-source	8229	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,开发工具与生成器辅助包
-internal/devtools/remotecicli/portable_go_catalog_test.go	internal	other	go-test	8442	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,test,开发工具与生成器辅助包
-internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	23739	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
+internal/devtools/remotecicli/portable_go_catalog_test.go	internal	other	go-test	8593	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	23827	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	28200	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/postgresql_authority.go	internal	other	go-source	12890	开发工具与生成器辅助包	internal,devtools,remotecicli,postgresql,authority,开发工具与生成器辅助包
 internal/devtools/remotecicli/postgresql_authority_test.go	internal	other	go-test	11125	开发工具与生成器辅助包	internal,devtools,remotecicli,postgresql,authority,test,开发工具与生成器辅助包
