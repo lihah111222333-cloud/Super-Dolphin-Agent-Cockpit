@@ -113,7 +113,10 @@ func newSSHRequesterFixture(t *testing.T, exitCode int) sshRequesterFixture {
 	now := time.UnixMilli(1_780_000_000_000)
 	manifest := sshRequesterManifest()
 	response := sshRequesterResponse(manifest, now)
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve fixture root: %v", err)
+	}
 	responsePath := filepath.Join(root, "response.json")
 	encoded, err := json.Marshal(response)
 	if err != nil {
@@ -146,7 +149,6 @@ func newSSHRequesterFixture(t *testing.T, exitCode int) sshRequesterFixture {
 func sshRequesterManifest() heteroci.Manifest {
 	return heteroci.Manifest{
 		SchemaVersion: heteroci.ManifestSchemaVersion, Authority: heteroci.AuthorityLocalNonAuthoritative,
-		CloudOverflow: heteroci.CloudOverflowConfig{},
 		Nodes: []heteroci.NodeConfig{{
 			NodeID: "linux-a", Endpoint: "ssh://linux-a",
 			ProbeIdentity: "sha256:" + strings.Repeat("a", 64), Platform: heteroci.PlatformLinuxAMD64,
