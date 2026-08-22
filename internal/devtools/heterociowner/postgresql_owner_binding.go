@@ -51,7 +51,7 @@ func (owner *PostgreSQLOwner) bindExecutorsOnce(ctx context.Context, mutation he
 		return heteroci.ExecutorBindingMutationResult{}, rollbackPostgreSQLOwnerTx(tx, err)
 	}
 	if found {
-		return finishPostgreSQLBindingReplay(tx, record, mutation, requestBytes)
+		return finishPostgreSQLBindingReplay(ctx, tx, record, mutation, requestBytes)
 	}
 	current, found, err := readPostgreSQLOwnerHead(ctx, tx, mutation.Fence.Scope, true)
 	if err != nil || !found {
@@ -68,8 +68,8 @@ func (owner *PostgreSQLOwner) bindExecutorsOnce(ctx context.Context, mutation he
 	}
 	return owner.commitPostgreSQLBindingMutation(ctx, tx, current, mutation, requestBytes, nowUnixMilli)
 }
-func finishPostgreSQLBindingReplay(tx *sql.Tx, record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, requestBytes []byte) (heteroci.ExecutorBindingMutationResult, error) {
-	result, err := replayPostgreSQLBinding(record, mutation, requestBytes)
+func finishPostgreSQLBindingReplay(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, requestBytes []byte) (heteroci.ExecutorBindingMutationResult, error) {
+	result, err := replayPostgreSQLBinding(ctx, tx, record, mutation, requestBytes)
 	if err != nil {
 		return heteroci.ExecutorBindingMutationResult{}, rollbackPostgreSQLOwnerTx(tx, err)
 	}
@@ -115,23 +115,23 @@ func persistPostgreSQLBindingRows(ctx context.Context, tx *sql.Tx, current heter
 	requestDigest, resultDigest := digestBytes(requestBytes), digestBytes(resultBytes)
 	operation := OperationRequest{Fence: current, OperationID: mutation.Plan.ExternalOperationID, Kind: postgresqlExecutorBindingOperationKind, RequestBytes: requestBytes, ResultBytes: resultBytes, ProjectionDigest: resultDigest, CommittedAtUnixMilli: nowUnixMilli}
 	journalDigest := journalChainDigest(current, operation, previousJournal, requestDigest, resultDigest, revision)
-	if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_owner.operation_journal (scope, operation_id, owner_id, owner_epoch, revision, kind, request_bytes, request_digest, result_bytes, result_digest, previous_journal_digest, journal_digest, projection_digest, committed_at_unix_milli) VALUES (, , , , , , , , , , , , , )", current.Scope, mutation.Plan.ExternalOperationID, current.OwnerID, current.OwnerEpoch, revision, operation.Kind, requestBytes, requestDigest, resultBytes, resultDigest, previousJournal, journalDigest, resultDigest, nowUnixMilli); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_owner.operation_journal (scope, operation_id, owner_id, owner_epoch, revision, kind, request_bytes, request_digest, result_bytes, result_digest, previous_journal_digest, journal_digest, projection_digest, committed_at_unix_milli) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)", current.Scope, mutation.Plan.ExternalOperationID, current.OwnerID, current.OwnerEpoch, revision, operation.Kind, requestBytes, requestDigest, resultBytes, resultDigest, previousJournal, journalDigest, resultDigest, nowUnixMilli); err != nil {
 		return err
 	}
-	runUpdated, err := tx.ExecContext(ctx, "UPDATE heteroci_owner.routing_runs SET last_revision =  WHERE scope =  AND owner_epoch =  AND run_id =  AND last_revision = ", revision, current.Scope, current.OwnerEpoch, mutation.Plan.DurableRunID, current.Revision)
+	runUpdated, err := tx.ExecContext(ctx, "UPDATE heteroci_owner.routing_runs SET last_revision = $1 WHERE scope = $2 AND owner_epoch = $3 AND run_id = $4 AND last_revision = $5", revision, current.Scope, current.OwnerEpoch, mutation.Plan.DurableRunID, current.Revision)
 	if err != nil {
 		return err
 	}
 	if err := requireOnePostgreSQLRow(runUpdated, "advance PostgreSQL executor binding run revision"); err != nil {
 		return err
 	}
-	updated, err := tx.ExecContext(ctx, "UPDATE heteroci_owner.owner_heads SET revision = , journal_digest = , projection_digest = , updated_at_unix_milli =  WHERE scope =  AND owner_id =  AND owner_epoch =  AND revision = ", revision, journalDigest, resultDigest, nowUnixMilli, current.Scope, current.OwnerID, current.OwnerEpoch, current.Revision)
+	updated, err := tx.ExecContext(ctx, "UPDATE heteroci_owner.owner_heads SET revision = $1, journal_digest = $2, projection_digest = $3, updated_at_unix_milli = $4 WHERE scope = $5 AND owner_id = $6 AND owner_epoch = $7 AND revision = $8", revision, journalDigest, resultDigest, nowUnixMilli, current.Scope, current.OwnerID, current.OwnerEpoch, current.Revision)
 	if err != nil {
 		return err
 	}
 	return requireOnePostgreSQLRow(updated, "advance PostgreSQL executor binding owner head")
 }
-func replayPostgreSQLBinding(record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, requestBytes []byte) (heteroci.ExecutorBindingMutationResult, error) {
+func replayPostgreSQLBinding(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, requestBytes []byte) (heteroci.ExecutorBindingMutationResult, error) {
 	if record.Kind != postgresqlExecutorBindingOperationKind || !bytes.Equal(record.RequestBytes, requestBytes) || record.OwnerID != mutation.Fence.OwnerID || record.OwnerEpoch != mutation.Fence.OwnerEpoch {
 		return heteroci.ExecutorBindingMutationResult{}, ErrOperationConflict
 	}
@@ -139,10 +139,63 @@ func replayPostgreSQLBinding(record postgresqlOperationRecord, mutation heteroci
 	if err := json.Unmarshal(record.ResultBytes, &persisted); err != nil {
 		return heteroci.ExecutorBindingMutationResult{}, fmt.Errorf("decode PostgreSQL executor binding replay: %w", err)
 	}
+	if err := validatePostgreSQLBindingJournal(ctx, tx, record, mutation, requestBytes, persisted); err != nil {
+		return heteroci.ExecutorBindingMutationResult{}, err
+	}
 	if !reflect.DeepEqual(persisted.Plan, mutation.Plan) || persisted.Fence.OwnerEpoch != mutation.Fence.OwnerEpoch {
 		return heteroci.ExecutorBindingMutationResult{}, ErrOperationConflict
 	}
 	return heteroci.ExecutorBindingMutationResult{Fence: persisted.Fence, Plan: persisted.Plan}, nil
+}
+func validatePostgreSQLBindingJournal(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, requestBytes []byte, persisted postgresqlBindingOperationResult) error {
+	if err := validatePostgreSQLBindingRecordIdentity(record, mutation, persisted); err != nil {
+		return err
+	}
+	if err := validatePostgreSQLBindingRecordDigests(record, requestBytes); err != nil {
+		return err
+	}
+	if err := validatePostgreSQLBindingJournalChain(record, mutation.Fence); err != nil {
+		return err
+	}
+	return validatePostgreSQLBindingHead(ctx, tx, record, mutation.Fence)
+}
+func validatePostgreSQLBindingRecordIdentity(record postgresqlOperationRecord, mutation heteroci.ExecutorBindingMutation, persisted postgresqlBindingOperationResult) error {
+	if record.Scope != mutation.Fence.Scope || record.OperationID != mutation.Plan.ExternalOperationID || record.Revision != mutation.Fence.Revision+1 || record.Revision != persisted.Fence.Revision || record.OwnerEpoch != persisted.Fence.OwnerEpoch {
+		return ErrOperationConflict
+	}
+	return nil
+}
+func validatePostgreSQLBindingRecordDigests(record postgresqlOperationRecord, requestBytes []byte) error {
+	if record.RequestDigest != digestBytes(requestBytes) || record.ResultDigest != digestBytes(record.ResultBytes) {
+		return ErrOperationConflict
+	}
+	return nil
+}
+func validatePostgreSQLBindingJournalChain(record postgresqlOperationRecord, fence heteroci.OwnerFence) error {
+	operation := OperationRequest{Fence: fence, OperationID: record.OperationID, Kind: record.Kind, RequestBytes: record.RequestBytes, ResultBytes: record.ResultBytes, ProjectionDigest: record.ProjectionDigest, CommittedAtUnixMilli: record.CommittedAtUnixMilli}
+	wantJournal := journalChainDigest(fence, operation, record.PreviousJournal, record.RequestDigest, record.ResultDigest, record.Revision)
+	if wantJournal != record.JournalDigest {
+		return ErrOperationConflict
+	}
+	return nil
+}
+func validatePostgreSQLBindingHead(ctx context.Context, tx *sql.Tx, record postgresqlOperationRecord, fence heteroci.OwnerFence) error {
+	head, headJournal, headProjection, found, err := readPostgreSQLBindingHead(ctx, tx, fence.Scope)
+	if err != nil || !found || head.Revision != record.Revision || headJournal != record.JournalDigest || headProjection != record.ProjectionDigest {
+		return ErrOperationConflict
+	}
+	return nil
+}
+func readPostgreSQLBindingHead(ctx context.Context, queryer postgresqlOwnerQueryRower, scope heteroci.RoutingOwnerScope) (heteroci.OwnerFence, string, string, bool, error) {
+	head, found, err := readPostgreSQLOwnerHead(ctx, queryer, scope, false)
+	if err != nil || !found {
+		return heteroci.OwnerFence{}, "", "", found, err
+	}
+	var journalDigest, projectionDigest string
+	if err := queryer.QueryRowContext(ctx, "SELECT journal_digest, projection_digest FROM heteroci_owner.owner_heads WHERE scope = $1", scope).Scan(&journalDigest, &projectionDigest); err != nil {
+		return heteroci.OwnerFence{}, "", "", false, err
+	}
+	return head, journalDigest, projectionDigest, true, nil
 }
 func (owner *PostgreSQLOwner) reconcilePostgreSQLBinding(ctx context.Context, mutation heteroci.ExecutorBindingMutation, requestBytes []byte) (heteroci.ExecutorBindingMutationResult, bool, error) {
 	tx, err := owner.beginPostgreSQLOwnerTx(ctx)
@@ -159,7 +212,7 @@ func (owner *PostgreSQLOwner) reconcilePostgreSQLBinding(ctx context.Context, mu
 		}
 		return heteroci.ExecutorBindingMutationResult{}, false, nil
 	}
-	result, err := replayPostgreSQLBinding(record, mutation, requestBytes)
+	result, err := replayPostgreSQLBinding(ctx, tx, record, mutation, requestBytes)
 	if err != nil {
 		return heteroci.ExecutorBindingMutationResult{}, false, rollbackPostgreSQLOwnerTx(tx, err)
 	}

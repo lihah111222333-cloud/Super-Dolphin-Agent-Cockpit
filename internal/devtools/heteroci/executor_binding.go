@@ -1,6 +1,7 @@
 package heteroci
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -86,6 +87,27 @@ func DeriveExecutorBindingPlanDigest(plan ExecutorBindingPlan) (string, error) {
 		return "", err
 	}
 	return "sha256:" + topologyDigest("heteroci-workflow-executor-binding-plan/v1", string(encoded)), nil
+}
+
+// ValidateTopologyPlanBindingAudit 校验 plan journal 必须持久化的 request-level audit fields。
+func ValidateTopologyPlanBindingAudit(request TopologyPlanRequest) error {
+	for _, digest := range []string{request.RequestDigest, request.ManifestDigest, request.TopologyManifestDigest} {
+		if !validTopologyDigest(digest) {
+			return fmt.Errorf("topology plan binding audit digest is invalid")
+		}
+	}
+	want, err := DeriveTopologyManifestDigest(request.Manifest)
+	if err != nil || want != request.TopologyManifestDigest {
+		return fmt.Errorf("topology plan manifest digest does not match manifest")
+	}
+	return nil
+}
+func validTopologyDigest(value string) bool {
+	if len(value) != len("sha256:")+64 || value[:len("sha256:")] != "sha256:" {
+		return false
+	}
+	_, err := hex.DecodeString(value[len("sha256:"):])
+	return err == nil
 }
 
 // DeriveExecutorBindingValueDigest 计算绑定集合、分片或 node facts 的 domain-separated digest。
@@ -199,7 +221,7 @@ func validateExecutorBindingDigests(binding ExecutorBinding, unitIDs []string, s
 	return nil
 }
 func executorBindingExpectedDigests(binding ExecutorBinding, node NodeSnapshot, unitIDs []string, shards []NodeShard) ([4]string, error) {
-	shardDigest, err := DeriveExecutorBindingValueDigest("heteroci-workflow-executor-shard/v1", executorBindingMatchingShards(binding.NodeID, shards))
+	shardDigest, err := DeriveExecutorBindingValueDigest("heteroci-workflow-executor-shard/v1", ExecutorBindingMatchingShards(binding.NodeID, shards))
 	if err != nil {
 		return [4]string{}, err
 	}
@@ -233,7 +255,9 @@ func executorBindingNode(snapshot SnapshotSet, nodeID string) (NodeSnapshot, boo
 	}
 	return NodeSnapshot{}, false
 }
-func executorBindingMatchingShards(nodeID string, shards []NodeShard) []NodeShard {
+
+// ExecutorBindingMatchingShards 返回指定 node 的 canonical shard/wave/unit 集合。
+func ExecutorBindingMatchingShards(nodeID string, shards []NodeShard) []NodeShard {
 	matched := make([]NodeShard, 0, 1)
 	for _, shard := range shards {
 		if shard.NodeID != nodeID {

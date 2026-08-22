@@ -121,6 +121,10 @@ func (conn *postgresqlOwnerTestConn) queryPostgreSQLBase(query string, args []dr
 		conn.locked = true
 		conn.state.advisoryLocks++
 		return newPostgreSQLOwnerTestRows([]string{"lock"}, [][]driver.Value{{nil}}), nil
+	case strings.Contains(query, "SELECT journal_digest, projection_digest FROM heteroci_owner.owner_heads"):
+		conn.noteAuthorityRead()
+		data := conn.currentData()
+		return newPostgreSQLOwnerTestRows([]string{"journal_digest", "projection_digest"}, [][]driver.Value{{data.head[3], data.head[4]}}), nil
 	case strings.Contains(query, "FROM heteroci_owner.owner_heads") && strings.Contains(query, "owner_id"):
 		conn.noteAuthorityRead()
 		data := conn.currentData()

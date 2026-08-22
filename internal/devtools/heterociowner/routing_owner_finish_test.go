@@ -91,8 +91,12 @@ func topologyPlanRequest(t *testing.T, fence heteroci.OwnerFence, operationID he
 	t.Helper()
 	_ = fence
 	runIdentity := topologyRunIdentity(t, "test-repository", strings.Repeat("d", 40), runID)
+	topologyManifestDigest, err := heteroci.DeriveTopologyManifestDigest(manifest)
+	if err != nil {
+		t.Fatalf("DeriveTopologyManifestDigest: %v", err)
+	}
 	return heteroci.TopologyPlanRequest{
-		OperationID: operationID, RunIdentity: runIdentity,
+		OperationID: operationID, ExternalOperationID: heteroci.OperationID(strings.Repeat("c", 64)), RequestDigest: digestBytes([]byte("topology-request-" + runID)), ManifestDigest: "sha256:" + strings.Repeat("9", 64), TopologyManifestDigest: topologyManifestDigest, RunIdentity: runIdentity,
 		Manifest: manifest, SourceSnapshot: snapshot, Units: units, HeartbeatTTL: heartbeatTTL,
 	}
 }

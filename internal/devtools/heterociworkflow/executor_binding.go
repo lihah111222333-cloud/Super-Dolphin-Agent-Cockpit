@@ -37,9 +37,6 @@ const ExecutorBindingPlanSchemaVersion = "remote-ci-executor-binding/v1"
 // ExecutorBindingSchemaVersion 是 binding item 使用的 canonical 协议版本。
 const ExecutorBindingSchemaVersion = ExecutorBindingPlanSchemaVersion
 
-// ExecutorBindingMutationKind 是 PG owner operation journal 的 mutation kind。
-const ExecutorBindingMutationKind = "executor_bind/v1"
-
 // RunRequestSchemaVersion 标识严格解码的 external run request。
 const RunRequestSchemaVersion = "remote-ci-run-request/v1"
 
@@ -71,28 +68,6 @@ func DeriveRunRequestDigest(request RunRequest) (string, error) {
 		return "", fmt.Errorf("encode run request digest material: %w", err)
 	}
 	return "sha256:" + workflowDigest("remote-ci-run-request/v1", string(encoded)), nil
-}
-
-type executorBindingDigestMaterial struct {
-	NodeID          string                `json:"node_id"`
-	NodeIDDigest    string                `json:"node_id_digest"`
-	ExecutorKind    heteroci.ExecutorKind `json:"executor_kind"`
-	BatchIDs        []BatchID             `json:"batch_ids"`
-	ShardDigest     string                `json:"shard_digest"`
-	BatchSetDigest  string                `json:"batch_set_digest"`
-	UnitSetDigest   string                `json:"unit_set_digest"`
-	NodeFactsDigest string                `json:"node_facts_digest"`
-}
-type executorBindingPlanDigestMaterial struct {
-	SchemaVersion          string                          `json:"schema_version"`
-	ExternalOperationID    heteroci.OperationID            `json:"external_operation_id"`
-	DurableRunID           heteroci.TopologyRunID          `json:"durable_run_id"`
-	RequestDigest          string                          `json:"request_digest"`
-	ManifestDigest         string                          `json:"manifest_digest"`
-	TopologyManifestDigest string                          `json:"topology_manifest_digest"`
-	PlanDigest             string                          `json:"plan_digest"`
-	AuthorityGeneration    heteroci.RoutingOwnerEpoch      `json:"authority_generation"`
-	Bindings               []executorBindingDigestMaterial `json:"bindings"`
 }
 
 // NormalizeExecutorBindingPlan 返回按 node/lane/batch canonical 排序且不共享 caller slice 的计划。
@@ -146,23 +121,6 @@ func DeriveExecutorBindingDigest(binding ExecutorBinding) (string, error) {
 		batchIDs[index] = string(batchID)
 	}
 	return heteroci.DeriveExecutorBindingItemDigest(heteroci.ExecutorBinding{NodeID: normalized.NodeID, NodeIDDigest: normalized.NodeIDDigest, ExecutorKind: normalized.ExecutorKind, BatchIDs: batchIDs, ShardDigest: normalized.ShardDigest, BatchSetDigest: normalized.BatchSetDigest, UnitSetDigest: normalized.UnitSetDigest, NodeFactsDigest: normalized.NodeFactsDigest})
-}
-
-// DeriveExecutorBindingPlanDigest 委托给 storage-neutral domain，避免 PG/workflow 漂移。
-func DeriveExecutorBindingPlanDigest(plan ExecutorBindingPlan) (string, error) {
-	normalized, err := NormalizeExecutorBindingPlan(plan)
-	if err != nil {
-		return "", err
-	}
-	bindings := make([]heteroci.ExecutorBinding, len(normalized.Bindings))
-	for index, binding := range normalized.Bindings {
-		batchIDs := make([]string, len(binding.BatchIDs))
-		for batchIndex, batchID := range binding.BatchIDs {
-			batchIDs[batchIndex] = string(batchID)
-		}
-		bindings[index] = heteroci.ExecutorBinding{NodeID: binding.NodeID, NodeIDDigest: binding.NodeIDDigest, ExecutorKind: binding.ExecutorKind, BatchIDs: batchIDs, ShardDigest: binding.ShardDigest, BatchSetDigest: binding.BatchSetDigest, UnitSetDigest: binding.UnitSetDigest, NodeFactsDigest: binding.NodeFactsDigest}
-	}
-	return heteroci.DeriveExecutorBindingPlanDigest(heteroci.ExecutorBindingPlan{SchemaVersion: normalized.SchemaVersion, ExternalOperationID: normalized.ExternalOperationID, DurableRunID: normalized.DurableRunID, RequestDigest: normalized.RequestDigest, ManifestDigest: normalized.ManifestDigest, TopologyManifestDigest: normalized.TopologyManifestDigest, PlanDigest: normalized.PlanDigest, AuthorityGeneration: normalized.AuthorityGeneration, Bindings: bindings, BindingDigest: normalized.BindingDigest})
 }
 
 // DeriveExecutorBindingAggregateDigest 委托给 storage-neutral domain，避免 PG/workflow 漂移。
@@ -320,7 +278,7 @@ func buildExecutorBinding(key ExecutorKey, batches []BatchPlan, snapshot heteroc
 	}
 	sort.Slice(batchIDs, func(left, right int) bool { return string(batchIDs[left]) < string(batchIDs[right]) })
 	sort.Strings(unitIDs)
-	shardDigest, err := heteroci.DeriveExecutorBindingValueDigest("heteroci-workflow-executor-shard/v1", matchingNodeShards(key.NodeID, shards))
+	shardDigest, err := heteroci.DeriveExecutorBindingValueDigest("heteroci-workflow-executor-shard/v1", heteroci.ExecutorBindingMatchingShards(key.NodeID, shards))
 	if err != nil {
 		return ExecutorBinding{}, err
 	}
@@ -345,22 +303,6 @@ func buildExecutorBinding(key ExecutorKey, batches []BatchPlan, snapshot heteroc
 		return ExecutorBinding{}, err
 	}
 	return ExecutorBinding{NodeID: key.NodeID, NodeIDDigest: nodeIDDigest, ExecutorKind: key.Kind, BatchIDs: batchIDs, ShardDigest: shardDigest, BatchSetDigest: batchSetDigest, UnitSetDigest: unitSetDigest, NodeFactsDigest: nodeFactsDigest}, nil
-}
-func matchingNodeShards(nodeID string, shards []heteroci.NodeShard) []heteroci.NodeShard {
-	matched := make([]heteroci.NodeShard, 0, 1)
-	for _, shard := range shards {
-		if shard.NodeID == nodeID {
-			copyShard := shard
-			copyShard.Waves = append([]heteroci.ExecutionWave(nil), shard.Waves...)
-			sort.Slice(copyShard.Waves, func(left, right int) bool { return copyShard.Waves[left].Wave < copyShard.Waves[right].Wave })
-			for index := range copyShard.Waves {
-				copyShard.Waves[index].UnitIDs = append([]string(nil), copyShard.Waves[index].UnitIDs...)
-				sort.Strings(copyShard.Waves[index].UnitIDs)
-			}
-			matched = append(matched, copyShard)
-		}
-	}
-	return matched
 }
 func findSnapshotNode(snapshot heteroci.SnapshotSet, nodeID string) (heteroci.NodeSnapshot, bool) {
 	for _, node := range snapshot.Nodes {

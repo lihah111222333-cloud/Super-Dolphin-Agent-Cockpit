@@ -24,12 +24,16 @@ type TopologySession struct {
 
 // TopologyPlanRequest 是 topology session mutation 的 storage-neutral 原始输入。
 type TopologyPlanRequest struct {
-	OperationID    OperationID         `json:"operation_id"`
-	RunIdentity    TopologyRunIdentity `json:"run_identity"`
-	Manifest       Manifest            `json:"manifest"`
-	SourceSnapshot SnapshotSet         `json:"source_snapshot"`
-	Units          []ExecutionUnit     `json:"units"`
-	HeartbeatTTL   time.Duration       `json:"heartbeat_ttl"`
+	OperationID            OperationID         `json:"operation_id"`
+	ExternalOperationID    OperationID         `json:"external_operation_id"`
+	RequestDigest          string              `json:"request_digest"`
+	ManifestDigest         string              `json:"manifest_digest"`
+	TopologyManifestDigest string              `json:"topology_manifest_digest"`
+	RunIdentity            TopologyRunIdentity `json:"run_identity"`
+	Manifest               Manifest            `json:"manifest"`
+	SourceSnapshot         SnapshotSet         `json:"source_snapshot"`
+	Units                  []ExecutionUnit     `json:"units"`
+	HeartbeatTTL           time.Duration       `json:"heartbeat_ttl"`
 }
 
 // TopologyReservedPlan 是 topology mutation 提交后的 storage-neutral 投影。
@@ -161,13 +165,7 @@ func (request TopologyPlanRequest) Validate(session TopologySession) error {
 	if err := session.Validate(); err != nil {
 		return err
 	}
-	if _, err := ParseOperationID(string(request.OperationID)); err != nil {
-		return err
-	}
-	if err := request.RunIdentity.Validate(); err != nil {
-		return err
-	}
-	if err := request.Manifest.Validate(); err != nil {
+	if err := request.validateTopologyPlanIdentity(); err != nil {
 		return err
 	}
 	if request.SourceSnapshot.OwnerEpoch != session.OwnerEpoch {
@@ -180,6 +178,22 @@ func (request TopologyPlanRequest) Validate(session TopologySession) error {
 		return fmt.Errorf("heteroci topology heartbeat TTL must be positive")
 	}
 	return nil
+}
+
+func (request TopologyPlanRequest) validateTopologyPlanIdentity() error {
+	if _, err := ParseOperationID(string(request.OperationID)); err != nil {
+		return err
+	}
+	if _, err := ParseOperationID(string(request.ExternalOperationID)); err != nil {
+		return err
+	}
+	if err := request.RunIdentity.Validate(); err != nil {
+		return err
+	}
+	if err := request.Manifest.Validate(); err != nil {
+		return err
+	}
+	return ValidateTopologyPlanBindingAudit(request)
 }
 
 func validateTopologyOwnerNamespace(value string) error {

@@ -95,13 +95,22 @@ func validatePostgreSQLBindingAgainstPlan(ctx context.Context, queryer postgresq
 	if err != nil {
 		return err
 	}
-	if persisted.OperationID != planOperationID || envelope.Request.RunIdentity.DurableRunID != mutation.Plan.DurableRunID || persisted.Fence.OwnerEpoch != mutation.Fence.OwnerEpoch {
-		return fmt.Errorf("persisted topology plan identity drifted")
+	if err := validatePostgreSQLBindingPlanIdentity(envelope, persisted, mutation, planOperationID); err != nil {
+		return err
 	}
 	if err := validatePersistedPostgreSQLPlanDigests(envelope.Request.Manifest, persisted, mutation.Plan); err != nil {
 		return err
 	}
 	return validatePostgreSQLBindingCoverage(mutation.Plan, persisted)
+}
+func validatePostgreSQLBindingPlanIdentity(envelope postgresqlPlanEnvelope, persisted heteroci.TopologyReservedPlan, mutation heteroci.ExecutorBindingMutation, planOperationID heteroci.OperationID) error {
+	if persisted.OperationID != planOperationID || envelope.Request.RunIdentity.DurableRunID != mutation.Plan.DurableRunID || persisted.Fence.OwnerEpoch != mutation.Fence.OwnerEpoch {
+		return fmt.Errorf("persisted topology plan identity drifted")
+	}
+	if envelope.Request.ExternalOperationID != mutation.Plan.ExternalOperationID || envelope.Request.RequestDigest != mutation.Plan.RequestDigest || envelope.Request.ManifestDigest != mutation.Plan.ManifestDigest || envelope.Request.TopologyManifestDigest != mutation.Plan.TopologyManifestDigest {
+		return fmt.Errorf("persisted topology plan request audit drifted")
+	}
+	return nil
 }
 func readPostgreSQLPlanRecord(ctx context.Context, queryer postgresqlOwnerQueryRower, scope heteroci.RoutingOwnerScope, operationID heteroci.OperationID) (postgresqlOperationRecord, error) {
 	record, found, err := readPostgreSQLOperation(ctx, queryer, scope, operationID)

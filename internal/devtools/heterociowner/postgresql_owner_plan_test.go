@@ -120,8 +120,12 @@ func postgresqlPlanRequestFixture(t *testing.T, fence heteroci.OwnerFence, now t
 		t.Fatalf("DeriveTopologyRunIdentity: %v", err)
 	}
 	operationID := topologyPlanOperationID(t, runIdentity.DurableRunID)
+	topologyManifestDigest, err := heteroci.DeriveTopologyManifestDigest(manifest)
+	if err != nil {
+		t.Fatalf("DeriveTopologyManifestDigest: %v", err)
+	}
 	return heteroci.TopologyPlanRequest{
-		OperationID: operationID, RunIdentity: runIdentity,
+		OperationID: operationID, ExternalOperationID: heteroci.OperationID(strings.Repeat("c", 64)), RequestDigest: digestBytes([]byte("topology-request-" + string(runIdentity.DurableRunID))), ManifestDigest: "sha256:" + strings.Repeat("9", 64), TopologyManifestDigest: topologyManifestDigest, RunIdentity: runIdentity,
 		Manifest: manifest, SourceSnapshot: durableRoutingSnapshot(manifest, fence.OwnerEpoch, now),
 		Units: []heteroci.ExecutionUnit{{UnitID: "unit-a", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer, EstimatedDurationMS: 1_000, CPUMilli: 500, MemoryBytes: 512 * 1024 * 1024}}, HeartbeatTTL: 30 * time.Second,
 	}

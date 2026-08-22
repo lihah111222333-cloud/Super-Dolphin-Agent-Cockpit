@@ -345,7 +345,7 @@ func assertCanonicalPlanAuditRequest(t *testing.T, raw []byte, fence heteroci.Ow
 		t.Fatalf("decode topology plan request fields: %v", err)
 	}
 	assertExactPlanAuditJSONFields(t, requestFields,
-		"operation_id", "run_identity", "manifest", "source_snapshot", "units", "heartbeat_ttl",
+		"operation_id", "external_operation_id", "request_digest", "manifest_digest", "topology_manifest_digest", "run_identity", "manifest", "source_snapshot", "units", "heartbeat_ttl",
 	)
 	var identityFields map[string]json.RawMessage
 	if err := json.Unmarshal(requestFields["run_identity"], &identityFields); err != nil {

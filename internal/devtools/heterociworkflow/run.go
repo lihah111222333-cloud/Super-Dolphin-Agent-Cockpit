@@ -84,7 +84,7 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	if err != nil {
 		return preparedRun{}, err
 	}
-	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, heteroci.TopologyPlanRequest{OperationID: ids.plan, RunIdentity: runIdentity, Manifest: manifest, SourceSnapshot: snapshot, Units: request.Units, HeartbeatTTL: request.HeartbeatTTL})
+	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, heteroci.TopologyPlanRequest{OperationID: ids.plan, ExternalOperationID: request.ExternalOperationID, RequestDigest: request.RequestDigest, ManifestDigest: request.ManifestDigest, TopologyManifestDigest: request.TopologyManifestDigest, RunIdentity: runIdentity, Manifest: manifest, SourceSnapshot: snapshot, Units: request.Units, HeartbeatTTL: request.HeartbeatTTL})
 	if err != nil {
 		return preparedRun{}, fmt.Errorf("plan and reserve heteroci run: %w", err)
 	}
