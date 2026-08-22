@@ -4,9 +4,9 @@
   "cache_scope": "node",
   "inputs": {
     "toolchain_lock_sha256": "sha256:1ed9f3c1c170378cf30805a2dd1dfb9ae508a5cfe6347fddfa16f6c5b79e143b",
-    "go_mod_sha256": "sha256:26145dd08c09df3862014377512a54ba2ca9a84adc9e1451258050f9fb1ec75f",
-    "go_sum_sha256": "sha256:8c717e45352a15786cac26ee3e01be1fa81ff838e249c34356a3ed95e75a530a",
-    "go_distribution_lock_sha256": "sha256:e5c78dfb226562952f8b2a7a9c29074e1fe58371ee63359086f04a31a025a9a6",
+    "go_mod_sha256": "sha256:0ed9f38595a62642f3d7e59017330029122338fcd58f09800bad8345d9e523d8",
+    "go_sum_sha256": "sha256:28fc2a3451df2088852ba8cf4b25d74518a895edbf1baacbb05c3ecf40f15974",
+    "go_distribution_lock_sha256": "sha256:48716d3847d2f40ed86f923ea84aefbd5969e7779cd9eea2f4e883dbb5a31a78",
     "nilness_runner_sha256": "sha256:95dc872b202a527293eb57887ddb8fb4caf0a9f6ec5169fd17cbff99f74e8b9d",
     "nilness_guard_sha256": "sha256:b85f7ca92e06a6783898751dd969328ba9fcdf234f6727680b5e0d60536acd46",
     "frontend_package_lock_sha256": "sha256:a558027d0cc2ca66844a6ac3e77079b94ff1a2f19c89ff0b2609af82f478b882",
@@ -18,7 +18,7 @@
   },
   "recipe_inputs": {
     "dockerfile_sha256": "sha256:c8a16f8d1c2a88e3069d24b573fd328dbec97a3f47342a98bcc3b48abac19fb5",
-    "runtime_seed_worker_sha256": "sha256:88acfbb2cda63a0496de5422d3b458a5fefe93fd30ceb06b577a4b18beeb4e0a"
+    "runtime_seed_worker_sha256": "sha256:44f315cf3b7c60dbb4c1271c8d4b78fb8ba227285e23e5be4c349a4856273368"
   },
   "paths": {
     "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",

@@ -1,7 +1,6 @@
 package gateclosure_test
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"os"
@@ -41,16 +40,6 @@ func TestWorkerRecipeCommandsAreRegisteredBuiltinAndNotRejected(t *testing.T) {
 			},
 			rejectVector: "\t\t{\"validate-go-distribution\"},",
 		},
-		{
-			name:          "race-package-patterns",
-			registryCase:  `case "race-package-patterns":`,
-			canonicalCall: "gatecontract.RaceSensitivePackagePatterns()",
-			recipeLines: map[string]string{
-				"build/gate/closure/closure.go": "set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; " + "\\",
-				dockerfilePath:                  "set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; " + "\\",
-			},
-			rejectVector: "\t\t{\"race-package-patterns\"},",
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -81,10 +70,10 @@ type manifest struct {
 	SourceSnapshotPathsSHA256 string   `json:"source_snapshot_paths_sha256"`
 }
 
-func TestTruthImageClosureUsesImmutableStandaloneRuntime(t *testing.T) {
+func TestTrustedGateClosureUsesExactSourceManifest(t *testing.T) {
 	root := repositoryRoot(t)
 	tracked := readManifest(t, root)
-	if tracked.SchemaVersion != "3" || tracked.Dockerfile != dockerfilePath ||
+	if tracked.SchemaVersion != "4" || tracked.Dockerfile != dockerfilePath ||
 		!sort.StringsAreSorted(tracked.Inputs) || !sort.StringsAreSorted(tracked.GateCompileInputs) ||
 		tracked.SourceSnapshotInputCount <= 0 || !strings.HasPrefix(tracked.SourceSnapshotPathsSHA256, "sha256:") {
 		t.Fatalf("invalid truth image manifest identity: %+v", tracked)
@@ -119,7 +108,7 @@ func TestTruthImageClosureUsesImmutableStandaloneRuntime(t *testing.T) {
 	}
 }
 
-func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
+func TestTrustedGateDockerfileIsSourceClosureOnly(t *testing.T) {
 	root := repositoryRoot(t)
 	data, err := os.ReadFile(filepath.Join(root, dockerfilePath))
 	if err != nil {
@@ -127,64 +116,36 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 	}
 	text := string(data)
 	for _, required := range []string{
-		"ARG RUNTIME_DEPS_IMAGE\n",
-		"ARG BASELINE_CACHE_IMAGE\n",
-		"ARG COMPILED_SEED_IMAGE\n",
-		"ARG MAIN_COMMIT\n",
+		"FROM scratch AS source-closure",
+		"FROM source-closure AS final",
+		"ARG BUILD_SOURCE_TREE\n",
 		"ARG GATE_SOURCE_DIGEST\n",
 		"ARG RUNTIME_DEPENDENCY_DIGEST\n",
-		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
-		"--mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
-		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /out/go-build-cache",
-		"env GOCACHEPROG=\"$go_cache_proxy --metrics",
-		"FROM ${RUNTIME_DEPS_IMAGE} AS compiled-seed\nUSER root",
-		"FROM ${COMPILED_SEED_IMAGE} AS compiled-seed-source",
-		"FROM ${RUNTIME_DEPS_IMAGE} AS postprocess",
-		"remote-ci-cache-material/v1",
-		`"authority":"non_authoritative_material"`,
-		`"seed_steps"`,
-		"compiled seed material manifest fields mismatch",
-		"compiled seed material identity mismatch",
-		"org.super-dolphin.gate-source-digest=\"${GATE_SOURCE_DIGEST}\"",
-		"org.super-dolphin.main-commit-sha=\"${MAIN_COMMIT}\"",
-		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
-		"seed_compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...",
-		"seed_compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
-		"seed_compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
-		"seed compile complete phase=%s authority=non_authoritative_material",
-		"compiled-seed complete go_cache_entries=%s",
-		"COPY --from=postprocess /out/super-dolphin-gate /super-dolphin-gate",
-		"ENTRYPOINT [\"/super-dolphin-gate\"]",
-		"ENV GOCACHE=/out/go-build-cache",
-		"COPY --from=postprocess /out/go-build-cache /opt/super-dolphin/cache/go-build",
-		"chmod -R a-w /opt/super-dolphin/cache/go-build",
+		"ARG TOOLCHAIN_DIGEST\n",
+		"org.super-dolphin.closure-schema=\"trusted-gate-closure/v1\"",
 		"org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\"",
-		"org.super-dolphin.image-input-digest=\"${IMAGE_INPUT_DIGEST}\"",
-		"org.super-dolphin.policy-sha=\"${POLICY_DIGEST}\"",
+		"org.super-dolphin.runtime-dependency-digest=\"${RUNTIME_DEPENDENCY_DIGEST}\"",
 		"org.super-dolphin.toolchain-digest=\"${TOOLCHAIN_DIGEST}\"",
-		"org.super-dolphin.platform=\"${TARGET_PLATFORM}\"",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("truth Dockerfile is missing %q", required)
+			t.Fatalf("trusted Gate Dockerfile is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "go mod download", "super-dolphin-gate-executor", "/opt/super-dolphin-gate/cache-seed/go-build", "COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build", "cp -a /baseline-cache", "record_provision_check", "generation-one-build-receipt", "generation-one-receipts", "provision_checks", "accepted_snapshot_id"} {
+	for _, forbidden := range []string{
+		"remote-ci-" + "cache-material/v1",
+		"non_" + "authoritative_material",
+		"runtime_" + "image",
+		"RUNTIME_DEPS_" + "IMAGE",
+		"BASELINE_" + "CACHE_IMAGE",
+		"COMPILED_" + "SEED_IMAGE",
+		"compiled-" + "seed",
+		"Image" + "Cache",
+		"/opt/super-dolphin/cache/go-build",
+		"/out/compiled-seed-manifest.json",
+	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("truth Dockerfile contains forbidden fallback %q", forbidden)
+			t.Fatalf("trusted Gate Dockerfile contains retired cloud material %q", forbidden)
 		}
-	}
-	if strings.Contains(text, "127.0.0.1:5000") || strings.Contains(text, "localhost:") {
-		t.Fatal("truth Dockerfile must receive its runtime dependency image from the platform-bound build request")
-	}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "RUN ") && !strings.HasPrefix(line, "RUN --network=none ") {
-			t.Fatalf("truth Dockerfile has network-capable RUN: %s", line)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -320,7 +281,7 @@ func countTrimmedLine(t *testing.T, path, want string) int {
 	t.Helper()
 	data := readTestFile(t, path)
 	count := 0
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		if strings.TrimSpace(line) == want {
 			count++
 		}
