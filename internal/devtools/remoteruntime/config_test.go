@@ -215,7 +215,7 @@ func TestLoadConfigRejectsHandleReplacementAfterRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
+	root := resolvedTestTempDir(t)
 	path := filepath.Join(root, "runtime.json")
 	replacement := filepath.Join(root, "replacement.json")
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
@@ -265,6 +265,16 @@ func TestLoadConfigRejectsSymlinkComponent(t *testing.T) {
 	if _, err := LoadConfig(filepath.Join(link, "runtime.json")); err == nil {
 		t.Fatal("LoadConfig() accepted a symlink component")
 	}
+}
+
+func resolvedTestTempDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }
 
 type scriptedConfigHandle struct {
