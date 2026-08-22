@@ -158,8 +158,8 @@ func (transport *Transport) Config() RuntimeConfig {
 	return config
 }
 
-// Command 构造一个 operation 的完整 SSH argv，但不启动远端进程。
-func (transport *Transport) Command(operation Operation, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (CommandSpec, error) {
+// ProbeCommand 构造不启动远端进程的 probe SSH argv；fresh capacity probe 不需要 execution facts。
+func (transport *Transport) ProbeCommand(target TargetFacts, nodeID string, request []byte) (CommandSpec, error) {
 	if transport == nil || transport.runner == nil {
 		return CommandSpec{}, ErrInvalidTransportDependencies
 	}
@@ -167,7 +167,39 @@ func (transport *Transport) Command(operation Operation, target TargetFacts, exe
 	if !ok {
 		return CommandSpec{}, fmt.Errorf("%w: node identity", ErrInvalidTransportRequest)
 	}
-	if err := validateOperation(operation); err != nil {
+	if err := validateRequest(request); err != nil {
+		return CommandSpec{}, err
+	}
+	if err := target.Validate(); err != nil {
+		return CommandSpec{}, err
+	}
+	args, err := transport.probeSSHArgs(node, request)
+	if err != nil {
+		return CommandSpec{}, err
+	}
+	return CommandSpec{Executable: transport.config.SSHExecutable, Args: args}, nil
+}
+
+// RunCommand 构造 runner SSH argv；每次 batch 必须显式提供 execution facts。
+func (transport *Transport) RunCommand(target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (CommandSpec, error) {
+	return transport.batchCommand(OperationRun, target, execution, nodeID, request)
+}
+
+// WorkerCommand 构造 worker SSH argv；每次 batch 必须显式提供 execution facts。
+func (transport *Transport) WorkerCommand(target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (CommandSpec, error) {
+	return transport.batchCommand(OperationWorker, target, execution, nodeID, request)
+}
+
+// batchCommand 构造 run/worker 的完整 SSH argv；每次 batch 必须显式提供 execution facts。
+func (transport *Transport) batchCommand(operation Operation, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (CommandSpec, error) {
+	if transport == nil || transport.runner == nil {
+		return CommandSpec{}, ErrInvalidTransportDependencies
+	}
+	node, ok := transport.nodes[nodeID]
+	if !ok {
+		return CommandSpec{}, fmt.Errorf("%w: node identity", ErrInvalidTransportRequest)
+	}
+	if err := validateBatchOperation(operation); err != nil {
 		return CommandSpec{}, err
 	}
 	if err := validateRequest(request); err != nil {
@@ -179,16 +211,24 @@ func (transport *Transport) Command(operation Operation, target TargetFacts, exe
 	if err := execution.ValidateFor(node.Platform); err != nil {
 		return CommandSpec{}, err
 	}
-	args, err := transport.sshArgs(operation, node, target, execution, request)
+	args, err := transport.batchSSHArgs(operation, node, target, execution, request)
 	if err != nil {
 		return CommandSpec{}, err
 	}
 	return CommandSpec{Executable: transport.config.SSHExecutable, Args: args}, nil
 }
 
-// Probe 在 probe timeout 内执行一个 node probe，并只接受唯一 canonical result。
-func (transport *Transport) Probe(ctx context.Context, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeResult, error) {
-	return transport.execute(ctx, OperationProbe, target, execution, nodeID, request)
+// Probe 在 probe timeout 内执行一个 node probe，并只接受唯一 canonical result；fresh capacity 不要求 execution facts。
+func (transport *Transport) Probe(ctx context.Context, target TargetFacts, nodeID string, request []byte) (NodeResult, error) {
+	node, err := transport.prepareProbeWithContext(ctx, target, nodeID, request)
+	if err != nil {
+		return NodeResult{}, err
+	}
+	args, err := transport.probeSSHArgs(node, request)
+	if err != nil {
+		return NodeResult{}, err
+	}
+	return transport.runCommand(ctx, OperationProbe, node, args)
 }
 
 // Run 在 run timeout 内执行 runner，并只接受唯一 canonical result。
@@ -202,8 +242,8 @@ func (transport *Transport) Worker(ctx context.Context, target TargetFacts, exec
 }
 
 // ProbeBytes 返回 Probe 的 raw canonical JSON，便于独立 binary 直接接入协议 decoder。
-func (transport *Transport) ProbeBytes(ctx context.Context, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) ([]byte, error) {
-	result, err := transport.Probe(ctx, target, execution, nodeID, request)
+func (transport *Transport) ProbeBytes(ctx context.Context, target TargetFacts, nodeID string, request []byte) ([]byte, error) {
+	result, err := transport.Probe(ctx, target, nodeID, request)
 	if err != nil {
 		return nil, err
 	}
@@ -224,11 +264,28 @@ func (transport *Transport) execute(ctx context.Context, operation Operation, ta
 	if err != nil {
 		return NodeResult{}, err
 	}
-	args, err := transport.sshArgs(operation, node, target, execution, request)
+	args, err := transport.batchSSHArgs(operation, node, target, execution, request)
 	if err != nil {
 		return NodeResult{}, err
 	}
 	return transport.runCommand(ctx, operation, node, args)
+}
+
+func (transport *Transport) prepareProbeWithContext(ctx context.Context, target TargetFacts, nodeID string, request []byte) (NodeBinding, error) {
+	if transport == nil || transport.runner == nil || ctx == nil {
+		return NodeBinding{}, ErrInvalidTransportDependencies
+	}
+	node, ok := transport.nodes[nodeID]
+	if !ok {
+		return NodeBinding{}, fmt.Errorf("%w: node identity", ErrInvalidTransportRequest)
+	}
+	if err := target.Validate(); err != nil {
+		return NodeBinding{}, err
+	}
+	if err := validateRequest(request); err != nil {
+		return NodeBinding{}, err
+	}
+	return node, nil
 }
 
 func (transport *Transport) prepareExecution(ctx context.Context, operation Operation, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeBinding, error) {
@@ -239,10 +296,10 @@ func (transport *Transport) prepareExecution(ctx context.Context, operation Oper
 	if !ok {
 		return NodeBinding{}, fmt.Errorf("%w: node identity", ErrInvalidTransportRequest)
 	}
-	if err := validateOperation(operation); err != nil {
+	if err := target.Validate(); err != nil {
 		return NodeBinding{}, err
 	}
-	if err := target.Validate(); err != nil {
+	if err := validateBatchOperation(operation); err != nil {
 		return NodeBinding{}, err
 	}
 	if err := execution.ValidateFor(node.Platform); err != nil {
@@ -282,13 +339,23 @@ func (transport *Transport) operationTimeout(operation Operation) time.Duration 
 	}
 }
 
-func (transport *Transport) sshArgs(operation Operation, node NodeBinding, target TargetFacts, execution ExecutionFacts, request []byte) ([]string, error) {
+func (transport *Transport) probeSSHArgs(node NodeBinding, request []byte) ([]string, error) {
+	token := base64.StdEncoding.EncodeToString(request)
+	remoteArgs := []string{node.ProbeExecutable, "probe", "--config", node.ProbeConfigPath, "--probe-request-base64", token}
+	return transport.finishSSHArgs(OperationProbe, node, remoteArgs)
+}
+
+func (transport *Transport) batchSSHArgs(operation Operation, node NodeBinding, target TargetFacts, execution ExecutionFacts, request []byte) ([]string, error) {
 	token := base64.StdEncoding.EncodeToString(request)
 	workerArgs := []string{node.WorkerExecutable, "batch", "--request-base64", token}
-	remoteArgs, err := operationRemoteArgs(operation, node, target, execution, workerArgs, token, transport.operationTimeout(operation))
+	remoteArgs, err := operationRemoteArgs(operation, node, target, execution, workerArgs, transport.operationTimeout(operation))
 	if err != nil {
 		return nil, err
 	}
+	return transport.finishSSHArgs(operation, node, remoteArgs)
+}
+
+func (transport *Transport) finishSSHArgs(operation Operation, node NodeBinding, remoteArgs []string) ([]string, error) {
 	for _, argument := range remoteArgs {
 		if argument == "" || strings.IndexFunc(argument, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 			return nil, ErrInvalidTransportRequest
@@ -305,10 +372,8 @@ func (transport *Transport) sshArgs(operation Operation, node NodeBinding, targe
 	}, nil
 }
 
-func operationRemoteArgs(operation Operation, node NodeBinding, target TargetFacts, execution ExecutionFacts, workerArgs []string, token string, timeout time.Duration) ([]string, error) {
+func operationRemoteArgs(operation Operation, node NodeBinding, target TargetFacts, execution ExecutionFacts, workerArgs []string, timeout time.Duration) ([]string, error) {
 	switch operation {
-	case OperationProbe:
-		return []string{node.ProbeExecutable, "probe", "--config", node.ProbeConfigPath, "--probe-request-base64", token}, nil
 	case OperationRun:
 		if node.Platform == UbuntuPlatform {
 			return linuxRunnerArgs(node, target, execution, workerArgs, timeout)
@@ -388,9 +453,9 @@ func windowsArgumentSafe(value string) bool {
 	return true
 }
 
-func validateOperation(operation Operation) error {
+func validateBatchOperation(operation Operation) error {
 	switch operation {
-	case OperationProbe, OperationRun, OperationWorker:
+	case OperationRun, OperationWorker:
 		return nil
 	default:
 		return fmt.Errorf("%w: operation", ErrInvalidTransportRequest)

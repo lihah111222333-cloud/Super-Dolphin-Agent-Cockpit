@@ -20,11 +20,11 @@ func TestTransportProbeUsesBoundedContextAndSeparateChannels(t *testing.T) {
 	var calls atomic.Int32
 	var gotSpec CommandSpec
 	transport := probeTransportFixture(t, &gotSpec, &calls)
-	result, err := transport.Probe(context.Background(), targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
+	result, err := transport.Probe(context.Background(), targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
 	if err != nil {
 		t.Fatalf("Probe() error = %v", err)
 	}
-	if result.NodeID != Ubuntu01NodeID || result.Identity != "Ubuntu-01-probe" {
+	if result.NodeID != Ubuntu01NodeID || result.Identity != runtimeFixture().Nodes[0].ProbeIdentity {
 		t.Fatalf("unexpected result identity: %+v", result)
 	}
 	if calls.Load() != 1 {
@@ -33,6 +33,41 @@ func TestTransportProbeUsesBoundedContextAndSeparateChannels(t *testing.T) {
 	assertProbeCommand(t, config, gotSpec)
 	if !bytes.Equal(result.Bytes(), mustProbeResultJSON(t, config.Nodes[0])) {
 		t.Fatalf("result bytes changed: %s", result.Bytes())
+	}
+}
+
+func TestProbeCommandDoesNotRequireExecutionFacts(t *testing.T) {
+	transport, err := New(runtimeFixture(), CommandRunnerFunc(func(_ context.Context, _ CommandSpec) (CommandResult, error) {
+		return CommandResult{}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := transport.ProbeCommand(targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(spec.Args, " ")
+	if strings.Contains(joined, "--goos") || strings.Contains(joined, "--goarch") || strings.Contains(joined, "--module-identity") || strings.Contains(joined, "--workload-identity") {
+		t.Fatalf("probe argv contains batch execution facts: %v", spec.Args)
+	}
+}
+
+func TestProbeBytesDoesNotRequireExecutionFacts(t *testing.T) {
+	node := runtimeFixture().Nodes[0]
+	transport, err := New(runtimeFixture(), CommandRunnerFunc(func(_ context.Context, spec CommandSpec) (CommandResult, error) {
+		_, writeErr := spec.Stdout.Write(mustProbeResultJSON(t, node))
+		return CommandResult{}, writeErr
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := transport.ProbeBytes(context.Background(), targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, mustProbeResultJSON(t, node)) {
+		t.Fatalf("ProbeBytes() changed canonical result: %s", data)
 	}
 }
 
@@ -142,7 +177,7 @@ func TestTransportRejectsMultipleOrNonCanonicalResults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := transport.Probe(context.Background(), targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"probe"}`)); !errors.Is(err, ErrNodeResultInvalid) {
+			if _, err := transport.Probe(context.Background(), targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`)); !errors.Is(err, ErrNodeResultInvalid) {
 				t.Fatalf("Probe() error = %v, want ErrNodeResultInvalid", err)
 			}
 		})
@@ -162,7 +197,7 @@ func TestTransportTimeoutDoesNotRetry(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err = transport.Probe(ctx, targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
+	_, err = transport.Probe(ctx, targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
 	if !errors.Is(err, ErrCommandTimedOut) {
 		t.Fatalf("Probe() error = %v, want timeout", err)
 	}
@@ -179,7 +214,7 @@ func TestTransportWindowsArgvHasNoUnixPlatformFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := transport.Command(OperationRun, targetFixture("target"), executionFixture(WindowsPlatform), Windows01NodeID, []byte(`{"request":"run"}`))
+	spec, err := transport.RunCommand(targetFixture("target"), executionFixture(WindowsPlatform), Windows01NodeID, []byte(`{"request":"run"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,6 +227,32 @@ func TestTransportWindowsArgvHasNoUnixPlatformFields(t *testing.T) {
 	}
 }
 
+func TestBatchPathsRequireExecutionFacts(t *testing.T) {
+	transport, err := New(runtimeFixture(), CommandRunnerFunc(func(_ context.Context, _ CommandSpec) (CommandResult, error) {
+		return CommandResult{}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := targetFixture("target")
+	request := []byte(`{"request":"batch"}`)
+	if _, err := transport.RunCommand(target, ExecutionFacts{}, Ubuntu01NodeID, request); err == nil {
+		t.Fatal("RunCommand accepted missing execution facts")
+	}
+	if _, err := transport.WorkerCommand(target, executionFixture(WindowsPlatform), Ubuntu01NodeID, request); err == nil {
+		t.Fatal("WorkerCommand accepted cross-platform execution facts")
+	}
+	if _, err := transport.Run(context.Background(), target, ExecutionFacts{}, Ubuntu01NodeID, request); err == nil {
+		t.Fatal("Run accepted missing execution facts")
+	}
+	if _, err := transport.Worker(context.Background(), target, executionFixture(WindowsPlatform), Ubuntu01NodeID, request); err == nil {
+		t.Fatal("Worker accepted cross-platform execution facts")
+	}
+	if _, err := transport.Execute(context.Background(), target, ExecutionFacts{}, OperationRun, Ubuntu01NodeID, request); err == nil {
+		t.Fatal("Execute accepted missing execution facts")
+	}
+}
+
 func TestTransportLinuxRunnerUsesDaemonContract(t *testing.T) {
 	transport, err := New(runtimeFixture(), CommandRunnerFunc(func(_ context.Context, _ CommandSpec) (CommandResult, error) {
 		return CommandResult{}, nil
@@ -199,7 +260,7 @@ func TestTransportLinuxRunnerUsesDaemonContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := transport.Command(OperationRun, targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"run"}`))
+	spec, err := transport.RunCommand(targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"run"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

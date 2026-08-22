@@ -119,7 +119,7 @@ func (transport *Transport) BindPortableRun(target TargetFacts) (BoundPortableRu
 	return BindPortableRun(transport.config, target)
 }
 
-// Execute 将 target facts 显式注入一次 bounded operation，并拒绝隐式 target 发现。
+// Execute 将 target facts 与 per-batch execution facts 注入一次 run/worker operation；fresh probe 必须调用 Probe。
 func (transport *Transport) Execute(ctx context.Context, target TargetFacts, execution ExecutionFacts, operation Operation, nodeID string, request []byte) (NodeResult, error) {
 	if _, err := transport.BindPortableRun(target); err != nil {
 		return NodeResult{}, err
@@ -127,7 +127,7 @@ func (transport *Transport) Execute(ctx context.Context, target TargetFacts, exe
 	return transport.execute(ctx, operation, target, execution, nodeID, request)
 }
 
-// Execute 将已绑定 target 的 operation 投影到指定 transport。
+// Execute 将已绑定 target 的 run/worker operation 投影到指定 transport；fresh probe 必须调用 Probe。
 func (bound BoundPortableRun) Execute(ctx context.Context, transport *Transport, execution ExecutionFacts, operation Operation, nodeID string, request []byte) (NodeResult, error) {
 	if transport == nil {
 		return NodeResult{}, ErrInvalidTransportDependencies

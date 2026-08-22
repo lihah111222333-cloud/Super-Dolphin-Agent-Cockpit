@@ -437,13 +437,23 @@ func validateNodePaths(node NodeBinding) error {
 }
 
 func validateNodeIdentities(node NodeBinding) error {
+	if err := validateSHA256Identity(node.ProbeIdentity); err != nil {
+		return errors.New("probe_identity must be an immutable sha256 digest")
+	}
 	for name, value := range map[string]string{
-		"probe_identity": node.ProbeIdentity, "runner_identity": node.RunnerIdentity,
+		"runner_identity": node.RunnerIdentity,
 		"worker_identity": node.WorkerIdentity, "toolchain_identity": node.ToolchainIdentity,
 	} {
 		if err := validateStableIdentity(value); err != nil {
 			return fmt.Errorf("%s is invalid", name)
 		}
+	}
+	return nil
+}
+
+func validateSHA256Identity(value string) error {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") || !isLowerHex(value[len("sha256:"):]) {
+		return errors.New("identity is not a canonical sha256 digest")
 	}
 	return nil
 }

@@ -87,6 +87,7 @@ func TestRuntimeConfigTopologyRules(t *testing.T) {
 		{name: "Ubuntu worktrees overlap", mutate: func(config *RuntimeConfig) { config.Nodes[1].WorktreeRoot = config.Nodes[0].WorktreeRoot + "/nested" }},
 		{name: "Windows roots overlap", mutate: func(config *RuntimeConfig) { config.Nodes[3].TempRoot = config.Nodes[2].TempRoot }},
 		{name: "platform fields mixed", mutate: func(config *RuntimeConfig) { config.Nodes[2].Linux = &LinuxContainerBinding{} }},
+		{name: "probe identity is not sha256", mutate: func(config *RuntimeConfig) { config.Nodes[0].ProbeIdentity = "probe-identity" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -170,7 +171,7 @@ func runtimeFixture() RuntimeConfig {
 func runtimeUbuntuNode(nodeID, privateRoot string) NodeBinding {
 	return NodeBinding{
 		NodeID: nodeID, Platform: UbuntuPlatform, Endpoint: "ssh://" + strings.ToLower(nodeID),
-		ProbeExecutable: "/opt/super-dolphin/probe", ProbeConfigPath: "/etc/super-dolphin/probe.json", ProbeIdentity: nodeID + "-probe",
+		ProbeExecutable: "/opt/super-dolphin/probe", ProbeConfigPath: "/etc/super-dolphin/probe.json", ProbeIdentity: runtimeProbeIdentity(nodeID),
 		RunnerExecutable: "/opt/super-dolphin/linux_runner_daemon.sh", RunnerIdentity: nodeID + "-runner",
 		WorkerExecutable: "/opt/super-dolphin/worker", WorkerIdentity: nodeID + "-worker",
 		RepositoryRoot: privateRoot + "/worktree", ObjectStoreRoot: "/srv/ci/shared/object-store",
@@ -184,13 +185,23 @@ func runtimeUbuntuNode(nodeID, privateRoot string) NodeBinding {
 func runtimeWindowsNode(nodeID, privateRoot string) NodeBinding {
 	return NodeBinding{
 		NodeID: nodeID, Platform: WindowsPlatform, Endpoint: "ssh://" + strings.ToLower(nodeID),
-		ProbeExecutable: "C:/super-dolphin/probe.exe", ProbeConfigPath: "C:/super-dolphin/probe.json", ProbeIdentity: nodeID + "-probe",
+		ProbeExecutable: "C:/super-dolphin/probe.exe", ProbeConfigPath: "C:/super-dolphin/probe.json", ProbeIdentity: runtimeProbeIdentity(nodeID),
 		RunnerExecutable: "C:/super-dolphin/windows_runner.ps1", RunnerIdentity: nodeID + "-runner",
 		WorkerExecutable: "C:/super-dolphin/worker.exe", WorkerIdentity: nodeID + "-worker",
 		RepositoryRoot: privateRoot + "/worktree", ObjectStoreRoot: privateRoot + "/objects", WorktreeRoot: privateRoot + "/worktree",
 		CachePublicationRoot: privateRoot + "/cache-publication", PrivateOverlayRoot: privateRoot + "/overlay", TempRoot: privateRoot + "/temp",
 		GoExecutable: "C:/Go/bin/go.exe", ToolchainIdentity: "sha256:" + strings.Repeat("f", 64),
 	}
+}
+
+func runtimeProbeIdentity(nodeID string) string {
+	digest := map[string]string{
+		Ubuntu01NodeID:  strings.Repeat("a", 64),
+		Ubuntu02NodeID:  strings.Repeat("b", 64),
+		Windows01NodeID: strings.Repeat("c", 64),
+		Windows02NodeID: strings.Repeat("d", 64),
+	}
+	return "sha256:" + digest[nodeID]
 }
 
 func duplicateRuntimeField(encoded []byte) []byte {
