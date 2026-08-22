@@ -229,6 +229,7 @@ func TestBuildPortableGoWorkloadInventoryRejectsModuleTopologyDrift(t *testing.T
 		{name: "stale exclusion", excluded: []string{"missing"}, want: "is stale"},
 		{name: "declared exclusion", excluded: []string{"declared"}, modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/root"}, {Root: "declared", ModulePath: "example.invalid/declared"}}, want: "contains declared module"},
 		{name: "outside exclusion", excluded: []string{"unbound"}, modules: []RepositoryWorkloadModule{{Root: "declared", ModulePath: "example.invalid/declared"}}, want: "outside declared modules"},
+		{name: "root module undeclared", modules: []RepositoryWorkloadModule{{Root: "declared", ModulePath: "example.invalid/declared"}}, want: "root Go module is undeclared"},
 		{name: "module path drift", modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/wrong"}}, want: "path drifted"},
 	}
 	for _, testCase := range cases {
@@ -255,6 +256,38 @@ func TestBuildPortableGoWorkloadInventoryRejectsInvalidExcludedDeclarations(t *t
 		if err == nil {
 			t.Fatalf("excluded %v was accepted", excluded)
 		}
+	}
+}
+
+func TestBuildPortableGoWorkloadInventoryRootNestedDeclarationExclusionMatrix(t *testing.T) {
+	cases := []struct {
+		name     string
+		modules  []RepositoryWorkloadModule
+		excluded []string
+		want     []string
+		wantErr  string
+	}{
+		{name: "root and nested declared", modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/root"}, {Root: "declared", ModulePath: "example.invalid/declared"}}, excluded: []string{"excluded", "unbound"}, want: []string{".\x00./rootpkg", "declared\x00.", "declared\x00./sub"}},
+		{name: "root declared nested excluded", modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/root"}}, excluded: []string{"declared", "excluded", "unbound"}, want: []string{".\x00./rootpkg"}},
+		{name: "nested omitted from exclusions", modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/root"}}, excluded: []string{"excluded", "unbound"}, wantErr: "undeclared and not excluded"},
+		{name: "declared nested cannot be excluded", modules: []RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/root"}, {Root: "declared", ModulePath: "example.invalid/declared"}}, excluded: []string{"declared", "excluded", "unbound"}, wantErr: "contains declared module"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			inventory, err := BuildPortableGoWorkloadInventory(context.Background(), inventoryFixtureReader(), "tree", string(RepositoryWorkloadPlatformLinuxAMD64), testCase.modules, testCase.excluded)
+			if testCase.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
+					t.Fatalf("error = %v, want substring %q", err, testCase.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(inventory.GoPackages, testCase.want) {
+				t.Fatalf("GoPackages = %#v, want %#v", inventory.GoPackages, testCase.want)
+			}
+		})
 	}
 }
 

@@ -217,9 +217,12 @@ func validatePortableExcludedModule(excludedRoot string, actual map[string]struc
 	return nil
 }
 
-// validatePortableActualModule 拒绝未声明且未由排除 subtree 覆盖的 nested module。
+// validatePortableActualModule 拒绝未声明的 root 或 nested module，以及未由排除 subtree 覆盖的边界。
 func validatePortableActualModule(directory string, declared map[string]struct{}, excluded []string) error {
 	if directory == "." {
+		if _, exists := declared[directory]; !exists {
+			return errors.New("portable root Go module is undeclared")
+		}
 		return nil
 	}
 	if _, exists := declared[directory]; exists || portablePathUnderAnyExcludedModule(directory, excluded) {

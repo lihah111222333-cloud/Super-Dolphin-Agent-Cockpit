@@ -1038,7 +1038,7 @@ internal/devtools/remoteciruntime/portable_execution_preflight_test.go	internal	
 internal/devtools/remoteportable/binding_abi.go	internal	other	go-source	1235	开发工具与生成器辅助包	internal,devtools,remoteportable,binding,abi,开发工具与生成器辅助包
 internal/devtools/remoteportable/codec_helpers.go	internal	other	go-source	2357	开发工具与生成器辅助包	internal,devtools,remoteportable,codec,helpers,开发工具与生成器辅助包
 internal/devtools/remoteportable/core_types.go	internal	other	go-source	1106	开发工具与生成器辅助包	internal,devtools,remoteportable,core,types,开发工具与生成器辅助包
-internal/devtools/remoteportable/inventory.go	internal	other	go-source	13675	开发工具与生成器辅助包	internal,devtools,remoteportable,inventory,开发工具与生成器辅助包
+internal/devtools/remoteportable/inventory.go	internal	other	go-source	13814	开发工具与生成器辅助包	internal,devtools,remoteportable,inventory,开发工具与生成器辅助包
 internal/devtools/remoteportable/manifest_top.go	internal	other	go-source	19749	开发工具与生成器辅助包	internal,devtools,remoteportable,manifest,top,开发工具与生成器辅助包
 internal/devtools/remoteportable/portable_descriptor.go	internal	other	go-source	2661	开发工具与生成器辅助包	internal,devtools,remoteportable,portable,descriptor,开发工具与生成器辅助包
 internal/devtools/remoteportable/portable_descriptor_codec.go	internal	other	go-source	9134	开发工具与生成器辅助包	internal,devtools,remoteportable,portable,descriptor,codec,开发工具与生成器辅助包
@@ -1050,7 +1050,7 @@ internal/devtools/remoteportable/process_unix_test.go	internal	other	go-test	706
 internal/devtools/remoteportable/process_windows.go	internal	other	go-source	441	开发工具与生成器辅助包	internal,devtools,remoteportable,process,windows,开发工具与生成器辅助包
 internal/devtools/remoteportable/process_windows_test.go	internal	other	go-test	527	开发工具与生成器辅助包	internal,devtools,remoteportable,process,windows,test,开发工具与生成器辅助包
 internal/devtools/remoteportable/routing_top.go	internal	other	go-source	2554	开发工具与生成器辅助包	internal,devtools,remoteportable,routing,top,开发工具与生成器辅助包
-internal/devtools/remoteportable/top_manifest_test.go	internal	other	go-test	14954	开发工具与生成器辅助包	internal,devtools,remoteportable,top,manifest,test,开发工具与生成器辅助包
+internal/devtools/remoteportable/top_manifest_test.go	internal	other	go-test	17044	开发工具与生成器辅助包	internal,devtools,remoteportable,top,manifest,test,开发工具与生成器辅助包
 internal/devtools/remoteportable/tree_reader.go	internal	other	go-source	1347	开发工具与生成器辅助包	internal,devtools,remoteportable,tree,reader,开发工具与生成器辅助包
 internal/devtools/remoteportable/workload_contract.go	internal	other	go-source	6159	开发工具与生成器辅助包	internal,devtools,remoteportable,workload,contract,开发工具与生成器辅助包
 internal/devtools/remoteruntime/config.go	internal	other	go-source	26297	开发工具与生成器辅助包	internal,devtools,remoteruntime,config,开发工具与生成器辅助包
