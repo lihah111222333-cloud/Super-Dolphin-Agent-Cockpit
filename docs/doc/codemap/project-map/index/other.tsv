@@ -1023,7 +1023,7 @@ internal/devtools/remotecicli/execute.go	internal	other	go-source	13176	开发�
 internal/devtools/remotecicli/portable_go_catalog.go	internal	other	go-source	8037	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_go_catalog_test.go	internal	other	go-test	8162	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	23739	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
-internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	27672	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	27706	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/postgresql_authority.go	internal	other	go-source	12890	开发工具与生成器辅助包	internal,devtools,remotecicli,postgresql,authority,开发工具与生成器辅助包
 internal/devtools/remotecicli/postgresql_authority_test.go	internal	other	go-test	11125	开发工具与生成器辅助包	internal,devtools,remotecicli,postgresql,authority,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect.go	internal	other	go-source	5900	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,开发工具与生成器辅助包

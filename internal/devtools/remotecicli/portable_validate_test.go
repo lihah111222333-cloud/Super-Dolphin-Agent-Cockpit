@@ -232,7 +232,7 @@ func executeRuntimeNode(node heteroci.NodeConfig, index int) remoteruntime.NodeB
 	if node.Platform == heteroci.PlatformLinuxAMD64 {
 		privateRoot := "/srv/ci/u0" + strconv.Itoa(index+1)
 		return remoteruntime.NodeBinding{
-			NodeID: node.NodeID, Platform: remoteruntime.UbuntuPlatform, Endpoint: node.Endpoint,
+			NodeID: node.NodeID, Platform: remoteruntime.UbuntuPlatform, Endpoint: node.Endpoint, CGOEnabled: "0",
 			ProbeExecutable: "/opt/super-dolphin/probe", ProbeConfigPath: "/etc/super-dolphin/probe.json", ProbeIdentity: probeIdentity,
 			RunnerExecutable: "/opt/super-dolphin/linux_runner_daemon.sh", RunnerIdentity: digestBytes([]byte(node.NodeID + "-runner")), WorkerExecutable: "/opt/super-dolphin/worker", WorkerIdentity: digestBytes([]byte(node.NodeID + "-worker")),
 			RepositoryRoot: privateRoot + "/worktree", ObjectStoreRoot: "/srv/ci/shared/object-store", WorktreeRoot: privateRoot + "/worktree", CachePublicationRoot: "/srv/ci/shared/cache-publication", PrivateOverlayRoot: privateRoot + "/overlay", TempRoot: privateRoot + "/temp",
@@ -242,7 +242,7 @@ func executeRuntimeNode(node heteroci.NodeConfig, index int) remoteruntime.NodeB
 	}
 	privateRoot := "C:/ci/w0" + strconv.Itoa(index-1)
 	return remoteruntime.NodeBinding{
-		NodeID: node.NodeID, Platform: remoteruntime.WindowsPlatform, Endpoint: node.Endpoint,
+		NodeID: node.NodeID, Platform: remoteruntime.WindowsPlatform, Endpoint: node.Endpoint, CGOEnabled: "0",
 		ProbeExecutable: "C:/super-dolphin/probe.exe", ProbeConfigPath: "C:/super-dolphin/probe.json", ProbeIdentity: probeIdentity,
 		RunnerExecutable: "C:/super-dolphin/windows_runner.ps1", RunnerIdentity: digestBytes([]byte(node.NodeID + "-runner")), WorkerExecutable: "C:/super-dolphin/worker.exe", WorkerIdentity: digestBytes([]byte(node.NodeID + "-worker")),
 		RepositoryRoot: privateRoot + "/worktree", ObjectStoreRoot: privateRoot + "/objects", WorktreeRoot: privateRoot + "/worktree", CachePublicationRoot: privateRoot + "/cache-publication", PrivateOverlayRoot: privateRoot + "/overlay", TempRoot: privateRoot + "/temp",
