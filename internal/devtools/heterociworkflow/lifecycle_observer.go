@@ -28,6 +28,8 @@ func (workflow *Workflow) observePreparedRun(ctx context.Context, request RunReq
 	observation := clonePreparedRunSnapshot(PreparedRunSnapshot{
 		SchemaVersion: PreparedRunSnapshotSchemaVersion, ExternalOperationID: request.ExternalOperationID,
 		DurableRunID: request.DurableRunID, RequestDigest: request.RequestDigest, ManifestDigest: request.ManifestDigest,
+		ExternalBindingDigest: request.ExternalBindingDigest, ManifestBlobSHA256: request.ManifestBlobSHA256,
+		RuntimePolicyDigest:    request.RuntimePolicyDigest,
 		TopologyManifestDigest: request.TopologyManifestDigest, ManifestPath: request.ManifestPath,
 		RepositoryID: request.RepositoryID, SourceTreeSHA: request.SourceTreeSHA, RunID: request.RunID,
 		HeartbeatTTL: request.HeartbeatTTL, Units: request.Units, Fence: prepared.state.fence, Manifest: prepared.manifest,
@@ -52,6 +54,9 @@ type PreparedRunSnapshot struct {
 	DurableRunID           heteroci.TopologyRunID   `json:"durable_run_id"`
 	RequestDigest          string                   `json:"request_digest"`
 	ManifestDigest         string                   `json:"manifest_digest"`
+	ExternalBindingDigest  string                   `json:"external_binding_digest"`
+	ManifestBlobSHA256     string                   `json:"manifest_blob_sha256"`
+	RuntimePolicyDigest    string                   `json:"runtime_policy_digest"`
 	TopologyManifestDigest string                   `json:"topology_manifest_digest"`
 	ManifestPath           string                   `json:"manifest_path"`
 	RepositoryID           string                   `json:"repository_id"`
@@ -120,6 +125,8 @@ func validatePreparedBindingAudit(snapshot PreparedRunSnapshot) error {
 	plan := snapshot.BindingPlan
 	if plan.ExternalOperationID != snapshot.ExternalOperationID || plan.DurableRunID != snapshot.DurableRunID ||
 		plan.RequestDigest != snapshot.RequestDigest || plan.ManifestDigest != snapshot.ManifestDigest ||
+		plan.ExternalBindingDigest != snapshot.ExternalBindingDigest || plan.ManifestBlobSHA256 != snapshot.ManifestBlobSHA256 ||
+		plan.RuntimePolicyDigest != snapshot.RuntimePolicyDigest ||
 		plan.TopologyManifestDigest != snapshot.TopologyManifestDigest {
 		return errors.New("prepared run binding plan audit identity drifted")
 	}
@@ -169,10 +176,10 @@ func (snapshot PreparedRunSnapshot) validatePreparedAuditIdentity() error {
 
 // validatePreparedDigests 校验 request 与 manifest 摘要可由公开字段重算。
 func (snapshot PreparedRunSnapshot) validatePreparedDigests() error {
-	if !validPreparedDigest(snapshot.RequestDigest) || !validPreparedDigest(snapshot.ManifestDigest) || !validPreparedDigest(snapshot.TopologyManifestDigest) {
-		return errors.New("prepared run digest identity is invalid")
+	if err := validatePreparedAuditDigests(snapshot); err != nil {
+		return err
 	}
-	request := RunRequest{SchemaVersion: RunRequestSchemaVersion, ExternalOperationID: snapshot.ExternalOperationID, DurableRunID: snapshot.DurableRunID, RequestDigest: snapshot.RequestDigest, ManifestDigest: snapshot.ManifestDigest, TopologyManifestDigest: snapshot.TopologyManifestDigest, RepositoryID: snapshot.RepositoryID, SourceTreeSHA: snapshot.SourceTreeSHA, RunID: snapshot.RunID, Units: snapshot.Units, HeartbeatTTL: snapshot.HeartbeatTTL}
+	request := RunRequest{SchemaVersion: RunRequestSchemaVersion, ExternalOperationID: snapshot.ExternalOperationID, DurableRunID: snapshot.DurableRunID, RequestDigest: snapshot.RequestDigest, ManifestDigest: snapshot.ManifestDigest, ExternalBindingDigest: snapshot.ExternalBindingDigest, ManifestBlobSHA256: snapshot.ManifestBlobSHA256, RuntimePolicyDigest: snapshot.RuntimePolicyDigest, TopologyManifestDigest: snapshot.TopologyManifestDigest, RepositoryID: snapshot.RepositoryID, SourceTreeSHA: snapshot.SourceTreeSHA, RunID: snapshot.RunID, Units: snapshot.Units, HeartbeatTTL: snapshot.HeartbeatTTL}
 	want, err := DeriveRunRequestDigest(request)
 	if err != nil || want != snapshot.RequestDigest {
 		return errors.New("prepared run request digest does not match audit fields")
@@ -180,6 +187,15 @@ func (snapshot PreparedRunSnapshot) validatePreparedDigests() error {
 	wantManifest, err := DeriveManifestDigest(snapshot.Manifest)
 	if err != nil || wantManifest != snapshot.TopologyManifestDigest {
 		return errors.New("prepared run topology manifest digest does not match manifest")
+	}
+	return nil
+}
+
+func validatePreparedAuditDigests(snapshot PreparedRunSnapshot) error {
+	for _, digest := range []string{snapshot.RequestDigest, snapshot.ManifestDigest, snapshot.ExternalBindingDigest, snapshot.ManifestBlobSHA256, snapshot.RuntimePolicyDigest, snapshot.TopologyManifestDigest} {
+		if !validPreparedDigest(digest) {
+			return errors.New("prepared run digest identity is invalid")
+		}
 	}
 	return nil
 }

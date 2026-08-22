@@ -45,12 +45,22 @@ func TestWorkflowLifecycleObserverRunsOnceAfterBindingBeforeStart(t *testing.T) 
 	if len(observer.snapshots) != 1 || fixture.owner.startCount != 1 {
 		t.Fatalf("observer/start counts = %d/%d, want 1/1", len(observer.snapshots), fixture.owner.startCount)
 	}
+	assertPreparedExternalAudit(t, observer.snapshots[0], fixture.request)
 	want := []string{"load", "acquire", "locate", "snapshot", "plan", "read", "bind", "observe", "start", "execute", "finish"}
 	if !reflect.DeepEqual(fixture.events, want) {
 		t.Fatalf("events = %v, want %v", fixture.events, want)
 	}
 	if fixture.owner.planRequest.Units[0].UnitID == "observer-mutation" || fixture.binder.plan.Bindings[0].BatchIDs[0] == "observer-mutation" {
 		t.Fatal("observer mutation escaped into workflow-owned binding or plan")
+	}
+}
+
+func assertPreparedExternalAudit(t *testing.T, snapshot PreparedRunSnapshot, request RunRequest) {
+	t.Helper()
+	got := [3]string{snapshot.ExternalBindingDigest, snapshot.ManifestBlobSHA256, snapshot.RuntimePolicyDigest}
+	want := [3]string{request.ExternalBindingDigest, request.ManifestBlobSHA256, request.RuntimePolicyDigest}
+	if got != want {
+		t.Fatalf("prepared external audit = %v, want %v", got, want)
 	}
 }
 
