@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -45,7 +44,7 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 	}
 	switch args[0] {
 	case "validate":
-		return dispatchValidate(args[1:], stdout, stderr)
+		return dispatchValidate(args[1:], stdout)
 	case "execute":
 		return dispatchExecute(args[1:], stdout, stderr)
 	default:
@@ -54,7 +53,7 @@ func dispatchCLI(args []string, stdout, stderr io.Writer) error {
 }
 
 // dispatchValidate 校验参数、读取 descriptor 并绑定共享的 typed run。
-func dispatchValidate(args []string, stdout, stderr io.Writer) error {
+func dispatchValidate(args []string, stdout io.Writer) error {
 	raw, descriptor, repositoryRoot, err := loadPortableDescriptor(args)
 	if err != nil {
 		return err
@@ -63,18 +62,23 @@ func dispatchValidate(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return newCLIFailure("bind portable run", err)
 	}
-	if err := writePortableValidationStages(stderr, descriptor.OperationID, binding.ManifestDigest); err != nil {
-		return newCLIFailure("write validation event", err)
-	}
-	if err := writePortableValidationEvent(stderr, descriptor.OperationID, binding.ManifestDigest, 4, "manifest_binding", "portable_run_bound"); err != nil {
-		return newCLIFailure("write validation event", err)
-	}
 	output, err := boundedBindingJSON(raw, binding)
 	if err != nil {
 		return newCLIFailure("render binding", err)
 	}
-	if _, err := stdout.Write(output); err != nil {
+	if err := writeValidationResult(stdout, output); err != nil {
 		return newCLIFailure("write result", err)
+	}
+	return nil
+}
+
+func writeValidationResult(writer io.Writer, data []byte) error {
+	if writer == nil || len(data) == 0 {
+		return errors.New("validation result writer or payload is invalid")
+	}
+	written, err := writer.Write(data)
+	if err != nil || written != len(data) {
+		return errors.New("validation result write incomplete")
 	}
 	return nil
 }
@@ -200,49 +204,23 @@ func sameFileIdentity(left, right os.FileInfo) bool {
 // boundedBindingJSON 只投影 descriptor 与 identity 摘要，拒绝把 binding 原样写到 stdout。
 func boundedBindingJSON(descriptor []byte, binding remoteportable.BoundPortableRun) ([]byte, error) {
 	descriptorDigest := digestBytes(descriptor)
-	if !isDigest(binding.BindingSHA256) {
-		return nil, errors.New("portable binding omitted canonical identity digest")
+	result := remoteportable.PortableValidationResult{
+		SchemaVersion: remoteportable.PortableValidationResultSchema, Status: remoteportable.PortableValidationResultStatusValidated,
+		ContractID: binding.Manifest.ContractID, Authority: remoteportable.PortableValidationResultAuthority,
+		ExecutionPoolContract: remoteportable.PortableManifestContractID, OperationID: binding.OperationID,
+		RepositoryID: binding.RepositoryID, ObjectFormat: binding.ObjectFormat, TargetCommitSHA: binding.CommitSHA,
+		TargetTreeSHA: binding.TreeSHA, ManifestPath: binding.ManifestPath, ManifestBlobSHA256: binding.ManifestBlobSHA256,
+		ManifestDigest: binding.ManifestDigest, EngineFacts: binding.EngineFacts, DescriptorSHA256: descriptorDigest, BindingSHA256: binding.BindingSHA256,
 	}
-	result := struct {
-		Schema                string `json:"schema"`
-		Status                string `json:"status"`
-		ContractID            string `json:"contract_id"`
-		Authority             string `json:"authority"`
-		ExecutionPoolContract string `json:"execution_pool_contract"`
-		OperationID           string `json:"operation_id"`
-		RepositoryID          string `json:"repository_id"`
-		TargetCommitSHA       string `json:"target_commit_sha"`
-		TargetTreeSHA         string `json:"target_tree_sha"`
-		ManifestBlobSHA256    string `json:"manifest_blob_sha256"`
-		ManifestDigest        string `json:"manifest_digest"`
-		EngineBinarySHA256    string `json:"engine_binary_sha256"`
-		DescriptorDigest      string `json:"descriptor_sha256"`
-		BindingDigest         string `json:"binding_sha256"`
-	}{
-		Schema: "remote-ci-validation-result/v1", Status: "validated",
-		ContractID: binding.Manifest.ContractID, Authority: "LOCAL_NON_AUTHORITATIVE", ExecutionPoolContract: "remote-ci-four-node/v1", OperationID: binding.OperationID, RepositoryID: binding.Manifest.Target.RepositoryID,
-		TargetCommitSHA: binding.CommitSHA, TargetTreeSHA: binding.TreeSHA,
-		ManifestBlobSHA256: binding.ManifestBlobSHA256, ManifestDigest: binding.ManifestDigest, EngineBinarySHA256: binding.EngineFacts.BinarySHA256,
-		DescriptorDigest: descriptorDigest, BindingDigest: binding.BindingSHA256,
-	}
-	data, err := json.Marshal(result)
+	data, err := remoteportable.EncodePortableValidationResult(result)
 	if err != nil {
-		return nil, errors.New("encode bounded binding result")
+		return nil, err
 	}
-	if len(data) > outputMaxBytes {
+	if len(data)+1 > outputMaxBytes {
 		return nil, errors.New("binding result exceeds the bounded size")
 	}
 	data = append(data, '\n')
 	return data, nil
-}
-
-// isDigest 判断输出摘要是否为固定 sha256 wire 形状。
-func isDigest(value string) bool {
-	if len(value) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(value, "sha256:") {
-		return false
-	}
-	_, err := hex.DecodeString(strings.TrimPrefix(value, "sha256:"))
-	return err == nil
 }
 
 // digestBytes 生成 descriptor 原始字节的 bounded 输出摘要。

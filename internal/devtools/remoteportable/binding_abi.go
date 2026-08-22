@@ -9,7 +9,7 @@ const PortableBindingProtocolABIDigestDomain = "remote-ci-run-binding-abi/v1"
 // PortableBindingProtocolABIDigest 返回 run request/binding 全部 wire DTO 的 ABI 摘要。
 func PortableBindingProtocolABIDigest() (string, error) {
 	material := make([]byte, 0)
-	for _, constant := range []string{PortableRunRequestSchemaVersion, PortableManifestSchemaVersion, PortableManifestContractID, PortableManifestWorkloadExecutionDigestDomain, PortableManifestCapacityPolicyDigestDomain, PortableRunBindingDigestDomain, PortableBindingProtocolABIDigestDomain} {
+	for _, constant := range []string{PortableRunRequestSchemaVersion, PortableManifestSchemaVersion, PortableManifestContractID, PortableManifestWorkloadExecutionDigestDomain, PortableManifestCapacityPolicyDigestDomain, PortableRunBindingDigestDomain, PortableBindingProtocolABIDigestDomain, PortableValidationResultSchema, PortableValidationResultStatusValidated, PortableValidationResultAuthority} {
 		material = appendPortableFrame(material, []byte(constant))
 	}
 	for _, typ := range portableBindingWireTypes() {
@@ -26,5 +26,5 @@ func PortableBindingProtocolABIDigest() (string, error) {
 }
 
 func portableBindingWireTypes() []reflect.Type {
-	return append(portableManifestWireTypes(), reflect.TypeFor[PortableRunInput](), reflect.TypeFor[PortableEngineFacts](), reflect.TypeFor[GitRepositoryFacts](), reflect.TypeFor[BoundPortableRun]())
+	return append(portableManifestWireTypes(), reflect.TypeFor[PortableRunInput](), reflect.TypeFor[PortableEngineFacts](), reflect.TypeFor[GitRepositoryFacts](), reflect.TypeFor[BoundPortableRun](), reflect.TypeFor[PortableValidationResult]())
 }

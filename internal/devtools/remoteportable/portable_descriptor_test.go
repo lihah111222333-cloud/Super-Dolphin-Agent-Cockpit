@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -221,4 +222,43 @@ func mustPortableManifestBytes(t *testing.T, manifest PortableManifest) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestPortableValidationResultStrictCanonicalAndFieldRegistry(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	result := PortableValidationResult{
+		SchemaVersion: PortableValidationResultSchema, Status: PortableValidationResultStatusValidated,
+		ContractID: PortableManifestContractID, Authority: PortableValidationResultAuthority,
+		ExecutionPoolContract: PortableManifestContractID, OperationID: strings.Repeat("b", 64), RepositoryID: "fixture",
+		ObjectFormat: "sha1", TargetCommitSHA: strings.Repeat("1", 40), TargetTreeSHA: strings.Repeat("2", 40),
+		ManifestPath: ".super-dolphin/remote-ci-workloads.json", ManifestBlobSHA256: digest, ManifestDigest: digest,
+		EngineFacts:      PortableEngineFacts{BinarySHA256: digest, ProtocolABIDigest: digest, ToolchainDigest: digest, Capabilities: []string{"go"}},
+		DescriptorSHA256: digest, BindingSHA256: digest,
+	}
+	encoded, err := EncodePortableValidationResult(result)
+	if err != nil {
+		t.Fatalf("EncodePortableValidationResult: %v", err)
+	}
+	decoded, err := DecodePortableValidationResult(encoded)
+	if err != nil || !reflect.DeepEqual(decoded, result) {
+		t.Fatalf("DecodePortableValidationResult = %#v, %v; want %#v", decoded, err, result)
+	}
+	unknown := append([]byte(nil), encoded[:len(encoded)-1]...)
+	unknown = append(unknown, []byte(`,"unknown":"x"}`)...)
+	for _, malformed := range [][]byte{unknown, append(append([]byte(nil), encoded...), ' '), []byte(`{"schema_version":"remote-ci-validation-result/v1","schema_version":"remote-ci-validation-result/v1"}`)} {
+		if _, err := DecodePortableValidationResult(malformed); err == nil {
+			t.Fatalf("DecodePortableValidationResult accepted malformed bytes %q", malformed)
+		}
+	}
+	fields := reflect.TypeFor[PortableValidationResult]()
+	for field := range fields.Fields() {
+		if field.Tag.Get("json") == "" {
+			t.Fatalf("PortableValidationResult field %q is missing json tag", field.Name)
+		}
+	}
+	invalid := result
+	invalid.EngineFacts.Capabilities = nil
+	if _, err := EncodePortableValidationResult(invalid); err == nil {
+		t.Fatal("EncodePortableValidationResult accepted nil capabilities")
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -101,17 +100,47 @@ func TestValidateBindsExactRepositoryObjects(t *testing.T) {
 		t.Fatalf("validate result = code %d stdout %q stderr %q", code, stdout, stderr)
 	}
 	assertPortableValidationOutput(t, stdout)
-	assertPortableProgressStages(t, stderr)
+	if stderr != "" {
+		t.Fatalf("validate wrote lifecycle events before PG authority: %q", stderr)
+	}
 }
 
 func assertPortableValidationOutput(t *testing.T, stdout string) {
 	t.Helper()
-	for _, required := range []string{`"schema":"remote-ci-validation-result/v1"`, `"binding_sha256":"sha256:`, `"contract_id":"remote-ci-four-node/v1"`, `"authority":"LOCAL_NON_AUTHORITATIVE"`, `"execution_pool_contract":"remote-ci-four-node/v1"`, `"repository_id":"fixture"`, `"status":"validated"`} {
+	decoded, err := remoteportable.DecodePortableValidationResult(bytes.TrimSpace([]byte(stdout)))
+	if err != nil {
+		t.Fatalf("DecodePortableValidationResult: %v; stdout=%q", err, stdout)
+	}
+	assertPortableValidationTarget(t, decoded)
+	assertPortableValidationWire(t, stdout)
+	assertPortableValidationNoLeak(t, stdout)
+}
+
+func assertPortableValidationTarget(t *testing.T, decoded remoteportable.PortableValidationResult) {
+	t.Helper()
+	if decoded.RepositoryID != "fixture" {
+		t.Fatalf("validation result repository_id = %q", decoded.RepositoryID)
+	}
+	if decoded.ObjectFormat != "sha1" || decoded.ManifestPath != "ci/workloads.json" {
+		t.Fatalf("validation result target drifted: %#v", decoded)
+	}
+	if decoded.EngineFacts.ProtocolABIDigest == "" || decoded.EngineFacts.ToolchainDigest == "" || len(decoded.EngineFacts.Capabilities) != 1 {
+		t.Fatalf("validation result omitted exact engine facts: %#v", decoded)
+	}
+}
+
+func assertPortableValidationWire(t *testing.T, stdout string) {
+	t.Helper()
+	for _, required := range []string{`"schema_version":"remote-ci-validation-result/v1"`, `"binding_sha256":"sha256:`, `"contract_id":"remote-ci-four-node/v1"`, `"authority":"LOCAL_NON_AUTHORITATIVE"`, `"execution_pool_contract":"remote-ci-four-node/v1"`, `"repository_id":"fixture"`, `"object_format":"sha1"`, `"manifest_path":"ci/workloads.json"`, `"engine_facts"`, `"protocol_abi_digest":"sha256:`, `"toolchain_digest":"sha256:`, `"capabilities":["go"]`, `"status":"validated"`} {
 		if !strings.Contains(stdout, required) {
 			t.Fatalf("validation output omitted %q: %q", required, stdout)
 		}
 	}
-	for _, forbidden := range []string{`"schema":"remote-ci-result/v1"`, `"node_id"`, "repository_root", "config_path", "ledger_path"} {
+}
+
+func assertPortableValidationNoLeak(t *testing.T, stdout string) {
+	t.Helper()
+	for _, forbidden := range []string{`"schema":"`, `"schema":"remote-ci-result/v1"`, `"node_id"`, "repository_root", "config_path", "ledger_path"} {
 		if strings.Contains(stdout, forbidden) {
 			t.Fatalf("validation output leaked or claimed %q: %q", forbidden, stdout)
 		}
@@ -121,7 +150,7 @@ func assertPortableValidationOutput(t *testing.T, stdout string) {
 func TestValidateOutputDeclaresMacOSNonExecutor(t *testing.T) {
 	descriptorPath := portableCLIRealDescriptor(t)
 	code, stdout, _ := executeCLI([]string{"validate", "--descriptor", descriptorPath, "--repository", filepath.Dir(descriptorPath)})
-	if code != 0 || !strings.Contains(stdout, `"authority":"LOCAL_NON_AUTHORITATIVE"`) || strings.Contains(stdout, `"node_id"`) || strings.Contains(stdout, `"schema":"remote-ci-result/v1"`) {
+	if code != 0 || !strings.Contains(stdout, `"authority":"LOCAL_NON_AUTHORITATIVE"`) || strings.Contains(stdout, `"node_id"`) || strings.Contains(stdout, `"schema":"`) || !strings.Contains(stdout, `"schema_version":"remote-ci-validation-result/v1"`) {
 		t.Fatalf("validate output incorrectly claims execution: code=%d stdout=%q", code, stdout)
 	}
 }
@@ -330,36 +359,6 @@ func derivePortableCapacityPolicyDigestFixture(t testing.TB, manifest remoteport
 		t.Fatal(err)
 	}
 	return digest
-}
-
-// assertPortableProgressStages 验证 validate 的 bounded stage 日志完整可观察。
-func assertPortableProgressStages(t *testing.T, stderr string) {
-	t.Helper()
-	lines := strings.Split(strings.TrimSpace(stderr), "\n")
-	if len(lines) != 4 {
-		t.Fatalf("validate event count = %d, stderr=%q", len(lines), stderr)
-	}
-	previousSeq := 0
-	for _, line := range lines {
-		var event struct {
-			Schema         string `json:"schema"`
-			OperationID    string `json:"operation_id"`
-			ManifestDigest string `json:"manifest_digest"`
-			Seq            int    `json:"seq"`
-			Time           string `json:"time"`
-			NodeIDDigest   string `json:"node_id_digest"`
-		}
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			t.Fatal(err)
-		}
-		if event.Schema != "remote-ci-event/v1" || event.OperationID == "" || event.ManifestDigest == "" || event.NodeIDDigest == "" || event.Seq != previousSeq+1 {
-			t.Fatalf("invalid validation event: %q", line)
-		}
-		if _, err := time.Parse(time.RFC3339Nano, event.Time); err != nil {
-			t.Fatalf("invalid event time: %q", event.Time)
-		}
-		previousSeq = event.Seq
-	}
 }
 
 // mustMkdirAll 创建测试目录，失败时终止当前测试。
@@ -622,24 +621,15 @@ func mustReadFile(t *testing.T, path string) []byte {
 	return data
 }
 
-type failingEventWriter struct{}
+type shortValidationWriter struct{}
 
-func (failingEventWriter) Write([]byte) (int, error) {
-	return 0, errors.New("event writer failure")
+func (shortValidationWriter) Write(data []byte) (int, error) {
+	return len(data) - 1, nil
 }
 
-func TestValidationEventWriterFailureBlocksPublication(t *testing.T) {
-	if err := writePortableValidationEvent(failingEventWriter{}, strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64), 1, "manifest_binding", "portable_run_bound"); err == nil {
-		t.Fatal("validation event writer failure was swallowed")
-	}
-}
-
-func TestValidateEventFailureBlocksStdoutPublication(t *testing.T) {
-	descriptorPath := portableCLIRealDescriptor(t)
-	var stdout bytes.Buffer
-	err := dispatchCLI([]string{"validate", "--descriptor", descriptorPath, "--repository", filepath.Dir(descriptorPath)}, &stdout, failingEventWriter{})
-	if err == nil || stdout.Len() != 0 {
-		t.Fatalf("validation event failure published result: err=%v stdout=%q", err, stdout.String())
+func TestValidationResultShortWriteBlocksPublication(t *testing.T) {
+	if err := writeValidationResult(shortValidationWriter{}, []byte("{}")); err == nil {
+		t.Fatal("short stdout write was accepted")
 	}
 }
 
@@ -648,6 +638,7 @@ func TestRemoteCIEngineProtocolABIDigestIsStableAndBindsComponentDrift(t *testin
 	if err != nil {
 		t.Fatalf("RemoteCIEngineProtocolABIDigest: %v", err)
 	}
+	t.Logf("RemoteCIEngineProtocolABIDigest=%s", first)
 	second, err := RemoteCIEngineProtocolABIDigest()
 	if err != nil || first != second || !strings.HasPrefix(first, "sha256:") {
 		t.Fatalf("composite ABI digest is unstable or malformed: first=%q second=%q err=%v", first, second, err)

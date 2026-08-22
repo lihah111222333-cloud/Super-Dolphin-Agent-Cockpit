@@ -62,3 +62,32 @@ type BoundPortableRun struct {
 	ManifestPath       string              `json:"manifest_path"`
 	BindingSHA256      string              `json:"binding_sha256"`
 }
+
+const (
+	// PortableValidationResultSchema 是 validate stdout 的命名 wire schema。
+	PortableValidationResultSchema = "remote-ci-validation-result/v1"
+	// PortableValidationResultStatusValidated 是成功绑定但尚未执行的状态。
+	PortableValidationResultStatusValidated = "validated"
+	// PortableValidationResultAuthority 是 validate 的本地非权威声明。
+	PortableValidationResultAuthority = "LOCAL_NON_AUTHORITATIVE"
+)
+
+// PortableValidationResult 是 validate stdout 的唯一 named canonical DTO。
+type PortableValidationResult struct {
+	SchemaVersion         string              `json:"schema_version"`
+	Status                string              `json:"status"`
+	ContractID            string              `json:"contract_id"`
+	Authority             string              `json:"authority"`
+	ExecutionPoolContract string              `json:"execution_pool_contract"`
+	OperationID           string              `json:"operation_id"`
+	RepositoryID          string              `json:"repository_id"`
+	ObjectFormat          string              `json:"object_format"`
+	TargetCommitSHA       string              `json:"target_commit_sha"`
+	TargetTreeSHA         string              `json:"target_tree_sha"`
+	ManifestPath          string              `json:"manifest_path"`
+	ManifestBlobSHA256    string              `json:"manifest_blob_sha256"`
+	ManifestDigest        string              `json:"manifest_digest"`
+	EngineFacts           PortableEngineFacts `json:"engine_facts"`
+	DescriptorSHA256      string              `json:"descriptor_sha256"`
+	BindingSHA256         string              `json:"binding_sha256"`
+}

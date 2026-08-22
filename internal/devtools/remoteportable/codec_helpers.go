@@ -96,3 +96,86 @@ func ensurePortableManifestEOF(decoder *json.Decoder) error {
 	}
 	return nil
 }
+
+// EncodePortableValidationResult 返回 validate stdout 的 canonical bytes。
+func EncodePortableValidationResult(result PortableValidationResult) ([]byte, error) {
+	if err := result.Validate(); err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("encode portable validation result: %w", err)
+	}
+	if len(encoded) == 0 || len(encoded) > PortableManifestMaxResultBytes {
+		return nil, errors.New("portable validation result exceeds 1 MiB")
+	}
+	return encoded, nil
+}
+
+// DecodePortableValidationResult 严格解码并校验 canonical validation result。
+func DecodePortableValidationResult(data []byte) (PortableValidationResult, error) {
+	if len(data) == 0 || len(data) > PortableManifestMaxResultBytes {
+		return PortableValidationResult{}, errors.New("portable validation result size is invalid")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkPortableJSONValue(decoder); err != nil {
+		return PortableValidationResult{}, fmt.Errorf("portable validation result JSON is not strict: %w", err)
+	}
+	if err := ensurePortableManifestEOF(decoder); err != nil {
+		return PortableValidationResult{}, err
+	}
+	decoder = json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var result PortableValidationResult
+	if err := decoder.Decode(&result); err != nil {
+		return PortableValidationResult{}, err
+	}
+	if err := result.Validate(); err != nil {
+		return PortableValidationResult{}, err
+	}
+	canonical, err := EncodePortableValidationResult(result)
+	if err != nil || !bytes.Equal(canonical, data) {
+		return PortableValidationResult{}, errors.New("portable validation result is not canonical")
+	}
+	return result, nil
+}
+
+// Validate 校验 validation result 的 contract、target、engine facts 和所有摘要。
+func (result PortableValidationResult) Validate() error {
+	if err := validatePortableValidationIdentity(result); err != nil {
+		return err
+	}
+	if err := validatePortableValidationTarget(result); err != nil {
+		return err
+	}
+	if err := validatePortableValidationDigests(result); err != nil {
+		return err
+	}
+	return validatePortableEngineFacts(result.EngineFacts)
+}
+
+func validatePortableValidationIdentity(result PortableValidationResult) error {
+	if result.SchemaVersion != PortableValidationResultSchema || result.Status != PortableValidationResultStatusValidated || result.ContractID != PortableManifestContractID || result.Authority != PortableValidationResultAuthority || result.ExecutionPoolContract != PortableManifestContractID {
+		return errors.New("portable validation result identity is invalid")
+	}
+	return nil
+}
+
+func validatePortableValidationTarget(result PortableValidationResult) error {
+	if err := validatePortableOperationID(result.OperationID); err != nil {
+		return errors.New("portable validation result target identity is invalid")
+	}
+	if !validPortableToken(result.RepositoryID) || !validPortableObjectFormat(result.ObjectFormat) || !validPortableOIDForFormat(result.TargetCommitSHA, result.ObjectFormat) || !validPortableOIDForFormat(result.TargetTreeSHA, result.ObjectFormat) || !validPortableRepoRelativePath(result.ManifestPath) {
+		return errors.New("portable validation result target identity is invalid")
+	}
+	return nil
+}
+
+func validatePortableValidationDigests(result PortableValidationResult) error {
+	for _, digest := range []string{result.ManifestBlobSHA256, result.ManifestDigest, result.DescriptorSHA256, result.BindingSHA256} {
+		if !validPortableDigest(digest) {
+			return errors.New("portable validation result digest is invalid")
+		}
+	}
+	return nil
+}

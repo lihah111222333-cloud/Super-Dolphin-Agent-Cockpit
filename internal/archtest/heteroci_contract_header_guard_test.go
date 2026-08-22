@@ -261,6 +261,47 @@ func TestHeterociEngineProtocolCompositeOwnerGuard(t *testing.T) {
 	}
 }
 
+func TestRemoteCIValidationResultBoundaryGuard(t *testing.T) {
+	root := findRepoRoot(t)
+	portable := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "remoteportable", "portable_descriptor.go"))
+	codec := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "remoteportable", "codec_helpers.go"))
+	abi := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "remoteportable", "binding_abi.go"))
+	cli := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "remotecicli", "portable_validate.go"))
+	contract := readRemoteCIContractGuardFile(t, filepath.Join(root, "docs", "契约", "remote-ci-eci-imagecache-contract.md"))
+	assertHeterociSourceMarkers(t, "PortableValidationResult", portable, []string{
+		"type PortableValidationResult struct",
+		"PortableValidationResultSchema",
+		"PortableValidationResultStatusValidated",
+		"PortableValidationResultAuthority",
+		"EngineFacts           PortableEngineFacts",
+	})
+	assertHeterociSourceMarkers(t, "PortableValidationResult codec", codec, []string{
+		"EncodePortableValidationResult",
+		"DecodePortableValidationResult",
+		"func (result PortableValidationResult) Validate() error",
+		"DisallowUnknownFields",
+		"portable validation result is not canonical",
+	})
+	assertHeterociSourceMarkers(t, "PortableValidationResult ABI", abi, []string{
+		"PortableValidationResultSchema",
+		"reflect.TypeFor[PortableValidationResult]()",
+	})
+	assertHeterociSourceMarkers(t, "validate stdout boundary", cli, []string{
+		"remoteportable.PortableValidationResult",
+		"remoteportable.EncodePortableValidationResult",
+		"writeValidationResult",
+		"len(data)+1 > outputMaxBytes",
+	})
+	if strings.Contains(cli, "writePortableValidationEvent") || strings.Contains(cli, "writePortableValidationStages") {
+		t.Fatal("validate retains retired lifecycle event output")
+	}
+	for _, marker := range []string{"validate 的 stderr 必须为空", "未取得 PostgreSQL authority generation 前不得输出 remote-ci-event/v1", "只有 execute terminal 才输出 remote-ci-result/v1"} {
+		if !strings.Contains(contract, marker) {
+			t.Errorf("remote-ci contract is missing validate boundary %q", marker)
+		}
+	}
+}
+
 // assertHeterociSourceMarkers keeps each production boundary tied to its own source file.
 func assertHeterociSourceMarkers(t *testing.T, sourceName, source string, markers []string) {
 	t.Helper()
