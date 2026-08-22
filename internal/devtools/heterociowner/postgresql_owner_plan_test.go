@@ -139,3 +139,38 @@ func topologyPlanOperationID(t *testing.T, runID heteroci.TopologyRunID) heteroc
 	}
 	return operationID
 }
+
+const (
+	durableRoutingNowUnixMilli = int64(1_700_000_000_000)
+	durableRoutingMemoryBytes  = int64(8 * 1024 * 1024 * 1024)
+)
+
+func validOwnerScope() heteroci.RoutingOwnerScope {
+	return heteroci.RoutingOwnerScope("sha256:" + strings.Repeat("a", 64))
+}
+func durableRoutingManifest() heteroci.Manifest {
+	return heteroci.Manifest{SchemaVersion: heteroci.ManifestSchemaVersion, Authority: heteroci.AuthorityLocalNonAuthoritative, Nodes: []heteroci.NodeConfig{
+		{NodeID: "node-a", Endpoint: "https://node-a.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("1", 64), Platform: heteroci.PlatformLinuxAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: "sha256:" + strings.Repeat("2", 64)}}},
+		{NodeID: "node-b", Endpoint: "https://node-b.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("3", 64), Platform: heteroci.PlatformLinuxAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: "sha256:" + strings.Repeat("2", 64)}}},
+		{NodeID: "node-c", Endpoint: "https://node-c.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("4", 64), Platform: heteroci.PlatformWindowsAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeWindowsNative}}},
+		{NodeID: "node-d", Endpoint: "https://node-d.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("5", 64), Platform: heteroci.PlatformWindowsAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeWindowsNative}}},
+	}}
+}
+func durableRoutingSnapshot(manifest heteroci.Manifest, ownerEpoch heteroci.RoutingOwnerEpoch, now time.Time) heteroci.SnapshotSet {
+	config := manifest.Nodes[0]
+	capacity := heteroci.ResourceCapacity{CPUMilli: 4_000, MemoryBytes: durableRoutingMemoryBytes, MaxConcurrency: 4}
+	return heteroci.SnapshotSet{SchemaVersion: heteroci.SnapshotSchemaVersion, Authority: heteroci.AuthorityLocalNonAuthoritative, OwnerEpoch: ownerEpoch, CapacityBasis: heteroci.SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations, CapturedAtUnixMilli: now.UnixMilli(), Nodes: []heteroci.NodeSnapshot{
+		{NodeID: config.NodeID, Endpoint: config.Endpoint, Platform: config.Platform, ProbeIdentity: config.ProbeIdentity, ProbeBootID: "boot-a", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: config.Capabilities[0].ImageDigest}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+		{NodeID: manifest.Nodes[1].NodeID, Endpoint: manifest.Nodes[1].Endpoint, Platform: manifest.Nodes[1].Platform, ProbeIdentity: manifest.Nodes[1].ProbeIdentity, ProbeBootID: "boot-b", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: manifest.Nodes[1].Capabilities[0].ImageDigest}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+		{NodeID: manifest.Nodes[2].NodeID, Endpoint: manifest.Nodes[2].Endpoint, Platform: manifest.Nodes[2].Platform, ProbeIdentity: manifest.Nodes[2].ProbeIdentity, ProbeBootID: "boot-c", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeWindowsNative}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+		{NodeID: manifest.Nodes[3].NodeID, Endpoint: manifest.Nodes[3].Endpoint, Platform: manifest.Nodes[3].Platform, ProbeIdentity: manifest.Nodes[3].ProbeIdentity, ProbeBootID: "boot-d", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeWindowsNative}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+	}}
+}
+func topologyRunIdentity(t *testing.T, repositoryID, sourceTreeSHA, callerRunID string) heteroci.TopologyRunIdentity {
+	t.Helper()
+	runIdentity, err := heteroci.DeriveTopologyRunIdentity(repositoryID, sourceTreeSHA, callerRunID)
+	if err != nil {
+		t.Fatalf("DeriveTopologyRunIdentity: %v", err)
+	}
+	return runIdentity
+}

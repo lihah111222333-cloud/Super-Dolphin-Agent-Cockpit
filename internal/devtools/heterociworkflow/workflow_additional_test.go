@@ -393,14 +393,14 @@ func TestWorkflowRejectsMissingOrNonCanonicalRepositoryAuditBeforeSideEffects(t 
 	}
 }
 
-func TestAutomaticWorkflowRunRequestConsumesRepositoryAudit(t *testing.T) {
+func TestExecuteWorkflowRunRequestConsumesRepositoryAudit(t *testing.T) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve workflow field guard source path")
 	}
 	source, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "..", "remotecicli", "execute.go"))
 	if err != nil {
-		t.Fatalf("read automatic workflow caller: %v", err)
+		t.Fatalf("read execute workflow caller: %v", err)
 	}
 	for _, binding := range []string{
 		"RepositoryID: portable.RepositoryID",
@@ -410,7 +410,7 @@ func TestAutomaticWorkflowRunRequestConsumesRepositoryAudit(t *testing.T) {
 		"RuntimePolicyDigest: runtimePolicy.policyDigest",
 	} {
 		if !strings.Contains(string(source), binding) {
-			t.Fatalf("automatic workflow caller is missing plan audit binding %q", binding)
+			t.Fatalf("execute workflow caller is missing plan audit binding %q", binding)
 		}
 	}
 }

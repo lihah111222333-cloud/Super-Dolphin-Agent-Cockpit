@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -12,22 +11,18 @@ import (
 	"time"
 	"unicode"
 
-	_ "modernc.org/sqlite"
-
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
 )
 
 // ErrHeterociRootInput 表示异构 workflow composition root 缺少显式输入。
 var ErrHeterociRootInput = errors.New("heteroci workflow root input is invalid")
+var ErrHeterociLocalWorkflowRetired = errors.New("heteroci local workflow authority is retired")
 
 // HeterociRootInput 是待生产装配的 composition seam 所需全部显式依赖。
 type HeterociRootInput struct {
 	// ManifestPath 是唯一允许的本地异构清单绝对路径。
 	ManifestPath string
-	// OwnerDBPath 是独立 durable owner SQLite authority 的绝对路径。
-	OwnerDBPath string
 	// Scope 是本次 owner 生命周期绑定的 routing scope。
 	Scope heteroci.RoutingOwnerScope
 	// RepositoryID 是本次 run 显式审计绑定的目标仓库身份。
@@ -65,62 +60,7 @@ func RunHeterociWorkflow(ctx context.Context, input HeterociRootInput) (result h
 	if err := validateHeterociRootInput(ctx, input); err != nil {
 		return result, err
 	}
-	manifest, err := heteroci.LoadManifestFile(input.ManifestPath)
-	if err != nil {
-		return result, fmt.Errorf("%w: load manifest: %w", ErrHeterociRootInput, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return result, fmt.Errorf("%w: context canceled before owner open: %w", ErrHeterociRootInput, err)
-	}
-	database, err := sql.Open("sqlite", input.OwnerDBPath)
-	if err != nil {
-		return result, fmt.Errorf("%w: open owner database: %w", ErrHeterociRootInput, err)
-	}
-	defer func() {
-		returnErr = errors.Join(returnErr, database.Close())
-	}()
-	owner, err := heterociowner.NewOwnerWithClock(ctx, database, input.Scope, input.Now)
-	if err != nil {
-		return result, fmt.Errorf("%w: construct durable owner: %w", ErrHeterociRootInput, err)
-	}
-	manifestCopy := cloneHeterociRootManifest(manifest)
-	runIdentity, err := heteroci.DeriveTopologyRunIdentity(input.RepositoryID, input.SourceTreeSHA, input.RunID)
-	if err != nil {
-		return result, fmt.Errorf("%w: derive durable run identity: %w", ErrHeterociRootInput, err)
-	}
-	topologyManifestDigest, err := heterociworkflow.DeriveManifestDigest(manifest)
-	if err != nil {
-		return result, fmt.Errorf("%w: derive topology manifest digest: %w", ErrHeterociRootInput, err)
-	}
-	dependencies := heterociworkflow.Dependencies{
-		Owner:                   owner,
-		ProbeTransport:          input.ProbeTransport,
-		Executors:               input.ExecutorBinder,
-		LifecycleObserver:       input.LifecycleObserver,
-		CapacityBlockedObserver: input.CapacityBlockedObserver,
-		LoadManifest:            fixedHeterociRootManifestLoader(input.ManifestPath, manifestCopy),
-		AcquireSnapshot:         heteroci.AcquireSnapshot,
-		Now:                     input.Now,
-		CleanupTimeout:          input.CleanupTimeout,
-	}
-	request := heterociworkflow.RunRequest{
-		SchemaVersion:          heterociworkflow.RunRequestSchemaVersion,
-		ExternalOperationID:    input.ExternalOperationID,
-		DurableRunID:           runIdentity.DurableRunID,
-		ManifestDigest:         input.ManifestDigest,
-		TopologyManifestDigest: topologyManifestDigest,
-		ManifestPath:           input.ManifestPath,
-		RepositoryID:           input.RepositoryID,
-		SourceTreeSHA:          input.SourceTreeSHA,
-		RunID:                  input.RunID,
-		Units:                  cloneHeterociRootUnits(input.Units),
-		HeartbeatTTL:           input.HeartbeatTTL,
-	}
-	request.RequestDigest, err = heterociworkflow.DeriveRunRequestDigest(request)
-	if err != nil {
-		return result, fmt.Errorf("%w: derive request digest: %w", ErrHeterociRootInput, err)
-	}
-	return heterociworkflow.Execute(ctx, dependencies, request)
+	return result, errors.Join(ErrHeterociRootInput, ErrHeterociLocalWorkflowRetired)
 }
 
 // validateHeterociRootInput 在任何文件、数据库或 owner mutation 前拒绝缺失依赖。
@@ -131,7 +71,7 @@ func validateHeterociRootInput(ctx context.Context, input HeterociRootInput) err
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("%w: context is already done: %w", ErrHeterociRootInput, err)
 	}
-	if err := validateHeterociRootPaths(input.ManifestPath, input.OwnerDBPath); err != nil {
+	if err := validateHeterociRootManifestPath(input.ManifestPath); err != nil {
 		return err
 	}
 	if err := validateHeterociRootRouting(input); err != nil {
@@ -193,18 +133,12 @@ func validateHeterociRootClock(now func() time.Time) error {
 	return nil
 }
 
-// validateHeterociRootPaths 只接受调用方直接提供的绝对 clean 路径。
-func validateHeterociRootPaths(manifestPath, ownerDBPath string) error {
+// validateHeterociRootManifestPath 只接受调用方直接提供的绝对 clean manifest 路径。
+func validateHeterociRootManifestPath(manifestPath string) error {
 	if err := validateHeterociRootPath(manifestPath, "manifest path"); err != nil {
 		return err
 	}
-	if err := validateHeterociRootPath(ownerDBPath, "owner database path"); err != nil {
-		return err
-	}
-	if err := validateHeterociRootFilesystemPath(manifestPath, "manifest path"); err != nil {
-		return err
-	}
-	return validateHeterociRootFilesystemPath(ownerDBPath, "owner database path")
+	return validateHeterociRootFilesystemPath(manifestPath, "manifest path")
 }
 
 // validateHeterociRootPath 拒绝空白、控制字符、相对路径和 clean 之外的路径。
@@ -313,28 +247,4 @@ func isNilHeterociRootDependency(value any) bool {
 	default:
 		return false
 	}
-}
-
-// fixedHeterociRootManifestLoader 固定唯一预检过的显式 manifest path，拒绝路径漂移。
-func fixedHeterociRootManifestLoader(path string, manifest heteroci.Manifest) heterociworkflow.ManifestLoader {
-	return func(requested string) (heteroci.Manifest, error) {
-		if requested != path {
-			return heteroci.Manifest{}, fmt.Errorf("%w: manifest path drifted", ErrHeterociRootInput)
-		}
-		return cloneHeterociRootManifest(manifest), nil
-	}
-}
-
-// cloneHeterociRootManifest 隔离 workflow 对 manifest 节点和能力 slice 的读取。
-func cloneHeterociRootManifest(manifest heteroci.Manifest) heteroci.Manifest {
-	manifest.Nodes = append([]heteroci.NodeConfig(nil), manifest.Nodes...)
-	for index := range manifest.Nodes {
-		manifest.Nodes[index].Capabilities = append([]heteroci.CapabilityConfig(nil), manifest.Nodes[index].Capabilities...)
-	}
-	return manifest
-}
-
-// cloneHeterociRootUnits 隔离 caller 对 execution unit slice backing array 的后续修改。
-func cloneHeterociRootUnits(units []heteroci.ExecutionUnit) []heteroci.ExecutionUnit {
-	return append([]heteroci.ExecutionUnit(nil), units...)
 }

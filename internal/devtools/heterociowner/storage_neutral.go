@@ -1,10 +1,11 @@
 package heterociowner
 
 import (
-	"bytes"
-	"context"
-	"database/sql"
-	"encoding/json"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -14,9 +15,41 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
 
-const planAndReserveOperationKind = "plan_and_reserve"
+// zeroDigest 是 owner/operation journal 的 storage-neutral 初始摘要。
+const zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-// DurableReservedRoutingPlan 是 SQLite 提交后的不可变规划投影。
+// ErrOperationConflict 表示 operation identity 已存在但请求内容发生漂移。
+var ErrOperationConflict = errors.New("heteroci owner operation conflict")
+
+// OperationRequest 是 PostgreSQL journal 与 workflow 共用的幂等 mutation 输入。
+type OperationRequest struct {
+	Fence                heteroci.OwnerFence
+	OperationID          heteroci.OperationID
+	Kind                 string
+	RequestBytes         []byte
+	ResultBytes          []byte
+	ProjectionDigest     string
+	CommittedAtUnixMilli int64
+}
+
+// OperationRecord 是 PostgreSQL journal 行的 storage-neutral 内存投影。
+type OperationRecord struct {
+	Scope                heteroci.RoutingOwnerScope
+	OwnerEpoch           heteroci.RoutingOwnerEpoch
+	Revision             heteroci.RoutingOwnerRevision
+	OperationID          heteroci.OperationID
+	Kind                 string
+	RequestBytes         []byte
+	RequestDigest        string
+	ResultBytes          []byte
+	ResultDigest         string
+	PreviousJournal      string
+	JournalDigest        string
+	ProjectionDigest     string
+	CommittedAtUnixMilli int64
+}
+
+// DurableReservedRoutingPlan 是 PostgreSQL owner 提交后的不可变规划投影。
 type DurableReservedRoutingPlan struct {
 	Fence             heteroci.OwnerFence      `json:"fence"`
 	OperationID       heteroci.OperationID     `json:"operation_id"`
@@ -27,141 +60,164 @@ type DurableReservedRoutingPlan struct {
 	Leases            []heteroci.RoutingLease  `json:"leases"`
 }
 
-// planAndReserveRequest 是 journal 的完整幂等输入，不接受 caller 预计算的 plan/decision。
-type planAndReserveRequest struct {
-	Fence   heteroci.OwnerFence          `json:"fence"`
-	Request heteroci.TopologyPlanRequest `json:"request"`
+// DurableLeaseTransition 是 PostgreSQL 终态 mutation 提交后的 fence 和 lease 值。
+type DurableLeaseTransition struct {
+	Fence heteroci.OwnerFence   `json:"fence"`
+	Lease heteroci.RoutingLease `json:"lease"`
 }
 
+// RunIdentityAmbiguousError 表示同一 scope 的 run_id 横跨多个 owner epoch。
+type RunIdentityAmbiguousError struct{}
+
+// Error 返回不包含运行载荷或节点身份的稳定错误。
+func (RunIdentityAmbiguousError) Error() string { return "heteroci routing run identity is ambiguous" }
+
+// RunRecoveryRequiredError 表示运行属于非当前 owner epoch，必须走显式恢复流程。
+type RunRecoveryRequiredError struct{}
+
+// Error 返回不包含运行载荷或节点身份的稳定错误。
+func (RunRecoveryRequiredError) Error() string { return "heteroci routing run recovery is required" }
+
+// DurableRunState 是 PostgreSQL owner 中一个运行及其租约的只读投影。
+type DurableRunState struct {
+	Fence        heteroci.OwnerFence           `json:"fence"`
+	RunID        string                        `json:"run_id"`
+	Manifest     heteroci.Manifest             `json:"manifest"`
+	Units        []heteroci.ExecutionUnit      `json:"units"`
+	Decision     heteroci.RoutingDecision      `json:"decision"`
+	Leases       []heteroci.RoutingLease       `json:"leases"`
+	HeartbeatTTL time.Duration                 `json:"heartbeat_ttl"`
+	Released     bool                          `json:"released"`
+	LastRevision heteroci.RoutingOwnerRevision `json:"last_revision"`
+}
+
+// DurableOperationState 是 PostgreSQL owner journal 中一个 operation 的只读投影。
+type DurableOperationState struct {
+	Fence         heteroci.OwnerFence           `json:"fence"`
+	OperationID   heteroci.OperationID          `json:"operation_id"`
+	Kind          string                        `json:"kind"`
+	RequestDigest string                        `json:"request_digest"`
+	ResultDigest  string                        `json:"result_digest"`
+	ResultBytes   []byte                        `json:"result_bytes"`
+	Revision      heteroci.RoutingOwnerRevision `json:"revision"`
+}
+
+// durableReservationKey 绑定 node 与 probe incarnation，避免只按 node_id 复用容量。
 type durableReservationKey struct {
 	nodeID        string
 	probeIdentity string
 	probeBootID   string
 }
 
+// durableReservation 是 planner 与 PostgreSQL projection 共用的容量预留值。
 type durableReservation struct {
 	key      durableReservationKey
 	capacity heteroci.ResourceCapacity
 }
 
-// PlanAndReserve 在单个 immediate transaction 内从原始输入重算并持久化规划。
-// owner 的 clock、SQLite CAS 和 operation journal 是这次 mutation 的唯一权威。
-func (owner *Owner) PlanAndReserve(
-	ctx context.Context,
-	fence heteroci.OwnerFence,
-	request heteroci.TopologyPlanRequest,
-) (DurableReservedRoutingPlan, error) {
-	if err := validatePlanAndReserveArguments(owner, fence, request); err != nil {
-		return DurableReservedRoutingPlan{}, err
+// newOwnerID 生成 PostgreSQL owner incarnation 的随机 identity。
+func newOwnerID() (heteroci.RoutingOwnerID, error) {
+	raw := make([]byte, heteroci.RoutingOwnerIDHexLength/2)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate heteroci owner identity: %w", err)
 	}
-	nowUnixMilli, err := owner.nowUnixMilli()
+	ownerID, err := heteroci.ParseRoutingOwnerID(hex.EncodeToString(raw))
 	if err != nil {
-		return DurableReservedRoutingPlan{}, err
+		return "", err
 	}
-	now := time.UnixMilli(nowUnixMilli)
-	requestBytes, err := json.Marshal(planAndReserveRequest{Fence: fence, Request: request})
-	if err != nil {
-		return DurableReservedRoutingPlan{}, fmt.Errorf("encode plan-and-reserve request: %w", err)
-	}
-	var result DurableReservedRoutingPlan
-	err = WithImmediateTx(ctx, owner.db, func(tx *sql.Tx) error {
-		return owner.planAndReserveTx(ctx, tx, fence, request, now, nowUnixMilli, requestBytes, &result)
-	})
-	if err != nil {
-		return DurableReservedRoutingPlan{}, err
-	}
-	return result, nil
+	return ownerID, nil
 }
 
-// planAndReserveTx 在同一事务内执行 replay、重算、行写入和 journal CAS。
-func (owner *Owner) planAndReserveTx(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest, now time.Time, nowUnixMilli int64, requestBytes []byte, result *DurableReservedRoutingPlan) error {
-	existing, found, err := readOperationByID(ctx, tx, fence.Scope, fence.OwnerEpoch, request.OperationID)
-	if err != nil {
-		return err
-	}
-	if found {
-		return replayPlanOperation(existing, requestBytes, fence, request, now, result)
-	}
-	if err := owner.requireCurrentFence(ctx, tx, fence); err != nil {
-		return err
-	}
-	planned, reservations, err := planFromCurrentDatabase(ctx, tx, fence, string(request.RunIdentity.DurableRunID), request.Manifest, request.SourceSnapshot, request.Units, request.HeartbeatTTL, now)
-	if err != nil {
-		return err
-	}
-	revision, err := nextOwnerRevision(fence)
-	if err != nil {
-		return err
-	}
-	committedFence, err := heteroci.NewOwnerFence(fence.Scope, fence.OwnerID, fence.OwnerEpoch, revision)
-	if err != nil {
-		return err
-	}
-	*result = DurableReservedRoutingPlan{Fence: committedFence, OperationID: request.OperationID, SourceSnapshot: cloneSnapshot(request.SourceSnapshot), EffectiveSnapshot: cloneSnapshot(planned.EffectiveSnapshot), Plan: planned.Plan, Decision: planned.Decision, Leases: cloneLeases(planned.Leases)}
-	resultBytes, err := json.Marshal(*result)
-	if err != nil {
-		return fmt.Errorf("encode durable plan result: %w", err)
-	}
-	if err := insertPlanRows(ctx, tx, fence, string(request.RunIdentity.DurableRunID), request.Manifest, request.Units, request.HeartbeatTTL, *result, reservations, revision); err != nil {
-		return err
-	}
-	_, err = commitOperationTx(ctx, tx, OperationRequest{Fence: fence, OperationID: request.OperationID, Kind: planAndReserveOperationKind, RequestBytes: requestBytes, ResultBytes: resultBytes, ProjectionDigest: digestBytes(resultBytes), CommittedAtUnixMilli: nowUnixMilli})
-	return err
-}
-
-// replayPlanOperation 只在 request bytes 完全相同时返回已提交 projection。
-func replayPlanOperation(existing OperationRecord, requestBytes []byte, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest, now time.Time, result *DurableReservedRoutingPlan) error {
-	if existing.Kind != planAndReserveOperationKind || !bytes.Equal(existing.RequestBytes, requestBytes) {
-		return ErrOperationConflict
-	}
-	if err := json.Unmarshal(existing.ResultBytes, result); err != nil {
-		return fmt.Errorf("decode durable plan replay: %w", err)
-	}
-	return validateDurablePlanResult(*result, fence, request.OperationID, request.Manifest, request.Units, request.HeartbeatTTL, now)
-}
-
-// validatePlanAndReserveArguments 校验 durable 规划入口的身份、清单和时限。
-func validatePlanAndReserveArguments(owner *Owner, fence heteroci.OwnerFence, request heteroci.TopologyPlanRequest) error {
-	if err := validatePlanOwnerBinding(owner, fence, request.OperationID, string(request.RunIdentity.DurableRunID)); err != nil {
-		return err
-	}
-	session := heteroci.TopologySession{Scope: fence.Scope, OwnerID: fence.OwnerID, OwnerEpoch: fence.OwnerEpoch}
-	return request.Validate(session)
-}
-
-// validatePlanOwnerBinding 校验 owner、fence、operation 和运行标识的绑定。
-func validatePlanOwnerBinding(owner *Owner, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID string) error {
-	if owner == nil || owner.db == nil {
-		return fmt.Errorf("heteroci owner is nil")
-	}
-	if err := fence.Validate(); err != nil {
-		return err
-	}
-	if fence.Scope != owner.scope {
-		return fmt.Errorf("heteroci owner fence scope is not bound to owner")
-	}
-	if _, err := heteroci.ParseOperationID(string(operationID)); err != nil {
-		return err
-	}
-	if !validOwnerRunID(runID) {
-		return fmt.Errorf("heteroci owner run id is invalid")
+// validateOperationKind 检查 journal operation kind 的稳定文本边界。
+func validateOperationKind(kind string) error {
+	if kind == "" || strings.TrimSpace(kind) != kind || strings.IndexFunc(kind, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 || len(kind) > 128 {
+		return fmt.Errorf("heteroci owner operation kind is invalid")
 	}
 	return nil
 }
 
-// planFromCurrentDatabase 在事务快照上完成 effective snapshot、规划和租约构造。
-func planFromCurrentDatabase(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFence, runID string, manifest heteroci.Manifest, sourceSnapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration, now time.Time) (DurableReservedRoutingPlan, []durableReservation, error) {
-	if err := sourceSnapshot.ValidateAgainst(manifest, now, heartbeatTTL); err != nil {
-		return DurableReservedRoutingPlan{}, nil, fmt.Errorf("validate durable source snapshot: %w", err)
+// validateOperationRecordIntegrity 校验 PostgreSQL journal payload、kind、时间和摘要。
+func validateOperationRecordIntegrity(record OperationRecord, requestDigest, resultDigest string) error {
+	if len(record.RequestBytes) == 0 || len(record.ResultBytes) == 0 {
+		return fmt.Errorf("heteroci owner operation payload is empty")
 	}
-	current, err := readActiveReservations(ctx, tx, fence)
-	if err != nil {
-		return DurableReservedRoutingPlan{}, nil, err
+	if err := validateOperationKind(record.Kind); err != nil {
+		return fmt.Errorf("validate heteroci owner operation kind: %w", err)
 	}
-	return planFromReservations(fence, runID, manifest, sourceSnapshot, units, heartbeatTTL, now, current)
+	if record.CommittedAtUnixMilli < 0 {
+		return fmt.Errorf("heteroci owner operation commit time is invalid")
+	}
+	if want := digestBytes(record.RequestBytes); requestDigest != want {
+		return fmt.Errorf("heteroci owner operation request digest mismatch")
+	}
+	if want := digestBytes(record.ResultBytes); resultDigest != want {
+		return fmt.Errorf("heteroci owner operation result digest mismatch")
+	}
+	if err := validateOperationDigestSet(record); err != nil {
+		return err
+	}
+	return nil
 }
 
-// planFromReservations 复用 storage-neutral effective snapshot 与 domain planner，不创建第二 planner。
+func validateOperationDigest(name, digest string) error {
+	if !validOwnerDigest(digest) {
+		return fmt.Errorf("heteroci owner operation %s digest is invalid", name)
+	}
+	return nil
+}
+
+func validateOperationDigestSet(record OperationRecord) error {
+	if err := validateOperationDigest("previous journal", record.PreviousJournal); err != nil {
+		return err
+	}
+	if err := validateOperationDigest("journal", record.JournalDigest); err != nil {
+		return err
+	}
+	return validateOperationDigest("projection", record.ProjectionDigest)
+}
+
+// journalChainDigest 生成 owner journal 的 domain-separated chain digest。
+func journalChainDigest(head heteroci.OwnerFence, request OperationRequest, previousJournal, requestDigest, resultDigest string, revision heteroci.RoutingOwnerRevision) string {
+	hash := sha256.New()
+	writeFrame := func(value string) {
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write([]byte(value))
+	}
+	writeFrame("heteroci-routing-journal-chain/v1")
+	writeFrame(previousJournal)
+	writeFrame(string(head.Scope))
+	writeFrame(string(head.OwnerID))
+	writeFrame(fmt.Sprint(head.OwnerEpoch))
+	writeFrame(fmt.Sprint(revision))
+	writeFrame(string(request.OperationID))
+	writeFrame(request.Kind)
+	writeFrame(requestDigest)
+	writeFrame(resultDigest)
+	writeFrame(request.ProjectionDigest)
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
+}
+
+func digestBytes(value []byte) string {
+	sum := sha256.Sum256(value)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// validOwnerDigest 检查带 sha256 前缀的 64 位小写摘要。
+func validOwnerDigest(value string) bool {
+	if len(value) != len("sha256:")+64 || !strings.HasPrefix(value, "sha256:") {
+		return false
+	}
+	for _, character := range value[len("sha256:"):] {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// planFromReservations 在 PostgreSQL 当前容量快照上复用唯一 storage-neutral planner。
 func planFromReservations(fence heteroci.OwnerFence, runID string, manifest heteroci.Manifest, sourceSnapshot heteroci.SnapshotSet, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration, now time.Time, current map[durableReservationKey]heteroci.ResourceCapacity) (DurableReservedRoutingPlan, []durableReservation, error) {
 	effective, err := effectiveSnapshot(sourceSnapshot, current)
 	if err != nil {
@@ -186,37 +242,7 @@ func planFromReservations(fence heteroci.OwnerFence, runID string, manifest hete
 	return DurableReservedRoutingPlan{Fence: fence, SourceSnapshot: sourceSnapshot, EffectiveSnapshot: effective, Plan: plan, Decision: decision, Leases: leases}, requested, nil
 }
 
-// readActiveReservations 读取当前 owner epoch 尚未释放的容量预留。
-func readActiveReservations(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFence) (map[durableReservationKey]heteroci.ResourceCapacity, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT node_id, probe_identity, probe_boot_id, cpu_milli, memory_bytes, max_concurrency FROM heteroci_routing_reservations WHERE scope = ? AND owner_epoch = ? AND released = 0", fence.Scope, fence.OwnerEpoch)
-	if err != nil {
-		return nil, fmt.Errorf("read durable routing reservations: %w", err)
-	}
-	defer rows.Close()
-	current := make(map[durableReservationKey]heteroci.ResourceCapacity)
-	for rows.Next() {
-		var key durableReservationKey
-		var cpu, memory, concurrency int64
-		if err := rows.Scan(&key.nodeID, &key.probeIdentity, &key.probeBootID, &cpu, &memory, &concurrency); err != nil {
-			return nil, fmt.Errorf("scan durable routing reservation: %w", err)
-		}
-		if cpu < 0 || memory < 0 || concurrency < 0 || concurrency > int64(maxInt()) {
-			return nil, fmt.Errorf("durable routing reservation capacity is invalid")
-		}
-		keyCapacity := heteroci.ResourceCapacity{CPUMilli: cpu, MemoryBytes: memory, MaxConcurrency: int(concurrency)}
-		updated, err := addCapacity(current[key], keyCapacity)
-		if err != nil {
-			return nil, err
-		}
-		current[key] = updated
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate durable routing reservations: %w", err)
-	}
-	return current, nil
-}
-
-// effectiveSnapshot 只扣减当前 owner epoch 且探针身份完全匹配的预留。
+// effectiveSnapshot 扣除同一 owner epoch 已提交的容量预留并校验 probe identity。
 func effectiveSnapshot(source heteroci.SnapshotSet, current map[durableReservationKey]heteroci.ResourceCapacity) (heteroci.SnapshotSet, error) {
 	effective := cloneSnapshot(source)
 	seen := make(map[durableReservationKey]bool, len(current))
@@ -242,7 +268,7 @@ func effectiveSnapshot(source heteroci.SnapshotSet, current map[durableReservati
 	return effective, nil
 }
 
-// buildDurableReservations 从节点波次生成可持久化的峰值预留。
+// buildDurableReservations 从 packing plan 计算按 probe incarnation 绑定的峰值预留。
 func buildDurableReservations(plan heteroci.PackingPlan, snapshot heteroci.SnapshotSet) ([]durableReservation, error) {
 	byNode := make(map[string]heteroci.NodeSnapshot, len(snapshot.Nodes))
 	for _, node := range snapshot.Nodes {
@@ -269,7 +295,7 @@ func buildDurableReservations(plan heteroci.PackingPlan, snapshot heteroci.Snaps
 	return reservations, nil
 }
 
-// reservationPeak 计算单个节点波次的 componentwise 最大资源。
+// reservationPeak 计算单节点波次的 componentwise 最大资源。
 func reservationPeak(waves []heteroci.ExecutionWave) (heteroci.ResourceCapacity, error) {
 	if len(waves) == 0 {
 		return heteroci.ResourceCapacity{}, fmt.Errorf("durable plan node waves must not be empty")
@@ -292,7 +318,7 @@ func reservationPeak(waves []heteroci.ExecutionWave) (heteroci.ResourceCapacity,
 	return peak, nil
 }
 
-// validateRequestedCapacity 确保新运行不会超过 effective snapshot 的容量。
+// validateRequestedCapacity 校验新运行不会超过 effective snapshot 容量。
 func validateRequestedCapacity(requested []durableReservation, snapshot heteroci.SnapshotSet) error {
 	for _, reservation := range requested {
 		for _, node := range snapshot.Nodes {
@@ -309,8 +335,6 @@ func validateRequestedCapacity(requested []durableReservation, snapshot heteroci
 	}
 	return nil
 }
-
-// buildDurableLeases 将 routing decision assignments 转换为 planned lease。
 func buildDurableLeases(runID string, decision heteroci.RoutingDecision, reservedAt int64) ([]heteroci.RoutingLease, error) {
 	leases := make([]heteroci.RoutingLease, 0, len(decision.Assignments))
 	seen := make(map[string]bool, len(decision.Assignments))
@@ -325,42 +349,7 @@ func buildDurableLeases(runID string, decision heteroci.RoutingDecision, reserve
 	return leases, nil
 }
 
-// insertPlanRows 写入 run、reservation 和 lease 投影；operation journal 由调用方随后写入。
-func insertPlanRows(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFence, runID string, manifest heteroci.Manifest, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration, result DurableReservedRoutingPlan, reservations []durableReservation, revision heteroci.RoutingOwnerRevision) error {
-	manifestBytes, err := json.Marshal(manifest)
-	if err != nil {
-		return fmt.Errorf("encode durable manifest: %w", err)
-	}
-	unitsBytes, err := json.Marshal(units)
-	if err != nil {
-		return fmt.Errorf("encode durable execution units: %w", err)
-	}
-	decisionBytes, err := json.Marshal(result.Decision)
-	if err != nil {
-		return fmt.Errorf("encode durable decision: %w", err)
-	}
-	ttl := heartbeatTTL.Milliseconds()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_routing_runs(scope, owner_epoch, run_id, manifest_json, manifest_digest, units_json, units_digest, heartbeat_ttl_millis, decision_json, decision_digest, released, reserved_revision, last_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", fence.Scope, fence.OwnerEpoch, runID, manifestBytes, digestBytes(manifestBytes), unitsBytes, digestBytes(unitsBytes), ttl, decisionBytes, result.Decision.DecisionDigest, 0, revision, revision); err != nil {
-		return fmt.Errorf("insert durable routing run: %w", err)
-	}
-	for _, reservation := range reservations {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_routing_reservations(scope, owner_epoch, run_id, node_id, probe_identity, probe_boot_id, cpu_milli, memory_bytes, max_concurrency, released, last_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", fence.Scope, fence.OwnerEpoch, runID, reservation.key.nodeID, reservation.key.probeIdentity, reservation.key.probeBootID, reservation.capacity.CPUMilli, reservation.capacity.MemoryBytes, reservation.capacity.MaxConcurrency, 0, revision); err != nil {
-			return fmt.Errorf("insert durable routing reservation: %w", err)
-		}
-	}
-	for _, lease := range result.Leases {
-		leaseBytes, err := json.Marshal(lease)
-		if err != nil {
-			return fmt.Errorf("encode durable lease: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO heteroci_routing_leases(scope, owner_epoch, run_id, unit_id, lease_json, state, reserved_at_unix_milli, started_at_unix_milli, finished_at_unix_milli, last_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", fence.Scope, fence.OwnerEpoch, runID, lease.UnitID, leaseBytes, lease.State, lease.ReservedAtUnixMilli, lease.StartedAtUnixMilli, lease.FinishedAtUnixMilli, revision); err != nil {
-			return fmt.Errorf("insert durable routing lease: %w", err)
-		}
-	}
-	return nil
-}
-
-// validateDurablePlanResult 校验 journal replay 的结构、epoch、规划和租约绑定。
+// validateDurablePlanResult 校验 PostgreSQL journal replay 的规划、快照和租约绑定。
 func validateDurablePlanResult(result DurableReservedRoutingPlan, fence heteroci.OwnerFence, operationID heteroci.OperationID, manifest heteroci.Manifest, units []heteroci.ExecutionUnit, heartbeatTTL time.Duration, now time.Time) error {
 	if err := validateDurablePlanIdentity(result, fence, operationID); err != nil {
 		return err
@@ -379,7 +368,7 @@ func validateDurablePlanResult(result DurableReservedRoutingPlan, fence heteroci
 	return nil
 }
 
-// validateDurablePlanIdentity 校验 replay fence、operation 和 snapshot epoch。
+// validateDurablePlanIdentity 校验 replay fence、operation 和 snapshot epoch 一致。
 func validateDurablePlanIdentity(result DurableReservedRoutingPlan, fence heteroci.OwnerFence, operationID heteroci.OperationID) error {
 	revision, err := nextOwnerRevision(fence)
 	if err != nil {
@@ -394,8 +383,6 @@ func validateDurablePlanIdentity(result DurableReservedRoutingPlan, fence hetero
 	}
 	return nil
 }
-
-// validateDurablePlanSnapshots 校验 source/effective snapshot 均仍满足原清单和 TTL。
 func validateDurablePlanSnapshots(result DurableReservedRoutingPlan, manifest heteroci.Manifest, heartbeatTTL time.Duration, now time.Time) error {
 	if err := result.SourceSnapshot.ValidateAgainst(manifest, now, heartbeatTTL); err != nil {
 		return fmt.Errorf("validate durable replay source snapshot: %w", err)
@@ -406,7 +393,7 @@ func validateDurablePlanSnapshots(result DurableReservedRoutingPlan, manifest he
 	return nil
 }
 
-// cloneSnapshot 深拷贝 SnapshotSet 的节点、能力和资格回执。
+// cloneSnapshot 深拷贝 snapshot 节点、能力与资格回执，避免 replay 共享底层数组。
 func cloneSnapshot(source heteroci.SnapshotSet) heteroci.SnapshotSet {
 	clone := source
 	if source.Nodes == nil {
@@ -425,8 +412,6 @@ func cloneSnapshot(source heteroci.SnapshotSet) heteroci.SnapshotSet {
 	}
 	return clone
 }
-
-// cloneLeases 深拷贝租约切片，避免 replay projection 共享底层数组。
 func cloneLeases(source []heteroci.RoutingLease) []heteroci.RoutingLease {
 	if source == nil {
 		return nil
@@ -434,7 +419,7 @@ func cloneLeases(source []heteroci.RoutingLease) []heteroci.RoutingLease {
 	return append([]heteroci.RoutingLease(nil), source...)
 }
 
-// addCapacity 以非负资源执行不会溢出的 componentwise 加法。
+// addCapacity 对容量执行非负且不会溢出的 componentwise 加法。
 func addCapacity(left, right heteroci.ResourceCapacity) (heteroci.ResourceCapacity, error) {
 	if left.CPUMilli < 0 || left.MemoryBytes < 0 || left.MaxConcurrency < 0 || right.CPUMilli < 0 || right.MemoryBytes < 0 || right.MaxConcurrency < 0 {
 		return heteroci.ResourceCapacity{}, fmt.Errorf("durable reservation capacity is negative")
@@ -455,8 +440,6 @@ func subtractCapacity(left, right heteroci.ResourceCapacity) (heteroci.ResourceC
 	}
 	return heteroci.ResourceCapacity{CPUMilli: left.CPUMilli - right.CPUMilli, MemoryBytes: left.MemoryBytes - right.MemoryBytes, MaxConcurrency: left.MaxConcurrency - right.MaxConcurrency}, nil
 }
-
-// nextOwnerRevision 计算本次 durable mutation 的下一条全局 revision。
 func nextOwnerRevision(fence heteroci.OwnerFence) (heteroci.RoutingOwnerRevision, error) {
 	if fence.Revision >= heteroci.RoutingOwnerRevision(math.MaxInt64-1) {
 		return 0, fmt.Errorf("heteroci owner revision exhausted")
@@ -476,5 +459,18 @@ func validOwnerRunID(value string) bool {
 	}
 	return true
 }
-
 func maxInt() int { return int(^uint(0) >> 1) }
+
+type durableReadStateError struct{ cause error }
+
+// Error 返回不泄露 durable payload、端点或探针身份的稳定读取错误。
+func (err durableReadStateError) Error() string { return "heteroci owner durable state read failed" }
+
+// Unwrap 保留内部根因供 errors.Is/As 判断，但不向调用方暴露底层错误文本。
+func (err durableReadStateError) Unwrap() error { return err.cause }
+func redactDurableReadError(cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return durableReadStateError{cause: cause}
+}

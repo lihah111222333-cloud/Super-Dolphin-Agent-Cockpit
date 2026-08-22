@@ -416,3 +416,15 @@ func closePostgreSQLTestDatabase(t *testing.T, database *sql.DB) {
 		t.Errorf("close PostgreSQL test database: %v", err)
 	}
 }
+func commandExecutorCommandDigest(t *testing.T, argv []string) string {
+	t.Helper()
+	command, err := EncodeCommand(heteroci.PlatformLinuxAMD64, argv)
+	if err != nil {
+		t.Fatalf("EncodeCommand: %v", err)
+	}
+	digest, err := DeriveCommandDigest(command)
+	if err != nil {
+		t.Fatalf("DeriveCommandDigest: %v", err)
+	}
+	return digest
+}

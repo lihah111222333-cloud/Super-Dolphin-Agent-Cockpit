@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -31,6 +32,30 @@ func TestMainOnlyWiresImportableRun(t *testing.T) {
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("main.go contains composition logic or retired dependency %q", forbidden)
+		}
+	}
+}
+func TestRemoteCIBinaryDependencyClosureRejectsLocalAndLegacyAuthority(t *testing.T) {
+	command := exec.Command("go", "list", "-deps", ".")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list -deps .: %v\n%s", err, output)
+	}
+	dependencies := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, forbidden := range []string{
+		"modernc.org/sqlite",
+		"internal/platform/db/sqlite",
+		"internal/devtools/gate",
+		"internal/devtools/remoteci",
+		"internal/devtools/alicloud",
+		"internal/devtools/cicontract",
+		"internal/devtools/shardresource",
+		"internal/devtools/sourceexport",
+	} {
+		for _, dependency := range dependencies {
+			if dependency == forbidden {
+				t.Fatalf("binary dependency closure contains forbidden package %q", forbidden)
+			}
 		}
 	}
 }
