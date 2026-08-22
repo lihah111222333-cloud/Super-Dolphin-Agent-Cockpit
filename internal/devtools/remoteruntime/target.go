@@ -83,6 +83,34 @@ func (facts ExecutionFacts) ValidateFor(platform Platform) error {
 	return nil
 }
 
+// ValidateForNode 校验 execution facts 与完整 node binding 的平台和 cgo exact 绑定。
+func (facts ExecutionFacts) ValidateForNode(node NodeBinding) error {
+	if err := facts.ValidateFor(node.Platform); err != nil {
+		return err
+	}
+	if facts.CGOEnabled != node.CGOEnabled {
+		return errors.New("execution cgo_enabled does not match node binding")
+	}
+	return nil
+}
+
+// ExecutionBaseFacts 从已校验 node binding 构造平台执行基线；module/workload identity 必须由 batch caller 注入。
+func (node NodeBinding) ExecutionBaseFacts() (ExecutionFacts, error) {
+	if err := node.Validate(); err != nil {
+		return ExecutionFacts{}, fmt.Errorf("node execution base: %w", err)
+	}
+	goos := ""
+	switch node.Platform {
+	case UbuntuPlatform:
+		goos = "linux"
+	case WindowsPlatform:
+		goos = "windows"
+	default:
+		return ExecutionFacts{}, errors.New("node execution platform is unsupported")
+	}
+	return ExecutionFacts{GOOS: goos, GOARCH: "amd64", CGOEnabled: node.CGOEnabled}, nil
+}
+
 func validateTargetObjects(facts TargetFacts) error {
 	objectLength := 40
 	if facts.ObjectFormat == "sha256" {

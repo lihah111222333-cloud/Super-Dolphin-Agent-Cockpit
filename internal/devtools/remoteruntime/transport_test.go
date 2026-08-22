@@ -27,6 +27,9 @@ func TestTransportProbeUsesBoundedContextAndSeparateChannels(t *testing.T) {
 	if result.NodeID != Ubuntu01NodeID || result.Identity != runtimeFixture().Nodes[0].ProbeIdentity {
 		t.Fatalf("unexpected result identity: %+v", result)
 	}
+	if result.CleanupVerified {
+		t.Fatal("probe result incorrectly claimed cleanup verification")
+	}
 	if calls.Load() != 1 {
 		t.Fatalf("command calls = %d, want 1", calls.Load())
 	}
@@ -68,6 +71,27 @@ func TestProbeBytesDoesNotRequireExecutionFacts(t *testing.T) {
 	}
 	if !bytes.Equal(data, mustProbeResultJSON(t, node)) {
 		t.Fatalf("ProbeBytes() changed canonical result: %s", data)
+	}
+}
+
+func TestBatchSuccessConfirmsCleanupAfterStrictResult(t *testing.T) {
+	for _, operation := range []Operation{OperationRun, OperationWorker} {
+		t.Run(string(operation), func(t *testing.T) {
+			transport, err := New(runtimeFixture(), CommandRunnerFunc(func(_ context.Context, spec CommandSpec) (CommandResult, error) {
+				_, writeErr := spec.Stdout.Write(mustBatchResultJSON(t))
+				return CommandResult{}, writeErr
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := transport.Execute(context.Background(), targetFixture("target"), executionFixture(UbuntuPlatform), operation, Ubuntu01NodeID, []byte(`{"request":"batch"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.CleanupVerified {
+				t.Fatalf("successful %s result did not confirm cleanup: %+v", operation, result)
+			}
+		})
 	}
 }
 
@@ -197,12 +221,45 @@ func TestTransportTimeoutDoesNotRetry(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err = transport.Probe(ctx, targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
+	result, err := transport.Probe(ctx, targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
 	if !errors.Is(err, ErrCommandTimedOut) {
 		t.Fatalf("Probe() error = %v, want timeout", err)
 	}
+	if result.CleanupVerified {
+		t.Fatal("timed-out probe result claimed cleanup verification")
+	}
 	if calls.Load() != 1 {
 		t.Fatalf("command calls = %d, want exactly one", calls.Load())
+	}
+}
+
+func TestBatchFailuresDoNotClaimCleanup(t *testing.T) {
+	cases := []struct {
+		name   string
+		runner CommandRunnerFunc
+	}{
+		{name: "nonzero", runner: func(_ context.Context, _ CommandSpec) (CommandResult, error) {
+			return CommandResult{ExitCode: 7}, nil
+		}},
+		{name: "strict result decode failure", runner: func(_ context.Context, spec CommandSpec) (CommandResult, error) {
+			_, err := spec.Stdout.Write(mustProbeResultJSON(t, runtimeFixture().Nodes[0]))
+			return CommandResult{}, err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			transport, err := New(runtimeFixture(), tc.runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := transport.Run(context.Background(), targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"batch"}`))
+			if err == nil {
+				t.Fatal("Run unexpectedly succeeded")
+			}
+			if result.CleanupVerified {
+				t.Fatalf("failed run claimed cleanup verification: %+v", result)
+			}
+		})
 	}
 }
 

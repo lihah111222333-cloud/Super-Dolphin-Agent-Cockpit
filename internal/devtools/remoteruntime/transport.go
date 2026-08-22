@@ -114,6 +114,8 @@ type NodeResult struct {
 	Identity string
 	// Raw 是唯一 canonical JSON object 的独立副本。
 	Raw []byte
+	// CleanupVerified 仅表示 run/worker 的 SSH process 零退出且 strict result 解码成功；probe 永远为 false。
+	CleanupVerified bool
 }
 
 // Bytes 返回 node result 的独立 canonical JSON 副本。
@@ -208,7 +210,7 @@ func (transport *Transport) batchCommand(operation Operation, target TargetFacts
 	if err := target.Validate(); err != nil {
 		return CommandSpec{}, err
 	}
-	if err := execution.ValidateFor(node.Platform); err != nil {
+	if err := execution.ValidateForNode(node); err != nil {
 		return CommandSpec{}, err
 	}
 	args, err := transport.batchSSHArgs(operation, node, target, execution, request)
@@ -302,7 +304,7 @@ func (transport *Transport) prepareExecution(ctx context.Context, operation Oper
 	if err := validateBatchOperation(operation); err != nil {
 		return NodeBinding{}, err
 	}
-	if err := execution.ValidateFor(node.Platform); err != nil {
+	if err := execution.ValidateForNode(node); err != nil {
 		return NodeBinding{}, err
 	}
 	if err := validateRequest(request); err != nil {
@@ -323,7 +325,14 @@ func (transport *Transport) runCommand(ctx context.Context, operation Operation,
 	if runErr != nil || result.ExitCode != 0 {
 		return NodeResult{}, ErrCommandFailed
 	}
-	return DecodeNodeResult(stdout.Bytes(), node, operation)
+	decoded, decodeErr := DecodeNodeResult(stdout.Bytes(), node, operation)
+	if decodeErr != nil {
+		return NodeResult{}, decodeErr
+	}
+	if operation == OperationRun || operation == OperationWorker {
+		decoded.CleanupVerified = true
+	}
+	return decoded, nil
 }
 
 func (transport *Transport) operationTimeout(operation Operation) time.Duration {

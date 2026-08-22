@@ -69,8 +69,10 @@ type RuntimeConfig struct {
 
 // NodeBinding 将一个 topology node 显式绑定到 probe、runner、worker 和隔离根。
 type NodeBinding struct {
-	NodeID               string                 `json:"node_id"`
-	Platform             Platform               `json:"platform"`
+	NodeID   string   `json:"node_id"`
+	Platform Platform `json:"platform"`
+	// CGOEnabled 是调用方提供的本次节点 batch cgo 开关，不允许默认。
+	CGOEnabled           string                 `json:"cgo_enabled"`
 	Endpoint             string                 `json:"endpoint"`
 	ProbeExecutable      string                 `json:"probe_executable"`
 	ProbeConfigPath      string                 `json:"probe_config_path"`
@@ -112,7 +114,7 @@ func ConfigFields() []string {
 // NodeBindingFields 返回 node binding JSON ABI 字段的稳定排序副本。
 func NodeBindingFields() []string {
 	return []string{
-		"node_id", "platform", "endpoint", "probe_executable", "probe_config_path", "probe_identity",
+		"node_id", "platform", "cgo_enabled", "endpoint", "probe_executable", "probe_config_path", "probe_identity",
 		"runner_executable", "runner_identity", "worker_executable", "worker_identity",
 		"repository_root", "object_store_root", "worktree_root", "cache_publication_root",
 		"private_overlay_root", "temp_root", "go_executable", "toolchain_identity", "linux",
@@ -411,6 +413,9 @@ func (node NodeBinding) Validate() error {
 	if err := validateEndpoint(node.Endpoint); err != nil {
 		return errors.New("node endpoint is invalid")
 	}
+	if err := validateNodeExecutionBase(node); err != nil {
+		return err
+	}
 	if err := validateNodePaths(node); err != nil {
 		return err
 	}
@@ -418,6 +423,13 @@ func (node NodeBinding) Validate() error {
 		return err
 	}
 	return validateNodePlatform(node)
+}
+
+func validateNodeExecutionBase(node NodeBinding) error {
+	if node.CGOEnabled != "0" && node.CGOEnabled != "1" {
+		return errors.New("cgo_enabled must be exactly 0 or 1")
+	}
+	return nil
 }
 
 func validateNodePaths(node NodeBinding) error {

@@ -49,6 +49,7 @@ func TestRuntimeConfigRejectsNonCanonicalAndUnknownFields(t *testing.T) {
 		"duplicate field":       duplicateRuntimeField(encoded),
 		"null field":            bytes.Replace(encoded, []byte(`"owner_namespace":"remote-ci-fixture"`), []byte(`"owner_namespace":null`), 1),
 		"missing heartbeat TTL": bytes.Replace(encoded, []byte(`,"heartbeat_ttl_ms":30000`), nil, 1),
+		"missing node cgo":      bytes.Replace(encoded, []byte(`"cgo_enabled":"0",`), nil, 1),
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -88,6 +89,7 @@ func TestRuntimeConfigTopologyRules(t *testing.T) {
 		{name: "Windows roots overlap", mutate: func(config *RuntimeConfig) { config.Nodes[3].TempRoot = config.Nodes[2].TempRoot }},
 		{name: "platform fields mixed", mutate: func(config *RuntimeConfig) { config.Nodes[2].Linux = &LinuxContainerBinding{} }},
 		{name: "probe identity is not sha256", mutate: func(config *RuntimeConfig) { config.Nodes[0].ProbeIdentity = "probe-identity" }},
+		{name: "cgo flag is not canonical", mutate: func(config *RuntimeConfig) { config.Nodes[0].CGOEnabled = "true" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,6 +153,32 @@ func TestExecutionFactsRejectCrossPlatformBinding(t *testing.T) {
 	if err := executionFixture(WindowsPlatform).ValidateFor(UbuntuPlatform); err == nil {
 		t.Fatal("Windows execution facts unexpectedly validated for Linux")
 	}
+	cgoMismatch := executionFixture(UbuntuPlatform)
+	cgoMismatch.CGOEnabled = "1"
+	if err := cgoMismatch.ValidateForNode(runtimeFixture().Nodes[0]); err == nil {
+		t.Fatal("execution facts with mismatched cgo unexpectedly validated")
+	}
+}
+
+func TestExecutionBaseFactsUsesBindingAndRequiresBatchIdentities(t *testing.T) {
+	for _, node := range runtimeFixture().Nodes {
+		base, err := node.ExecutionBaseFacts()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if base.CGOEnabled != node.CGOEnabled || base.ModuleIdentity != "" || base.WorkloadIdentity != "" {
+			t.Fatalf("base facts leaked/defaulted batch identity: node=%+v base=%+v", node, base)
+		}
+		if err := base.ValidateForNode(node); err == nil {
+			t.Fatal("base facts unexpectedly validated without batch identities")
+		}
+		complete := base
+		complete.ModuleIdentity = "sha256:" + strings.Repeat("1", 64)
+		complete.WorkloadIdentity = "sha256:" + strings.Repeat("2", 64)
+		if err := complete.ValidateForNode(node); err != nil {
+			t.Fatalf("caller-completed execution facts rejected: %v", err)
+		}
+	}
 }
 
 func runtimeFixture() RuntimeConfig {
@@ -170,7 +198,7 @@ func runtimeFixture() RuntimeConfig {
 
 func runtimeUbuntuNode(nodeID, privateRoot string) NodeBinding {
 	return NodeBinding{
-		NodeID: nodeID, Platform: UbuntuPlatform, Endpoint: "ssh://" + strings.ToLower(nodeID),
+		NodeID: nodeID, Platform: UbuntuPlatform, CGOEnabled: "0", Endpoint: "ssh://" + strings.ToLower(nodeID),
 		ProbeExecutable: "/opt/super-dolphin/probe", ProbeConfigPath: "/etc/super-dolphin/probe.json", ProbeIdentity: runtimeProbeIdentity(nodeID),
 		RunnerExecutable: "/opt/super-dolphin/linux_runner_daemon.sh", RunnerIdentity: nodeID + "-runner",
 		WorkerExecutable: "/opt/super-dolphin/worker", WorkerIdentity: nodeID + "-worker",
@@ -184,7 +212,7 @@ func runtimeUbuntuNode(nodeID, privateRoot string) NodeBinding {
 
 func runtimeWindowsNode(nodeID, privateRoot string) NodeBinding {
 	return NodeBinding{
-		NodeID: nodeID, Platform: WindowsPlatform, Endpoint: "ssh://" + strings.ToLower(nodeID),
+		NodeID: nodeID, Platform: WindowsPlatform, CGOEnabled: "0", Endpoint: "ssh://" + strings.ToLower(nodeID),
 		ProbeExecutable: "C:/super-dolphin/probe.exe", ProbeConfigPath: "C:/super-dolphin/probe.json", ProbeIdentity: runtimeProbeIdentity(nodeID),
 		RunnerExecutable: "C:/super-dolphin/windows_runner.ps1", RunnerIdentity: nodeID + "-runner",
 		WorkerExecutable: "C:/super-dolphin/worker.exe", WorkerIdentity: nodeID + "-worker",
