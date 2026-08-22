@@ -222,7 +222,7 @@ internal/archtest/guard_freeze.go	internal	other	go-source	10906	架构守卫、
 internal/archtest/guard_freeze_acceptance_test.go	internal	other	go-test	4536	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,acceptance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guard_freeze_ssot_test.go	internal	other	go-test	3693	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,ssot,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guardlib.go	internal	other	go-source	19453	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/heteroci_contract_header_guard_test.go	internal	other	go-test	4681	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,contract,header,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/heteroci_contract_header_guard_test.go	internal	other	go-test	8382	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,contract,header,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_four_node_capacity_contract_guard_test.go	internal	other	go-test	12736	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,four,node,capacity,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_aggregate_ssa_guard_test.go	internal	other	go-test	22477	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,aggregate,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_boundary_ssa_guard_test.go	internal	other	go-test	9184	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,boundary,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -958,11 +958,9 @@ internal/devtools/heterociowner/postgresql_index_explain_pg14_test.sql	internal	
 internal/devtools/heterociowner/postgresql_owner.go	internal	other	go-source	12700	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_plan.go	internal	other	go-source	16460	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_plan_test.go	internal	other	go-test	5767	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,test,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_runtime_test.go	internal	other	go-test	9219	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,runtime,test,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_schema.go	internal	other	go-source	8458	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,schema,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_runtime_test.go	internal	other	go-test	9209	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,runtime,test,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_schema.go	internal	other	go-source	8835	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,schema,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_test_driver_test.go	internal	other	go-test	10706	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,test,driver,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_protocol.go	internal	other	go-source	15462	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,protocol,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_protocol_test.go	internal	other	go-test	13224	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,protocol,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/read_state.go	internal	other	go-source	28074	开发工具与生成器辅助包	internal,devtools,heterociowner,read,state,开发工具与生成器辅助包
 internal/devtools/heterociowner/read_state_test.go	internal	other	go-test	23311	开发工具与生成器辅助包	internal,devtools,heterociowner,read,state,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/restart_test.go	internal	other	go-test	3962	开发工具与生成器辅助包	internal,devtools,heterociowner,restart,test,开发工具与生成器辅助包

@@ -130,7 +130,7 @@ func TestPostgreSQLOwnerDDLIsIndependentCanonicalBYTEASchema(t *testing.T) {
 			t.Fatalf("PostgreSQL owner DDL missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"?", "PRAGMA", "sqlite", "IF NOT EXISTS", PostgreSQLReceiptSchema} {
+	for _, forbidden := range []string{"?", "PRAGMA", "sqlite", "IF NOT EXISTS", "heteroci_receipt"} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("PostgreSQL owner DDL contains forbidden %q", forbidden)
 		}
@@ -148,7 +148,7 @@ func assertPostgreSQLOwnerAdditiveIndexDDL(t *testing.T, clean, additive string)
 			t.Fatalf("additive owner DDL count for %q = %d, want 1", definition.name, strings.Count(additive, definition.statement))
 		}
 	}
-	for _, forbidden := range []string{"CREATE SCHEMA", "CREATE TABLE", "IF NOT EXISTS", PostgreSQLReceiptSchema} {
+	for _, forbidden := range []string{"CREATE SCHEMA", "CREATE TABLE", "IF NOT EXISTS", "heteroci_receipt"} {
 		if strings.Contains(additive, forbidden) {
 			t.Fatalf("PostgreSQL owner additive index DDL contains forbidden %q", forbidden)
 		}

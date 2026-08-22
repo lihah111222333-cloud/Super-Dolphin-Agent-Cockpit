@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+// PostgreSQL owner 的 schema、最小权限 writer role 与提交同步语义属于 owner
+// 核心边界；它们不再通过已退役的旧 protocol 配置暴露。
+const (
+	PostgreSQLOwnerSchema                       = "heteroci_owner"
+	PostgreSQLOwnerRole                         = "heteroci_owner_writer"
+	PostgreSQLOwnerSynchronousCommitRemoteApply = "remote_apply"
+)
+
 // PostgreSQLOwnerRuntimeSchemaVersion 是 remote PostgreSQL-only owner schema 的冻结版本。
 const PostgreSQLOwnerRuntimeSchemaVersion = "heteroci-owner-postgresql/v1"
 
