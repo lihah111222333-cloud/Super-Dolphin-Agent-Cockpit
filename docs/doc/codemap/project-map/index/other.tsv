@@ -924,6 +924,8 @@ internal/devtools/heteroci/topology_session_test.go	internal	other	go-test	8272	
 internal/devtools/heterociexec/command.go	internal	other	go-source	5285	开发工具与生成器辅助包	internal,devtools,heterociexec,command,开发工具与生成器辅助包
 internal/devtools/heterociexec/command_executor.go	internal	other	go-source	28254	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,开发工具与生成器辅助包
 internal/devtools/heterociexec/command_executor_test.go	internal	other	go-test	30030	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_lifecycle_projector.go	internal	other	go-source	13450	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,lifecycle,projector,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_lifecycle_projector_test.go	internal	other	go-test	8136	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,lifecycle,projector,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_schema.go	internal	other	go-source	7118	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_store.go	internal	other	go-source	13253	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_store_test.go	internal	other	go-test	16926	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,test,开发工具与生成器辅助包
