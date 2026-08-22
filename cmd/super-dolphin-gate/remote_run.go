@@ -78,12 +78,9 @@ func executeRemoteRun(options remoteRunOptions) (remoteci.RunResult, remoteci.Ru
 }
 
 type remotePreparedRunDependencies struct {
-	allReused                    func(*remoteci.PreparedRun) bool
-	resolveCandidateGateIdentity func(string, string) (string, string, error)
-	loadImageCacheRuntime        func(remoteRunConfig, remoteci.BaselineState) (remoteImageCacheRuntime, error)
-	bindMissExecution            func(*remoteci.Coordinator, context.Context, *remoteci.PreparedRun, remoteci.MissExecutionBinding) error
-	reloadPlanning               func(remoteRunOptions, remoteci.BaselineState, string, remoteci.RunInput, *remoteci.PreparedRun) error
-	newExecutionOwner            func(*remoteci.Coordinator) (remotePreparedExecutionOwner, error)
+	allReused         func(*remoteci.PreparedRun) bool
+	reloadPlanning    func(remoteRunOptions, remoteci.BaselineState, string, remoteci.RunInput, *remoteci.PreparedRun) error
+	newExecutionOwner func(*remoteci.Coordinator) (remotePreparedExecutionOwner, error)
 }
 
 type remotePreparedExecutionOwner interface {
@@ -93,22 +90,18 @@ type remotePreparedExecutionOwner interface {
 // defaultRemotePreparedRunDependencies 将生产闭包与云端 runtime 读取显式注入 PASS-first 编排。
 func defaultRemotePreparedRunDependencies() remotePreparedRunDependencies {
 	return remotePreparedRunDependencies{
-		allReused:                    (*remoteci.PreparedRun).AllReused,
-		resolveCandidateGateIdentity: resolveRemoteCandidateGateIdentity,
-		loadImageCacheRuntime:        loadRemoteImageCacheRuntime,
-		bindMissExecution:            (*remoteci.Coordinator).BindPreparedMissExecution,
-		reloadPlanning:               reloadRemotePlanningAfterCalibration,
+		allReused:      (*remoteci.PreparedRun).AllReused,
+		reloadPlanning: reloadRemotePlanningAfterCalibration,
 		newExecutionOwner: func(coordinator *remoteci.Coordinator) (remotePreparedExecutionOwner, error) {
 			return remoteci.NewExecutionOwner(coordinator, finalizeRemoteRunEvidence)
 		},
 	}
 }
 
-// executePreparedRemoteRun 先消费复用决策；只有严格 MISS 才解析候选编译闭包和实时云端物料。
+// executePreparedRemoteRun 重载规划后 all-hit 进入旧 Gate 终态链；MISS 在独立 super-dolphin-remote-ci 边界 fail-fast。
 func executePreparedRemoteRun(
 	ctx context.Context,
 	options remoteRunOptions,
-	config remoteRunConfig,
 	state remoteci.BaselineState,
 	runnerIdentity string,
 	input remoteci.RunInput,
@@ -123,9 +116,7 @@ func executePreparedRemoteRun(
 	if err := dependencies.reloadPlanning(options, state, runnerIdentity, input, prepared); err != nil {
 		return result, input, err
 	}
-	boundInput, err := bindRemoteMissExecutionInputs(
-		ctx, config, state, input, coordinator, prepared, dependencies,
-	)
+	boundInput, err := bindRemoteMissExecutionInputs(input, prepared, dependencies)
 	if err != nil {
 		return result, input, err
 	}
@@ -138,51 +129,21 @@ func executePreparedRemoteRun(
 	return result, input, err
 }
 
-// bindRemoteMissExecutionInputs 在 all-hit 时直接返回；MISS 才依次读取 exact Gate closure 与 OSS/ECI runtime。
+// bindRemoteMissExecutionInputs 只保留旧 Gate 的 all-hit 读取；MISS 明确不再进入 ImageCache successor 路径。
 func bindRemoteMissExecutionInputs(
-	ctx context.Context,
-	config remoteRunConfig,
-	state remoteci.BaselineState,
 	input remoteci.RunInput,
-	coordinator *remoteci.Coordinator,
 	prepared *remoteci.PreparedRun,
 	dependencies remotePreparedRunDependencies,
 ) (remoteci.RunInput, error) {
 	if dependencies.allReused(prepared) {
 		return input, nil
 	}
-	sourceDigest, toolchainDigest, err := dependencies.resolveCandidateGateIdentity(input.RepositoryRoot, input.Tree)
-	if err != nil {
-		return input, sourceError("resolve exact candidate Gate compile identity: %v", err)
-	}
-	runtime, err := dependencies.loadImageCacheRuntime(config, state)
-	if err != nil {
-		return input, protocolError("load refreshed remote ImageCache runtime: %v", err)
-	}
-	input.CandidateGateSourceSHA256 = sourceDigest
-	input.CandidateGateToolchainSHA256 = toolchainDigest
-	if err := applyRemoteImageCacheRuntime(&input, runtime); err != nil {
-		return input, protocolError("apply refreshed remote ImageCache runtime: %v", err)
-	}
-	binding := remoteci.MissExecutionBinding{
-		CandidateGateSourceSHA256:     input.CandidateGateSourceSHA256,
-		CandidateGateToolchainSHA256:  input.CandidateGateToolchainSHA256,
-		ExecutionRunnerImage:          input.ExecutionRunnerImage,
-		ExecutionImageCacheSnapshotID: input.ExecutionImageCacheSnapshotID,
-		ImageCacheOnly:                input.ImageCacheOnly,
-	}
-	if err := dependencies.bindMissExecution(coordinator, ctx, prepared, binding); err != nil {
-		return input, err
-	}
-	return input, nil
+	return input, protocolError("old Gate remote ImageCache execution is retired; use the independent super-dolphin-remote-ci entrypoint")
 }
 
 // validateRemotePreparedRunDependencies 拒绝不完整的生产编排注入。
 func validateRemotePreparedRunDependencies(dependencies remotePreparedRunDependencies) error {
 	if dependencies.allReused == nil ||
-		dependencies.resolveCandidateGateIdentity == nil ||
-		dependencies.loadImageCacheRuntime == nil ||
-		dependencies.bindMissExecution == nil ||
 		dependencies.reloadPlanning == nil ||
 		dependencies.newExecutionOwner == nil {
 		return errors.New("remote prepared run dependencies are incomplete")

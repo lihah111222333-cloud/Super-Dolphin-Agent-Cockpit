@@ -210,7 +210,6 @@ func TestRemoteCIStrictPlanAndProtocolDecoderGuard(t *testing.T) {
 	for _, row := range []struct {
 		name, relative, function string
 	}{
-		{"refresh receipt", "internal/devtools/cicontract/imagecache_refresh_receipt.go", "DecodeImageCacheRefreshReceipt"},
 		{"generation-one receipt", "internal/devtools/cicontract/generation_one.go", "DecodeGenerationOneProvisionReceipt"},
 	} {
 		file := parseRemoteCIContractGuardFile(t, root+"/"+row.relative)
