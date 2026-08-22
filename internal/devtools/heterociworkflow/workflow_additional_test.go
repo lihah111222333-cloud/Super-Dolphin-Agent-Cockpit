@@ -33,7 +33,7 @@ func TestWorkflowNewRejectsEveryMissingOrTypedNilDependency(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newWorkflowFixture(&fakeExecutor{})
+			fixture := newWorkflowFixture(t, &fakeExecutor{})
 			deps := fixture.deps
 			test.mutate(&deps)
 			if _, err := New(deps); !errors.Is(err, ErrInvalidDependencies) {
@@ -52,7 +52,7 @@ func TestWorkflowExecutorErrorRecoversFromSingleDurableReceipt(t *testing.T) {
 		receiptFound: true,
 		receipt:      successfulBatchResult("unit-1"),
 	}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 
 	result, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -71,7 +71,7 @@ func TestWorkflowExecutorErrorRecoversFromSingleDurableReceipt(t *testing.T) {
 }
 
 func TestWorkflowNilBoundExecutorCancelsEveryPlannedLease(t *testing.T) {
-	fixture := newWorkflowFixture(nil)
+	fixture := newWorkflowFixture(t, nil)
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)
 	if !errors.Is(err, ErrExecutorBinding) {
@@ -90,8 +90,8 @@ func TestValidateBoundExecutorsRequiresExactKeySet(t *testing.T) {
 	keyB := ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-b"}
 	keyExtra := ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-extra"}
 	plan := ExecutorBindingPlan{Bindings: []ExecutorBinding{
-		{Key: keyA, BatchIDs: []BatchID{"batch-a"}},
-		{Key: keyB, BatchIDs: []BatchID{"batch-b"}},
+		{NodeID: keyA.NodeID, ExecutorKind: keyA.Kind, BatchIDs: []BatchID{"batch-a"}},
+		{NodeID: keyB.NodeID, ExecutorKind: keyB.Kind, BatchIDs: []BatchID{"batch-b"}},
 	}}
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("binding plan validation: %v", err)
@@ -115,7 +115,7 @@ func TestValidateBoundExecutorsRequiresExactKeySet(t *testing.T) {
 }
 
 func TestWorkflowPostPlanReadValidationCancelsEveryPlannedLease(t *testing.T) {
-	fixture := newWorkflowFixture(&fakeExecutor{})
+	fixture := newWorkflowFixture(t, &fakeExecutor{})
 	fixture.deps.Owner = &readDriftOwner{fakeOwner: fixture.owner}
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -136,7 +136,7 @@ func TestWorkflowRejectsBatchStatusOutsideNotVerified(t *testing.T) {
 		Status:    "PASS",
 		Outcomes:  []BatchOutcome{{UnitID: "unit-1", State: heteroci.LeaseStateSucceeded}},
 	}}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -203,7 +203,7 @@ func TestWorkflowOperationIDsSeparateRepositoriesWithSameCallerRunID(t *testing.
 }
 
 func TestWorkflowBuildsOneDeterministicLocalWaveBatch(t *testing.T) {
-	fixture := newWorkflowFixture(&fakeExecutor{})
+	fixture := newWorkflowFixture(t, &fakeExecutor{})
 	units := append([]heteroci.ExecutionUnit(nil), fixture.units...)
 	second := units[0]
 	second.UnitID = "unit-2"
@@ -279,9 +279,10 @@ func TestRunRequestPlanAuditFieldRegistry(t *testing.T) {
 		producer[field.Name] = true
 	}
 	consumer := map[string]string{
-		"ManifestPath": "strict manifest loader", "RepositoryID": "topology plan audit request",
-		"SourceTreeSHA": "topology plan audit request", "RunID": "topology plan and execution identity",
-		"Units": "topology planner and executor", "HeartbeatTTL": "snapshot and lease validation",
+		"SchemaVersion": "strict request decoder", "ExternalOperationID": "bind operation journal", "DurableRunID": "derived topology identity",
+		"RequestDigest": "canonical request digest", "ManifestDigest": "portable target binding", "TopologyManifestDigest": "topology manifest digest",
+		"ManifestPath": "strict manifest loader", "RepositoryID": "topology plan audit request", "SourceTreeSHA": "topology plan audit request",
+		"RunID": "topology plan and execution identity", "Units": "topology planner and executor", "HeartbeatTTL": "snapshot and lease validation",
 	}
 	var missing, stale []string
 	for field := range producer {
@@ -301,12 +302,36 @@ func TestRunRequestPlanAuditFieldRegistry(t *testing.T) {
 	}
 }
 
+func TestExecutorBindingPlanFieldRegistry(t *testing.T) {
+	planFields := reflect.TypeFor[ExecutorBindingPlan]()
+	planConsumers := map[string]string{"SchemaVersion": "PG bind journal", "ExternalOperationID": "PG operation identity", "DurableRunID": "persisted run", "RequestDigest": "request binding", "ManifestDigest": "portable target binding", "TopologyManifestDigest": "topology manifest binding", "PlanDigest": "persisted plan", "AuthorityGeneration": "owner epoch", "Bindings": "sorted node bindings", "BindingDigest": "aggregate receipt projection"}
+	var missing, stale []string
+	for index := 0; index < planFields.NumField(); index++ {
+		if planConsumers[planFields.Field(index).Name] == "" {
+			missing = append(missing, planFields.Field(index).Name)
+		}
+	}
+	for field := range planConsumers {
+		if _, ok := planFields.FieldByName(field); !ok {
+			stale = append(stale, field)
+		}
+	}
+	if len(missing) != 0 || len(stale) != 0 {
+		t.Fatalf("ExecutorBindingPlan field registry drifted: missing=%v stale=%v", missing, stale)
+	}
+	bindingFields := reflect.TypeFor[ExecutorBinding]()
+	for _, field := range []string{"NodeID", "NodeIDDigest", "ExecutorKind", "BatchIDs", "ShardDigest", "BatchSetDigest", "UnitSetDigest", "NodeFactsDigest"} {
+		if _, ok := bindingFields.FieldByName(field); !ok {
+			t.Fatalf("ExecutorBinding missing producer field %q", field)
+		}
+	}
+}
+
 func TestWorkflowPlanRequestCarriesPerRunRepositoryAudit(t *testing.T) {
 	executor := &fakeExecutor{result: successfulBatchResult("unit-1")}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
-	fixture.request.RepositoryID = "repository-b"
-	fixture.request.SourceTreeSHA = strings.Repeat("b", 40)
+	fixture.request = strictWorkflowTestRequest(t, fixture.manifest, "repository-b", strings.Repeat("b", 40), fixture.request.RunID, fixture.units, fixture.request.HeartbeatTTL)
 	if _, err := Execute(t.Context(), fixture.deps, fixture.request); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -329,7 +354,7 @@ func TestWorkflowRejectsMissingOrNonCanonicalRepositoryAuditBeforeSideEffects(t 
 		{name: "uppercase tree", mutate: func(request *RunRequest) { request.SourceTreeSHA = strings.Repeat("A", 40) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newWorkflowFixture(&fakeExecutor{})
+			fixture := newWorkflowFixture(t, &fakeExecutor{})
 			test.mutate(&fixture.request)
 			if _, err := Execute(t.Context(), fixture.deps, fixture.request); !errors.Is(err, ErrInvalidRequest) {
 				t.Fatalf("Execute error = %v, want ErrInvalidRequest", err)

@@ -38,6 +38,10 @@ type DurableOwner interface {
 		fence heteroci.OwnerFence,
 		request heteroci.TopologyPlanRequest,
 	) (heterociowner.DurableReservedRoutingPlan, error)
+	BindExecutors(
+		ctx context.Context,
+		mutation heteroci.ExecutorBindingMutation,
+	) (heteroci.ExecutorBindingMutationResult, error)
 	Start(
 		ctx context.Context,
 		fence heteroci.OwnerFence,
@@ -79,14 +83,29 @@ type BatchReceiptReader interface {
 // ExecutorBinding 是一个 executor key 与其完整 batch identity 集合的绑定计划项。
 // BatchIDs 必须按字典序排列且在整个计划中唯一；它们是 binder 校验 lane 覆盖的稳定输入。
 type ExecutorBinding struct {
-	Key      ExecutorKey
-	BatchIDs []BatchID
+	NodeID          string                `json:"node_id"`
+	NodeIDDigest    string                `json:"node_id_digest"`
+	ExecutorKind    heteroci.ExecutorKind `json:"executor_kind"`
+	BatchIDs        []BatchID             `json:"batch_ids"`
+	ShardDigest     string                `json:"shard_digest"`
+	BatchSetDigest  string                `json:"batch_set_digest"`
+	UnitSetDigest   string                `json:"unit_set_digest"`
+	NodeFactsDigest string                `json:"node_facts_digest"`
 }
 
 // ExecutorBindingPlan 是一次 run 的完整、排序且去重的 executor binding 计划。
 // 计划在任何 Start mutation 前一次性交给 binder，禁止按 key 逐次绑定。
 type ExecutorBindingPlan struct {
-	Bindings []ExecutorBinding
+	SchemaVersion          string                     `json:"schema_version"`
+	ExternalOperationID    heteroci.OperationID       `json:"external_operation_id"`
+	DurableRunID           heteroci.TopologyRunID     `json:"durable_run_id"`
+	RequestDigest          string                     `json:"request_digest"`
+	ManifestDigest         string                     `json:"manifest_digest"`
+	TopologyManifestDigest string                     `json:"topology_manifest_digest"`
+	PlanDigest             string                     `json:"plan_digest"`
+	AuthorityGeneration    heteroci.RoutingOwnerEpoch `json:"authority_generation"`
+	Bindings               []ExecutorBinding          `json:"bindings"`
+	BindingDigest          string                     `json:"binding_digest"`
 }
 
 // ExecutorBinder 在所有 Start 发生前为一个 run 一次绑定全部 executor。
@@ -151,24 +170,32 @@ type Dependencies struct {
 
 // RunRequest 是一次异构 workflow 执行请求。
 type RunRequest struct {
-	ManifestPath  string
-	RepositoryID  string
-	SourceTreeSHA string
-	RunID         string
-	Units         []heteroci.ExecutionUnit
-	HeartbeatTTL  time.Duration
+	SchemaVersion          string
+	ExternalOperationID    heteroci.OperationID
+	DurableRunID           heteroci.TopologyRunID
+	RequestDigest          string
+	ManifestDigest         string
+	TopologyManifestDigest string
+	ManifestPath           string
+	RepositoryID           string
+	SourceTreeSHA          string
+	RunID                  string
+	Units                  []heteroci.ExecutionUnit
+	HeartbeatTTL           time.Duration
 }
 
 // RunResult 是 workflow 完成后的本地非权威投影。
 type RunResult struct {
-	Authority string
-	Status    string
-	Fence     heteroci.OwnerFence
-	Manifest  heteroci.Manifest
-	Plan      heteroci.PackingPlan
-	Decision  heteroci.RoutingDecision
-	Leases    []heteroci.RoutingLease
-	Units     []UnitResult
+	Authority             string
+	Status                string
+	Fence                 heteroci.OwnerFence
+	Manifest              heteroci.Manifest
+	Plan                  heteroci.PackingPlan
+	Decision              heteroci.RoutingDecision
+	Leases                []heteroci.RoutingLease
+	Units                 []UnitResult
+	BindingPlan           ExecutorBindingPlan
+	ExecutorBindingDigest string
 }
 
 // UnitResult 记录一个 unit 的 durable terminal lease 状态和执行 batch。

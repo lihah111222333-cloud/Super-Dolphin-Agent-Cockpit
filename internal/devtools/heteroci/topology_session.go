@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -40,6 +41,60 @@ type TopologyReservedPlan struct {
 	Plan              PackingPlan
 	Decision          RoutingDecision
 	Leases            []RoutingLease
+}
+
+// DeriveTopologyManifestDigest 计算 owner 侧 topology manifest canonical digest。
+func DeriveTopologyManifestDigest(manifest Manifest) (string, error) {
+	if err := manifest.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return "", fmt.Errorf("encode topology manifest digest material: %w", err)
+	}
+	return "sha256:" + topologyDigest("heteroci-topology-manifest/v1", string(encoded)), nil
+}
+
+// DeriveTopologyReservedPlanDigest 绑定持久化 plan、snapshot、decision 和 lease 集合。
+func DeriveTopologyReservedPlanDigest(plan TopologyReservedPlan) (string, error) {
+	assignments := append([]RouteAssignment(nil), plan.Decision.Assignments...)
+	sort.Slice(assignments, func(left, right int) bool { return assignments[left].UnitID < assignments[right].UnitID })
+	leases := append([]RoutingLease(nil), plan.Leases...)
+	sort.Slice(leases, func(left, right int) bool { return leases[left].UnitID < leases[right].UnitID })
+	material := struct {
+		OperationID       OperationID       `json:"operation_id"`
+		SourceSnapshot    SnapshotSet       `json:"source_snapshot"`
+		EffectiveSnapshot SnapshotSet       `json:"effective_snapshot"`
+		Plan              PackingPlan       `json:"plan"`
+		Assignments       []RouteAssignment `json:"assignments"`
+		Leases            []RoutingLease    `json:"leases"`
+	}{plan.OperationID, plan.SourceSnapshot, plan.EffectiveSnapshot, plan.Plan, assignments, leases}
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return "", fmt.Errorf("encode topology plan digest material: %w", err)
+	}
+	return "sha256:" + topologyDigest("heteroci-topology-plan/v1", string(encoded)), nil
+}
+func topologyDigest(domain string, parts ...string) string {
+	hash := sha256.New()
+	write := func(value string) {
+		var length [8]byte
+		length[0] = byte(len(value) >> 56)
+		length[1] = byte(len(value) >> 48)
+		length[2] = byte(len(value) >> 40)
+		length[3] = byte(len(value) >> 32)
+		length[4] = byte(len(value) >> 24)
+		length[5] = byte(len(value) >> 16)
+		length[6] = byte(len(value) >> 8)
+		length[7] = byte(len(value))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write([]byte(value))
+	}
+	write(domain)
+	for _, part := range parts {
+		write(part)
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // TopologySessionMutator 是未来 remote PG owner 实现的 topology mutation 端口。
@@ -150,4 +205,44 @@ func ValidateTopologyAuditIdentity(repositoryID, sourceTree, runID string) error
 
 func validTopologyIdentity(value string) bool {
 	return value != "" && len(value) <= 512 && strings.TrimSpace(value) == value && strings.IndexFunc(value, unicode.IsControl) < 0
+}
+
+// ExecutorBindingMutation 是 request-level executor binding 的 storage-neutral durable 输入。
+// owner 只接受已经由 workflow BuildBatches 生成并完成 canonical digest 的计划，不重新规划。
+type ExecutorBindingMutation struct {
+	Fence OwnerFence          `json:"fence"`
+	Plan  ExecutorBindingPlan `json:"plan"`
+}
+
+// ExecutorBindingMutationResult 是 PG bind mutation 的 exact read-back 投影。
+type ExecutorBindingMutationResult struct {
+	Fence OwnerFence          `json:"fence"`
+	Plan  ExecutorBindingPlan `json:"plan"`
+}
+
+// ExecutorBindingPlan 是 owner 与 workflow 之间共享的 request-level binding DTO。
+// BatchIDs 使用字符串以保持 heteroci domain package 不依赖 workflow package。
+type ExecutorBindingPlan struct {
+	SchemaVersion          string            `json:"schema_version"`
+	ExternalOperationID    OperationID       `json:"external_operation_id"`
+	DurableRunID           TopologyRunID     `json:"durable_run_id"`
+	RequestDigest          string            `json:"request_digest"`
+	ManifestDigest         string            `json:"manifest_digest"`
+	TopologyManifestDigest string            `json:"topology_manifest_digest"`
+	PlanDigest             string            `json:"plan_digest"`
+	AuthorityGeneration    RoutingOwnerEpoch `json:"authority_generation"`
+	Bindings               []ExecutorBinding `json:"bindings"`
+	BindingDigest          string            `json:"binding_digest"`
+}
+
+// ExecutorBinding 是单个 node lane 的 canonical binding 投影。
+type ExecutorBinding struct {
+	NodeID          string       `json:"node_id"`
+	NodeIDDigest    string       `json:"node_id_digest"`
+	ExecutorKind    ExecutorKind `json:"executor_kind"`
+	BatchIDs        []string     `json:"batch_ids"`
+	ShardDigest     string       `json:"shard_digest"`
+	BatchSetDigest  string       `json:"batch_set_digest"`
+	UnitSetDigest   string       `json:"unit_set_digest"`
+	NodeFactsDigest string       `json:"node_facts_digest"`
 }

@@ -59,14 +59,15 @@ func (binder automaticExecutorBinder) Bind(plan heterociworkflow.ExecutorBinding
 	}
 	bound := make(map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, len(plan.Bindings))
 	for _, binding := range plan.Bindings {
-		executor, ok := binder.executors[binding.Key]
+		key := heterociworkflow.ExecutorKey{Kind: binding.ExecutorKind, NodeID: binding.NodeID}
+		executor, ok := binder.executors[key]
 		if !ok {
 			return nil, errors.New("automatic executor binding is unavailable")
 		}
 		if executor == nil {
 			return nil, errors.New("automatic executor binding is nil")
 		}
-		bound[binding.Key] = executor
+		bound[key] = executor
 	}
 	return bound, nil
 }

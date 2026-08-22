@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -40,7 +39,7 @@ func (workflow *Workflow) Run(ctx context.Context, request RunRequest) (RunResul
 	if err := workflow.executeRunBatches(ctx, &prepared); err != nil {
 		return RunResult{}, workflow.failPlannedRun(ctx, prepared.runIdentity.DurableRunID, &prepared, err)
 	}
-	return buildRunResult(prepared.manifest, prepared.planned, prepared.state), nil
+	return buildRunResult(prepared.manifest, prepared.planned, prepared.state, prepared.bindingPlan), nil
 }
 
 type preparedRun struct {
@@ -52,29 +51,27 @@ type preparedRun struct {
 	planned        heterociowner.DurableReservedRoutingPlan
 	state          *executionState
 	batches        []BatchPlan
+	bindingPlan    ExecutorBindingPlan
 	executors      map[ExecutorKey]BatchExecutor
 }
 
 // planRun 完成 strict load、owner acquire、initial snapshot 与 durable PlanAndReserve。
 func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (preparedRun, error) {
-	runIdentity, err := heteroci.DeriveTopologyRunIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID)
+	runIdentity, err := workflow.deriveRunIdentity(request)
 	if err != nil {
-		return preparedRun{}, fmt.Errorf("derive heteroci durable run identity: %w", err)
+		return preparedRun{}, err
 	}
 	ids, err := deriveRunOperationIDs(runIdentity.DurableRunID, request.Units)
 	if err != nil {
 		return preparedRun{}, err
 	}
-	manifest, err := workflow.loadRunManifest(request.ManifestPath)
+	manifest, err := workflow.loadAndValidateRunManifest(request)
 	if err != nil {
 		return preparedRun{}, err
 	}
-	fence, err := workflow.deps.Owner.Acquire(ctx)
+	fence, err := workflow.acquireRunFence(ctx)
 	if err != nil {
-		return preparedRun{}, fmt.Errorf("acquire heteroci owner: %w", err)
-	}
-	if err := fence.Validate(); err != nil {
-		return preparedRun{}, fmt.Errorf("validate acquired heteroci owner fence: %w", err)
+		return preparedRun{}, err
 	}
 	if err := workflow.rejectExistingRun(ctx, runIdentity.DurableRunID); err != nil {
 		return preparedRun{}, err
@@ -87,42 +84,11 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	if err != nil {
 		return preparedRun{}, err
 	}
-	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, heteroci.TopologyPlanRequest{
-		OperationID:    ids.plan,
-		RunIdentity:    runIdentity,
-		Manifest:       manifest,
-		SourceSnapshot: snapshot,
-		Units:          request.Units,
-		HeartbeatTTL:   request.HeartbeatTTL,
-	})
+	planned, err := workflow.deps.Owner.PlanAndReserve(ctx, fence, heteroci.TopologyPlanRequest{OperationID: ids.plan, RunIdentity: runIdentity, Manifest: manifest, SourceSnapshot: snapshot, Units: request.Units, HeartbeatTTL: request.HeartbeatTTL})
 	if err != nil {
 		return preparedRun{}, fmt.Errorf("plan and reserve heteroci run: %w", err)
 	}
 	return preparedRun{acquired: fence, runIdentity: runIdentity, ids: ids, manifest: manifest, sourceSnapshot: snapshot, planned: planned}, nil
-}
-
-// prepareExecution 校验 durable read-back、构建批次并在首个 Start 前绑定全部 executor。
-func (workflow *Workflow) prepareExecution(ctx context.Context, request RunRequest, prepared *preparedRun) error {
-	if err := validatePlannedProjection(prepared.acquired, prepared.ids.plan, request.Units, prepared.planned); err != nil {
-		return err
-	}
-	state, err := workflow.deps.Owner.ReadRun(ctx, prepared.runIdentity.DurableRunID)
-	if err != nil {
-		return fmt.Errorf("%w: read durable run before execution: %w", ErrExecutionState, err)
-	}
-	if err := validatePreExecutionRunState(prepared.acquired, string(prepared.runIdentity.DurableRunID), prepared.manifest, request.Units, request.HeartbeatTTL, prepared.planned, state); err != nil {
-		return err
-	}
-	now, err := workflow.now()
-	if err != nil {
-		return err
-	}
-	prepared.batches, err = BuildBatches(string(prepared.runIdentity.DurableRunID), prepared.manifest, prepared.planned, request.Units, now, request.HeartbeatTTL)
-	if err != nil {
-		return fmt.Errorf("%w: build execution batches: %w", ErrExecutionState, err)
-	}
-	prepared.executors, err = workflow.bindExecutors(ctx, prepared.batches)
-	return err
 }
 
 // executeRunBatches 并行推进独立 lane，并保持同一 local node 的 wave barrier。
@@ -182,30 +148,6 @@ func validateWorkflowReady(workflow *Workflow) error {
 }
 
 // validateRunRequest 校验 context、manifest path、run audit、TTL 和 execution units。
-func validateRunRequest(ctx context.Context, request RunRequest) error {
-	if ctx == nil {
-		return fmt.Errorf("%w: context is required", ErrInvalidRequest)
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("%w: context is already done: %w", ErrInvalidRequest, err)
-	}
-	if request.ManifestPath == "" || strings.TrimSpace(request.ManifestPath) != request.ManifestPath {
-		return fmt.Errorf("%w: manifest path is invalid", ErrInvalidRequest)
-	}
-	if err := heteroci.ValidateTopologyAuditIdentity(request.RepositoryID, request.SourceTreeSHA, request.RunID); err != nil {
-		return fmt.Errorf("%w: run audit identity is invalid: %w", ErrInvalidRequest, err)
-	}
-	if err := validateWorkflowRunID(request.RunID); err != nil {
-		return fmt.Errorf("%w: run identity is invalid", ErrInvalidRequest)
-	}
-	if request.HeartbeatTTL <= 0 || request.HeartbeatTTL.Milliseconds() <= 0 {
-		return fmt.Errorf("%w: heartbeat TTL is invalid", ErrInvalidRequest)
-	}
-	if err := heteroci.ValidateExecutionUnits(request.Units); err != nil {
-		return fmt.Errorf("%w: execution units are invalid: %w", ErrInvalidRequest, err)
-	}
-	return nil
-}
 
 // deriveRunOperationIDs 在任何 owner mutation 前预计算整次运行的确定性 operation identity。
 func deriveRunOperationIDs(runID heteroci.TopologyRunID, units []heteroci.ExecutionUnit) (operationIDs, error) {
@@ -406,32 +348,16 @@ func validObservedPlannedLease(found bool, runID string, expected, observed hete
 	return found && observed.RunID == runID && observed.State == heteroci.LeaseStatePlanned && reflect.DeepEqual(observed, expected)
 }
 
-// bindExecutors 在任何 Start 前一次性交付排序、去重且完整的 key/batch 计划。
-func (workflow *Workflow) bindExecutors(ctx context.Context, batches []BatchPlan) (map[ExecutorKey]BatchExecutor, error) {
+// bindExecutors 在任何 Start 前一次性交付 PG persisted plan；sortExecutorBindingPlan 仅保留为退役 seam marker。
+func (workflow *Workflow) bindExecutors(ctx context.Context, bindingPlan ExecutorBindingPlan) (map[ExecutorKey]BatchExecutor, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: bind executor context is nil", ErrExecutorBinding)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("%w: bind executor context: %w", ErrExecutorBinding, err)
 	}
-	batchIDsByKey := make(map[ExecutorKey][]BatchID, len(batches))
-	seenBatchIDs := make(map[BatchID]struct{}, len(batches))
-	for _, plan := range batches {
-		if err := plan.Batch.Key.Validate(); err != nil {
-			return nil, fmt.Errorf("%w: batch executor key is invalid", ErrExecutorBinding)
-		}
-		if !validWorkflowUnitID(string(plan.Batch.BatchID)) {
-			return nil, fmt.Errorf("%w: batch executor identity is invalid", ErrExecutorBinding)
-		}
-		if _, duplicate := seenBatchIDs[plan.Batch.BatchID]; duplicate {
-			return nil, fmt.Errorf("%w: batch identity is duplicated", ErrExecutorBinding)
-		}
-		seenBatchIDs[plan.Batch.BatchID] = struct{}{}
-		batchIDsByKey[plan.Batch.Key] = append(batchIDsByKey[plan.Batch.Key], plan.Batch.BatchID)
-	}
-	bindingPlan := sortExecutorBindingPlan(batchIDsByKey)
-	if err := bindingPlan.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: binding plan is invalid: %w", ErrExecutorBinding, err)
+	if err := ValidateDurableExecutorBindingPlan(bindingPlan); err != nil {
+		return nil, fmt.Errorf("%w: persisted binding plan is invalid: %w", ErrExecutorBinding, err)
 	}
 	expectedPlan := cloneExecutorBindingPlan(bindingPlan)
 	bound, err := workflow.deps.Executors.Bind(bindingPlan)
@@ -446,9 +372,11 @@ func (workflow *Workflow) bindExecutors(ctx context.Context, batches []BatchPlan
 
 // cloneExecutorBindingPlan isolates the expected plan from a binder mutating caller-owned slices.
 func cloneExecutorBindingPlan(plan ExecutorBindingPlan) ExecutorBindingPlan {
-	clone := ExecutorBindingPlan{Bindings: make([]ExecutorBinding, len(plan.Bindings))}
+	clone := plan
+	clone.Bindings = make([]ExecutorBinding, len(plan.Bindings))
 	for index, binding := range plan.Bindings {
-		clone.Bindings[index] = ExecutorBinding{Key: binding.Key, BatchIDs: append([]BatchID(nil), binding.BatchIDs...)}
+		clone.Bindings[index] = binding
+		clone.Bindings[index].BatchIDs = append([]BatchID(nil), binding.BatchIDs...)
 	}
 	return clone
 }
@@ -460,7 +388,7 @@ func validateBoundExecutors(plan ExecutorBindingPlan, bound map[ExecutorKey]Batc
 	}
 	expected := make(map[ExecutorKey]struct{}, len(plan.Bindings))
 	for _, binding := range plan.Bindings {
-		expected[binding.Key] = struct{}{}
+		expected[ExecutorKey{Kind: binding.ExecutorKind, NodeID: binding.NodeID}] = struct{}{}
 	}
 	for key, executor := range bound {
 		if _, ok := expected[key]; !ok {
@@ -894,7 +822,7 @@ func sortedPlannedLeases(leases []heteroci.RoutingLease) []heteroci.RoutingLease
 }
 
 // buildRunResult 生成不含任何 remote authority 写入的本地终态结果。
-func buildRunResult(manifest heteroci.Manifest, planned heterociowner.DurableReservedRoutingPlan, state *executionState) RunResult {
+func buildRunResult(manifest heteroci.Manifest, planned heterociowner.DurableReservedRoutingPlan, state *executionState, bindingPlan ExecutorBindingPlan) RunResult {
 	leases := make([]heteroci.RoutingLease, 0, len(planned.Leases))
 	for _, lease := range planned.Leases {
 		if terminal, ok := state.terminal[lease.UnitID]; ok {
@@ -909,7 +837,7 @@ func buildRunResult(manifest heteroci.Manifest, planned heterociowner.DurableRes
 		results = append(results, result)
 	}
 	sort.Slice(results, func(left, right int) bool { return results[left].UnitID < results[right].UnitID })
-	return RunResult{Authority: heteroci.AuthorityLocalNonAuthoritative, Status: ResultStatusNotVerified, Fence: state.fence, Manifest: manifest, Plan: planned.Plan, Decision: planned.Decision, Leases: leases, Units: results}
+	return RunResult{Authority: heteroci.AuthorityLocalNonAuthoritative, Status: ResultStatusNotVerified, Fence: state.fence, Manifest: manifest, Plan: planned.Plan, Decision: planned.Decision, Leases: leases, Units: results, BindingPlan: cloneExecutorBindingPlan(bindingPlan), ExecutorBindingDigest: bindingPlan.BindingDigest}
 }
 
 // joinWorkflowFailure 保留主错误并明确 cleanup 是否也失败。

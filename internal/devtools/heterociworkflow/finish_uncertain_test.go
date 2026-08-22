@@ -20,7 +20,7 @@ func TestWorkflowFinishCommitThenErrorReplaysExactOperationWithoutRetry(t *testi
 		Status:    ResultStatusNotVerified,
 		Outcomes:  []BatchOutcome{{UnitID: "unit-1", State: heteroci.LeaseStateSucceeded}},
 	}}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 	owner := &finishCommitThenErrorOwner{fakeOwner: fixture.owner, readFound: true}
 	fixture.deps.Owner = owner
@@ -48,7 +48,7 @@ func TestWorkflowFinishErrorWithoutExactOperationStaysUncertain(t *testing.T) {
 		Status:    ResultStatusNotVerified,
 		Outcomes:  []BatchOutcome{{UnitID: "unit-1", State: heteroci.LeaseStateSucceeded}},
 	}}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 	owner := &finishCommitThenErrorOwner{fakeOwner: fixture.owner, readFound: false}
 	fixture.deps.Owner = owner
@@ -70,7 +70,7 @@ func TestWorkflowMalformedFinishReplaysExactOperation(t *testing.T) {
 		Status:    ResultStatusNotVerified,
 		Outcomes:  []BatchOutcome{{UnitID: "unit-1", State: heteroci.LeaseStateSucceeded}},
 	}}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 	owner := &finishCommitThenErrorOwner{fakeOwner: fixture.owner, readFound: true, malformed: true}
 	fixture.deps.Owner = owner

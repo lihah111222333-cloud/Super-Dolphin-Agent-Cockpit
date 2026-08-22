@@ -50,7 +50,7 @@ func validBindings(encoder CommandEncoder) []Binding {
 func registryBindingPlan(keys ...heterociworkflow.ExecutorKey) heterociworkflow.ExecutorBindingPlan {
 	bindings := make([]heterociworkflow.ExecutorBinding, 0, len(keys))
 	for _, key := range keys {
-		bindings = append(bindings, heterociworkflow.ExecutorBinding{Key: key, BatchIDs: []heterociworkflow.BatchID{heterociworkflow.BatchID("batch-" + key.NodeID)}})
+		bindings = append(bindings, heterociworkflow.ExecutorBinding{NodeID: key.NodeID, ExecutorKind: key.Kind, BatchIDs: []heterociworkflow.BatchID{heterociworkflow.BatchID("batch-" + key.NodeID)}})
 	}
 	return heterociworkflow.ExecutorBindingPlan{Bindings: bindings}
 }

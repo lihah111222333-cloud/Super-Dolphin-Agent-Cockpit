@@ -1,12 +1,8 @@
 package heterociworkflow
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
@@ -41,14 +37,16 @@ func DeriveBatchID(runID string, key ExecutorKey, wave int, unitIDs []string) (B
 	if len(unitIDs) == 0 || wave < -1 {
 		return "", errors.New("heteroci workflow batch shape is invalid")
 	}
-	parts := []string{runID, string(key.Kind), key.NodeID, strconv.Itoa(wave)}
 	for _, unitID := range unitIDs {
 		if !validWorkflowUnitID(unitID) {
 			return "", errors.New("heteroci workflow batch unit is invalid")
 		}
-		parts = append(parts, unitID)
 	}
-	return BatchID(workflowDigest("heteroci-workflow-batch/v2", parts...)), nil
+	derived, err := heteroci.DeriveExecutorBindingBatchID(runID, key.NodeID, wave, unitIDs)
+	if err != nil {
+		return "", err
+	}
+	return BatchID(derived), nil
 }
 
 // Validate 校验 executor lane 的平台绑定形状。
@@ -76,23 +74,24 @@ func (plan ExecutorBindingPlan) Validate() error {
 		if err := validateExecutorBinding(index, previous, binding, seenKeys, seenBatches); err != nil {
 			return err
 		}
-		previous = binding.Key
+		previous = ExecutorKey{Kind: binding.ExecutorKind, NodeID: binding.NodeID}
 	}
 	return nil
 }
 
 // validateExecutorBinding 校验单个 key 的顺序、唯一性与 batch 覆盖。
 func validateExecutorBinding(index int, previous ExecutorKey, binding ExecutorBinding, seenKeys map[ExecutorKey]struct{}, seenBatches map[BatchID]struct{}) error {
-	if err := binding.Key.Validate(); err != nil {
+	key := ExecutorKey{Kind: binding.ExecutorKind, NodeID: binding.NodeID}
+	if err := key.Validate(); err != nil {
 		return errors.New("heteroci workflow executor binding plan key is invalid")
 	}
-	if index > 0 && !executorKeyLess(previous, binding.Key) {
+	if index > 0 && !executorKeyLess(previous, key) {
 		return errors.New("heteroci workflow executor binding plan keys are not strictly sorted")
 	}
-	if _, duplicate := seenKeys[binding.Key]; duplicate {
+	if _, duplicate := seenKeys[key]; duplicate {
 		return errors.New("heteroci workflow executor binding plan key is duplicated")
 	}
-	seenKeys[binding.Key] = struct{}{}
+	seenKeys[key] = struct{}{}
 	return validateExecutorBindingBatches(binding.BatchIDs, seenBatches)
 }
 
@@ -137,7 +136,7 @@ func sortExecutorBindingPlan(bindings map[ExecutorKey][]BatchID) ExecutorBinding
 	for _, key := range keys {
 		batchIDs := append([]BatchID(nil), bindings[key]...)
 		sort.Slice(batchIDs, func(left, right int) bool { return string(batchIDs[left]) < string(batchIDs[right]) })
-		plan.Bindings = append(plan.Bindings, ExecutorBinding{Key: key, BatchIDs: batchIDs})
+		plan.Bindings = append(plan.Bindings, ExecutorBinding{NodeID: key.NodeID, ExecutorKind: key.Kind, BatchIDs: batchIDs})
 	}
 	return plan
 }
@@ -166,19 +165,4 @@ func validWorkflowUnitID(unitID string) bool {
 		}
 	}
 	return true
-}
-
-func workflowDigest(domain string, parts ...string) string {
-	hash := sha256.New()
-	write := func(value string) {
-		var length [8]byte
-		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write([]byte(value))
-	}
-	write(domain)
-	for _, part := range parts {
-		write(part)
-	}
-	return hex.EncodeToString(hash.Sum(nil))
 }

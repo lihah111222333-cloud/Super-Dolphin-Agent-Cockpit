@@ -29,7 +29,7 @@ func (executor *multiWaveTestExecutor) ExecuteBatch(_ context.Context, batch Exe
 
 func TestWorkflowRunExecutesOneBoundBatchAndFinishesLocalNonAuthoritative(t *testing.T) {
 	executor := &fakeExecutor{}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 	executor.result = BatchResult{
 		Authority: heteroci.AuthorityLocalNonAuthoritative,
@@ -47,7 +47,7 @@ func TestWorkflowRunExecutesOneBoundBatchAndFinishesLocalNonAuthoritative(t *tes
 
 func TestWorkflowValidatesStartedLeaseWithPostStartClock(t *testing.T) {
 	executor := &fakeExecutor{}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 	executor.result = BatchResult{Authority: heteroci.AuthorityLocalNonAuthoritative, Status: ResultStatusNotVerified, Outcomes: []BatchOutcome{{UnitID: "unit-1", State: heteroci.LeaseStateSucceeded}}}
 	clockCalls := 0
@@ -88,7 +88,7 @@ func assertSuccessfulWorkflowResult(t *testing.T, result RunResult) {
 
 func TestWorkflowReusesOneSnapshotAcrossTTLSpanningWaves(t *testing.T) {
 	executor := &multiWaveTestExecutor{}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 	capacity := heteroci.ResourceCapacity{CPUMilli: 4_000, MemoryBytes: 8 << 30, MaxConcurrency: 1}
 	fixture.snapshot.Nodes[0].Total = capacity
@@ -98,8 +98,7 @@ func TestWorkflowReusesOneSnapshotAcrossTTLSpanningWaves(t *testing.T) {
 		fixture.units[0],
 		{UnitID: "unit-2", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 << 20},
 	}
-	fixture.request.Units = fixture.units
-	fixture.request.HeartbeatTTL = time.Second
+	fixture.request = strictWorkflowTestRequest(t, fixture.manifest, fixture.request.RepositoryID, fixture.request.SourceTreeSHA, fixture.request.RunID, fixture.units, time.Second)
 	snapshotCalls := 0
 	acquireSnapshot := fixture.deps.AcquireSnapshot
 	fixture.deps.AcquireSnapshot = func(ctx context.Context, manifest heteroci.Manifest, epoch heteroci.RoutingOwnerEpoch, transport heteroci.ProbeTransport, at time.Time, ttl time.Duration) (heteroci.SnapshotSet, error) {
@@ -128,7 +127,7 @@ func TestWorkflowReusesOneSnapshotAcrossTTLSpanningWaves(t *testing.T) {
 }
 
 func TestValidatePreparedSourceSnapshotRejectsContentDrift(t *testing.T) {
-	fixture := newWorkflowFixture(&fakeExecutor{})
+	fixture := newWorkflowFixture(t, &fakeExecutor{})
 	drifted := fixture.snapshot
 	drifted.Nodes = append([]heteroci.NodeSnapshot(nil), fixture.snapshot.Nodes...)
 	drifted.Nodes[0].ProbeBootID = "boot-drift"
@@ -157,7 +156,7 @@ func assertSuccessfulWorkflowTrace(t *testing.T, fixture *workflowFixture, execu
 }
 
 func TestWorkflowNewRejectsMissingExplicitDependencies(t *testing.T) {
-	fixture := newWorkflowFixture(&fakeExecutor{})
+	fixture := newWorkflowFixture(t, &fakeExecutor{})
 	tests := []struct {
 		name   string
 		mutate func(*Dependencies)
@@ -178,7 +177,7 @@ func TestWorkflowNewRejectsMissingExplicitDependencies(t *testing.T) {
 }
 
 func TestWorkflowBindingFailureCancelsEveryPlannedLease(t *testing.T) {
-	fixture := newWorkflowFixture(nil)
+	fixture := newWorkflowFixture(t, nil)
 	fixture.binder.err = errors.New("binder unavailable")
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -195,7 +194,7 @@ func TestWorkflowBindingFailureCancelsEveryPlannedLease(t *testing.T) {
 
 func TestWorkflowExecutorErrorReadsReceiptOnceAndNeverReexecutes(t *testing.T) {
 	executor := &fakeExecutor{executeErr: errors.New("transport acknowledgement lost")}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -216,7 +215,7 @@ func TestWorkflowRejectsNonLocalBatchAuthority(t *testing.T) {
 		Status:    ResultStatusNotVerified,
 		Outcomes:  []BatchOutcome{{UnitID: "unit-1", State: heteroci.LeaseStateSucceeded}},
 	}}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -229,7 +228,7 @@ func TestWorkflowRejectsNonLocalBatchAuthority(t *testing.T) {
 }
 
 func TestWorkflowRejectsExistingDurableRunBeforeProbeOrPlan(t *testing.T) {
-	fixture := newWorkflowFixture(&fakeExecutor{})
+	fixture := newWorkflowFixture(t, &fakeExecutor{})
 	fixture.owner.locateStates = []heterociowner.DurableRunState{{RunID: fixture.request.RunID}}
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)

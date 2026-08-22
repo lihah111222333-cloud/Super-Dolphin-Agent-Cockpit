@@ -103,6 +103,13 @@ func (owner *fakeOwner) ReadRun(context.Context, heteroci.TopologyRunID) (hetero
 	return owner.run, nil
 }
 
+func (owner *fakeOwner) BindExecutors(_ context.Context, mutation heteroci.ExecutorBindingMutation) (heteroci.ExecutorBindingMutationResult, error) {
+	nextFence, err := fakeNextFence(mutation.Fence)
+	if err != nil {
+		return heteroci.ExecutorBindingMutationResult{}, err
+	}
+	return heteroci.ExecutorBindingMutationResult{Fence: nextFence, Plan: mutation.Plan}, nil
+}
 func (owner *fakeOwner) Start(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
 	owner.record("start")
 	owner.startCount++
@@ -277,7 +284,7 @@ func (binder *fakeBinder) Bind(plan ExecutorBindingPlan) (map[ExecutorKey]BatchE
 	}
 	bound := make(map[ExecutorKey]BatchExecutor, len(plan.Bindings))
 	for _, binding := range plan.Bindings {
-		bound[binding.Key] = binder.executor
+		bound[ExecutorKey{Kind: binding.ExecutorKind, NodeID: binding.NodeID}] = binder.executor
 	}
 	return bound, nil
 }
@@ -294,7 +301,8 @@ type workflowFixture struct {
 	request  RunRequest
 }
 
-func newWorkflowFixture(executor BatchExecutor) *workflowFixture {
+func newWorkflowFixture(t testing.TB, executor BatchExecutor) *workflowFixture {
+	t.Helper()
 	now := time.UnixMilli(1_750_000_000_000)
 	manifest := heteroci.Manifest{
 		SchemaVersion: heteroci.ManifestSchemaVersion,
@@ -348,10 +356,28 @@ func newWorkflowFixture(executor BatchExecutor) *workflowFixture {
 		Now:            func() time.Time { return now },
 		CleanupTimeout: time.Second,
 	}
-	fixture.request = RunRequest{ManifestPath: "manifest.json", RepositoryID: "workflow-repository", SourceTreeSHA: strings.Repeat("a", 40), RunID: "workflow-run-1", Units: units, HeartbeatTTL: time.Minute}
+	fixture.request = strictWorkflowTestRequest(t, manifest, "workflow-repository", strings.Repeat("a", 40), "workflow-run-1", units, time.Minute)
 	return fixture
 }
 
+func strictWorkflowTestRequest(t testing.TB, manifest heteroci.Manifest, repositoryID, sourceTreeSHA, runID string, units []heteroci.ExecutionUnit, ttl time.Duration) RunRequest {
+	t.Helper()
+	runIdentity, err := heteroci.DeriveTopologyRunIdentity(repositoryID, sourceTreeSHA, runID)
+	if err != nil {
+		t.Fatalf("DeriveTopologyRunIdentity: %v", err)
+	}
+	externalOperationID := heteroci.OperationID(strings.Repeat("d", 64))
+	topologyManifestDigest, err := DeriveManifestDigest(manifest)
+	if err != nil {
+		t.Fatalf("DeriveManifestDigest: %v", err)
+	}
+	request := RunRequest{SchemaVersion: RunRequestSchemaVersion, ExternalOperationID: externalOperationID, DurableRunID: runIdentity.DurableRunID, ManifestDigest: "sha256:" + strings.Repeat("9", 64), TopologyManifestDigest: topologyManifestDigest, ManifestPath: "manifest.json", RepositoryID: repositoryID, SourceTreeSHA: sourceTreeSHA, RunID: runID, Units: units, HeartbeatTTL: ttl}
+	request.RequestDigest, err = DeriveRunRequestDigest(request)
+	if err != nil {
+		t.Fatalf("DeriveRunRequestDigest: %v", err)
+	}
+	return request
+}
 func workflowPlanRequest(t *testing.T, fixture *workflowFixture, operationID heteroci.OperationID, units []heteroci.ExecutionUnit) heteroci.TopologyPlanRequest {
 	t.Helper()
 	runIdentity := workflowRunIdentity(t, fixture)

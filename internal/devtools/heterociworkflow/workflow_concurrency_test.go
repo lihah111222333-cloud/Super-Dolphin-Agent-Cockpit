@@ -20,7 +20,7 @@ const (
 
 // TestExecuteRunBatchesAllowsIndependentLocalLanesToOverlap guards the missing cross-lane overlap.
 func TestExecuteRunBatchesAllowsIndependentLocalLanesToOverlap(t *testing.T) {
-	fixture := newWorkflowConcurrencyFixture(2, batchOverlapMode)
+	fixture := newWorkflowConcurrencyFixture(t, 2, batchOverlapMode)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
@@ -39,7 +39,7 @@ func TestExecuteRunBatchesAllowsIndependentLocalLanesToOverlap(t *testing.T) {
 
 // TestExecuteRunBatchesKeepsSameNodeWaveBarrier guards the per-node wave ordering contract.
 func TestExecuteRunBatchesKeepsSameNodeWaveBarrier(t *testing.T) {
-	fixture := newWorkflowConcurrencyFixture(1, batchBarrierMode)
+	fixture := newWorkflowConcurrencyFixture(t, 1, batchBarrierMode)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -164,7 +164,7 @@ func (binder *concurrencyExecutorBinder) Bind(plan ExecutorBindingPlan) (map[Exe
 	defer binder.mu.Unlock()
 	bound := make(map[ExecutorKey]BatchExecutor, len(plan.Bindings))
 	for _, binding := range plan.Bindings {
-		key := binding.Key
+		key := ExecutorKey{Kind: binding.ExecutorKind, NodeID: binding.NodeID}
 		executor, ok := binder.executors[key]
 		if !ok {
 			executor = &concurrencyBatchExecutor{harness: binder.harness}
@@ -198,6 +198,11 @@ func (owner *concurrencyOwner) PlanAndReserve(ctx context.Context, fence heteroc
 	return owner.owner.PlanAndReserve(ctx, fence, request)
 }
 
+func (owner *concurrencyOwner) BindExecutors(ctx context.Context, mutation heteroci.ExecutorBindingMutation) (heteroci.ExecutorBindingMutationResult, error) {
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	return owner.owner.BindExecutors(ctx, mutation)
+}
 func (owner *concurrencyOwner) Start(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
@@ -230,8 +235,9 @@ type workflowConcurrencyFixture struct {
 	harness *batchConcurrencyHarness
 }
 
-func newWorkflowConcurrencyFixture(nodeCount int, mode batchHarnessMode) *workflowConcurrencyFixture {
-	base := newWorkflowFixture(&fakeExecutor{})
+func newWorkflowConcurrencyFixture(t testing.TB, nodeCount int, mode batchHarnessMode) *workflowConcurrencyFixture {
+	t.Helper()
+	base := newWorkflowFixture(t, &fakeExecutor{})
 	manifest := base.manifest
 	manifest.Nodes = append([]heteroci.NodeConfig(nil), manifest.Nodes...)
 	snapshot := base.snapshot
@@ -264,7 +270,8 @@ func newWorkflowConcurrencyFixture(nodeCount int, mode batchHarnessMode) *workfl
 		Now:            func() time.Time { return base.now },
 		CleanupTimeout: time.Second,
 	}
-	return &workflowConcurrencyFixture{deps: deps, request: RunRequest{ManifestPath: "manifest.json", RepositoryID: "workflow-concurrency-repository", SourceTreeSHA: strings.Repeat("a", 40), RunID: fmt.Sprintf("workflow-concurrency-%d", nodeCount), Units: units, HeartbeatTTL: time.Minute}, harness: harness}
+	request := strictWorkflowTestRequest(t, manifest, "workflow-concurrency-repository", strings.Repeat("a", 40), fmt.Sprintf("workflow-concurrency-%d", nodeCount), units, time.Minute)
+	return &workflowConcurrencyFixture{deps: deps, request: request, harness: harness}
 }
 
 func cloneConcurrencySnapshot(source heteroci.SnapshotSet, epoch heteroci.RoutingOwnerEpoch, at time.Time) heteroci.SnapshotSet {

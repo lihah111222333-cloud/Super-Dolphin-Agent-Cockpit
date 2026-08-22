@@ -195,14 +195,15 @@ func (registry *Registry) Bind(plan heterociworkflow.ExecutorBindingPlan) (map[h
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	for _, requested := range plan.Bindings {
-		binding, exists := registry.bindings[requested.Key]
+		key := heterociworkflow.ExecutorKey{Kind: requested.ExecutorKind, NodeID: requested.NodeID}
+		binding, exists := registry.bindings[key]
 		if !exists {
-			return nil, fmt.Errorf("%w: executor key %v is not registered", ErrRegistry, requested.Key)
+			return nil, fmt.Errorf("%w: executor key %v is not registered", ErrRegistry, key)
 		}
 		if isNilInterface(binding.Executor) {
-			return nil, fmt.Errorf("%w: executor key %v is nil", ErrRegistry, requested.Key)
+			return nil, fmt.Errorf("%w: executor key %v is nil", ErrRegistry, key)
 		}
-		bound[requested.Key] = binding.Executor
+		bound[key] = binding.Executor
 	}
 	return bound, nil
 }

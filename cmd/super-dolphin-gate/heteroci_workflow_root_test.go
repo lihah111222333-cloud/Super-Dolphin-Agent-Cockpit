@@ -333,8 +333,9 @@ func (binder *rootExecutorBinder) Bind(plan heterociworkflow.ExecutorBindingPlan
 	executeErr := binder.executeErr
 	bound := make(map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, len(plan.Bindings))
 	for _, binding := range plan.Bindings {
-		binder.keys = append(binder.keys, binding.Key)
-		bound[binding.Key] = &rootBatchExecutor{binder: binder, executeErr: executeErr}
+		key := heterociworkflow.ExecutorKey{Kind: binding.ExecutorKind, NodeID: binding.NodeID}
+		binder.keys = append(binder.keys, key)
+		bound[key] = &rootBatchExecutor{binder: binder, executeErr: executeErr}
 	}
 	binder.mu.Unlock()
 	return bound, nil

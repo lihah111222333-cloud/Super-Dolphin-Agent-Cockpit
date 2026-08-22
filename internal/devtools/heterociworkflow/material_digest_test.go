@@ -113,7 +113,7 @@ func (reader *materialDigestReceiptReader) ReadBatchReceipt(_ context.Context, b
 
 func materialDigestTestBatch(t *testing.T) ExecutionBatch {
 	t.Helper()
-	fixture := newWorkflowFixture(&fakeExecutor{})
+	fixture := newWorkflowFixture(t, &fakeExecutor{})
 	fence, err := fixture.owner.Acquire(t.Context())
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)

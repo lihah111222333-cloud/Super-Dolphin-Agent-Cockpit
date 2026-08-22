@@ -52,6 +52,14 @@ func (owner *PostgreSQLDurableOwner) PlanAndReserve(ctx context.Context, fence h
 	return DurableReservedRoutingPlan{Fence: planned.Fence, OperationID: planned.OperationID, SourceSnapshot: planned.SourceSnapshot, EffectiveSnapshot: planned.EffectiveSnapshot, Plan: planned.Plan, Decision: planned.Decision, Leases: planned.Leases}, nil
 }
 
+// BindExecutors 将 request-level binding 作为独立 PostgreSQL owner mutation 提交。
+func (owner *PostgreSQLDurableOwner) BindExecutors(ctx context.Context, mutation heteroci.ExecutorBindingMutation) (heteroci.ExecutorBindingMutationResult, error) {
+	if owner == nil || owner.owner == nil {
+		return heteroci.ExecutorBindingMutationResult{}, fmt.Errorf("heteroci PostgreSQL durable owner is nil")
+	}
+	return owner.owner.BindExecutors(ctx, mutation)
+}
+
 // Start 将 planned lease 绑定为 started lease。
 func (owner *PostgreSQLDurableOwner) Start(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
 	if owner == nil || owner.owner == nil {

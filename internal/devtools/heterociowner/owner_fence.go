@@ -96,6 +96,14 @@ func (owner *Owner) Acquire(ctx context.Context) (heteroci.OwnerFence, error) {
 	return fence, nil
 }
 
+// ErrLocalExecutorBindingRetired 标记 SQLite/local owner 不再拥有 remote executor binding authority。
+var ErrLocalExecutorBindingRetired = errors.New("heteroci local executor binding authority is retired")
+
+// BindExecutors 明确阻断 local owner 伪造 remote binding；唯一生产实现是 PostgreSQLDurableOwner。
+func (owner *Owner) BindExecutors(context.Context, heteroci.ExecutorBindingMutation) (heteroci.ExecutorBindingMutationResult, error) {
+	return heteroci.ExecutorBindingMutationResult{}, ErrLocalExecutorBindingRetired
+}
+
 // nowUnixMilli 返回 owner 时钟的正 Unix 毫秒；所有 durable mutation 共享该时钟。
 func (owner *Owner) nowUnixMilli() (int64, error) {
 	if owner == nil || owner.now == nil {

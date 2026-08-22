@@ -23,7 +23,7 @@ func TestWorkflowIntegrityRejectsMismatchedReceiptIdentity(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			executor := &integrityReceiptExecutor{mode: test.mode}
-			fixture := newWorkflowFixture(executor)
+			fixture := newWorkflowFixture(t, executor)
 			executor.events = &fixture.events
 
 			_, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -42,7 +42,7 @@ func TestWorkflowIntegrityRejectsMismatchedReceiptIdentity(t *testing.T) {
 
 // TestWorkflowIntegrityRejectsNonDerivedPlanOperation 验证计划 operation identity 必须由 run identity 派生。
 func TestWorkflowIntegrityRejectsNonDerivedPlanOperation(t *testing.T) {
-	fixture := newWorkflowFixture(&fakeExecutor{})
+	fixture := newWorkflowFixture(t, &fakeExecutor{})
 	fixture.deps.Owner = &integrityPlanOwner{fakeOwner: fixture.owner}
 
 	_, err := Execute(t.Context(), fixture.deps, fixture.request)
@@ -68,7 +68,7 @@ func TestWorkflowIntegrityRejectsMalformedFinishCleanup(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			executor := &integrityOutcomeExecutor{state: heteroci.LeaseStateSucceeded}
-			fixture := newWorkflowFixture(executor)
+			fixture := newWorkflowFixture(t, executor)
 			executor.events = &fixture.events
 			owner := &integrityFinishOwner{fakeOwner: fixture.owner, mode: test.mode}
 			fixture.deps.Owner = owner
@@ -103,7 +103,7 @@ func TestWorkflowIntegrityRejectsMalformedCancelCleanup(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newWorkflowFixture(&fakeExecutor{})
+			fixture := newWorkflowFixture(t, &fakeExecutor{})
 			fixture.binder.err = errors.New("binder unavailable")
 			owner := &integrityCancelOwner{fakeOwner: fixture.owner, mode: test.mode}
 			fixture.deps.Owner = owner
@@ -125,7 +125,7 @@ func TestWorkflowIntegrityRejectsMalformedCancelCleanup(t *testing.T) {
 // TestWorkflowIntegrityFailedOutcomeReturnsTypedFailure 验证 failed outcome 只产生 typed failure，绝不重执行或 fallback。
 func TestWorkflowIntegrityFailedOutcomeReturnsTypedFailure(t *testing.T) {
 	executor := &integrityOutcomeExecutor{state: heteroci.LeaseStateFailed}
-	fixture := newWorkflowFixture(executor)
+	fixture := newWorkflowFixture(t, executor)
 	executor.events = &fixture.events
 
 	result, err := Execute(t.Context(), fixture.deps, fixture.request)
