@@ -48,7 +48,7 @@ cmd/super-dolphin-updater/process_guard_windows_test.go	cmd	other	go-test	2126	S
 cmd/super-dolphin-updater/sync_directory_unix.go	cmd	other	go-source	364	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,sync,directory,unix,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/sync_directory_windows.go	cmd	other	go-source	935	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,sync,directory,windows,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/test_helpers_test.go	cmd	other	go-test	350	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,test,helpers,Super-Dolphin,install,and,detach,command
-go.mod	(root)	other	mod	3793	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
+go.mod	(root)	other	mod	4000	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/app/app.go	internal	other	go-source	18239	root Fx/app 装配、runner 与 graph closure	internal,app,root,Fx,装配,runner,与,graph,closure
 internal/app/app_test.go	internal	other	go-test	8175	root Fx/app 装配、runner 与 graph closure	internal,app,test,root,Fx,装配,runner,与,graph,closure
 internal/app/dashboard_adapter.go	internal	other	go-source	4491	root Fx/app 装配、runner 与 graph closure	internal,app,dashboard,adapter,root,Fx,装配,runner,与,graph,closure
@@ -1010,6 +1010,8 @@ internal/devtools/remotecicli/portable_go_catalog.go	internal	other	go-source	38
 internal/devtools/remotecicli/portable_go_catalog_test.go	internal	other	go-test	6919	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,go,catalog,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_validate.go	internal	other	go-source	18040	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,开发工具与生成器辅助包
 internal/devtools/remotecicli/portable_validate_test.go	internal	other	go-test	17975	开发工具与生成器辅助包	internal,devtools,remotecicli,portable,validate,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/postgresql_authority.go	internal	other	go-source	10648	开发工具与生成器辅助包	internal,devtools,remotecicli,postgresql,authority,开发工具与生成器辅助包
+internal/devtools/remotecicli/postgresql_authority_test.go	internal	other	go-test	10782	开发工具与生成器辅助包	internal,devtools,remotecicli,postgresql,authority,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect.go	internal	other	go-source	5718	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_detect_test.go	internal	other	go-test	8033	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,detect,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_module_identity.go	internal	other	go-source	2750	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,开发工具与生成器辅助包
