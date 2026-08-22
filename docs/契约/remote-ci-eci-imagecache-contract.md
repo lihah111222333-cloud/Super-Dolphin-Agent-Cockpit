@@ -1,455 +1,115 @@
-# 远程 CI ECI ImageCache 单路径契约
+# 远程 CI 四节点容量执行单路径契约
 
 状态：Accepted
-适用范围：`cmd/super-dolphin-gate`、`internal/devtools/remoteci`、`internal/devtools/gate`、`internal/devtools/heteroci`、`internal/devtools/alicloud/{eci,oss}`、`scripts/refresh_remote_ci_imagecache.sh`、Git hooks，以及未来独立 `super-dolphin-remote-ci` 引擎边界（validate-only 已冻结、builder-simulation 已获 Accepted 授权、正常执行仍未接线）
-权威远程 ECI 目标平台：`linux/amd64`
-本地非权威异构拓扑平台：Linux、Windows、Darwin/macOS
 
-代码契约唯一 owner：`internal/devtools/cicontract`
-契约身份：`remote-ci-aliyun-eci-imagecache/v5`
-正常执行路径：`sqlite-correctness-authority-live-verified-refresh-imagecache-aliyun-eci-shards/v3`
-唯一执行与验收提供方：`aliyun-eci/v1`
-首代供给路径：`normal-run-hook-configured-aliyun-eci-generation-one-strict-receipt-bootstrap/v1`
-候选缓存刷新路径：`script-oss-handoff-aliyun-eci-offline-imagecache-runtime/v2`
-候选缓存刷新成功间隔：`24h`
-唯一数据源：`duration-ledger-sqlite/v1`
-accepted baseline JSON schema：`13`
-<!-- cicontract:sqlite-schema:begin -->
-duration-ledger SQLite physical schema：`23`
-<!-- cicontract:sqlite-schema:end -->
-非权威缓存材料 schema：`remote-ci-cache-material/v1`
-非权威缓存材料 authority：`non_authoritative_material`
-规划回执 schema：`workload-planning-receipt/v1`
-规划回执密码学域：`remote-ci-workload-planning-receipt/v1`
-规划映射根密码学域：`remote-ci-workload-planning-map/v1`
+适用范围：独立的 super-dolphin-remote-ci 二进制、internal/devtools/remoteci、internal/devtools/heteroci、internal/devtools/heterociowner，以及 V3 和 WJ target adapter。本文是跨仓库共用的生产合同；目标仓库不复制执行器、权威库或调度策略。
 
-本文冻结远程 CI 的唯一生产架构。后续实现、重构、子代理任务和代码审查必须以本契约为边界；历史计划、旧迁移说明和已删除实现不得覆盖本文。
+契约身份：remote-ci-four-node/v1
+请求协议：remote-ci-portable-manifest/v1
+结果协议：remote-ci-result/v1
+事件协议：remote-ci-event/v1
+远程权威：remote-ci-postgresql-primary/v1
+唯一执行池：四台节点，Ubuntu-01、Ubuntu-02、Windows-01、Windows-02
+协调端：macOS 只编排、提交请求、读取状态和展示结果，不执行任何 workload。
 
-## 未来独立 `super-dolphin-remote-ci` 引擎边界（Accepted 分层边界，normal execute 协议已冻结、runtime 仍未接线）
+本文冻结远程 CI 的唯一生产边界。缺失字段、身份漂移、容量不足、日志不完整和清理不确定均必须立即失败；不得用默认值、隐式排队、隐式重试或备用执行路径掩盖错误。
 
-本节冻结未来独立引擎的输入、产物和 authority 边界，并把无副作用 validate-only、非权威 builder-simulation 与尚未接线的正常执行明确分层；Accepted 文档不等于生产实现或实云验收已经存在。未来引擎必须把三类输入分开绑定：engine 输入是独立 `super-dolphin-remote-ci` exact source tree 的 `engine.tree_sha`；target 输入是目标 exact source tree 的 `target.tree_sha`；global authority 输入仍是既有唯一 Coordinator 与同一 SQLite authority。三者必须由 composition root 显式传入，或由同一组已验证参数无歧义检测得到；禁止以 cwd/HEAD/default/fallback 充当任一输入，也禁止把 engine、target、global authority 合并为一个隐式根。
+<!-- remote-ci-four-node-contract:begin -->
 
-`engine.tree_sha` 只允许经过唯一的阿里云 ECI `aliyun-eci/v1` artifact builder 生成 content-addressed portable runtime artifact。artifact digest 必须绑定 source/toolchain/protocol/workload-manifest ABI digest，并同时绑定 exact engine tree、实际 toolchain、协议 ABI 和 workload-manifest ABI；tag、warm binary、宿主编译结果、target worktree 或未绑定 digest 的镜像都不是 artifact identity。该 builder 是未来引擎的唯一 artifact builder，不是第二 Coordinator 或第二 executor。
+## 1. 独立二进制与跨仓库身份
 
-`target.tree_sha` 只提供 target source 与 workload。target tree 不再要求含 `cmd/super-dolphin-gate`，也不承担 engine artifact 构建职责。repository-owned workload manifest 必须通过 `workload_manifest.path` 指向 target tree 内的 repo-relative regular blob，并以从该 `target.tree_sha` 解析出的 blob 字节计算 `workload_manifest.sha256`；manifest 的 ABI 也必须进入上述 source/toolchain/protocol/workload-manifest ABI digest。禁止宿主绝对 manifest 路径、禁止宿主绝对 worktree、宿主文件时间或未绑定的临时目录参与 manifest、source、workload 或 artifact identity。
+super-dolphin-remote-ci 是独立构建、独立发布、独立运行的二进制。V3 与 WJ 只提供 target 描述和 workload，不编译、嵌入或替代该二进制。
 
-未来 composition root 的 `validate-only` 形态只能验证 engine/target/global authority 的身份、引用、regular-blob 和 digest 绑定，必须不得产出 plan/PASS、shard、ECI side effect 或 SQLite authority 写入。`validate-only remains side-effect free`；它只能返回 validation evidence。下述 builder-simulation 是与 validate-only 分离的 additive 非权威供给边界；只有另行接入既有唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 唯一路径后，才可进入正常规划与执行，正常执行仍未接线。
+每次请求必须显式绑定：
 
-### `portable-remote-ci-execution/v1` additive Accepted 请求协议（协议已冻结、runtime 仍未接线）
+- engine：二进制 SHA-256、协议 ABI 摘要、工具链摘要和 engine 版本；
+- target：repository_id、object_format、exact commit_sha、exact tree_sha；
+- workload：manifest 摘要、profile、capacity policy 摘要和 operation_id；
+- authority：本合同的 contract_id 与 PostgreSQL authority identity。
 
-`portable-remote-ci-execution/v1` 只冻结未来 normal portable execute composition root 的显式请求 DTO；它不授权或证明 runtime、Coordinator、OSS、ECI、plan、PASS、shard 或 worker 已接线。正式 host 命令 `execute` 仍保持 fail-fast sentinel。本协议不修改 validate-only、`remote-ci-engine-builder-simulation/v1`、现行 v3 normal run 或 accepted generation；SQLite 只允许下述 v23 additive target-binding record/readback 预留，且不得被 builder-simulate、local automatic workflow 或第二 executor 消费。
+engine identity 与 target identity 属于不同域。相同 engine 二进制可以服务 V3 和 WJ；target 仓库、commit、tree、workload 或 manifest ABI 改变时，必须产生新的 target binding digest。不得从 cwd、HEAD、branch、默认仓库、宿主工作树或可执行文件位置推断任一 identity，也不得要求 target 仓库含有某个 Gate 路径。
 
-请求 header 固定为 `schema_version=portable-remote-ci-execution/v1`、`contract_id=remote-ci-portable-execution/v1`、`execution_provider=aliyun-eci/v1`，并以互不合并的 nested object 一次性显式绑定：
+## 2. Portable manifest
 
-- `engine`：`repository_id`、`object_format`、exact `commit_sha`、exact `tree_sha`，以及 `artifact` 的固定 `contract_id=remote-ci-portable-runtime-artifact/v1`、固定 `kind=portable-remote-ci-runtime/v1`、`artifact_key`、artifact byte `artifact_sha256`/`artifact_size_bytes`、`receipt_key`/`receipt_sha256`、`identity_digest`、observed `builder_digest`/`toolchain_digest`、独立 normal `protocol_abi_digest` 和 `workload_manifest_abi_digest`。`identity_digest` 必须由 `portable-remote-ci-runtime-artifact-identity/v1` 域内的 runtime kind/contract/source/artifact/builder/toolchain/ABI 材料重算；`source-baseline-git-bundle/v1`、builder-simulation ABI、既有 `remote-ci-artifact-identity/v1` 或 caller 自报漂移值均不得冒充 normal runtime artifact。
-- `target`：`repository_id`、`object_format`、exact `commit_sha`、exact `tree_sha`、显式 clean repo-relative `mount_path`，以及既有 `portable-workload-manifest/v5` binding 的 repo-relative `repo_relative_path`、blob `sha256`、`abi_digest`、`schema_version` 与同一 `repository_id`。本 additive schema 只消费 workload ABI digest 字符串，不修改 `RepositoryWorkloadManifest` 或其 ABI 版本；后续 composition 不得推断默认 mount。
-- `authority`：clean absolute 且互不相同的 `config_path`/`ledger_path`、`config_sha256`、稳定 `ledger_identity`、正 `accepted_generation` 与 `accepted_authority_sha256`；这些字段只冻结未来 global authority 输入，当前协议 codec 不打开 SQLite、不读取或写入 authority。
-- `audit`：canonical `agent_token_digest`、已登记 `profile`、非 local-only pre-commit 的已登记 `entrypoint` 与显式 `force`。这些字段只属于运行审计，不进入 workload PASS identity。
+唯一输入是 target tree 内的 repository-owned portable manifest。manifest 使用 canonical JSON，最大 1 MiB；decoder 和 encoder 共同拒绝 unknown、duplicate、null、missing、trailing、非 canonical bytes、过期 schema、零值 digest、无效 Git object、绝对宿主路径、符号链接路径和未绑定的临时目录。
 
-decoder 必须在任何 repository、artifact resolver、Coordinator、SQLite、OSS 或 ECI I/O 前拒绝空文档、超过 `1 MiB`、root/nested `null`、unknown、duplicate、missing、trailing、非 canonical JSON、零值/非 canonical digest、无效 Git object format/OID、relative/unclean/shared authority path、无效或隐式 target mount、artifact/receipt key 重合、source-baseline/builder-simulation artifact type 或 ABI、artifact identity 重算漂移、engine/target workload ABI 不一致、raw agent token、unknown profile/entrypoint 或零 accepted generation。canonical encoder 必须先完成相同验证；独立 normal 协议 ABI 必须从上述 DTO 与 enum 动态派生，字段 consumer registry 必须动态枚举 producer 并同时拒绝 missing/stale 登记。
+manifest 必须声明：
 
-duration-ledger SQLite v22→v23 只新增 immutable `ci_remote_run_target_bindings` 一对一 side table、profile lookup index 与 UPDATE 阻断 trigger。每行以 `job_id` 主外键绑定既有 `ci_runs`，显式保存 target `repository_id`、`object_format`、exact `commit_sha`/`tree_sha`、clean repo-relative `mount_path`、manifest repo-relative path/blob SHA/schema/ABI/manifest digest，以及已登记 `profile` 与该 profile 的 `gate.WorkloadCatalogDigest(mapped selected profile catalog)`。`profile_workload_set_digest` 不得使用 manifest digest、单 workload declared command digest 或未映射的全 manifest workload 集替代。record 只能 INSERT 一次并在同一事务逐字段 exact readback；独立 read API 对缺行、无效 Git identity、路径、digest、schema 或 profile fail-fast。clean init 直接创建 v23；v22 单向迁移不 backfill、不猜测 legacy run、不 dual-read，也不改写 `ci_runs`、PASS、planning、timing、cleanup 或 accepted generation。该 side table 只为未来 authoritative finalizer 显式化输入；本卡不调用 finalizer、Coordinator、OSS、ECI 或任何 executor，normal runtime 继续未接线。
+- schema_version、contract_id、operation_id、manifest_sha256；
+- engine binary digest、protocol_abi_digest、toolchain_digest；
+- target repository_id、object_format、commit_sha、tree_sha 和 repo-relative worktree mount；
+- workload 的稳定 unit_id、命令摘要、target platform、runtime capability、CPU/内存需求、历史估时和 execution digest；
+- profile、capacity_policy_digest、required node capabilities 和日志策略。
 
-后续 runtime 卡只能把已验证请求接入既有唯一 Coordinator、同一 SQLite authority 和 `aliyun-eci/v1` 唯一路径；在那之前不得把 codec 成功、artifact identity、validate-only 或 builder-simulation 结果表述为 CI 执行、PASS 或 runtime evidence。
+manifest.sha256 必须由提交 tree 中 manifest blob 的原始字节计算，并在执行前重算；宿主绝对 manifest、宿主绝对 worktree、环境变量发现、默认路径和第二 loader 均拒绝。manifest 不携带凭据，不携带权威状态，不携带可执行器地址。
 
-### `remote-ci-engine-builder-simulation/v1` additive Accepted 子契约
+## 3. PostgreSQL remote authority
 
-<!-- future-engine-builder-simulation:begin -->
-`remote-ci-engine-builder-simulation/v1` 是 `builder-simulation Accepted` 的 additive 子契约，只授权正式 host 命令 `builder-simulate` 对 engine portable artifact builder 做一次非权威实云演练。它不修改主契约 `remote-ci-aliyun-eci-imagecache/v5`、正常执行路径、global authority、accepted generation 或 SQLite schema；无论构建 outcome 为何，结果状态固定为 `always NOT_VERIFIED`。本子契约只给实现卡授权，不证明实现、部署或实云证据已经存在；实现、失败注入和实云证据必须逐卡取得并复核，在此之前不得报告完成。
+远程 PostgreSQL read-write primary 是 operation、manifest binding、capacity snapshot、reservation、execution lease、start/finish、terminal result、event sequence 和 receipt 的唯一权威。owner 使用 heteroci_owner schema 与 heteroci_owner_writer role，receipt 使用 heteroci_receipt schema 与 heteroci_receipt_writer role；两域事务独立，不得双写、交叉提交或互相降级。
 
-现有 `validate-only remains side-effect free`，未来正常执行仍未接线。`builder-simulate` 不得调用或生成 `execute/workload/Coordinator/plan/PASS/SQLite`，不得装配 normal runtime，不得创建 second artifact builder、第二 Coordinator、第二 executor、第二 authority 或 fallback。它不得从 cwd/HEAD/default/fallback、环境变量、branch、remote、可执行文件位置或 target 内容推断任一必填输入，不得读取 host manifest 或宿主绝对 worktree 作为 target source，也不得把 credential、宿主路径、profile、对象 key 或 provider raw log 投影到 machine stdout 或 observable stderr。
+所有 mutation 只能进入已验证的 read-write primary，使用 SERIALIZABLE transaction、canonical owner scope 的 transaction advisory lock 和 operation_id + request_digest 的不可变 journal。synchronous_commit=remote_apply；standby、只读副本、本地副本、本地 SQLite、JSON 文件和内存状态都不能成为读写权威。连接失败、commit 结果不确定、journal 缺失或 digest 冲突必须返回稳定错误并阻断，不得以内存 plan 继续执行。
 
-唯一请求 schema 是 `remote-ci-builder-simulation-request/v1`。caller 必须一次性显式提供 `operation_id`、`execution_provider=aliyun-eci/v1` 以及下列字段；unknown、duplicate、null、缺失、空值、非 canonical digest、相对/不 clean/symlink 路径、旧 schema 或 trailing JSON 必须在任何 OSS/ECI side effect 前 fail-fast：
+PG 记录必须逐字段 exact readback。reservation、lease、terminal result 和 event sequence 都必须带 manifest_digest、plan_digest、node_id、operation_id 与 authority generation；过期 owner、旧 epoch、重复 operation 或 stale digest 必须拒绝。事务提交后才发布对外状态；失败路径仍写 bounded error code 和清理事实，不写 raw credential、宿主绝对路径或底层错误树。
 
-- engine：`engine.repository_root`、`engine.repository_id`、`engine.object_format`、`engine.commit_sha`、`engine.tree_sha`、`expected_builder_digest`、`expected_toolchain_digest`、`protocol_abi_digest`；composition root 必须在显式 engine repository 中证明 commit 精确解析到 tree，host 只可从该 exact commit/tree 生成私有、短生命周期 input bundle，该 bundle 不是最终 artifact。
-- target：`target.repository_root`、`target.repository_id`、`target.object_format`、`target.commit_sha`、`target.tree_sha`；target 只提供 source/workload，不得成为 engine builder 输入。
-- target manifest：`workload_manifest.path`、`workload_manifest.sha256`、`workload_manifest.abi_digest`；path 必须是 `target.tree_sha` 内的 repo-relative regular blob，SHA 必须由该 blob 原始字节计算，`workload_manifest_abi_digest` 必须等于已验证 manifest ABI，而不是 host manifest、工作树文件或 caller 自报内容。
-- artifact/provider：`artifact.prefix`、阿里云 CLI 的显式绝对 regular executable、credential profile、region、2--10 个跨至少两个 zone 的 vSwitch、security group、RAM role、OSS bucket/public endpoint/internal endpoint、immutable image、ImageCache ID 和 snapshot ID。profile 和 credential 只可进入受信进程/API 参数，不得进入 artifact identity、result 或 event。
+## 4. 固定四节点执行池
 
-artifact identity 必须交叉绑定 exact engine commit/tree、input bundle byte SHA/size、artifact byte SHA/size、`protocol_abi_digest`、`workload_manifest_abi_digest`、`observed_builder_digest` 与 `observed_toolchain_digest`。ECI worker 必须从实际运行的 builder binary 和实际 toolchain 产生 observed 值，再分别与 `expected_builder_digest`、`expected_toolchain_digest` 比较；只回显 caller expected 值、使用宿主工具链或缺少任一 observed 值必须失败。target binding digest 另行绑定 exact target commit/tree 与 manifest path/SHA/ABI；target tree 或 workload 内容不得反向污染 engine source identity，但 ABI 漂移必须改变 artifact identity。
+执行池恰好四台 live node：
 
-允许的 side effect 严格只有以下一条顺序链：从 explicit engine repo+commit+tree 生成 host input bundle；对 `artifact.prefix` 下 operation-scoped input 执行一次 create-only OSS staging；通过现有唯一 artifact builder 创建 exactly one aliyun-eci/v1 container group；严格读回并验证 immutable artifact + canonical receipt；最后在成功、失败或取消的全部路径取得 `container_group_absent=true` 与 `input_staging_absent=true`。最终 artifact 和 receipt 只有严格成对且 artifact bytes、receipt、唯一 ref、zero-parent commit、0 prerequisites 与完整 closure 全部验证后才可保留为 `validated_pair`；partial artifact 或无 receipt 对象保持不可用且非权威。
-
-ECI request 的 deterministic group name 必须由 operation/request identity 推导，并以 request/input digest tags 绑定同一请求。Create 返回、响应 decode 或首次 Describe 不确定时，必须按 name + tags 有界 reconcile；找到恰好一个 group 后继续同一 lifecycle 和清理，找到多个、identity drift 或窗口内无法证明唯一/不存在都必须失败。即使没有取得 group ID，也必须按 request identity 继续删除与 absence 查询；无法证明 group 不存在时只能返回 cleanup-unproven，禁止成功、重建或创建第二 group。
-
-machine stdout 唯一 terminal schema 是 `remote-ci-builder-simulation-result/v1`，每次可解析调用恰好输出一个 bounded canonical JSON object。必填 identity 至少包括 status=`NOT_VERIFIED`、outcome、operation ID、request/engine/target binding digests、artifact byte/identity/receipt digests、provider/group terminal identity、真实 start/finish/exit、publication state、`container_group_absent`、`input_staging_absent` 和可选稳定 error code；不得输出宿主路径、profile、credential、raw object key 或 provider raw log。success 仅表示 builder artifact 演练及 cleanup proof 完整，不构成 CI、workload、release 或 PASS authority。
-
-observable stderr 唯一 schema 是 JSONL `remote-ci-builder-simulation-event/v1`；每行必须有 operation ID、严格递增 seq、time、固定 stage/state、request digest 和可选安全 resource ID/digest/error code。允许阶段固定覆盖 request validation、engine/target binding、input bundle、OSS staging、ECI create/observe、artifact validation、cleanup group absence、cleanup input absence 与 terminal；不得输出自由文本、credential、宿主路径、object key、provider raw log 或底层 error string。
-
-退出码冻结为：`exit code 0` 只允许 artifact/receipt 与两项 absence proof 全部成立；`exit code 1` 表示构建/云失败但 cleanup 已证明；`exit code 2` 表示 side effect 前的 request/identity/contract 失败；`exit code 3` 表示 machine output channel 失败并仍须完成 cleanup；`exit code 4` 表示 group 或 input 任一 absence 未证明。cleanup 失败优先于此前成功，任何 outcome 都保持 `NOT_VERIFIED`。
-
-V3/WJBoot 必须消费 same engine binary/artifact identity，并各自提供 different target descriptor；相同 engine source/toolchain/protocol/workload-manifest ABI 时，target 仓库、target tree 或 target 是否含 `cmd/super-dolphin-gate` 都不得要求重建 engine artifact。different target 必须得到不同 target binding digest；manifest ABI 变化必须改变 engine artifact identity。该跨仓规则不允许把 V3 SQLite、schema/migration、Gate binary 或仓库路径移植到 WJBoot。
-<!-- future-engine-builder-simulation:end -->
-
-### 未来 portable source baseline artifact（Accepted 供给边界；正常执行仍未接线）
-
-未来 engine source baseline 的 portable artifact byte domain 固定为标准自包含 Git bundle 单文件 `source-baseline-git-bundle/v1`。该单文件只能有唯一 advertised ref `refs/source/baseline` -> `DeterministicSourceBaselineCommitSHA` 的 zero-parent commit；bundle 必须有 0 prerequisites，并携带该 baseline commit 所需完整且无额外的 tree/blob closure。artifact SHA/size 按实际 bundle bytes 计算，不能按导入后的仓库、裸对象目录或工作树推导。
-
-producer 是唯一 `aliyun-eci/v1` artifact builder。未来 builder receipt 的绑定字段序列固定为 builder/toolchain/repository_id/object_format/baseline commit/tree/artifact SHA/size，并逐项记录实际 builder、toolchain、repository_id、object_format、baseline commit、baseline tree、artifact SHA 和 artifact size；这些字段与 `source-baseline-git-bundle/v1` 一起构成 artifact identity。该 artifact 仅属于未来 engine boundary，不改变当前 v3 的 v2 `git-bundle-thin` source transport。
-
-`validate-only` resolver 只能只读已有 artifact；可执行私有 `0700` 临时导入验证，以验证单文件 bundle 的 byte SHA/size、唯一 ref、zero-parent commit、0 prerequisites 与完整 closure，但不得生产 artifact 或修改来源。禁止 `tar bare ODB`、禁止 `index-only`、禁止 `worktree tar`、禁止自动生成、禁止自动修复、禁止 fallback、禁止 OSS 写、禁止 SQLite 写、禁止 PASS、禁止 plan。该 resolver 仍是未来未接线的验证边界，不能冒充 artifact builder、Coordinator、executor 或 runtime evidence。
-
-Git hook 的职责边界固定为：`pre-commit` 先用受信 Gate 在 exact staged tree 上校验项目地图，drift 时自动刷新并暂存受管输出，再对最终 exact staged tree 运行仓库代码守卫；该过程不执行候选生成器，不进入本契约的 remote CI 执行路径，也不消费 remote config、duration ledger 或 agent token。`pre-push` 是 Git 交付路径唯一的完整 remote ECI 门禁，并继续绑定 exact pushed ref update。手动 remote run 与 release 入口不受该 hook 分工影响。
-
-本契约不禁止非权威的宿主开发红绿测试。宿主入口唯一为 `scripts/test_with_guard.sh --host-test <light|medium>`：只接受一个精确 Go package、一个精确 top-level `Test` selector、`-count=1` 和有界 timeout；light 不接受 build tag 且 timeout 不超过 120 秒，medium 只可额外使用 `-tags=e2e` 且 timeout 不超过 600 秒。入口必须在执行前后使用 5 秒采样窗口获取实际 CPU busy 百分比并读取可用内存证据：低负载（CPU busy 小于 50% 且可用内存不少于 25%）或中负载（CPU busy 小于 80% 且可用内存不少于 15%）均可运行 light/medium；CPU busy 达到 80%、可用内存低于 15%、无法取证或其他高负载必须 fail-fast 并转 ECI。不得使用 load average/逻辑 CPU 比值替代 CPU busy，因为 runnable 与 I/O wait 不等于实际 CPU 占用。宿主执行固定限制 light=`GOMAXPROCS=2,-p=1`、medium=`GOMAXPROCS=4,-p=2`，结果必须标记 `LOCAL_NON_AUTHORITATIVE`，不得写入 SQLite authority、PASS evidence、release receipt 或冒充 ECI。宿主编译缓存必须由 `scripts/local_go_cache.sh` 按本机 Go 二进制、`asm/cgo/compile/link` 工具闭包、目标平台、架构级别、CGO/C 工具链与编译策略生成身份；同一设备的 linked worktree 共享该身份的持久 `GOCACHE`，每次运行使用独立 `GOTMPDIR`。每台设备只读取自己的 Git common-dir 邻接缓存与私有状态 JSON；发现协议可跨设备复用，但对象物料、绝对路径和状态文件不得跨设备传输或进入 Git。race、benchmark、fuzz、整包/递归包、多 selector、超过 medium 上限、重型代码门禁和未知负载仍只允许 `super-dolphin-gate test --target=remote` 经 ECI 执行；不得 remote-to-local fallback。
-
-## 本地开发红绿与 PASS authority（非 ECI、非 release receipt）
-
-本节是远程 Accepted 契约的边界说明，不把本地主机能力升级为远程 CI。`local` workload target 只服务显式的开发红绿路径；它既不是 `aliyun-eci/v1` executor，也不是 `ci_runs`/`ci_check_receipts` 的 release receipt 来源。local scheduler、local CLI、local executor 和 local PASS table 不得读取、签发、缓存或传递 agent token、ECI、OSS 或 ImageCache 运行时身份；远程生产路径同样不得调用 local executor、local table 或 local lookup。
-
-本地 PASS 使用独立且显式的 `local`/`remote` namespace key。`WorkloadPassIdentity` 的 canonical hash 仍只包含 `WorkloadID + ExecutionDigest + InputDigest + EnvironmentDigest`；namespace 不得进入 remote 或 local identity hash。Git tree、commit、branch、worktree path 以及绝对 source/dependency path 只允许出现在 local origin/provenance 或 run audit，不得进入 local identity、remote identity 或任一 lookup key。local lookup 只能读 `ci_local_*` 表，remote lookup 只能读远程 `ci_workload_pass_evidence`/receipt authority；local table 绝不能成为 remote authoritative receipt。
-
-本地主机准入是 fail-fast 的审计事实：命中必须先 lookup、再决定是否采样，不能因 hit 读取或采样主机。默认 `auto` 的冻结规模为最多 `64` 个 MISS、总计 `10min`、单项 `5min`；主机 CPU 采样窗口固定 `30s`，CPU busy 平均值必须 `<=70%`，并且容量/采样证据缺失即拒绝。显式 `local` 超出准入或执行失败时必须失败，不得 remote fallback；`auto`/`hybrid` 只能在执行前按明确 target 选择 remote，不能把 local 失败伪装成 ECI PASS。
-
-本地 PASS 的 SQLite 物理 schema 采用从 remote schema v13 到 additive v14、v15、v16、v17、v18、v19、v20、v21、v22、v23 的单向迁移：v13→v14 只新增 local authority/origin/execution/evidence 表；v14→v15 只新增 remote `ci_remote_run_execution_scopes` side table 及其 job/generation indexes；v15→v16 只新增 consumer-owned immutable `ci_retained_workload_pass_proofs` projection、必要 indexes 与同一事务的严格 backfill；v16→v17 只新增 direct evidence 的 `(workload_id, execution_digest, environment_digest, accepted_generation)` source-replay 分区索引和 retained proof 的 `(workload_id, consumer_job_id)` 分区索引；v17→v18 只新增内容寻址的 `ci_workload_input_replay_cache` 派生输入索引；v18→v19 只新增 `ci_remote_run_execution_identities`，以 `job_id` 主外键绑定 canonical platform、runner identity digest、toolchain digest 和 normal/calibration mode；v19→v20 只新增 `ci_remote_run_planning_receipts` 表及状态索引，不回填既有 run；v20→v21 只为 `ci_workload_input_replay_cache` 增加 compile/declaration/runtime/fallback 四列，使同 generation、source tree、workload 和 v2 producer 算法下的语义投票可跨 Prepare 持久复用，旧行保持 broad digest 但不得被 v2 算法命中；v21→v22 只新增独立 remote cleanup journal，不引用或改写 `ci_runs`；v22→v23 只新增 immutable normal portable target-binding side table、profile index 与 UPDATE trigger，不 backfill、不猜测 legacy run。v19 不回填或猜测既有 v18 run 的执行身份；缺 side row 的迁移前 authority 继续保持 PASS correctness 有效，但不得进入 normal reserve timing eligibility。规划回执 Initialize 只允许 canonical `not_applicable/pre_planning_failure` placeholder 的一次 INSERT，之后只允许 placeholder→`not_applicable/all_hit` 或 planned 的 CAS，并在同一事务精确回读 JSON、digest、mapping root 与计数；v19 legacy 缺行显式为 planning-ineligible，不得用零值回执。所有迁移不得重写或复制既有 authority、`ci_runs`、remote PASS/evidence、retained proof 或 remote receipt，不得另建 mapping truth source；v21 的 ALTER 仅作用于派生缓存表，v22/v23 migration 只创建 additive objects。缺失数据库允许 clean init 并立即建立 local authority state；缺失、损坏、摘要漂移、未知字段、旧物理 schema 或不完整状态必须 fail-fast，禁止默认 generation、空证据或静默重建。CLI 继续保留既有 `--workload` catalog 语义；expanded local selectors 通过 `--gate-workload`/manifest 明确传入，不得让新 target 破坏旧 workload 绑定语义。
-
-## 1. 不可变设计目标
-
-1. 基准运行环境由一代已接受的阿里云 ECI ImageCache 提供。其不可变镜像必须包含：
-   - 单一 `internal/devtools/godistribution/go-distribution.lock` 中锁定的 Go 1.26.5；Linux/amd64 远程构建必须调用 `ValidateRemoteCIAsset`，三平台映射只能保留在该 TSV，且不得新增下载或网络 fallback；
-   - Go module cache 与 Go build cache；
-   - 前端锁定依赖、`node_modules`、Vite dependency optimizer cache 与 Playwright 浏览器；
-   - Gate、gopls、sqlc、sqruff、ripgrep、Node、npm、Git、Make 等锁定工具；
-   - `/opt/super-dolphin-gate/source-baseline.git`，其中仅含 `RunnerBaseTree` 的完整 tree/blob closure 与一个确定性的无 parent baseline commit。
-   - **§1.1 未来 engine artifact 边界**：独立 `super-dolphin-remote-ci` 的 `engine.tree_sha` 必须在唯一 ECI artifact builder 内编译为 content-addressed portable runtime artifact；artifact digest 必须绑定 exact engine source、toolchain、protocol ABI 和 workload-manifest ABI。target tree 只提供 source/workload，不是 engine builder 输入，也不要求含 `cmd/super-dolphin-gate`；当前 v3 runtime 尚未接线该未来 builder。
-2. normal CI 仅在 accepted singleton 为空时消费配置中的 strict ECI generation-one receipt，在实时复核阿里云 ECI 事实后原子首写 correctness baseline 与账本元数据；singleton 非空后继续只读该 SQLite identity。`pre-push` 从 exact pushed tree 非阻塞启动唯一隔离 dispatcher；`scripts/refresh_remote_ci_imagecache.sh` 创建有限期非权威 ImageCache 加速物料且不读写 SQLite。normal run 必须严格读取 OSS current receipt、绑定 accepted OCI base，并实时 Describe 精确复核 region、Ready cache ID/name/image/snapshot 后，才把本次执行镜像和 snapshot 切换到刷新层；accepted generation、runner correctness identity、PASS 与历史权威均保持 SQLite 不变。
-3. 空 accepted singleton 的唯一初始化入口是 normal run/hook 的配置回执 bootstrap；独立 `provision-generation-one` 命令不得存在。仓库只验证并原子写入该 receipt，绝不创建 ImageCache 或候选。
-4. 多个 agent 可以并发触发 Git hook，多个 remote CI job 可以并发运行，且所有可分片的前端、后端、normal、e2e 和 race 工作负载按历史耗时动态规划并无上限并发执行。不得设置全局 hook 锁、active-job lock、semaphore、`errgroup.SetLimit`、`max_shards`、`max_concurrency`、admission cap 或共享原始 token；同一 worktree 的 Git `index.lock` 只是 Git index 一致性边界，绝不是 CI 并发上限。
-5. 所有远程 CI 动作、镜像构建和 cache-prime 的唯一执行环境都是阿里云 ECI container group，并由代码契约身份 `aliyun-eci-only-no-github-runner/v1` 锁定。候选编译、测试、校准、首代内容检查、权威耗时观测、Go/前端缓存层生成和最终 OCI 镜像构建都必须在 ECI 内执行；BuildKit 若被使用，也只能作为 ECI 容器内的构建进程。GitHub-hosted 或 self-hosted Actions runner 不得承载远程 CI、编译、测试、cache-prime 或镜像构建；独立产品发布 workflow 不签发远程 CI 结论，不属于本契约执行面。Docker、Docker Desktop、Kubernetes、其他云及本地容器同样不得加工 CI 镜像物料或作为失败 fallback。ECI 镜像物料若携带 manifest，只允许使用 `schema_version=remote-ci-cache-material/v1`、`authority=non_authoritative_material` 与 `seed_steps`，禁止使用 `checks`、generation-one 或 receipt 命名；物料日志仍不得写入 `provision_checks`、不得生成 authoritative receipt。
-6. 单个可拆测试预计超过 100 秒时必须继续拆分或优化；不可再拆的原子 workload 可以超过目标，但必须在账本中明确记录和告警。shard 在 `Running` 满 100 秒时只实时发出一次“目标超限”告警，绝不得为此取消、中断、kill 或标记失败；完成后 `test_body` 或 `total` 超过 100 秒仍只写结构化告警，权威回执可以保持 PASS。
-7. 校准/基准运行使用固定且被回执绑定的 CPU、内存规格；普通 CI 仍可按 workload 资源策略选择规格。所有 CI、镜像物料构建与 cache-prime ECI container group 必须显式请求 `100 GiB` 原始临时盘，禁止依赖较小的服务默认值。
-
-<!-- cicontract:scheduling:begin -->
-所有 normal、校准与首代内容检查 ECI container group 必须使用配置中 2 到 10 个不同 vSwitch，并显式绑定每个 vSwitch 的 zone_id；集合必须覆盖至少两个可用区。CreateContainerGroup 必须把全部 ID 以阿里云原生逗号列表传入 VSwitchId，并固定 ScheduleStrategy=VSwitchRandom。禁止单 vSwitch、多个同区 vSwitch、单区失败重试、串行 fallback 或用并发上限掩盖 NoStock；调度库存等待必须作为 provider eci_wait 记录。
-<!-- cicontract:scheduling:end -->
-8. 每次运行必须分别记录物化、候选编译、启动、测试主体、总耗时、缓存命中/未命中及资源等待时间。
-9. normal 与 calibration 均按 exact workload production-input fingerprint。只可复用同一唯一 Coordinator/SQLite authority 中当前 accepted generation 及其前两代（最近 3 代）、完整权威且仍新鲜的 PASS evidence；future 或更旧 evidence 必须 miss/fail-fast，不得复用；每个 identity 最多保留这 3 个 accepted generations。此处 fresh 仅指代际窗口、权威 passed/cleanup 状态、完整 identity 及 canonical receipt proof 全部有效；不使用 wall-clock TTL。所有相关输入不变且上述约束满足时必须直接 PASS，不重复执行。normal 与 calibration all-hit 均不创建 workload CI ECI、不执行测试，且不创建 workload shard、OSS/temp 或 calibration；部分命中只实际执行 miss。execution mode、校准/普通资源档位和资源策略只影响本次调度与耗时样本，不进入 PASS identity，因此 calibration->normal 在 correctness fingerprint 相同时必须直接复用。PASS identity 只由 `WorkloadID + ExecutionDigest + InputDigest + EnvironmentDigest` 组成，Git tree、commit、branch、worktree 路径和 candidate 名称一律不得进入 identity 或 lookup key；四段身份不变时必须跨 tree、跨 commit、跨 worktree、跨 push/release 场景和跨 agent 精确复用。每次调用仍保有独立 job/agent audit，hook、job 与 shard 无上限并发，同一个 miss 可以被并发重复执行。identity 必须绑定该 workload 的可观察源码、测试、脚本和命令、平台、真正影响结果的 policy/toolchain、runtime dependency seed，以及 exact execution semantic digest；candidate Gate/协调器源码和其编译工具链只作 run/receipt 审计，除非已经提取进该 workload 的执行语义闭包。exact Go test/benchmark fingerprint 还必须包含同包所有适用 `_test.go` 编译输入，以及目标运行时观察闭包。不得绑定 agent token、job、generation、snapshot、RunnerImage、RunnerIdentity、RunnerConfigDigest、GateBinary 或 BaselineManifest，也不得只使用 whole tree 或裸生产源码粗指纹。accepted ImageCache 的内容以外部 receipt 导入时的绑定事实为准；依赖、工具链、policy 或 workload Gate 语义变化必须使 strict PASS evidence 失效。agent token 仅是审计身份，跨 agent 可以共享等价 evidence。
-   PASS identity 的 canonical 材料域固定为 `pass-identity/v2`，由 `internal/devtools/cicontract` 唯一拥有；生产输入 fingerprint 的材料域固定为 `input-fingerprint/v2`，内部 schema 4 仍保留但必须与该域一起参与 framing。旧无域、旧域或其他域材料不得 dual-read、兼容映射或迁移命中；它们必须自然 MISS/拒绝。域变化不改变 current 与 previous-two（最近 3 代）retention 语义。精确 current identity MISS 时，只允许枚举相同 `WorkloadID + ExecutionDigest + EnvironmentDigest` 的 retained direct PASS，以其 `OriginSourceTreeSHA` 作为只读溯源地址，在该内容树上用当前 `input-fingerprint/v2` 算法重算同一 workload；只有重算结果逐字节等于当前 `InputDigest` 才可生成 `workload-pass-source-replay/v1` proof 并把结果投影到当前四段 identity。来源 tree 只进入 proof/provenance，不进入目标 identity、lookup key 或命中比较；来源对象缺失、重算失败、摘要不等、来源证据不权威或任一执行/环境字段变化都必须 MISS/fail-fast。禁止持久化 identity alias、旧摘要映射或预运行 migrated PASS evidence。
-	精确 Go selector 的 broad input 变化只算一票；selector 声明、静态运行时观察和同 package+semantic 编译闭包必须独立投票。目标树上已有的权威 direct PASS 可以直接满足对应 compile owner 的 exact-tree 编译义务；没有这种同树证据时，每个 normal/race/benchmark compile owner 至少保留一个未复用 selector 承担 exact-tree fresh 编译义务，且该 owner 状态必须在同一次 Prepare 内从 source replay 贯穿到 environment replay。跨树 direct PASS 不得预置编译覆盖；fresh owner 自身保持 MISS，编译差异不得再次把同组所有兄弟 selector 扩散为 MISS。兄弟 selector 只有在声明与运行时观察闭包均未变化、来源 PASS/环境/执行/proof 仍由同一 SQLite authority 严格验证时才可复用；声明或运行时变化、无法精确解析、owner 缺失或任一来源证明漂移仍必须 MISS/fail-fast。
-	默认运行（无 `--force`）命中完整 PASS 时必须直接返回 PASS 且不创建任何 workload ECI；只有显式 `--force` 才可绕过 PASS 查询并执行所有 shardable workload。`force` 只写入 RunInput/RunResult、SQLite run/check receipt 与 calibration checkpoint 的审计身份，不进入 workload PASS identity；强制运行失败或取消不得删除、覆盖或污染既有 PASS evidence。
-	纯 all-hit run 从未解析或执行候选 Gate 编译闭包，也不读取实时 ImageCache 运行时，因此 `ci_runs` 的 candidate Gate source/toolchain 执行摘要必须同时为空；仅当 status=passed、workload result 非空且全部为 reused、没有 fresh workload execution 和 shard 时允许该形状。任何 partial/fresh/force/失败执行路径仍必须绑定两个完整 canonical `sha256:` 摘要；单边缺失或用 accepted baseline、sentinel、runner digest 冒充都必须 fail-fast。
-
-## 2. 唯一权威与职责
-
-| 数据 | 唯一权威 | 禁止的替代权威 |
+| node_id | platform | 共享规则 |
 | --- | --- | --- |
-| 已接受基准代 | duration-ledger SQLite 中的 `ci_remote_baseline_state`，并持久化 `execution_provider=aliyun-eci/v1` 与唯一 region | JSON 状态文件、DataCache、OSS manifest、环境变量 |
-| 测试历史、规划样本与 strict workload PASS evidence | 同一 duration-ledger SQLite | 另一份 ledger、静态 shard 数、agent 私有账本、JSON/OSS/.pass/旧 `ci_workload_fingerprints` |
-| 运行时缓存选择 | strict OSS current receipt 与实时 ECI Describe 完全一致的有限期 Ready `ImageCacheId + ImageSnapshotId + immutable image`，并绑定 accepted OCI base | tag、自动匹配、registry tag、未实时复核或已过期缓存 |
-| 候选源码 | 精确 Git commit/tree/patch identity | 工作目录当前内容、未绑定临时目录 |
-| 候选 Gate 编译身份 | exact tree 的真实 Go 传递编译闭包与工具链摘要 | 手工输入清单、文件时间、warm workspace binary |
-| 未来 engine source | 独立 `super-dolphin-remote-ci` 的 exact `engine.tree_sha`，并显式绑定 source/toolchain/protocol/workload-manifest ABI digest | cwd/HEAD/default/fallback、当前 target tree、宿主 worktree 或未绑定临时目录 |
-| 未来 portable runtime artifact | 唯一 `aliyun-eci/v1` artifact builder 从 engine exact tree 产出的 content-addressed artifact；digest 同时绑定 exact engine source、toolchain、protocol ABI 与 workload-manifest ABI | tag、warm binary、宿主编译、target tree 直接构建、第二 builder 或第二 executor |
-| 未来 target source/workload | exact `target.tree_sha` 只提供 source/workload；`workload_manifest.path` 必须是该 tree 内 repo-relative regular blob，`workload_manifest.sha256` 必须由该 tree 的 blob bytes 计算；不要求含 `cmd/super-dolphin-gate` | 宿主绝对 manifest 路径、宿主绝对 worktree、cwd/HEAD/default/fallback、未绑定 manifest |
-| 未来 global authority | 既有唯一 Coordinator + 同一 duration-ledger SQLite authority；engine artifact 与 target source 都只能作为显式输入被它消费 | engine 自有 coordinator、target 自有 PASS/plan、第二 SQLite/receipt authority 或第二 executor |
-| check receipt、timing、warning 与 reuse proof | 同一 duration-ledger SQLite | OSS 对象、日志、环境变量、独立数据库或本地文件 |
-
-SQLite 状态中的 JSON 只是严格 schema 编码；它不是 JSON 文件真相源。OSS 只传输内容寻址请求、候选源码和刷新物料回执；回执只在实时 ECI readback 成功后选择加速层，绝不提供 correctness、PASS、accepted generation 或历史权威。
-
-`ci_runs.authoritative=1` 后，该 JobID 的 core、gate/workload execution、result、shard、timing、warning、receipt 与 PASS evidence 投影全部不可变；任何 provisional 重写必须在 upsert 或删除 child rows 前 fail-fast。authority 提升前必须从同一 SQLite 回读 aggregate 与 workload execution，并对实际持久化的 `Status`、`ExitCode`、`ArgvDigest`、`LogDigest`、`ExecutionProfile`、起止时间和测试时序逐项精确匹配当前 ECI 结果；缺失、重复或漂移均不得晋级。
-
-首次读取尚不存在的 SQLite authority 时，先原子创建 current schema 及其查询索引。normal run/hook 仅在配置显式携带完整 strict ECI generation-one receipt 时，才可在实时验证后以单个事务首写 accepted baseline 与 generation=1 账本元数据；缺少回执、字段或云事实漂移必须 fail-fast，禁止生成默认状态、generation=0 或自动全量重建。
-
-### 2.1 Agent token 身份与密文边界
-
-- 阶段一：既未带 flag 也未带环境变量的请求只返回机器可读 `guidance`，其中同时提供 `--agent-token=issue` 与 `SUPER_DOLPHIN_CI_AGENT_TOKEN=issue` 的申请方式；不得生成或返回 token/digest，并且 `execute_ci=false`，不得创建 CI、ECI、SQLite run、OSS 对象或任何执行回执。
-- 阶段二：仅当 flag 或唯一环境变量之一显式等于 `issue` 时，才生成并立即返回原始 `agent_token`、`agent_token_digest` 与后续 retry argv；它同样 `execute_ci=false` 且 fail-closed。并发 issue 必须得到不同 token。flag 与环境变量同时存在（即使值相同）必须拒绝。
-- 阶段三：仅后续请求在 flag 或唯一环境变量之一携带与先前摘要匹配的同一原始 token 时，才是同一 agent 且可以执行 CI。空 token、错配 token、非规范摘要或将 `issue` 与实际 token 混用必须 fail-fast。
-- Git hook 无状态：token 由调用 Git 的 agent 任务上下文或长生命周期 shell 持有。hook 只能继承并验证实际 `SUPER_DOLPHIN_CI_AGENT_TOKEN`，不得自动签发、缓存、串联或将 token 放入 argv；无 token 时只能返回阶段一的结构化申请与使用说明并 fail-closed。agent 必须在 hook 外单独 issue，再以实际 token 环境变量重试 Git。
-- 原始 token 只可返回给发起 issue 的调用 agent，并仅在该 agent 任务上下文或长生命周期 shell，以及随后继承它的当前 Git/hook/Gate 进程链内存中短暂存在。唯一 flag 是 `--agent-token`，唯一环境变量是 `SUPER_DOLPHIN_CI_AGENT_TOKEN`；不得保留 `RequesterFingerprint` / `requester_fingerprint` 的类型、CLI、表或 JSON 字段路径。为了 fail-fast，入口可仅识别其旧 flag/环境变量并立即报“retired”，不得把它们解析、保存、回显或映射为 token。
-- 禁止在 repo、`.git/`、SQLite、共享文件、Git config、Keychain 或其他持久化媒介缓存原始 token。多个 agent 必须各自 issue；只有显式复用同一实际 token 才是同一身份。
-- SQLite、OSS、ECI request/tag、日志、checkpoint、worker report、RunInput、ShardRequest、RunResult 与 authoritative receipt 只能保存或传递 `sha256:` 格式的 `agent_token_digest`，不得保存、回显、序列化或派生传递原始 token。每个边界都必须校验 digest；同一 run/shard/report/receipt 的 digest 不一致时必须拒绝。
-
-## 3. 唯一正常 CI 路径
-
-```text
-Git hook / remote run
-  -> 读取 SQLite accepted BaselineState；若 singleton 为空则消费配置 strict ECI receipt、实时复核并原子首写 generation=1
-  -> 重新读取并验证 accepted BaselineState
-  -> 固定 accepted ImageSnapshotId
-  -> 在 exact candidate tree 计算 workload production-input fingerprints
-  -> 同一 SQLite authority 查询 fresh authoritative PASS；只投影 exact MISS，完整 PASS 直接结束且不创建 planner、compile group、资源、shard、OSS/temp 或 ECI
-  -> 仅 MISS 读取 SQLite 历史耗时、生成 compile groups 与 LPT 分片、选择资源，并构造冻结 accepted bootstrap request 与完整 current ShardRequest；accepted bootstrap 的 gate_ids 只在 accepted encoder/identity 边界把 expansion-only `backend:nilness::go-package::<pkg>` 与 `frontend:preflight::frontend-guard::<target>` 分别投影为 canonical `backend:nilness` 与 `frontend:preflight`，current request/worker manifest 始终保留精确 per-package 与 frontend target IDs
-  -> 所有 MISS shard 无上限并发创建 ECI container group
-  -> accepted Gate 严格消费只含 canonical nilness/frontend-preflight parent 的冻结 bootstrap request 并发布临时 v1 manifest；在 exact candidate tree 内复核编译闭包并增量编译候选 Gate
-  -> 候选 Gate 严格消费保留精确 per-package workload IDs 的完整 current request、交叉绑定 bootstrap 身份并原子替换为 v2 manifest；同一 shard worker 按该唯一 manifest 复用 test binary
-  -> 实际执行所有 MISS，严格复用 fresh authoritative PASS hit
-  -> 严格回执、资源清理、耗时与缓存证据写回同一 SQLite
-```
-
-硬约束：
-
-- 正常 CI、首代内容检查、cache-prime 与 OCI 镜像构建只能通过阿里云 ECI API 创建 container group 执行。仓库不得提供通用 provider executor、Docker executor、Kubernetes executor、GitHub Actions executor/runner、其他云适配器或 remote-to-local fallback；GitHub 仅承载 Git 对象。只有 ECI 构建的不可变镜像被 Ready ImageCache 接受并由绑定该 snapshot 的 ECI container group 实测后，才形成可导入证据。
-- 云控制面客户端只允许配置阿里云官方 `aliyun` CLI（可为其绝对路径）并只调用 ECI/OSS API；不得把该配置项改造成任意 provider executable、协议代理或第二云适配入口。该 CLI、凭据 profile 与运行主机属于受信基础设施边界，测试注入 runner 只能验证命令形状，不能形成权威远程证据。每次 CLI 调用必须同时有 context 超时与进程管道 WaitDelay；CLI 或其后代在取消后持有 stdout/stderr 不得让状态轮询、证据汇总或资源清理越过看门狗无界等待。
-- Git hook invocation、remote CI job 与动态 shard 彼此独立并发；hook 不得以全局锁、active job 锁或共享 raw token 把不同 agent 串成单队列。一个 agent 的原始 token 只属于该 agent 的当前进程链，跨边界只传 digest。
-- 同一 worktree 出现 Git `index.lock` 时，只按 Git 的一致性语义处理该 index 操作；不得把它扩展为 CI job、shard 或其他 worktree 的 admission/串行机制。
-- 创建 ECI container group 必须传 accepted `ImageCacheSnapshotID`；不接受自动匹配、tag 或最近创建缓存作为选择依据。
-- 主容器与 init 容器必须使用不可变 digest 镜像，且显式绑定同一个已接受 snapshot。
-- 私有 GHCR 镜像的每个 normal shard 必须从当前 Gate 进程的 `SUPER_DOLPHIN_CI_GHCR_USERNAME` 与 `SUPER_DOLPHIN_CI_GHCR_TOKEN` 读取完整短期凭据，并映射到 ECI `ImageRegistryCredential`；server 固定为 `ghcr.io` 且必须与主/init 不可变镜像域名一致。缺失、空值、超长、域名错配必须在创建 group 前 fail-fast。原始用户名和 token 只能存在于当前进程内存和 ECI API 密文参数，不得进入 remote run config、SQLite、receipt、日志、tag、OSS、Git、命令投影或 ConfigFileVolume。
-- 仓库可提供 hook 外的版本化 Git 启动器，从 GitHub CLI 的系统凭据存储取得上述 GHCR 短期凭据，并从目标仓库已验证的受信 Gate 签发当前 Git 进程链的 agent token。启动器只能通过环境 `exec git`，不得把原始凭据写入 Git 配置、文件、SQLite、日志或 argv；Git hook 与 Gate 仍不得自行签发、缓存或静默补齐凭据。目标仓库、GitHub CLI 身份、凭据对或 bootstrap 任一不可验证时必须 fail-fast。
-- 禁止 `AutoMatchImageCache` 参与正常 shard 选择。
-- 候选 Gate 必须在 shard 内从 exact candidate tree 增量编译；不得复用未绑定候选树的预编译二进制。
-- **§3.3 未来 engine artifact seam**：未来独立 `super-dolphin-remote-ci` 只允许把 exact `engine.tree_sha` 送入唯一 ECI artifact builder，输出绑定 source/toolchain/protocol/workload-manifest ABI digest 的 content-addressed portable runtime artifact；target `target.tree_sha` 只提供 source/workload。该 artifact seam 不创建第二 Coordinator、第二 SQLite authority 或第二 executor；当前 v3 candidate Gate 编译路径仍是现行实现，未来 seam 未接线。
-- 候选源码 transport 必须使用唯一标准 v2 `git-bundle-thin`：每次 CI 生成一个 tree 等于 SourceSpec parent/base tree、唯一 parent 等于 accepted baseline 的确定性 candidate-parent synthetic commit，再生成 tree 等于候选且唯一 parent 等于该 synthetic base 的确定性 transport commit，并以相对 baseline 的 bundle 传输；bundle header 必须恰好广告一个 baseline prerequisite 和唯一 `refs/source/materialized`。物化工作树必须同时发布只读 `refs/source/base` 指向 synthetic base commit，所有 diff/LSP changed-files 门禁只能比较该 base 到候选，禁止因 ref 缺失退化为整树扫描。禁止自包含 bundle、full fallback、raw whole repo、候选原始历史或第二 bundle/manifest 形态。
-- **§3.5 future target/manifest binding**：未来 target transport 仍必须从 exact `target.tree_sha` 解析；repository-owned workload manifest 只能是该 tree 中由 `workload_manifest.path` 指向的 repo-relative regular blob，并以同一 tree 解析出的 `workload_manifest.sha256` 绑定其原始字节和 workload-manifest ABI。manifest、source 或 worktree 不得从宿主绝对路径读取，禁止以 cwd/HEAD/default/fallback 或未绑定临时 worktree 替代 target tree；target tree 只提供 source/workload，不要求含 `cmd/super-dolphin-gate`。engine `engine.tree_sha` 与 target `target.tree_sha` 必须保持不同身份域，并分别进入未来 artifact/执行请求的显式 digest 绑定。
-- engine/target 组合执行若需要 Go workspace，只允许两种互斥的 tree-owned 模型：exact composite tree 内的 canonical `go.work`，或固定路径 `.super-dolphin/portable-go-workspace.json` 的 `portable-go-workspace/v1` descriptor。descriptor 用于滚动升级：accepted 旧 Gate materializer 必须忽略该 JSON 并先从 engine 根编译新 candidate Gate；新 candidate Gate 随后在同一 init container 内严格校验 descriptor 的 engine/target tree、target 子树和 module 集，以 fsync + rename 原子生成 worker 使用的 `go.work`，worker 启动前不得存在部分 workspace。两种模型的 module 目录都必须是 tree 内相对路径、必须包含 engine 根模块、每个 module 必须恰有一个合法 `go.mod`，module path 与目录不得重复，workspace-level replace 一律拒绝；每个 module 的 tree-owned `go.mod`/`go.sum`、模型原始字节、engine tree、target tree 与 target mount path 必须共同进入执行身份。workspace 只负责让同一个 V3 candidate Gate 发现显式 target module，不能读取宿主 workspace、WJBoot 旧 Gate、cwd/HEAD/default module 或树外 replace。未完成 portable authority schema 前，这类组合树分片结果固定为 `NOT_VERIFIED`，只能写隔离的 V3 ledger clone，禁止进入主 SQLite PASS authority。
-- UID 0 materializer 完成候选 checkout 后，唯一 bootstrap 必须以 `a+rX` 发布整个 `/workspace/source`（包括 `.git/objects/info/alternates`）供 UID 65532 worker 读取；worker 对该卷的挂载必须保持只读。禁止通过让 worker 使用 root、改成可写源码卷、复制第二份源码或吞掉权限错误绕过该边界。
-- accepted materializer 与候选 coordinator 之间的 Gate CLI compile-closure 是跨代稳定握手：只允许根 Go module 的生产导入闭包、根 `go.mod`/`go.sum` 与 toolchain lock。Gate CLI 源码导入 repository-local `replace` module 必须 fail-fast；该类嵌套 module 的 `go.mod`/`go.sum` 只纳入 worker execution digest，禁止动态加入 Gate 握手导致已接受镜像中的 materializer 与候选算法漂移。
-- source bundle `source.bundle` 与 strict manifest `source-manifest.json` 必须在同一 job 的完整内容寻址上传成功并完成摘要/字段验证后，才可按同一 SQLite authority 的 LPT 计划创建全部并发 shards；任何单个对象缺失、部分上传或验证失败都必须 fail-fast，不能先创建 shard。
-  - PASS lookup 必须先读取 canonical `WorkloadCatalog`、每个 workload 的 exact correctness fingerprint 与 worker semantic digest；PASS workload 永不得进入 planner、compile closure、LPT、resource、shard、bootstrap request、OSS/temp 或 ECI side effect，部分命中只投影 MISS。PASS environment schema 固定为 `remote-workload-pass-environment/v10`，旧版本严格拒绝。每个 MISS shard 必须在创建 ECI 前以 create-only 方式上传两个同 job、内容寻址且不可互换的对象：冻结 accepted 顶层 schema 14 + CompileGroup schema 1 bootstrap request，以及携带 canonical CompileGroup schema 2、batch plan 与 `shard_execution_manifest_digest` 的完整 current ShardRequest；任一上传失败都不得创建 ECI。accepted bootstrap `gate_ids` 只在 accepted encoder/identity 边界将 expansion-only `backend:nilness::go-package::<pkg>` 与 `frontend:preflight::frontend-guard::<target>` 分别投影为 canonical `backend:nilness` 与 `frontend:preflight`；完整 current ShardRequest 和 worker manifest 必须保留精确 per-package 与 frontend target IDs，coordinator/current worker 不得消费或执行该 projection。accepted ImageCache Gate 只可严格解码 bootstrap request，并在 gate-owned 固定路径原子发布临时 v1 manifest；候选 Gate 编译完成后必须由同一 init 容器的 `_remote-install-manifest` 严格下载完整 current request，校验两个对象的原始 SHA-256、同一 job 目录、稳定身份及旧 v1 manifest，再以 fsync + rename 原子替换固定路径为完整 v2 manifest。该 installer 只安装 manifest，不得执行测试或成为第二 executor；worker 仍是唯一 executor，argv 只能传固定 `--manifest-path /workspace/work/shard-execution-manifest.json` 与摘要，禁止长 `--gates` 列表。完整 current ShardRequest JSON（含 compile groups）与冻结 bootstrap request 各自总字节数上限均为 `1 MiB`，编码、上传前和相应 strict decoder 必须共用该上限并 fail-fast；禁止 unknown-field 宽松解码、schema 协商、兼容 fallback 或刷新 accepted ImageCache 来绕过滚动升级。
-- **§3.7 future protocol/validation-only boundary**：未来 engine artifact 的引用必须是 content-addressed digest，并交叉绑定 `engine.tree_sha`、target `target.tree_sha`、source/toolchain/protocol/workload-manifest ABI digest 与 repository-owned manifest 的 `workload_manifest.path`/`workload_manifest.sha256`；不得把 target tree 中的 Gate 可执行文件、宿主绝对 manifest 或默认路径当作 engine identity。future composition root 的 `validate-only` 只允许验证这些绑定和唯一 Coordinator/SQLite authority 的显式输入，不得产出 plan/PASS、shard、ECI 或 SQLite authority side effect；正常执行仍只能沿既有 `aliyun-eci/v1` 唯一路径，不能接入第二 executor。该 future protocol 仍未接线。
-- Go/module/build cache、Node/npm、前端依赖/Vite 构建 cache、Playwright 浏览器及系统依赖必须直接读取 accepted ImageCache 的不可变镜像层。完整依赖树与构建缓存树的内容摘要、链接和写权限只能在不可变镜像构建及 ECI 内容验收时全量扫描；normal shard 只允许严格解码当前 manifest、校验固定根和 accepted 镜像只读挂载，禁止每分片、每 lane、每 workload 运行 `WalkDir`、整树摘要或逐文件权限复验。ECI request 的数据面必须且只能声明 `source-data`、`work-data`、`temp-data` 三个 EmptyDir；normal shard 只额外允许一个 init-only、只读、无凭据的 bootstrap ConfigFileVolume 绕过 ECI command/argument 字符限制，main container 不得挂载，且三个 EmptyDir 与控制投影的总卷数必须在创建前校验不超过 ECI 固定 20 卷上限。该投影不得承载源码、依赖、缓存、registry 凭据、签名 URL 或状态。禁止 FlexVolume/OSS bootstrap、`expanded-data`、DataCache、缓存卷、subPath 挂载、解压目录或逐分片复制展开。`node_modules` 与 `.vite` 必须直接链接镜像层，`.vite-temp` 才可位于分片私有工作目录；前端 `dist` 是构建结果，不得伪装成可复用 build cache 打入镜像。Go 增量编译必须只使用当前 accepted ImageCache 内唯一只读 build-cache seed 与分片私有的小型写层，不得创建 `cache-seeds` 多代目录、额外 seed 链或按 seed 代际分叉的观察字段，也不得把 seed 复制到外挂卷。Dockerfile 与 seed worker 属于必须审计的配方输入，不得进入可复用依赖内容 identity；仅配方/脚本变化而锁定依赖、工具链和模块清单不变时必须直接复用上一代 runtime 镜像，不得重跑 Go/npm/Playwright/tool seed。
-- cache hit 只能加速已证明等价的输入、物化或编译；strict workload PASS reuse 只能从同一 SQLite authority 的当前 accepted generation 及其前两代（最近 3 代）完整权威 fresh evidence 取得；future 或更旧 evidence 必须 miss/fail-fast，不能复用。identity 必须覆盖该 workload 的可观察源码、测试、脚本、命令、平台、真正影响结果的 policy/toolchain、runtime dependency seed 和 exact execution semantic digest；普通/校准 execution mode、资源策略、终止预算以及协调器或 candidate Gate 的整体源码/工具链只作本次 run 审计或耗时规划，不得让等价 PASS 全局失效；exact Go test/benchmark fingerprint 必须额外包含同包所有适用 `_test.go` 编译输入和目标运行时观察闭包。cache/source-only baseline refresh 不使其失效；依赖、工具链、policy 或 workload Gate 语义变化必须使其失效。它不能省略候选物化或身份验证，不能以 whole-tree/裸生产源码粗指纹、agent token/job/generation/snapshot、RunnerImage/RunnerIdentity/RunnerConfigDigest/GateBinary/BaselineManifest、JSON/OSS/.pass 或旧 `ci_workload_fingerprints` 冒充等价。同一 SQLite 可保存由当前 producer 算法对 immutable source tree 重算得到的 workload input 派生索引，但键必须完整绑定 accepted generation、source tree、producer algorithm digest 与 workload，行必须带 canonical integrity SHA-256，只能消除重复重算，绝不能单独形成 PASS、proof、retention root 或第二 truth source；索引只保留最近三代，缺失、不兼容、漂移或校验失败时仍走完整来源树重算或 fail-fast。每个 reused check 必须含 canonical reuse proof SHA-256；non-reused check 禁止携带该字段；有效 PASS 必须 `passed && (executed || reused)`，同一 run 可混合 executed miss 与 reused hit。
+| Ubuntu-01 | ubuntu | 只读 object store；读取共享增量 cache publication layer；private worktree/overlay |
+| Ubuntu-02 | ubuntu | 只读 object store；读取共享增量 cache publication layer；private worktree/overlay |
+| Windows-01 | windows | 独立 repository、worktree、cache、overlay 和 temp root |
+| Windows-02 | windows | 独立 repository、worktree、cache、overlay 和 temp root |
 
-- worker 实际消费的 `SUPER_DOLPHIN_REMOTE_EXECUTION_TIMEOUT` 只进入本次 run 审计和终止预算观测，不进入 strict workload PASS identity；agent token、job、source key 与 shard identity 仅用于审计或传输，不能阻断跨 agent 等价 PASS 复用。
-## 4. normal run/hook 首代严格回执 bootstrap 边界
+每个 node_id、repository_id、Git common-dir、worktree root、cache root、toolchain digest、probe identity 和 boot identity 都必须稳定且可验证。节点清单必须恰好包含两台 Ubuntu 和两台 Windows；重复、缺失、离线、能力声明与 live probe 不一致均 fail-fast。macOS 不得出现在执行节点清单。
 
-首代 ImageCache 的创建、发布、Ready 等待、运营权限和生命周期完全在仓库边界之外。外部 operator 只能通过阿里云 ECI container group 完成镜像构建、cache-prime 与这些云侧动作，并把无密钥 strict receipt 放入 remote run config 的 `generation_one_provision` 协议字段。唯一例外是由 `pre-push` 非阻塞调度的 `scripts/refresh_remote_ci_imagecache.sh`：它可以在本地把精确 Git 归档与 Go module download cache 闭包内容寻址上传 OSS，再启动绑定 accepted 或最近有限期候选 snapshot 的 ECI builder；源码编译、OCI 缓存层生成、临时 VPC registry 与 `CreateImageCache` 都必须在阿里云 ECI/ECI API 边界内完成。该脚本只输出无密钥、非权威、有限保留期的候选回执，不得写 SQLite、选择或晋级 accepted、清理 accepted cache，也不得使用 GitHub runner、本地 Docker、其他云、BuildKit publisher、`output_repository`、候选 reservation 或 CAS promotion。外部 operator 创建或更新需要从公网私有 registry 拉层的 ImageCache 时，必须显式给临时 ECI 绑定可用 EIP（或已验证 NAT）和该 registry 的短期凭据；凭据只能存在于 operator 当前进程与 ECI API 密文参数中，不得写入仓库、投影、remote config、receipt、SQLite 或日志。ImageCache 进入 Ready 或 Failed 后必须确认 EIP 已解绑，所有占用清理完成后再释放 EIP。刷新脚本使用 OSS 内网与临时 VPC registry，不依赖 vSwitch 访问国际网络。
+Ubuntu 的只读 object store 按 repository_id 分 namespace；共享增量 cache publication layer 只保存经 SHA-256 验证的 immutable blob 和 path-to-digest manifest。节点只能在 private overlay 和 private worktree 中写入，发布必须在跨节点锁内完成 manifest、size、digest、generation 的 exact readback 后原子更新 ready pointer。节点不能共享可写 worktree、普通可写 cache、临时目录或未验证的 partial generation。
 
-### 4.1 外部 operator 回执内容
+Windows 节点不共享 object store、repository、worktree、cache、manifest 或 temp root。即使执行同一个 target，也必须使用不同的物理根和不同的 cache generation。所有节点产生的结果标记为 LOCAL_NON_AUTHORITATIVE，只有 PostgreSQL remote authority 可以发布 remote receipt。
 
-外部 operator 交给仓库的 generation-one strict receipt 必须明确绑定 execution provider=`aliyun-eci/v1`、region、每项检查唯一且真实的 ECI container group ID 与 container name、generation=1、canonical state SHA-256、唯一 Ready `ImageCacheId + ImageSnapshotId`、不可变镜像 identity、精确 source tree、Go/toolchain、policy、runtime dependency seed 与固定 CPU/内存规格。六项内容检查的每个 observation 还必须显式携带当前 normal resource policy 中的 `resource_class_id`、`resource_cpu`、`resource_memory_gib`，三者必须一致且只能是 2C/4GiB、4C/8GiB 或 8C/16GiB；这些 per-check 规格不等同于 §6 独立 calibration 4C/8GiB。`gate_build`、`normal_compile`、`e2e_compile`、`race_compile`、`frontend_build`、`dependency` 六项内容检查必须分别由绑定该 Ready snapshot 的阿里云 ECI container group 实际执行并通过，同时记录每项严格大于零的真实起止、`duration_ms`、candidate compile 观测、回执摘要和 `test_body=not_applicable`。每个 group 必须以规范 ECI tags 绑定 provider、ImageCache ID、snapshot、source tree、check 与 plan digest；同一个 group 不得复用于两项检查。
+## 5. 通用容量分片与 CapacityBlocker
 
-首写前仓库必须通过配置指定 region 的阿里云 ECI API 实时 `DescribeImageCaches` 与 `DescribeContainerGroups`，精确核对 cache region/Ready/snapshot/image 集合，以及每个 group 的 region、唯一 ID、`Succeeded`、实际 CPU/内存、主容器名称、不可变 runtime image、`Terminated`、exit code 0、规范 tags 和容纳 observation 的真实运行时间区间。实际 CPU/内存必须逐组精确等于 observation 的 per-check 规格；缺少或无法证明规格时必须 fail-fast。外部 operator 必须让这些终态 container groups 保持可查询，直到 normal run/hook 完成实时核验和 SQLite 原子首写；只能在首写成功后清理。缺少、提前清理、跨 region、重复、额外、非终态或任一字段漂移都必须 fail-fast。normal shard 遇到 ECI command/argument 字符限制时只允许使用 §3 冻结的单个只读控制投影。外部 operator 遇到 ECI command、argument 或 environment 字符限制时，只能使用只读 `ConfigFileVolume` 投影控制脚本、签名 URL、内容寻址 identity 或小型增量 bundle；投影不得包含依赖、构建缓存、`node_modules`、Go module/build cache、registry 凭据或任何第二状态源，也不得替代 normal shard 固定的三个 EmptyDir 数据面。只有 ECI 内的镜像构建进程可以产出 `remote-ci-cache-material/v1`、`authority=non_authoritative_material` 的候选镜像缓存物料；其 manifest 只能列 `seed_steps`，不得列 `checks`。构建日志不得转换、复制或冒充 ECI 内容检查 observations；Dockerfile、BuildKit stage 和 OCI artifact 中禁止生成 `provision_checks` 或 generation-one authoritative receipt。这些 ECI 内容检查仅证明外部首代的构建内容，绝不构成 normal CI 测试 PASS。
+所有 workload 使用同一个 deterministic capacity sharding planner。planner 先按 workload 的 platform、runtime capability、CPU、memory、estimated cost 和 node live capacity 形成可审计的 shard plan，再在 PostgreSQL 事务内预留容量。不同平台可以有不同 capability predicate，但不能各自复制一套权威调度算法。
 
-### 4.2 仓库唯一首写动作
+一次请求只允许一次 fresh snapshot、一次 reservation 和一次 executor binding。容量不足、节点失联、规格不匹配、reservation 冲突或 work unit 无法装箱时，必须返回 CapacityBlocker；CapacityBlocker 必须包含稳定 unit_id、target platform、required capability、reason code 和可重放的 plan/manifest digest，并且不得泄露 endpoint、凭据或宿主路径。
 
-normal run/hook 只验证配置 receipt 与上述阿里云 ECI 实时事实，并仅在 `ci_remote_baseline_state` 为空时，把 accepted singleton generation=1 与 `duration_ledger_meta` generation=1 在同一 SQLite 事务中原子 INSERT。相同 state digest 的并发首写 loser 可在严格重读后幂等收敛；不同 state digest、已有不同 singleton、generation 非 1、非 Ready snapshot、缺少任一绑定字段、摘要不匹配、区域漂移、元数据冲突或规格漂移必须 fail-fast 并整笔回滚。accepted state 必须继续保存 `execution_provider=aliyun-eci/v1` 与 region；后续 run/hook/calibrate 只读 accepted，不再消费或等待首代回执。
+容量不足是终态错误：不得等待空闲容量，不得加入隐式队列，不得自动重试，不得切换备用节点集合，不得转发到外部执行池，不得双跑或投机复制。executor 一旦 start，代码错误、超时、OOM、工具失败或节点失联均属于本次执行失败；不得迁移、重试、fallback 或再次执行同一 operation_id。
 
-### 4.3 唯一候选刷新脚本与禁止边界
+## 6. Observable logs
 
-`pre-push` 只按第一个非删除 ref 的 exact pushed commit/tree 调度维护：它必须从该 pushed tree 提取 dispatcher 与刷新脚本，清除 agent token、registry 凭据与手工刷新覆盖环境，以 `nohup`、关闭 stdin、独立日志的方式启动后立即继续正常 pre-push gate，不得等待云端结果或因刷新进程存活阻塞 push。dispatcher 可以使用 Git common-dir 下的进程锁去重同时发生的维护刷新；该锁只保护候选维护，不得成为 hook、normal CI job 或 shard admission lock。
+stdout 对每个可解析调用只能输出一个 bounded canonical JSON object，协议为 remote-ci-result/v1。结果至少包含 status、operation_id、manifest_digest、plan_digest、node_id、executor_kind、started_at、finished_at、exit_code、cleanup_state，以及 CapacityBlocker 或执行错误的稳定 code。
 
-仅 `scripts/refresh_remote_ci_imagecache.sh` 可以把 exact committed tree 与本地解析的 Go module download cache 闭包上传到 OSS，由绑定 accepted 或最近有限期候选 snapshot 的 ECI 在 `GOPROXY=off` 下编译一次，并通过临时 VPC registry 生成有限期、非权威的新 ImageCache。脚本先严格读取固定 OSS scheduling receipt；上次成功刷新不超过 24 小时时必须静默跳过，严格超过 24 小时才可刷新。成功后必须同时写入内容寻址回执和固定 current pointer；v2 回执必须包含 region、cache name/ID/snapshot、同一 immutable image、accepted OCI base、生命周期与摘要。normal run 每次消费前都必须 strict decode、拒绝过期或漂移，并实时 Describe 完全一致的 Ready cache；随后显式用同一 cached image 作为主/init 容器且不编码临时 registry 凭据。回执不得作为 SQLite/PASS/accepted 权威。脚本成功后清理临时 ECI 和 registry，失败时清理候选；不得修改工作树 module 文件、依赖公网 registry 或宣称 CI PASS。
+stderr 只允许 JSONL remote-ci-event/v1。每行必须包含 operation_id、manifest_digest、严格递增 seq、RFC3339 时间、固定 stage、state、node_id_digest 和稳定 code；允许阶段固定为 request_validation、manifest_binding、capacity_snapshot、reservation、materialize、execute、cleanup、terminal。禁止自由文本、凭据、token、绝对路径、raw command、raw provider response 和底层 error string。日志 channel 写失败必须阻断并在 PG 中保留 bounded failure code。
 
-除此以外，仓库不得提供独立 `provision-generation-one` 或 refresh command、第二后台/定时 refresh executor、BuildKit publish、`output_repository`、其他 `CreateImageCache` writer、候选 reservation、lease/heartbeat/takeover、source delta 构建、CAS promotion 或 accepted/旧代 cleanup。normal run 的严格 read-only runtime selector 不是第二 executor，也不得创建、刷新或晋级缓存。
+PG 只保存可重放的 result/event digest、结构化字段和有限 error code；人类日志可以脱离 PG 展示，但不得反向成为 authority。terminal result 只有在 reservation release、private overlay 清理、worktree 状态和 event sequence 全部得到证明后才能发布。
 
-## 5. 动态分片与并发
+## 7. 唯一生命周期与验收
 
-- shard 数由 workload 历史耗时和 100 秒目标自动计算，最大只受当前可分片原子 workload 数量限制。
-- Git hook invocations、remote CI jobs 与 job 内动态 shards 均无仓库并发上限；不同 agent 的 hook 不得彼此阻塞，job 不得因另一个 active job 等待，shard 不得排队等待人为 token。
-- 禁止全局 hook lock、active-job lock、`max_shards`、`max_concurrency`、batch size、semaphore、`errgroup.SetLimit`、admission cap、共享 raw token 或其他人为并发上限。Git `index.lock` 仅保护同一 worktree 的 Git index 一致性，不得作为上述任一上限的实现。
-- 云配额/API 限流是显式基础设施错误，不能通过静默降并发或转为本地执行来兜底。
-- Go package/test、race package、Vitest 文件、Playwright spec 和其他可拆目标必须以可稳定寻址的原子 workload 入账。静态代码规模扫描 `./internal/archtest#TestCodeSizeGuard` 只在 normal gate 入账；canonical race catalog 必须排除该 exact selector，且不得因排除后回退为整个 `./internal/archtest` race 包，其他 archtest race selector 的覆盖、fingerprint 和 PASS reuse 仍须独立保留。仅供本地显式子进程调用的 Go helper 必须在源码上声明 `super-dolphin-ci: helper`，并在候选 Git tree 清单阶段排除；它不得生成 workload、PASS 指纹或进入 MISS 拆分器，执行端还必须拒绝旧/伪造 manifest 中的 helper selector。
-- workload 大于 100 秒时，优先优化测试实现；无法优化且可拆时继续拆分。不可拆原因必须进入优化告警。
-- `WorkloadExecutionPlan` wire schema 固定为 `11`，算法身份固定为 `deterministic-critical-path-aware-packing/v5`；planner objective 的比较顺序固定为 `hard constraints → target excess → minimum shards → makespan → setup proxy → canonical layout`。ordinary 与显式 `CompileGroupSerialPackingEligible` group 进入统一 packable unit 集合并由同一 exact/heuristic solver 处理，但属于不同共箱 domain；group 不可拆，只有 eligible group 彼此在同 `resourceClass`、不同 artifact/affinity 下才能严格串行共箱，ordinary 与 group 不混箱。每个 resource tier 必须记录 reserve `resolution` 与 `packing_evidence`：solver mode、packable/isolated unit count、lower-bound/planned shard count 和 `heuristic_gap_shards = planned - lower`。measured resolution 下 packable unit 数 `<=12` 必须使用 `deterministic-branch-and-bound-exact/v1`；`>12` 必须使用 `deterministic-setup-aware-bfd-2move-3cycle-beam/v1`；零 packable 使用 `isolated-only/v1`。bootstrap resolution 只能使用 `isolated-reserve-bootstrap/v1`，且 `lower=planned=unitCount`、gap 为零。exact search 与 repair budget 保持冻结并进入 planning policy digest；预算耗尽、旧 schema/算法、缺失摘要或 unknown/空 resolution 必须 fail-fast。
-- `WorkloadPlanningReceipt` 由 `internal/devtools/gate` 唯一拥有 wire 语义，使用 `planned`/`not_applicable` 严格 one-of；planned 必须携带三档 canonical `tier_resolutions` 与三档 `packing_evidence`，normal 只允许 `measured`/`bootstrap`，bootstrap 必须使用 `isolated-reserve-bootstrap/v1`，calibration 三档必须为 canonical `not_applicable`。回执 strict decoder 拒绝 unknown/null/trailing/重复 payload、非 canonical bytes、空或重复 tier；canonical digest 使用 `remote-ci-workload-planning-receipt/v1` 域。`mapping_root` 只由 `(workload_id, shard_identity)` 全局 workload 唯一映射计算，UTF-8 length-prefix leaf、canonical pair sort、duplicate-last Merkle 并绑定 leaf count。v20 仅新增 `ci_remote_run_planning_receipts` additive side table，严格 placeholder→terminal CAS、canonical JSON/digest/root/count readback，无 backfill、无第二 mapping 表；coordinator/finalizer/cloud 时序仍未接入。
-- normal shard 的 CPU 只能来自 `normal_classes` 中的三个精确资源档：2C/4GiB、4C/8GiB、8C/16GiB。规划器必须先读取同一 `WorkloadExecutionPlan` 内每个 workload 的账本估时并按固定 `5000ms/70000ms` 阈值分档，资源身份持久化并原样投影到 ECI selector。每档 resolution 必须是 `measured` 或 `bootstrap`：存在同 runner/toolchain/snapshot/resource-tier identity 绑定的可靠 reserve 时，100 秒 effective target 必须扣除固定组件集合 `eci_wait + source_materialize + candidate_compile + orchestration` 的 measured interval-union nearest-rank P95 后再执行 D-CPAP；该 fixed-front union 等价于 shard total 区间扣除 workload total 与 compile-group `test_binary_compile` 区间的精确并集，重叠只计一次，后两者继续作为 packable cost 且不得在 reserve 中重复计费。约 `64.8s` 只能是某次权威账本的观测近似，禁止写成常量、默认值、bootstrap 或 sentinel；组件集合固定，数值只能从同一 SQLite authority 的合格样本动态派生。缺少该档可靠实测时显式生成 bootstrap state，不得用 `0ms`、`100s`、默认值或 sentinel 冒充。bootstrap 档的当前 MISS 必须按不可拆 planning unit 隔离：普通 workload 一项一片，compile group 保持 batch/wave/exclusive 语义并每组一片；该档禁止调用 EffectiveTarget 或 D-CPAP。partial MISS 按档独立决议，all-hit 仍不得进入 planner。损坏 measured evidence、重复档、unknown/空 resolution 均 fail-fast。首次升档仍保留上一档权威实测 workload 估值，不伪造新档样本或回退资源；其余资源隔离、bootstrap 2C/4GiB 与 OOM fail-fast 约束不变。
-- workload 存在可信成功历史时，估时只能由保留 generation 的真实样本中位数/加权中位数及同 workload/command 的跨输入实测上界产生，禁止混入 bootstrap、先验收缩或预测常数；只有完全没有成功历史时才允许使用 catalog bootstrap。
-- 70 秒阈值来自当前 SQLite 权威账本测算：1243 个 workload 会生成 31 个 2C、68 个 4C、19 个 8C shard，共 118 shard/486 vCPU，最大估时 99972ms；30 秒阈值会产生 710 vCPU，不能作为当前策略。该测算只解释阈值，不冻结 workload 数、shard 数或总 vCPU；代码持续变化后只能通过重新测算、同步修改本文档与代码契约并改变 resource-policy digest 来升级阈值。
-- normal 资源档、bootstrap、两个耗时阈值、measured reserve aggregation/P95、headroom、downsize 样本数和独立校准规格必须进入 canonical resource-policy digest；该 digest 只用于 workload plan、duration sample、shard 资源与 run 审计，不进入 workload PASS environment identity。资源语义变化不得让 correctness fingerprint 等价的旧 PASS 全局失效；本次运行仍必须按当前策略重新规划资源。
-- job 的计划 vCPU 是全部 shard 所选 vCPU 之和，仅用于账本和云配额诊断，不得转化为仓库并发上限。
-- 同一 package-affinity compile group 只执行一次 `go test -c`；普通 group 仅在显式 side-effect-safe allowlist、同 resource 且严格串行条件下共箱；archtest/super-dolphin-gate/codexapp/mcp-lsp/agent-terminal/race/benchmark 必须独占。wire manifest 必须冻结每个 selector 的 `body_estimate_ms`、canonical `batch_plan_digest` 及 wave/batch 覆盖。critical cost 固定为 compile once + Σwave max(body)，`BodySum` 只能作为 coverage 账本，不能冒充 makespan。同 package+semantic 的编译闭包变化必须保留至少一个 fresh selector MISS 来承担 exact-tree `go test -c` 义务；该义务尚未覆盖时不得复用 compile-mismatch PASS，覆盖后则只按 selector 声明与运行时闭包裁决测试体，禁止把同包未变 selector 全部扩大为 MISS。archtest 每个 compile group 最多 64 个 selector、每个 ECI shard 仅一个 test-binary batch/process 并固定 `GOMEMLIMIT=3GiB`，423 个 selector 按有界组拆成约 7 个独立 CompileGroup/ECI shard 并无上限并发；其余执行、日志、history、资源和 calibration 约束保持不变。
+唯一生命周期如下：
 
-## 6. 固定规格校准
+1. macOS 编排端提交显式 portable manifest；
+2. super-dolphin-remote-ci 严格解码并绑定 engine、target、manifest；
+3. 从四节点取得一次 fresh live snapshot；
+4. 在 PostgreSQL primary 内完成 deterministic plan、reservation 和唯一 executor binding；
+5. 物化 target tree 到绑定节点的 private worktree/overlay；
+6. 在绑定节点执行一次 workload，并写入 observable events；
+7. 释放 reservation，验证 cleanup 和 terminal event，写入 PostgreSQL receipt；
+8. 仅返回 canonical result。
 
-- calibration/benchmark 必须使用独立于 `normal_classes` 的唯一固定 `calibration_resource=4C/8GiB`；calibration class ID 不得复用 normal medium。每个 ECI container group 都必须显式申请 `100 GiB` 原始临时盘。
-- 固定规格必须进入 RunInput、ShardRequest、执行回执、SQLite run record 和 calibration checkpoint identity。
-- 任一 shard 规格漂移、缺少规格证据或 checkpoint 规格不一致时必须 fail-fast。
-- calibration 仍可并发分片；“固定规格”不等于限制 shard 数或并发数。
+任何步骤缺失或顺序漂移都必须 fail-fast。macOS 只负责步骤 1 和结果观察，不能作为步骤 5 或 6 的执行器。V3/WJ 只替换 target descriptor 和 manifest，不改变 lifecycle、authority、log schema 或 capacity policy。
 
-## 7. 精确耗时与缓存账本
+## 8. 明确禁止的替代路径
 
-每个 shard/workload 的结构化回执和人类可读账本至少包含：
+生产实现不得引入外部供应商执行池、对象存储中转、可变镜像缓存、远程迁移、第二 PostgreSQL writer、第二 executor、本地数据库权威、JSON truth source、隐式 queue/retry/fallback、共享 raw token、共享可写 worktree、固定单平台 alias 或隐藏的 host discovery。四节点之外的执行请求必须返回 CapacityBlocker 或稳定 contract error。
 
-所有阶段以同一 SQLite 的 `TimingObservation` 保存 `job_id`、scope、shard identity、可选 workload、phase、真实起止、`duration_ms`、measurement、reason、aggregation 与 cache evidence。`not_measured` 不是权威状态；不适用必须是 `not_applicable` 并包含 reason。人类账本只能读取已提交的同一 observations，不能从内存结果或日志重新推断。
+合同、manifest、PG schema、日志协议和 arch/contract guard 必须在同一变更中同步；guard 必须对旧外部执行身份、隐式远程迁移/queue/retry/fallback 和第二 authority 保持 fail-fast。不得用保留旧入口、兼容字段、默认节点、静默吞错或放宽 decoder 消除失败。
 
-| 指标 | 含义 |
-| --- | --- |
-| `eci_wait` | ECI 创建到可运行/终态等待 |
-| `source_materialize` | 候选源码与 cache seed 物化 |
-| `candidate_compile` | exact candidate Gate CLI 编译 |
-| `test_binary_compile` | 每个唯一 artifact key + 资源档 compile group 一次的 Go test 二进制编译，scope=`compile_group`；空账本也不得为满足 100 秒目标把同一 artifact key + 资源档拆到多个 ECI 重复编译；绑定 `same-eci-shard-worker-test-binary-compile-no-cross-shard-cas/v1`，不计入 workload startup/test_body/total |
-| `startup` | worker 启动且不包含编译、测试主体 |
-| `test_body` | 实际测试执行 |
-| `total` | 端到端 shard/workload 耗时 |
+<!-- remote-ci-four-node-contract:end -->
 
-同时必须按 workload 输出：
+## 9. 变更与验证门禁
 
-- 对每个计划内 workload，实际执行 miss 或以 `reused=true` 严格复用 hit；reused 必须有 canonical proof SHA-256，non-reused 禁止携带 proof。normal 与 calibration all-hit 均为 0 workload CI ECI，且不创建 workload shard、OSS/temp 或 calibration、不执行测试；部分命中只执行 miss；execution mode、资源档位和资源策略只在当前 run/shard receipt 与 duration sample 中记录，不改变等价 correctness fingerprint 的 PASS reuse。不得存在 JSON/OSS/.pass/旧 `ci_workload_fingerprints`、无完整权威 fresh evidence 的 PASS 结果缓存或跳过测试回执；
-- 每次运行的 required-check 范围必须由该次已持久化 `WorkloadCatalog` 中实际计划的 workload 唯一映射并按 canonical 顺序校验；`local-fast`、`push` 等较小 profile 不得伪造或强行执行 release-only 的 e2e/race/dependency，release 目录仍必须精确覆盖 gate、normal、e2e、race、frontend、dependency 六类。SQLite 最终化、重载和 PASS evidence 摘要必须回读同一 `catalog_digest` 后执行相同范围校验，禁止把“回执自身有哪些项”当作完整性依据；
-- Go private cache hit、baseline cache hit、miss、put 的状态与计数；
-- 前端依赖 seed 和 Vite cache 是否验证、是否实际 materialize；
-- 不适用阶段的明确 `not_applicable`，不得伪造为 0ms 或 cache miss。
-
-<!-- cicontract:timing:begin -->
-每条 measured observation 必须在同一 SQLite authority 保存真实 started_at、completed_at 与 duration_ms；统一账本分辨率是 1ms，实际为正但不足 1ms 的 worker startup/test_body 阶段必须在唯一计时生产者处量化为 1ms，禁止向下截断成表示缺失的 0ms；仅当量化后的两个串行阶段超出真实 workload total 时，生产者才可将 workload completed_at 向上规范化到恰好覆盖二者，禁止改写 started_at 或扩大到额外整数毫秒。并发 selector 的 test_body 必须以 top-level run→pause→cont→terminal 事件中的 cont 时间为起点，run→pause 排队等待不得计入 workload test_body；测试进程仍保持并发，shard/run wall time 继续保留真实起止与关键路径。raw 和 critical_path 的 duration_ms 必须严格等于按该分辨率规范化后的区间长度。interval_union 的 duration_ms 必须是全部原始 workload 子区间的精确并集：重叠只计一次、空隙不计入，禁止用最早开始到最晚结束的 envelope 冒充活跃耗时。
-
- workload 的 startup、test_body 与 total 是 raw；shard 的 startup 与 test_body 是 workload raw 区间的 interval_union，shard/run total 是 critical_path。每个 compile group 另以 test_binary_compile raw observation 记录一次，scope=compile_group，包含 group/artifact identity、真实起止、Go cache hit/miss/put、artifact digest/size/status；该时间不得写入 workload startup/test_body/total，也不得与 candidate Gate CLI 的 candidate_compile 合并或重复计数。每个 normal resource tier 的 fixed-front reserve 必须按 v2 interval-union 计算：固定组件集合为 shard-scope `eci_wait`、`source_materialize`、`candidate_compile` 与这些阶段之间及其前后的真实 orchestration 区间；其 duration 必须等于 shard total 区间扣除 workload total 与 compile-group `test_binary_compile` 区间精确并集后的剩余 interval union。重叠只计一次，空隙仅在确属 orchestration 时保留；workload 与 test-binary compile 继续进入 packable cost，禁止在 fixed-front reserve 中重复计费。有同 identity 可靠样本时，该 fixed-front duration 的 nearest-rank P95 是 measured resolution 从 100 秒扣除的唯一 reserve；缺少该档样本时显式生成 bootstrap resolution，不得写入伪造 0ms、100s、约 64.8s、默认值或 sentinel。损坏、unknown 或来源不完整的 measured 状态必须 fail-fast。禁止用最早 workload 到最晚 workload 的 envelope、仅 residual orchestration，或 `eci_wait/source_materialize/candidate_compile` 的简单求和替代精确 union。calibration 仍按相同 interval-union 计量，但保持独立固定 4C/8GiB 规格，不携带 normal reserve。aggregate 使用 nearest-rank P95，并把 fixed-front duration/count、workload/compile 区间、完整样本事实、accepted generation、snapshot 与资源身份写入同一 SQLite authority；缺少任一必需 shard 阶段、区间越过 shard total、重复 workload/compile-group 身份或旧 policy 必须 fail-fast。eci_wait 只能使用 ECI provider 返回的 CreationTime 到 materializer CurrentState.StartTime；shard total 终点必须取同一终态响应中 container-group SucceededTime/FailedTime 与唯一 worker CurrentState.FinishTime 的较晚者，两者都属于 provider lifecycle evidence。阿里云 ECI 已返回终态但 CreationTime、materializer CurrentState.StartTime、SucceededTime/FailedTime 或唯一 worker CurrentState.FinishTime 尚未同步时，只允许沿同一 Describe 路径按 PollInterval 对该分片有界重读最多 3 次；重读期间不得伪造时间、消费报告、移出 pending、取消兄弟分片或跳过清理，窗口耗尽后缺失任一项必须 fail-fast。禁止用 worker 日志、report 端点、本地请求或轮询时间替换 provider 终态；任一真实子阶段仍越过该 provider envelope 时保持 provisional NOT_VERIFIED。本地请求、轮询或日志时间不得写成权威耗时。所有 cache evidence 与阶段观测绑定，人类账本只能读取同一事务已提交的 SQLite observations。compile timing history 只能按 PackageTarget、SemanticKey、Platform、RunnerIdentityDigest、ToolchainDigest、ExecutionMode 与 ResourceClassID/CPU/Memory 完整 identity 查询；只允许最近三个 accepted generation 中 authoritative、passed、cleanup-complete、measured/raw 的真实 compile-group observation，source tree、shared input 与 artifact digest 不得跨 identity 混用。normal 无历史固定 2C/4GiB，owner fixed-point 发生在 PlannedWorkload 创建前，shared compile cost 每组只计一次且不写入 selector body；calibration 固定 4C/8GiB。
-每个共享 test-binary batch 还必须从 worker 实际子进程账本采集 `cpu_time_ns`、`wall_duration_ms`、向上取整的 `average_cpu_millicores` 与 `peak_rss_bytes`，并绑定 canonical batch ID。Linux 远程 worker 使用进程 rusage，RSS 统一换算为 bytes；其他平台必须通过编译标签提供明确实现或 fail-fast，禁止把缺失值写成 0。一个 batch 投影到多个 selector 时资源画像只能按 batch 去重使用，禁止重复累加。规划只可读取同 platform、runner、toolchain、execution mode、资源规格和最近三代 authoritative/passed/cleanup-complete run 的完整画像；历史存在时必须使用历史，历史为空时才可使用显式 bootstrap 画像。后续多维装箱必须同时证明 wall critical path、并发 CPU 和并发 RSS 不越过分片资源预算，使低 CPU/RSS 的硬性长测可以与资源互补 workload 同箱；高 CPU 的软性长测不得因 wall time 相近而被错误共箱。
-
-<!-- cicontract:timing:end -->
-
-编译和测试时间不得重叠计数。缺少应有观测时必须拒绝 authoritative receipt。任何已经取得 job identity 的失败终态都必须在同一 SQLite authority 写入 non-authoritative provisional run，并原子迁移 live warning；只能保留真实完整的已测区间，未开始或缺失的阶段保持无 observation 且将缺失原因写入 bounded `error_text`，禁止以 0ms 或 `not_applicable` 伪造。
-
-失败或取消的 overall run 永远不得升为 authoritative PASS；但在 `cleanup_complete=1` 且 accepted generation、snapshot、candidate/runner/toolchain、catalog、shard/report、execution profile、测试时序和输入/环境/执行 identity 均由同一 SQLite 投影精确绑定时，允许逐 workload 持久化并复用其中 `status=passed`、`exit_code=0` 且起止时间与时序完整的 executed evidence。任何 failed/cancelled、缺字段、分片/报告漂移或清理未完成的 workload 只能 MISS，并把跳过原因写入 bounded `error_text`；该逐 workload predicate 不得被 overall provisional 状态放宽。
-
-100 秒是固定的 `warn_and_continue` 行为：只写入同一 SQLite authority 的结构化 warning，绝不得触发 cancel、kill、timeout failure 或 shard failure。其他独立的基础设施和安全超时不因此失效，但不得把 100 秒目标作为终止条件。
-
-## 7.1 有界增长与淘汰
-
-<!-- cicontract:retention:begin -->
-`cicontract` 是唯一 retention 常量 owner。duration samples、shard overhead aggregates、逐分片 overhead samples、catalog observations、runs、strict workload PASS evidence 与 calibration checkpoints 七个历史根都必须绑定已验证的 accepted baseline generation；每个根写事务必须先读取同一 SQLite authority 的 accepted singleton，拒绝零值、无 authority、无效 authority 与晚于当前 accepted generation 的伪造未来代。已启动的旧 accepted generation 运行仍可在完成时写入。七个根的 distinct generation 并集按数值确定全库唯一保留集合，任何根都不得保留该集合之外的数据。每一代可包含任意数量的 workload、sample、shard、timing、receipt 或 scenario，禁止用固定行数限制代码和测试增长。SQLite 只保留最新 3 个有数据的 generation；第四个有数据代首次成功写入时，必须在同一事务内淘汰最老一代全部历史根及其 cascade 子数据。
-
-100 秒结构化 timing warning 只能沿同一 SQLite authority 的互斥生命周期流转：ci_live_timing_warnings 只暂存仍在运行的 provider StartTime 事实，run finalizer 必须在同一事务精确吸收到 ci_run_timing_warnings 并删除对应 live 行；不得预写或伪造 ci_runs 失败终态，也不得让 live 与 final 行同时存在。live 表不是第八个历史根或第二真相源，不参与七根 generation 并集；唯一 compactor 必须按已校验 accepted singleton 的 current/current-2 数值窗口保留 active 行并清理崩溃残留。
-
-唯一 compactDurationLedgerAuthority 只能在既有成功写事务的 commit 前同步调用，禁止 timer、goroutine、后台 GC 或第二入口。generation 按数值排序，不能用行数、时间戳或插入顺序冒充；无法证明 generation 的旧行必须 fail-fast，不能默认绑定当前代。删除旧 run 依靠 FK cascade 同步删除 requester、shard/workload、execution、timing、warning 与 receipt；删除旧 checkpoint 同步删除任意数量 scenario；catalog 内容只有在不再被保留代 observation/run 引用时才能删除。SQLite authority 必须使用 FULL auto-vacuum，让每次成功淘汰在同一提交边界自动归还空页；无生产读取者且重复保存完整 run payload 的 raw observation event 表、索引、触发器和旧 schema migration 入口均已退役，禁止恢复。accepted baseline 是当前状态 singleton，duration meta/calibration 与 query meta 不是历史代，不参与淘汰。
-<!-- cicontract:retention:end -->
-
-## 7.2 本地异构非权威加速拓扑
-
-`LOCAL_NON_AUTHORITATIVE` node inventory/config 是本地拓扑唯一输入，必须 strict decode 并以稳定 `node_id` 声明 platform、capabilities、container kind、probe/heartbeat identity 与执行端点；Linux、Darwin/macOS、Windows 节点数量均为动态 `N`，禁止把任一当前部署数量写入代码分支、固定 alias、默认 host count 或静态本地规格。空 inventory、重复/空 `node_id`、unknown field、platform/capability 声明与 live probe 不一致、heartbeat 过期却声明正容量，或把离线节点计入容量都必须 fail-fast；离线节点容量固定为零。Darwin 以 `sysctl` CPU/内存事实，Windows 以 ProcessorCount 与 CIM 内存事实，Linux/Docker 以 Docker `NCPU/MemTotal` 及 cgroup v2 `cpu.max/memory.max` 的严格有效交集生成实时容量；缺字段、unlimited/单位无法规范化、探测身份漂移或无法原子预留都不得猜默认值。
-
-本地非权威 Ubuntu 节点允许在同一受控共享文件系统上逻辑复用一份源码对象库和一份增量缓存，但不得共享可写 worktree、普通可写 `GOCACHE` 或节点临时目录。共享源码必须按 `repository_id` 分 namespace，并以只读 Git object directory、object format、exact source commit/tree 与完整 object closure 实时绑定；`super-agent-v3`、`wjboot-v2` 或其他仓库只能由调用方显式传入各自 repository identity，禁止仓库名硬编码、cwd/HEAD/default 推断或跨 namespace 读取。共享 Go 物料必须按 repository/toolchain/GOOS/GOARCH/CGO/module identity 分区，由每节点私有 `GOMODCACHE`/`GOCACHE` overlay 读取已验证的不可变 generation；成功执行后只允许把排除 lock/tmp/partial/trim 等可变元数据的文件按 SHA-256 放入共享 CAS，在跨节点锁内合并 path→digest manifest 并原子发布 ready pointer。reader 必须复核 manifest、size 与 blob digest；同 path 不同 digest、缺失 closure、损坏 generation、锁失败或 identity 漂移都必须 fail-fast。`cache_seed_state=ready` 只证明 seed 可消费；真实 hit/miss 只能来自 Go 工具实际访问证据，二者不得混用。当前部署可以是两台 Ubuntu，但实现与 inventory 必须继续支持动态 `N`。
-
-本地非权威 Windows 节点不得共享源码对象库、worktree、`GOMODCACHE`、`GOCACHE`、临时目录或 cache manifest。每台节点必须以 `node_id + repository_id` 绑定自己实际的 Git common-dir、Git worktree root 与节点本地 cache root，并以 toolchain/GOOS/GOARCH/CGO/module identity 分区；另一台 Windows 即使运行同一仓库也必须得到不同物理根。`cache_seed_state=ready` 仍只表示该节点该 identity 曾有成功执行并留下完整 manifest，不构成真实 Go cache hit。当前部署可以是两台 Windows，但实现与 inventory 必须继续支持动态 `N`。
-
-`Manifest` 的唯一文件来源固定为显式调用 `heteroci.LoadManifestFile(path)`；`path` 必须由调用方直接提供，并且是无首尾空白、无控制字符、clean 的绝对路径。禁止环境变量、默认路径、当前 host、cwd、home、可执行文件位置或第二 loader/provider 参与清单发现。loader 只能打开该显式路径的 regular file 并直接交给 `DecodeManifest`；unknown/null/duplicate/trailing、缺字段、旧 schema、错误 authority 与超过 `1 MiB` 的文档必须严格拒绝。open、stat、read、decode 与 close 任一失败都必须返回零值 `Manifest` 和错误；对外 `Error()` 文本不得回显文件路径、manifest payload、endpoint 或 probe identity，但必须保留稳定错误类型及 `errors.Is`/`errors.As` 可检查的根因链。
-
-实时采集的唯一 core 入口固定为 `AcquireSnapshot(ctx, manifest, owner_epoch, transport, now, heartbeat_ttl)`，节点集合来自已校验 manifest 的动态 `N`，按稳定 `node_id` 排序且每节点只请求一次。core 唯一拥有 canonical `heteroci-probe-request/v2` 编码，字段恰为 `schema_version + node_id + probe_identity + owner_epoch + captured_at_unix_milli` 且最多 `4 KiB`；`owner_epoch` 的 wire/Go 语义是正且严格小于 `MaxInt64` 的 signed int64，`captured_at_unix_milli` 是 controller 为整次 SnapshotSet 冻结的统一正时间，远端 node probe 在完成本地 live facts 采集后必须把该值投影为 response heartbeat，从而禁止网络往返或主机时钟微小偏移制造伪 future heartbeat。`ProbeTransport` 只能接收同一 context、manifest endpoint 与上述 request bytes，并返回单一 `ProbeResponseBody`；该 body 的读取边界固定为 `Read(context.Context, []byte) (int, error)` 与 `Close() error`，core 必须把同一 context 传给每次读取，任何非 nil body 都必须恰好关闭一次。`heteroci-probe-response/v1` 必须 strict decode，最多 `1 MiB`，完整携带 owner epoch、capacity basis、节点/端点/platform/probe/boot identity、active capabilities、live status、heartbeat、total 与 available；unknown/null/duplicate/trailing、缺字段、旧 schema 和无效数值均不得兼容。
-
-只有 context 仍有效、body 为 nil 且错误链的唯一失败语义是 `ErrProbeTransportUnavailable`（允许单链包装但不得并列其他失败）时，节点才能被投影为 fresh `offline`，其 boot identity、heartbeat、capabilities、Total 与 Available 全部为零；其余 transport、context、nil-body、read、close、malformed JSON、protocol 或 identity drift 均为 fatal，整次采集必须返回零值 `SnapshotSet`，不得泄露部分节点。read/close 的 I/O 失败属于 transport error，只有成功读取后的 JSON wire shape/decode 失败属于 malformed error。identity drift 仅表示响应与请求/manifest/已绑定资格身份不一致；schema、status、heartbeat、容量、资格回执形状/时间/digest 等响应自身无效属于 protocol violation。所有采集错误必须是可 `errors.Is`/`errors.As` 的稳定 typed error，且 `Error()` 不得回显 endpoint、probe identity 或 body。live 响应的 gross `Available` 必须按 `external-available-excludes-routing-book-reservations/v1` 原样进入 source snapshot；采集器不得扣减当前 book 的 planned/started reservations，唯一扣减点仍是 `effectiveRoutingSnapshot`。
-
-`Probe`、`ProbeResponseBody.Close` 和 `context.Context.Err` 返回的外部 error，以及 codec 从 `io.ReadAll` 收敛的 `ProbeResponseBody.Read` error，在任何原因分类、`errors.Is`/`errors.As` 或多因果合并前必须各自只做一次同步 trust-boundary snapshot。该 snapshot 以最多 `64` 个总节点同时限制最大深度，不调用外部 `Error`/`Is`/`As`；cycle、预算耗尽或 `Unwrap() error`/`Unwrap() []error` panic 必须丢弃原始 identity，动态不可比较的节点不得进入 identity token。后续错误链只能持有无 `Unwrap` 的 opaque cause 和 snapshot 时冻结的可比较 identity token，不得再暴露或展开原始外部错误树；普通有限无环的 direct/`%w`/`errors.Join` sentinel 必须继续支持 `errors.Is`，core 外层 typed error 必须继续支持 `errors.As`，但禁止调用原始外部 error 自定义的 `Is`/`As`。`only unavailable` 必须由与该 `Probe` error 相同的唯一 snapshot 判定，不得二次展开原始错误。外部 `Unwrap` 必须自身同步返回；禁止用 goroutine 加超时的方式规避阻塞并遗留泄漏。
-
-`SnapshotSet.capacity_basis` 的唯一合法口径固定为 `external-available-excludes-routing-book-reservations/v1`：每个节点的 `Available` 必须等于 allocatable 上限扣除 external/宿主及所有非当前 `RoutingLeaseBook` owner epoch 占用后的容量，当前 book 的 planned/started reservations 不得由 producer 预扣，只能在 `effectiveRoutingSnapshot` 中扣减一次。未来 daemon producer 必须把每个由当前 book 启动的占用标记为 `owner_epoch + run_id + unit_id + decision_digest`；daemon/book 重启后，旧 owner epoch 的仍存占用必须自动归入 external，禁止沿用为新 epoch 的 book reservation 或再次扣减。
-
-Linux workload 必须先按 live CPU/内存容量确定性装入 inventory 中任意 `N` 个远程 Linux Docker 节点；每个节点可声明 canonical `ubuntu_container` runtime，以及通过启动资格验证后才可声明 `darling_compat_runtime`。Darling 是运行在 Linux 上的 userspace、Mach-O 与 Darwin syscall compatibility layer，不是 native macOS，也不得签发 `darwin_native` PASS。兼容镜像必须从固定的 Darling 官方 release 或 commit 构建并绑定 immutable OCI digest；禁止使用或信任未验证的 `darlinghq/darling:latest`、浮动 tag 或未绑定来源的镜像。节点启动必须实际执行仓库真实 `GOOS=darwin` Mach-O smoke suite；只有整套资格检查通过，live probe 才能声明 `darling_compat_runtime`。只有 canonical platform=`linux/amd64` 且在执行前对全部合格 Linux 节点完成探活、装箱与原子容量预留后仍无容量的 planning unit，才可 overflow 到阿里云 ECI，并按需求从既有 2C/4GiB、4C/8GiB、8C/16GiB 三档选择；ECI 不接受 Darwin、Windows 或其他非 linux/amd64 workload。
-
-Darling 资格 suite 必须覆盖候选 workload 的真实 Darwin 运行时闭包。当前 V3 源码扫描未发现 AppKit、Foundation、CoreFoundation 或 Security framework 依赖，但 `cmd/mcp-lsp` 的 Darwin 进程树依赖 `kern.proc`、`kern.boottime`、`getsid`、`getpgid` 与 `ps`，因此 smoke suite 必须覆盖这些路径。Darling 执行中的兼容失败、`ENOSYS`、framework 缺失或其他运行时不支持是该次执行的真实失败；若在路由前已由资格证据证明能力不匹配，则必须作为 capability mismatch 拒绝路由。两者都不得伪造容量、伪造 PASS、改投其他 executor 或 fallback。需要真实 Darwin kernel、Apple framework、Keychain、launchd、FSEvents 或其他 native runtime 的 workload 必须显式声明 `darwin_native`，并且只能进入 live Mac native escape-hatch lane；Mac native 无容量时返回 `Capacity Blocker`，不得投 ECI 或 Darling。
-
-Docker-OSX 是依赖 QEMU/KVM 的完整 macOS VM，不是 Darling compatibility runtime；它需要 `/dev/kvm` 和约 20--50 GB 镜像/磁盘空间，并且在非 Apple Linux 硬件上存在 Apple 许可风险，因此默认禁止进入 inventory、资格 suite、自动路由或容量声明。只有同时显式证明 `apple_hardware_attested`、可用 KVM、用户提供的合规镜像与固定不可变 identity 时，才可登记为实验性 local non-authoritative capability；该能力不得自动启用、不得成为 remote authority，也不得替代 `darwin_native` Mac lane。
-
-Windows workload 按 inventory 中任意 `N` 个 live Windows 节点的实时容量和 canonical workload identity 确定性分成 node shards，每个节点一片并在片内按可证明的安全最大并发执行；扩缩容不得要求代码修改。没有足够 live Windows 容量时返回 `Capacity Blocker`，永不投 ECI。所有 lane 都必须在启动前以同一 routing decision/lease 原子绑定唯一 executor；local process 或 ECI group 任一开始后，代码错误、timeout、assertion failure、OOM、工具失败或节点失联都是该次执行失败，绝不得中途 fallback、双跑、投机复制或以第二 executor 重试，从而避免本地与 ECI 双计费。
-
-本节只定义私有开发加速池；本地节点可以为已选定的 local lane 构建节点私有、短生命周期、非权威的测试二进制或兼容运行时临时产物，但其来源、固定 identity、生命周期和清理必须可审计。所有结果及本地产物都必须标记 `LOCAL_NON_AUTHORITATIVE`，不得写入 remote duration-ledger SQLite authority、remote workload PASS/evidence、release receipt、accepted generation、ImageCache authority 或冒充 ECI 基准镜像。它收窄前文任何“转 ECI”或 `auto`/`hybrid` 表述：只有上述 pre-execution、linux/amd64、全体合格 Linux 节点无容量条件允许 ECI overflow，其他平台或已经开始执行的 workload 一律 fail-fast。
-
-### 7.2.1 local heteroci PostgreSQL-only owner/receipt 协议（Accepted 证据边界；runtime 未接线）
-
-<!-- heteroci-postgresql-local-authorities:begin -->
-`heteroci-postgresql-local-authorities-protocol/v1` 只冻结 local heteroci durable owner 与 batch receipt 的未来远程 PostgreSQL-only 持久化协议；本卡没有 PostgreSQL driver、连接、DDL、migration 或 production composition wiring，runtime 状态固定为 `NOT_VERIFIED/not_wired`。它不改变 `duration-ledger-sqlite/v1`、physical schema 23、remote PASS/correctness authority 或 `aliyun-eci/v1` 唯一路径。未来 Coordinator 即使部署在远程 Ubuntu，也仍只按主契约打开该主机本地的 remote duration-ledger SQLite；本协议不得读取、写入、镜像或迁移它。
-
-owner 与 receipt 的唯一 placement 都是 `remote_postgresql_primary_only`。owner 使用独立 `heteroci_owner` schema 与 `heteroci_owner_writer` role；receipt 使用独立 `heteroci_receipt` schema 与 `heteroci_receipt_writer` role。两者各自拥有独立事务 authority，禁止共用 schema、role、事务、cross-authority commit、双写或互相成为 fallback。本协议未来接线后的生产配置不得以 `owner_db_path`、`receipt_db_path` 或其他本机 SQLite 路径表达这两个 authority；现有 `automatic-heteroci-run/v2` SQLite runtime 不满足本协议，必须在后续独占切换卡删除这些字段后才能改变 `not_wired`。本机 PostgreSQL/SQLite/replica 不得参与 scheduling read、mutation、OperationID lookup、batch receipt lookup 或网络失败 fallback。
-
-所有 owner/receipt correctness read 与 mutation 只能进入已验证为 read-write primary 的远程端点；standby、只读副本、本机副本和读写分离一律禁止。提交语义固定为 `synchronous_commit=remote_apply`，standby 不可用时必须阻断或 fail-fast，禁止降为 async。网络失败固定 fail-fast，不得返回内存 plan、使用本地状态继续执行或切换 SQLite。
-
-owner mutation 必须在 `SERIALIZABLE` transaction 中先取得按 canonical owner scope 派生的 transaction-level advisory lock，再读取 operation journal/current fence/reservation 并执行 `PlanAndReserve`、Start/Finish projection 与 journal CAS；事务内禁止 probe、SSH 或 executor I/O。serialization/deadlock 只能有界重试整笔同一 mutation。COMMIT 结果不确定时只能回到远程 read-write primary，以原 `OperationID` 与 request digest 查 journal：完全一致时 exact replay，不一致时 conflict，无记录时才用同一 OperationID 重试。receipt 的不确定 claim/terminal 只能在远程 primary 以相同 batch/material/command identity exact replay。
-
-两数据库节点不构成自动选主 quorum；`automatic_two_node_failover=forbidden`。promotion 只允许 `manual_fenced_promotion`，或显式第三 witness 的 `quorum_witness_fenced_promotion`；两者都必须在 promotion 前证明旧 primary 已被 STONITH/网络隔离而不可写。promotion 后 controller 必须先 Acquire 新 owner ID/epoch，旧 fence 的 mutation/Start 必须失败，旧 epoch 仍运行的 occupancy 按 §7.2 归入 external capacity，不能重新加载为新 epoch reservation。
-<!-- heteroci-postgresql-local-authorities:end -->
-
-## 8. 明确禁止的旧实现
-
-以下生产代码、配置和降级路径不得存在或重新接线：
-
-- DataCache、Anchor、Delta、direct cache、zstd cache bundle；
-- 本地 Docker/Docker Desktop/buildx、localci scheduler 或本地镜像 bootstrap；
-- 上述条目禁止的是 remote CI 生产路径中的旧 localci executor/镜像路径；本节前述显式 local 开发 scheduler 仍必须保持 `LOCAL_NON_AUTHORITATIVE`，不得成为 ECI、SQLite remote receipt 或 release authority；
-- ECI 外的 Docker/BuildKit、GitHub Actions runner、Kubernetes、其他云或本地容器作为 CI executor、镜像物料加工器、首代内容检查执行器或 authoritative receipt 来源；
-- 通用 provider abstraction、第二云 provider、非阿里云 ECI executor 或任何 non-ECI 执行 fallback；
-- ACR 专用 auth、RAM role token、registry control-plane 或 repository 管理；ECI 返回的 opaque immutable image identity 不属于此类控制面；
-- JSON baseline/ledger truth source、双写、宽松 schema 兼容或迁移回读；
-- 未来 `super-dolphin-remote-ci` 之外的 engine artifact builder、target tree 直接构建 engine、未绑定 source/toolchain/protocol/workload-manifest ABI digest 的 runtime artifact，或把 engine/target/global authority 合并为一个隐式输入；未来唯一 builder 必须是 `aliyun-eci/v1` ECI 路径，且不形成第二 Coordinator、SQLite authority 或 executor；
-- target tree 要求含 `cmd/super-dolphin-gate`、从宿主绝对 manifest 路径或宿主绝对 worktree 读取 workload、以 cwd/HEAD/default/fallback 替代显式 `engine.tree_sha`/`target.tree_sha`/authority 输入，或把 `workload_manifest.path` 指向非 target-tree repo-relative regular blob；
-- `validate-only` composition root 产出 plan/PASS、创建 shard/ECI、写入 SQLite authority，或以验证结果冒充实际执行/接线 evidence；
-- accepted ECI materializer 之外的 candidate CLI artifact builder、跨 shard test-binary CAS、第二 executor；同一 ECI shard worker 路径内的 compile-group test binary 编译是唯一允许的测试二进制编译入口；
-- JSON/OSS/.pass/旧 `ci_workload_fingerprints` workload PASS 结果缓存、第二 authority，或任何未绑定同一 SQLite canonical proof 的 `reused` 返回/跳过路径；
-- spot 到按量计费、remote 到 local、cache miss 到无缓存执行之外的隐式 fallback；
-- 固定 shard 数、五分片限制、并发上限、全局 hook 锁、active-job lock、semaphore、admission cap 或共享 raw token；Git `index.lock` 除外，它只能作为同一 worktree 的 Git index 一致性边界，不能拿来限制 CI；
-- accepted 缺失时自动全量重建；
-- 除 `scripts/refresh_remote_ci_imagecache.sh` 的有限期非权威候选创建外，任何仓库内 successor refresh executor、refresh command、BuildKit publish、`output_repository`、`CreateImageCache` writer、candidate reservation、lease/CAS promotion 或 accepted/旧代 cleanup。
-
-严格 request/receipt JSON、SQLite 中带摘要的 state JSON 以及阿里云 CLI JSON 响应属于协议编码，不属于被禁止的 JSON truth source。
-
-## 9. 变更与验收门禁
-
-任何触碰本文范围的改动必须同时满足：
-
-1. LSP 定位、定义/悬停、引用/调用链、精读与 diagnostics 全部闭合；所有 severity 均处理。
-2. 字段从生产者到消费者、SQLite schema、严格 JSON、回执和字段守卫同步更新。
-3. 单元测试至少覆盖：外部 generation-one receipt 的字段完整性、六项 per-check normal resource class/CPU/memory 一致性、`aliyun-eci/v1` provider/region/container group/container/image/tag/exit/timing/snapshot/实际规格实时绑定、非 ECI 执行证据拒绝、generation=1/空 singleton 原子导入、重复或非 Ready 导入拒绝、独立 calibration 固定规格绑定与旧代保留，以及 baseline closure、确定性 transport commit、单 prerequisite v2 bundle 和 bundle/manifest 上传屏障。
-4. 架构守卫静态拒绝第 8 节列出的旧生产路径和并发上限，并覆盖多 agent hook、多 job、动态 shard 无上限并发、仓库内 ImageCache writer 删除及 Git `index.lock` 非 admission 语义。
-5. 前后端 lint/test/build、Go 定向测试、archtest、code guard 与 `git diff --check` 通过。
-6. 远程验收必须绑定同一个候选 tree、accepted ImageCache generation/snapshot、固定资源证据和完整耗时账本。
-7. 非 authoritative 候选验证只能标记 `NOT_VERIFIED`；不能用本地 PASS、缓存命中或外部 ImageCache 供给完成替代远程 CI 速度验收。
-8. 目标是正常前后端 CI 在可比较的 warm accepted generation 上 100 秒内完成；超过目标必须以账本定位并继续优化。
-9. 未来 engine boundary 的 guard 必须先在缺少 engine/target/manifest/authority 分离时保持 RED，再在 Accepted 文档具备 exact `engine.tree_sha`、exact `target.tree_sha`、repo-relative regular blob、`workload_manifest.sha256`、唯一 ECI artifact builder、content-addressed portable runtime artifact 和 ABI digest 绑定后 GREEN；这只是契约守卫，不得宣称 runtime 已接线。
-10. future composition root 的 `validate-only` 测试必须证明只做显式输入和 digest 绑定验证，不产出 plan/PASS 或任何 Coordinator、ECI、SQLite authority side effect；target manifest 测试必须证明其来源是 `target.tree_sha` 内的 regular blob，而非宿主绝对 manifest/worktree。
-
-修改本契约必须在同一变更中更新相关架构守卫和测试。任何临时兼容、降级或第二路径都必须直接拒绝，不允许以 TODO 保留在生产入口。
-
-## 10. 文档与代码的 1:1 映射
-
-下面的标记块由 `cicontract.CanonicalMarkdown` 定义，并由架构测试逐字比对。正文负责解释设计，代码规则 ID 负责让生产校验、SQLite 状态机、回执守卫和静态守卫共享同一个 owner；任一侧单独修改都会使门禁失败。
-
-<!-- cicontract:begin -->
-| ID | 章节 | 代码约束 | 执行层 |
-| --- | --- | --- | --- |
-| `1.1` | §1 | 基准镜像消费单一 Go 1.26.5 锁，并包含锁定工具、Go module/build cache 与前端依赖/构建 cache | `build closure + runtime manifest + archtest` |
-| `1.2` | §1 | normal CI 仅在空 singleton 时原子首写 accepted correctness identity；pre-push 按 exact pushed tree 非阻塞刷新有限期 ImageCache，normal run 严格读取 OSS 回执并实时复核 Ready identity 后只替换执行镜像与 snapshot，绝不改写 SQLite | `runtime call graph + hook dispatch + strict receipt + live ECI verification + archtest` |
-| `1.3` | §1 | hook、job 与动态 shards 无仓库并发上限；index.lock 仅保护 Git index | `cicontract concurrency policy + archtest` |
-| `1.5` | §1 | 所有远程 CI 动作、镜像构建与 cache-prime 只能在阿里云 ECI 执行；禁止 GitHub Actions 或其他环境承载远程 CI | `provider identity + ECI request/receipt field guard + remote-CI workflow deletion + archtest` |
-| `1.6` | §1 | 100 秒只触发一次目标超限告警；不得取消、中断、kill 或标失败 | `planner + non-terminating timing warning` |
-| `1.7` | §1 | 校准运行使用独立于 normal 的固定 4C/8GiB 规格并被回执绑定；所有 ECI 执行使用 100 GiB 原始临时盘 | `request + receipt + SQLite + ECI CLI guard` |
-| `1.8` | §1 | 运行以真实起止和 duration_ms 分别记录物化、编译、启动、测试、总耗时、缓存与等待；并发聚合使用精确 interval union | `receipt + SQLite timing ledger` |
-| `1.9` | §1 | PASS lookup 必须先读取 canonical WorkloadCatalog、exact correctness fingerprints 与 worker semantic digest；仅 MISS 才允许计算 compile closure、LPT、resource、shard、OSS/temp 和 ECI side effect。normal 与 calibration 默认均只复用同一 SQLite authority 的权威 PASS；all-hit 不创建 workload CI ECI、planner、compile group、资源、shard、OSS/temp 或 calibration，且不执行测试；只有显式 --force 才绕过 PASS 查询并执行全部 shardable workload | `catalog/fingerprint/worker digest + miss-only call-order guard + strict reuse receipt validation + force audit + archtest` |
-| `2.1` | §2 | accepted baseline、duration history、run/shard receipt 与 calibration checkpoint 只读写同一 SQLite authority | `SQLite schema + store` |
-| `2.2` | §2 | correctness identity 只来自 accepted SQLite；运行时加速缓存只由 strict OSS current receipt 与实时 Describe 完全一致的 Ready ImageCache ID、name、image 和 snapshot 选择 | `SQLite state validation + strict receipt + live ECI validation + request field guard` |
-| `2.3` | §2 | 候选源码和 Gate 编译分别绑定 exact Git identity 与根 module 跨代稳定传递编译闭包；Gate 禁止导入 repository-local replace module，嵌套 module metadata 只进 worker execution digest | `materializer + receipt + closure guard` |
-| `2.4` | §2 | 严格 JSON 仅作协议编码，OSS refresh receipt 仅选择可实时复核的加速物料；二者均不得提供 PASS、accepted generation 或 correctness 权威 | `strict decoders + live ECI readback + archtest` |
-| `2.5` | §2 | accepted state、check receipts、timing 与 warnings 只写同一个 SQLite authority | `SQLite schema + receipt store` |
-| `2.6` | §2 | generation-one 只能由 normal CI 消费配置外部回执首写；唯一刷新脚本按 OSS strict receipt 的 24h 成功间隔创建有限期 ImageCache，normal run 可在 strict decode、accepted OCI base 绑定和实时 Ready 复核后消费该加速层，但不得晋级或改写 SQLite | `strict receipt boundary + accepted-base binding + live ECI guard + archtest` |
-| `2.7` | §2 | 无 token 请求只返回 --agent-token=issue 与 env=issue 申请方式和实际 token 的 flag/env 使用方式；仅单一显式 issue 才签发 raw token，前两阶段均不执行 CI/ECI；git hook 无状态且只继承/验证实际 env token，跨 SQLite/OSS/ECI/log/tag/checkpoint/receipt 只传 sha256 digest | `agent-token contract + field guard + archtest` |
-| `2.8` | §2 | 首次读取缺失 SQLite 时原子初始化 schema/index；normal run/hook 仅凭显式 strict ECI receipt 原子首写 baseline 与账本元数据，缺失或漂移仍 fail-fast | `SQLite initializer + generation-one bootstrap test` |
-| `2.9` | §2 | authoritative JobID 的全部 SQLite 投影不可重写；晋级前必须精确回读 aggregate/workload execution 的状态、摘要、时序与执行画像 | `provisional write guard + strict aggregate/workload readback tests` |
-| `2.10` | §2 | 每次阿里云 CLI 调用同时受 context 超时与进程管道 WaitDelay 约束；子孙进程持有输出管道不得使轮询、汇总或清理无界等待 | `ECI CLI process watchdog + inherited-pipe regression test` |
-| `2.11` | §2 | normal portable target binding 仅以 immutable job_id 一对一 additive side table 绑定 target repository/object/commit/tree/mount、manifest path/SHA/schema/ABI/manifest digest 与 profile 的 gate.WorkloadCatalogDigest(mapped selected profile catalog)；禁止 manifest/declared command digest 替代，只提供 record+exact readback，runtime/Coordinator/finalizer 仍未接线且不回填 legacy run | `SQLite v23 side table + strict record/readback + migration/field/arch guards; runtime not wired` |
-| `3.1` | §3 | 正常 CI 唯一路径为 accepted SQLite correctness identity 加实时验证 refresh runtime，再到 LPT 和无上限并发 ECI shards | `runtime call graph + archtest` |
-| `3.2` | §3 | 正常 shard 显式绑定本次实时验证的 refresh snapshot 与同一 cached immutable image，禁止 AutoMatch 或 registry fallback | `ECI request validation` |
-| `3.3` | §3 | 候选 Gate 在 exact candidate tree 内增量编译，测试二进制在同一 ECI shard worker 路径按 compile group 各编译一次；cache hit 不跳过身份验证 | `materializer + shard worker + receipt` |
-| `3.4` | §3 | 工具链与依赖 correctness seed 绑定 accepted OCI base，Go/module 编译缓存可来自其有限期 refresh 镜像层；ECI request 数据面仍只有 source/work/temp 三个 EmptyDir 和单个 init-only 无凭据 bootstrap ConfigFileVolume，禁止 DataCache、缓存卷、逐 shard 展开或第二状态源 | `accepted-base binding + ECI request shape + image closure + archtest` |
-| `3.5` | §3 | accepted ImageCache 在 /opt/super-dolphin-gate/source-baseline.git 提供 RunnerBaseTree 的 tree/blob closure 与确定性无 parent baseline commit；每次 CI 只上传标准 v2 git-bundle-thin，bundle 由 tree=SourceSpec parent/base tree 的 candidate-parent synthetic commit（唯一 parent=baseline）再连接 tree=候选的 transport commit，且 header 恰好一个 prerequisite、物化 refs/source/base 指向 synthetic base；严禁自包含/full fallback/raw whole repo，bundle 与 strict manifest 完整上传后才按 SQLite LPT 创建全部并发 shards | `source baseline + deterministic transport commit + strict bundle/manifest verifier + upload barrier + archtest` |
-| `3.6` | §3 | accepted GHCR 镜像路径仍延迟加载固定 ghcr.io 短期凭据；实时验证的 refresh cache-only 路径要求主/init 为同一 cached immutable image 且不编码 registry 凭据，禁止访问已删除临时 registry 或回退拉取 | `explicit cache-only request + credential omission + dynamic field guard + redaction tests` |
-| `3.7` | §3 | MISS-only 路径按唯一矩阵构造并 create-only 上传同 job 内容寻址的 accepted schema14/nested CompileGroup1/临时 manifest1 bootstrap request、current ShardRequest15 与 worker manifest2；accepted bootstrap 的 gate_ids 仅在 accepted encoder/identity 边界投影，current request/manifest 保留精确 per-package IDs。两个请求各限 1 MiB，旧版本、unknown fields、schema 协商、兼容 fallback 或刷新镜像绕过升级均严格拒绝 | `catalog/fingerprint/worker-digest lookup barrier + protocol matrix guard + dual-request manifest guard + request byte-limit tests` |
-| `4.1` | §4 | 唯一写 accepted singleton 的路径是 normal run/hook 空库 bootstrap；首写前必须消费配置 strict receipt 并实时 Describe 阿里云 ECI cache/container groups，绑定 provider、region、唯一 group/container、Ready snapshot、immutable image、tags、零退出、真实时间、逐项 normal CPU/内存、generation=1、state SHA、源码/工具链/策略/seed 与固定规格；外部 operator 仅可用只读 ConfigFileVolume 投影控制文本和小型增量 bundle，禁止投影依赖、缓存、registry 凭据或第二状态源；公网私有 registry 的 ImageCache 临时 ECI 必须绑定 EIP 或已验证 NAT，并只在进程和 API 密文参数传短期凭据，终态后确认 EIP 解绑 | `receipt validation + live ECI API verification + SQLite INSERT + archtest` |
-| `4.2` | §4 | 首写只允许空 singleton 原子 INSERT baseline 与账本元数据；同态并发幂等收敛，异态、非空、缺字段或非首代 receipt 必须 fail-fast | `strict bootstrap boundary` |
-| `4.3` | §4 | pre-push 从 exact pushed tree 后台静默启动唯一 dispatcher；仅当 OSS strict 成功回执超过 24h 才在 ECI 内创建有限期非权威 ImageCache；normal run 每次 strict 读取并实时复核该物料后显式使用，维护锁只去重刷新 | `exact-tree hook dispatch + scheduling receipt + live runtime selection + maintenance lock + archtest` |
-| `5.1` | §5 | shard 数只受可分片原子 workload 数量限制 | `LPT planner + archtest` |
-| `5.2` | §5 | 云配额与 API 限流必须显式失败，不得静默降并发或转本地 | `runtime + archtest` |
-| `5.3` | §5 | normal 按单 workload 账本估时固定选择 <=5s 2C/4GiB、5-70s 4C/8GiB、>70s 8C/16GiB，资源身份持久化进 plan 并原样投影到 ECI selector，禁止后续按 duration 二次分类；每档 reserve resolution 必须是 measured 或 bootstrap 并进入估时、规划和 plan digest：有 identity-bound measured reserve 时从 100 秒扣除 `eci_wait + source_materialize + candidate_compile + orchestration` fixed-front interval-union nearest-rank P95，workload total 与 test-binary compile 留在 packable cost 且不得重计；约 64.8s 只可作为观测值，禁止硬编码。缺少该档可靠实测时使用 isolated-reserve-bootstrap/v1，将当前 MISS 的每个普通 workload 或不可拆 compile group 各放一片，禁止调用 EffectiveTarget/D-CPAP；partial MISS 按档独立决议，unknown、空 resolution、重复档或伪造数值必须 fail-fast，all-hit 仍不进入 planner；首次升档无新档 exact sample 时携带上一档权威实测 workload 估值，不伪造样本或回退资源；固定 5s/70s 阈值、bootstrap 资源和其他资源隔离约束保持不变 | `tiered resolution + fixed-front interval-union + isolated bootstrap + workload plan digest + reserve field guard` |
-| `5.4` | §5 | CompileGroup schema v2 冻结 selector 估时、batch digest、wave/batch 覆盖与 warning；普通 compile group 仅允许显式 side-effect-safe allowlist、同 resource、严格串行共箱，archtest/super-dolphin-gate/codexapp/mcp-lsp/agent-terminal/race/benchmark 必须独占；同一 group 只编译一次，critical cost=compile once + Σwave max(body)，BodySum 仅 coverage。archtest 每组最多 64 个 selector、423 个 selector 约 7 组并无上限并发，GOMEMLIMIT=3GiB；旧版本/伪造 manifest/helper/manual selector 由执行协议拒绝；worker supervisor 必须显式将 TMPDIR 绑定现有 temp-data 挂载根 /tmp，禁止依赖镜像默认环境；每个 batch 必须在该挂载根下创建唯一短 0700 运行根并令 TMPDIR/GOTMPDIR 指向其子目录，结束时清理，禁止使用长 lane/batchRoot；normal 无历史固定 2C/4GiB、owner fixed-point 在 PlannedWorkload 前完成、calibration 固定 4C/8GiB | `compile-group schema/batch/packing/critical-path/history arch guard + worker/planner/coordinator tests` |
-| `5.5` | §5 | 除 release owner 外所有重门禁必须作为 canonical shardable workload，在 PASS lookup 后仅 MISS 进入历史耗时 LPT 与无上限 ECI 分片；最终串行 owner 只能对逐 workload 权威证据生成固定大小、版本化且防篡改的 proof root，不得重跑门禁或拼接无界子日志 | `workload catalog + miss-only planner + bounded owner proof + archtest` |
-| `6.1` | §6 | 独立于 normal 的固定 4C/8GiB 校准规格贯穿 RunInput、ShardRequest、receipt、SQLite 与 checkpoint identity | `field guard + store` |
-| `6.2` | §6 | 校准规格漂移或缺失必须 fail-fast，固定规格不限制 shard 并发 | `validation + archtest` |
-| `7.1` | §7 | shard 与 workload 账本以统一 1ms 分辨率显式表达六个耗时阶段；compile group 另以 test_binary_compile 记录每组一次；实际为正的亚毫秒 worker 阶段记为 1ms，禁止降为缺失的 0ms | `worker timing producer + receipt + ledger renderer` |
-| `7.2` | §7 | 账本证明 workload 实际 executed miss 或严格 reused hit，并记录 canonical reuse proof 与仅用于加速的 Go cache、前端 seed/Vite cache 证据 | `receipt + ledger renderer` |
-| `7.3` | §7 | 不适用阶段写 not_applicable，缺失应有观测拒绝 authoritative receipt；normal fixed-front reserve 使用 shard total 扣除 workload total 与 test-binary compile 精确并集后的 interval union，固定覆盖 ECI wait、源码物化、候选 Gate 编译与 residual orchestration，重叠只计一次且 packable cost 不重计；每档有可靠 identity-bound 样本时取 nearest-rank P95，缺少样本显式记录 bootstrap resolution，禁止以 0ms、100s、约 64.8s、默认值或 sentinel 冒充；损坏、unknown 或来源不完整的 measured 状态仍 fail-fast，calibration 继续使用固定规格语义 | `receipt validation + fixed-front schema/policy guard + typed resource-tier resolution guard` |
-| `7.4` | §7 | 100 秒告警固定 warn_and_continue；不得 cancel、kill 或 fail shard | `warning-action validation + archtest` |
-| `8.1` | §8 | DataCache、旧 bundle、把本地 Docker/原生节点升级为 remote authority、ACR、JSON truth、GitHub remote-CI runner、通用/第二 provider executor、跨 shard CAS 与隐式 fallback 禁止存在；本地拓扑只来自 strict dynamic-N inventory/live probes，并保持 LOCAL_NON_AUTHORITATIVE；权威 remote 测试二进制与基准镜像物料只能在既有 ECI 路径构建，本地只可生成节点私有、短生命周期且不得写入 remote authority 的非权威临时产物 | `dynamic node inventory field guard + routing lease/no-fallback guard + deletion + archtest` |
-| `8.2` | §8 | 固定 shard 数、CI 并发上限、accepted 缺失自动重建及接入 SQLite 的 successor refresh executor 禁止存在；唯一 pre-push 后台候选刷新维护不得阻塞 push、等待刷新结果或成为第二 CI executor | `hook non-blocking boundary + script deletion + archtest` |
-| `8.3` | §8 | 本地异构采集只接受显式 clean absolute regular manifest path，并仅经 LoadManifestFile 与 AcquireSnapshot；Probe request 采用冻结 v2 字段，response/body 采用冻结 v1 字段与同一 context，Probe/Read/Close/context 外部错误只做一次 64 节点 opaque snapshot，任何非 only-unavailable 失败返回 whole-zero SnapshotSet；source Available 保持 gross basis 且仅 effectiveRoutingSnapshot 扣当前 book reservation，Start 必须重验 fresh snapshot，禁止执行后 fallback | `manifest/probe strict codec + external-error SSA guard + whole-snapshot tests + capacity-basis/start boundary guard` |
-| `9.1` | §9 | 变更必须闭合 LSP、字段链、状态矩阵、守卫和变更面测试 | `repository gates` |
-| `9.2` | §9 | 远程验收绑定同一 candidate tree、generation、snapshot、资源与完整账本 | `authoritative receipt` |
-| `9.3` | §9 | 非 authoritative 结果保持 NOT_VERIFIED，warm CI 超过 100 秒继续优化 | `remote acceptance` |
-| `7.5` | §7 | 七个 SQLite 历史根写前必须证明 generation 已被同一 authority 接受，并共享全库唯一保留集合；identity collision、retention proof 缺失或悬空 origin 必须 fail-fast，不得以幂等吞错或默认当前代掩盖。ci_retained_workload_pass_proofs 仅是 live reused consumer 的不可变辅助投影，不是第八历史根或第二 authority；只允许 current+prev2 consumer 消费，第四代可删除 gen1 direct root 而不允许 v15 fallback。每代行数不限，只保留最新 3 个有数据代，第四代写入与第一代全族淘汰同事务；SQLite FULL auto-vacuum 在提交时归还淘汰页 | `accepted-generation proof + identity-collision guard + consumer proof projection + single write-transaction compactor + FULL auto-vacuum + retired-object archtest` |
-| `7.6` | §7 | 失败终态仍写 non-authoritative provisional run、迁移 live warning 且只保留真实已测区间；缺失阶段不伪造 0ms/not_applicable | `failed-run SQLite projection + receipt authority guard` |
-| `7.7` | §7 | required-check 精确绑定当前持久化 workload catalog；较小 profile 不伪造 release-only 检查，release 仍覆盖完整六类 | `catalog-scoped observation + receipt + SQLite reload validation` |
-| `7.8` | §7 | 阿里云 ECI 终态生命周期字段允许沿同一 Describe 路径按 PollInterval 每分片最多重读 3 次；不得伪造时间、提前消费报告、移出 pending、取消兄弟或跳过清理，窗口耗尽仍 fail-fast | `bounded terminal evidence reread + fanout drain tests + timing guard` |
-<!-- cicontract:end -->
-
-### §10 future engine boundary mapping（normal execute 协议已冻结，runtime 当前未接线）
-
-下表是未来独立 `super-dolphin-remote-ci` 引擎的文档级映射，不加入当前 `cicontract.CanonicalMarkdown`，也不宣称已有 runtime owner、执行接线或 PASS authority。未来实现必须先让这些 guard 从 RED 收敛到 GREEN，再由唯一 Coordinator、SQLite authority 和 `aliyun-eci/v1` 路径接入。
-
-| ID | 章节 | 未来代码约束 | 当前执行层 |
-| --- | --- | --- | --- |
-| `future-engine.1` | §1.1 | exact `engine.tree_sha` 只能经唯一 ECI artifact builder 生成 content-addressed portable runtime artifact，并绑定 source/toolchain/protocol/workload-manifest ABI digest | `documentation guard RED→GREEN; runtime not wired` |
-| `future-engine.2` | §2 | engine、target、global authority 是三个显式输入域；target 使用 exact `target.tree_sha`，manifest 使用 target-tree repo-relative regular blob 与 `workload_manifest.sha256` | `strict identity/manifest guard; runtime not wired` |
-| `future-engine.3` | §3.3 | engine artifact builder 是唯一 builder；target tree 只提供 source/workload，不要求含 `cmd/super-dolphin-gate`，且不产生第二 Coordinator/executor | `artifact boundary guard; runtime not wired` |
-| `future-engine.4` | §3.5 | target transport 和 workload manifest 均从 `target.tree_sha` 解析，禁止宿主绝对 manifest/worktree 以及 cwd/HEAD/default/fallback | `tree/blob provenance guard; runtime not wired` |
-| `future-engine.5` | §3.7 | protocol 必须交叉绑定 engine/target/artifact/manifest ABI digest；`validate-only` 只能验证，不得产出 plan/PASS 或 side effect | `validation-only guard; runtime not wired` |
-| `future-engine.6` | §8 | 禁止第二 artifact builder、第二 executor、target Gate artifact、host-path manifest、隐式输入与 validation-only promotion | `forbidden-path archtest guard` |
-| `future-engine.7` | §9 | RED→GREEN guard、LSP/测试/尺寸证据与未接线声明必须随 future contract 变更保留 | `contract review evidence` |
-| `future-engine.8` | §1.1 | portable source baseline artifact 固定为 `source-baseline-git-bundle/v1` 标准自包含单文件 Git bundle：唯一 `refs/source/baseline`、`DeterministicSourceBaselineCommitSHA` zero-parent commit、0 prerequisites、完整且无额外 closure；唯一 `aliyun-eci/v1` builder 的 receipt 绑定 builder/toolchain/repository_id/object_format/baseline commit/tree/artifact SHA/size，`validate-only` 只读验证且仅允许私有 0700 临时导入，不得产出或写 authority | `documentation guard RED→GREEN; runtime not wired` |
-| `future-engine.9` | §3.7 | `portable-remote-ci-execution/v1` strict request 以独立 runtime kind/contract/identity domain 动态绑定 engine artifact/receipt/toolchain/normal protocol/workload ABI、target commit/tree/mount/manifest、显式 config/ledger path 与 global accepted authority、audit；source-baseline/builder-simulation 身份及 unknown/duplicate/null/missing/trailing/非 canonical 全部拒绝，且 `execute` 继续 fail-fast | `protocol and field guards GREEN; runtime not wired` |
-| `future-engine.10` | §2.11 | duration-ledger SQLite v23 以 immutable job_id 一对一 side table 预留 normal target repository/object/commit/tree/mount、manifest path/SHA/schema/ABI/digest 与 profile 的 `gate.WorkloadCatalogDigest(mapped selected profile catalog)`；禁止 manifest/declared command digest 替代，只提供 strict record+exact readback，不 backfill legacy run，不调用 Coordinator/finalizer | `SQLite schema/migration/readback/field/arch guards GREEN; runtime not wired` |
+- 变更必须保留本文件路径，以便 AGENTS.md 和合同导航继续定位唯一入口。
+- 变更必须通过 portable manifest strict round-trip、CapacityBlocker fail-first、PG authority identity/readback、四节点 topology、macOS non-executor、observable result/event 和 cross-repository V3/WJ tests。
+- 任何 arch/contract diagnostics、未知字段、missing/stale registry、diff --check 或定向测试失败都视为阻断；不得报告为 partial pass。
+- 远程 CI 独立二进制的真实执行证据必须绑定同一 engine digest、target tree、manifest digest、PG generation、node identity、reservation 和完整 result/event sequence。

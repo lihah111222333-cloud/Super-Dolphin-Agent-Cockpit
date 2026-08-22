@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -448,4 +449,46 @@ func remoteCICallName(call *ast.CallExpr) string {
 		return selector.Sel.Name
 	}
 	return "call"
+}
+
+func remoteCIStructTypeByName(file *ast.File, typeName string) *ast.StructType {
+	var structure *ast.StructType
+	ast.Inspect(file, func(node ast.Node) bool {
+		typeSpec, ok := node.(*ast.TypeSpec)
+		if !ok || typeSpec.Name.Name != typeName {
+			return true
+		}
+		structure, _ = typeSpec.Type.(*ast.StructType)
+		return false
+	})
+	return structure
+}
+
+// TestRemoteCIFourNodeContractTextGuard keeps the Accepted contract on the
+// four-node PostgreSQL path and rejects retired external-provider vocabulary.
+func TestRemoteCIFourNodeContractTextGuard(t *testing.T) {
+	root := findRepoRoot(t)
+	contract := readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash("docs/契约/remote-ci-eci-imagecache-contract.md")))
+	for _, required := range []string{
+		"状态：Accepted", "remote-ci-four-node/v1", "remote-ci-portable-manifest/v1",
+		"remote-ci-postgresql-primary/v1", "Ubuntu-01", "Ubuntu-02", "Windows-01", "Windows-02",
+		"CapacityBlocker", "macOS 只编排", "不执行任何 workload", "private worktree/overlay",
+		"独立 repository、worktree、cache、overlay", "remote-ci-result/v1", "remote-ci-event/v1",
+		"engine identity 与 target identity 属于不同域", "PostgreSQL read-write primary",
+		"heteroci_owner", "heteroci_receipt", "<!-- remote-ci-four-node-contract:begin -->",
+		"<!-- remote-ci-four-node-contract:end -->",
+	} {
+		if !strings.Contains(contract, required) {
+			t.Errorf("four-node Accepted contract is missing required marker %q", required)
+		}
+	}
+	forbidden := regexp.MustCompile("(?i)(^|[^a-z0-9])(aliyun|eci|oss|imagecache|overflow)([^a-z0-9]|$)")
+	if match := forbidden.FindString(contract); match != "" {
+		t.Fatalf("four-node Accepted contract contains retired cloud keyword %q", strings.TrimSpace(match))
+	}
+	for _, retired := range []string{"阿里云", "云回退", "云溢出", "云执行池"} {
+		if strings.Contains(contract, retired) {
+			t.Fatalf("four-node Accepted contract contains retired provider marker %q", retired)
+		}
+	}
 }
