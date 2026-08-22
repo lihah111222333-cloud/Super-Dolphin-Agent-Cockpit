@@ -42,12 +42,13 @@ func TestRuntimeConfigRejectsNonCanonicalAndUnknownFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string][]byte{
-		"leading whitespace":  append([]byte{' '}, encoded...),
-		"trailing whitespace": append(append([]byte(nil), encoded...), '\n'),
-		"trailing value":      append(append([]byte(nil), encoded...), []byte("{}")...),
-		"unknown field":       append(append(encoded[:len(encoded)-1], ','), []byte(`"sqlite_path":"bad"}`)...),
-		"duplicate field":     duplicateRuntimeField(encoded),
-		"null field":          bytes.Replace(encoded, []byte(`"owner_namespace":"remote-ci-fixture"`), []byte(`"owner_namespace":null`), 1),
+		"leading whitespace":    append([]byte{' '}, encoded...),
+		"trailing whitespace":   append(append([]byte(nil), encoded...), '\n'),
+		"trailing value":        append(append([]byte(nil), encoded...), []byte("{}")...),
+		"unknown field":         append(append(encoded[:len(encoded)-1], ','), []byte(`"sqlite_path":"bad"}`)...),
+		"duplicate field":       duplicateRuntimeField(encoded),
+		"null field":            bytes.Replace(encoded, []byte(`"owner_namespace":"remote-ci-fixture"`), []byte(`"owner_namespace":null`), 1),
+		"missing heartbeat TTL": bytes.Replace(encoded, []byte(`,"heartbeat_ttl_ms":30000`), nil, 1),
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -55,6 +56,23 @@ func TestRuntimeConfigRejectsNonCanonicalAndUnknownFields(t *testing.T) {
 				t.Fatalf("DecodeConfig() accepted %s", name)
 			}
 		})
+	}
+}
+
+func TestRuntimeConfigRequiresExplicitHeartbeatTTL(t *testing.T) {
+	encoded, err := EncodeConfig(runtimeFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"heartbeat_ttl_ms":30000`)) {
+		t.Fatalf("canonical config omitted caller-supplied heartbeat TTL: %s", encoded)
+	}
+	for _, value := range []int64{0, -1, int64(^uint64(0) >> 1)} {
+		config := runtimeFixture()
+		config.HeartbeatTTLMS = value
+		if _, err := EncodeConfig(config); err == nil {
+			t.Fatalf("EncodeConfig() accepted heartbeat_ttl_ms=%d", value)
+		}
 	}
 }
 
@@ -104,12 +122,42 @@ func TestRuntimeConfigV3WJFixturesSharePolicy(t *testing.T) {
 	}
 }
 
+func TestBoundTargetReusesAcrossNodeExecutionPlatforms(t *testing.T) {
+	bound, err := BindPortableRun(runtimeFixture(), targetFixture("target"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executionFixture(UbuntuPlatform).ValidateFor(UbuntuPlatform); err != nil {
+		t.Fatal(err)
+	}
+	if err := executionFixture(WindowsPlatform).ValidateFor(WindowsPlatform); err != nil {
+		t.Fatal(err)
+	}
+	if bound.Namespace == "" {
+		t.Fatal("bound namespace is empty")
+	}
+}
+
+func TestTargetExecutionFieldBoundary(t *testing.T) {
+	assertGoFieldNames(t, reflect.TypeFor[TargetFacts](), []string{"RepositoryID", "ObjectFormat", "CommitSHA", "TreeSHA"})
+	assertGoFieldNames(t, reflect.TypeFor[ExecutionFacts](), []string{"GOOS", "GOARCH", "CGOEnabled", "ModuleIdentity", "WorkloadIdentity"})
+}
+
+func TestExecutionFactsRejectCrossPlatformBinding(t *testing.T) {
+	if err := executionFixture(UbuntuPlatform).ValidateFor(WindowsPlatform); err == nil {
+		t.Fatal("Linux execution facts unexpectedly validated for Windows")
+	}
+	if err := executionFixture(WindowsPlatform).ValidateFor(UbuntuPlatform); err == nil {
+		t.Fatal("Windows execution facts unexpectedly validated for Linux")
+	}
+}
+
 func runtimeFixture() RuntimeConfig {
 	return RuntimeConfig{
 		SchemaVersion: ConfigSchemaVersion, TopologyManifestPath: "/etc/super-dolphin/topology.json",
 		OwnerDSNEnv: "REMOTE_CI_OWNER_DSN", ReceiptDSNEnv: "REMOTE_CI_RECEIPT_DSN",
 		OwnerNamespace: "remote-ci-fixture", SSHExecutable: "/usr/bin/ssh",
-		ProbeTimeoutMS: 1700, RunTimeoutMS: 45000, CleanupTimeoutMS: 3100, WorkerTimeoutMS: 90000,
+		ProbeTimeoutMS: 1700, HeartbeatTTLMS: 30000, RunTimeoutMS: 45000, CleanupTimeoutMS: 3100, WorkerTimeoutMS: 90000,
 		Nodes: []NodeBinding{
 			runtimeUbuntuNode(Ubuntu01NodeID, "/srv/ci/u01"),
 			runtimeUbuntuNode(Ubuntu02NodeID, "/srv/ci/u02"),
@@ -150,7 +198,15 @@ func duplicateRuntimeField(encoded []byte) []byte {
 }
 
 func targetFixture(repositoryID string) TargetFacts {
-	return TargetFacts{RepositoryID: repositoryID, ObjectFormat: "sha1", CommitSHA: strings.Repeat("a", 40), TreeSHA: strings.Repeat("b", 40), GOOS: "linux", GOARCH: "amd64", CGOEnabled: "0", ModuleIdentity: "sha256:" + strings.Repeat("1", 64), WorkloadIdentity: "sha256:" + strings.Repeat("2", 64)}
+	return TargetFacts{RepositoryID: repositoryID, ObjectFormat: "sha1", CommitSHA: strings.Repeat("a", 40), TreeSHA: strings.Repeat("b", 40)}
+}
+
+func executionFixture(platform Platform) ExecutionFacts {
+	goos := "linux"
+	if platform == WindowsPlatform {
+		goos = "windows"
+	}
+	return ExecutionFacts{GOOS: goos, GOARCH: "amd64", CGOEnabled: "0", ModuleIdentity: "sha256:" + strings.Repeat("1", 64), WorkloadIdentity: "sha256:" + strings.Repeat("2", 64)}
 }
 
 func mustJSONNode(t *testing.T, encoded []byte, nodeID string) []byte {
@@ -195,6 +251,17 @@ func assertJSONFields(t *testing.T, data []byte, expected []string) {
 	slices.Sort(want)
 	if !reflect.DeepEqual(actual, want) {
 		t.Fatalf("JSON fields = %v, want %v", actual, want)
+	}
+}
+
+func assertGoFieldNames(t *testing.T, typ reflect.Type, expected []string) {
+	t.Helper()
+	actual := make([]string, typ.NumField())
+	for index := range actual {
+		actual[index] = typ.Field(index).Name
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("%s fields = %v, want %v", typ.Name(), actual, expected)
 	}
 }
 

@@ -52,17 +52,19 @@ type Platform string
 //
 // 该类型不携带 DSN secret、repository default 或派生 runtime facts；所有四个节点 binding 必须由 topology/调用方显式提供。
 type RuntimeConfig struct {
-	SchemaVersion        string        `json:"schema_version"`
-	TopologyManifestPath string        `json:"topology_manifest_path"`
-	OwnerDSNEnv          string        `json:"owner_dsn_env"`
-	ReceiptDSNEnv        string        `json:"receipt_dsn_env"`
-	OwnerNamespace       string        `json:"owner_namespace"`
-	SSHExecutable        string        `json:"ssh_executable"`
-	ProbeTimeoutMS       int64         `json:"probe_timeout_ms"`
-	RunTimeoutMS         int64         `json:"run_timeout_ms"`
-	CleanupTimeoutMS     int64         `json:"cleanup_timeout_ms"`
-	WorkerTimeoutMS      int64         `json:"worker_timeout_ms"`
-	Nodes                []NodeBinding `json:"nodes"`
+	SchemaVersion        string `json:"schema_version"`
+	TopologyManifestPath string `json:"topology_manifest_path"`
+	OwnerDSNEnv          string `json:"owner_dsn_env"`
+	ReceiptDSNEnv        string `json:"receipt_dsn_env"`
+	OwnerNamespace       string `json:"owner_namespace"`
+	SSHExecutable        string `json:"ssh_executable"`
+	ProbeTimeoutMS       int64  `json:"probe_timeout_ms"`
+	// HeartbeatTTLMS 是 workflow RunRequest 必须显式采用的正 heartbeat TTL（毫秒）；不得从 probe timeout 推断。
+	HeartbeatTTLMS   int64         `json:"heartbeat_ttl_ms"`
+	RunTimeoutMS     int64         `json:"run_timeout_ms"`
+	CleanupTimeoutMS int64         `json:"cleanup_timeout_ms"`
+	WorkerTimeoutMS  int64         `json:"worker_timeout_ms"`
+	Nodes            []NodeBinding `json:"nodes"`
 }
 
 // NodeBinding 将一个 topology node 显式绑定到 probe、runner、worker 和隔离根。
@@ -102,7 +104,7 @@ type LinuxContainerBinding struct {
 func ConfigFields() []string {
 	return []string{
 		"schema_version", "topology_manifest_path", "owner_dsn_env", "receipt_dsn_env",
-		"owner_namespace", "ssh_executable", "probe_timeout_ms", "run_timeout_ms",
+		"owner_namespace", "ssh_executable", "probe_timeout_ms", "heartbeat_ttl_ms", "run_timeout_ms",
 		"cleanup_timeout_ms", "worker_timeout_ms", "nodes",
 	}
 }
@@ -365,7 +367,8 @@ func PolicyDigest(config RuntimeConfig) (string, error) {
 
 func validateTimeouts(config RuntimeConfig) error {
 	for name, value := range map[string]int64{
-		"probe_timeout_ms": config.ProbeTimeoutMS, "run_timeout_ms": config.RunTimeoutMS,
+		"probe_timeout_ms": config.ProbeTimeoutMS, "heartbeat_ttl_ms": config.HeartbeatTTLMS,
+		"run_timeout_ms":     config.RunTimeoutMS,
 		"cleanup_timeout_ms": config.CleanupTimeoutMS, "worker_timeout_ms": config.WorkerTimeoutMS,
 	} {
 		if value <= 0 || value > math.MaxInt64/int64(time.Millisecond) {

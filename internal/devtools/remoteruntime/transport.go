@@ -159,7 +159,7 @@ func (transport *Transport) Config() RuntimeConfig {
 }
 
 // Command 构造一个 operation 的完整 SSH argv，但不启动远端进程。
-func (transport *Transport) Command(operation Operation, target TargetFacts, nodeID string, request []byte) (CommandSpec, error) {
+func (transport *Transport) Command(operation Operation, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (CommandSpec, error) {
 	if transport == nil || transport.runner == nil {
 		return CommandSpec{}, ErrInvalidTransportDependencies
 	}
@@ -176,7 +176,10 @@ func (transport *Transport) Command(operation Operation, target TargetFacts, nod
 	if err := target.Validate(); err != nil {
 		return CommandSpec{}, err
 	}
-	args, err := transport.sshArgs(operation, node, target, request)
+	if err := execution.ValidateFor(node.Platform); err != nil {
+		return CommandSpec{}, err
+	}
+	args, err := transport.sshArgs(operation, node, target, execution, request)
 	if err != nil {
 		return CommandSpec{}, err
 	}
@@ -184,23 +187,23 @@ func (transport *Transport) Command(operation Operation, target TargetFacts, nod
 }
 
 // Probe 在 probe timeout 内执行一个 node probe，并只接受唯一 canonical result。
-func (transport *Transport) Probe(ctx context.Context, target TargetFacts, nodeID string, request []byte) (NodeResult, error) {
-	return transport.execute(ctx, OperationProbe, target, nodeID, request)
+func (transport *Transport) Probe(ctx context.Context, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeResult, error) {
+	return transport.execute(ctx, OperationProbe, target, execution, nodeID, request)
 }
 
 // Run 在 run timeout 内执行 runner，并只接受唯一 canonical result。
-func (transport *Transport) Run(ctx context.Context, target TargetFacts, nodeID string, request []byte) (NodeResult, error) {
-	return transport.execute(ctx, OperationRun, target, nodeID, request)
+func (transport *Transport) Run(ctx context.Context, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeResult, error) {
+	return transport.execute(ctx, OperationRun, target, execution, nodeID, request)
 }
 
 // Worker 在 worker timeout 内执行一个显式 worker 请求。
-func (transport *Transport) Worker(ctx context.Context, target TargetFacts, nodeID string, request []byte) (NodeResult, error) {
-	return transport.execute(ctx, OperationWorker, target, nodeID, request)
+func (transport *Transport) Worker(ctx context.Context, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeResult, error) {
+	return transport.execute(ctx, OperationWorker, target, execution, nodeID, request)
 }
 
 // ProbeBytes 返回 Probe 的 raw canonical JSON，便于独立 binary 直接接入协议 decoder。
-func (transport *Transport) ProbeBytes(ctx context.Context, target TargetFacts, nodeID string, request []byte) ([]byte, error) {
-	result, err := transport.Probe(ctx, target, nodeID, request)
+func (transport *Transport) ProbeBytes(ctx context.Context, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) ([]byte, error) {
+	result, err := transport.Probe(ctx, target, execution, nodeID, request)
 	if err != nil {
 		return nil, err
 	}
@@ -208,27 +211,27 @@ func (transport *Transport) ProbeBytes(ctx context.Context, target TargetFacts, 
 }
 
 // RunBytes 返回 Run 的 raw canonical JSON，便于独立 binary 直接接入协议 decoder。
-func (transport *Transport) RunBytes(ctx context.Context, target TargetFacts, nodeID string, request []byte) ([]byte, error) {
-	result, err := transport.Run(ctx, target, nodeID, request)
+func (transport *Transport) RunBytes(ctx context.Context, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) ([]byte, error) {
+	result, err := transport.Run(ctx, target, execution, nodeID, request)
 	if err != nil {
 		return nil, err
 	}
 	return result.Bytes(), nil
 }
 
-func (transport *Transport) execute(ctx context.Context, operation Operation, target TargetFacts, nodeID string, request []byte) (NodeResult, error) {
-	node, err := transport.prepareExecution(ctx, operation, target, nodeID, request)
+func (transport *Transport) execute(ctx context.Context, operation Operation, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeResult, error) {
+	node, err := transport.prepareExecution(ctx, operation, target, execution, nodeID, request)
 	if err != nil {
 		return NodeResult{}, err
 	}
-	args, err := transport.sshArgs(operation, node, target, request)
+	args, err := transport.sshArgs(operation, node, target, execution, request)
 	if err != nil {
 		return NodeResult{}, err
 	}
 	return transport.runCommand(ctx, operation, node, args)
 }
 
-func (transport *Transport) prepareExecution(ctx context.Context, operation Operation, target TargetFacts, nodeID string, request []byte) (NodeBinding, error) {
+func (transport *Transport) prepareExecution(ctx context.Context, operation Operation, target TargetFacts, execution ExecutionFacts, nodeID string, request []byte) (NodeBinding, error) {
 	if transport == nil || transport.runner == nil || ctx == nil {
 		return NodeBinding{}, ErrInvalidTransportDependencies
 	}
@@ -240,6 +243,9 @@ func (transport *Transport) prepareExecution(ctx context.Context, operation Oper
 		return NodeBinding{}, err
 	}
 	if err := target.Validate(); err != nil {
+		return NodeBinding{}, err
+	}
+	if err := execution.ValidateFor(node.Platform); err != nil {
 		return NodeBinding{}, err
 	}
 	if err := validateRequest(request); err != nil {
@@ -276,10 +282,10 @@ func (transport *Transport) operationTimeout(operation Operation) time.Duration 
 	}
 }
 
-func (transport *Transport) sshArgs(operation Operation, node NodeBinding, target TargetFacts, request []byte) ([]string, error) {
+func (transport *Transport) sshArgs(operation Operation, node NodeBinding, target TargetFacts, execution ExecutionFacts, request []byte) ([]string, error) {
 	token := base64.StdEncoding.EncodeToString(request)
 	workerArgs := []string{node.WorkerExecutable, "batch", "--request-base64", token}
-	remoteArgs, err := operationRemoteArgs(operation, node, target, workerArgs, token, transport.operationTimeout(operation))
+	remoteArgs, err := operationRemoteArgs(operation, node, target, execution, workerArgs, token, transport.operationTimeout(operation))
 	if err != nil {
 		return nil, err
 	}
@@ -299,15 +305,15 @@ func (transport *Transport) sshArgs(operation Operation, node NodeBinding, targe
 	}, nil
 }
 
-func operationRemoteArgs(operation Operation, node NodeBinding, target TargetFacts, workerArgs []string, token string, timeout time.Duration) ([]string, error) {
+func operationRemoteArgs(operation Operation, node NodeBinding, target TargetFacts, execution ExecutionFacts, workerArgs []string, token string, timeout time.Duration) ([]string, error) {
 	switch operation {
 	case OperationProbe:
 		return []string{node.ProbeExecutable, "probe", "--config", node.ProbeConfigPath, "--probe-request-base64", token}, nil
 	case OperationRun:
 		if node.Platform == UbuntuPlatform {
-			return linuxRunnerArgs(node, target, workerArgs, timeout)
+			return linuxRunnerArgs(node, target, execution, workerArgs, timeout)
 		}
-		return windowsRunnerArgs(node, target, workerArgs, timeout)
+		return windowsRunnerArgs(node, target, execution, workerArgs, timeout)
 	case OperationWorker:
 		return workerArgs, nil
 	default:
@@ -315,25 +321,25 @@ func operationRemoteArgs(operation Operation, node NodeBinding, target TargetFac
 	}
 }
 
-func linuxRunnerArgs(node NodeBinding, target TargetFacts, workerArgs []string, timeout time.Duration) ([]string, error) {
+func linuxRunnerArgs(node NodeBinding, target TargetFacts, execution ExecutionFacts, workerArgs []string, timeout time.Duration) ([]string, error) {
 	if node.Linux == nil {
 		return nil, ErrInvalidTransportRequest
 	}
 	args := []string{node.RunnerExecutable, "--repo", node.RepositoryRoot, "--mode", "docker", "--runtime", "ubuntu", "--docker-image", node.Linux.DockerImage,
 		"--worker-binary", node.WorkerExecutable, "--worker-identity", node.WorkerIdentity, "--shared-root", node.ObjectStoreRoot, "--cache-root", node.CachePublicationRoot,
 		"--repository-id", target.RepositoryID, "--node-id", node.NodeID, "--object-format", target.ObjectFormat, "--source-commit", target.CommitSHA, "--source-tree", target.TreeSHA,
-		"--toolchain-identity", node.ToolchainIdentity, "--goos", target.GOOS, "--goarch", target.GOARCH, "--cgo-enabled", target.CGOEnabled,
-		"--module-identity", target.ModuleIdentity, "--workload-identity", target.WorkloadIdentity, "--timeout-seconds", timeoutSeconds(timeout), "--"}
+		"--toolchain-identity", node.ToolchainIdentity, "--goos", execution.GOOS, "--goarch", execution.GOARCH, "--cgo-enabled", execution.CGOEnabled,
+		"--module-identity", execution.ModuleIdentity, "--workload-identity", execution.WorkloadIdentity, "--timeout-seconds", timeoutSeconds(timeout), "--"}
 	return append(args, workerArgs...), nil
 }
 
-func windowsRunnerArgs(node NodeBinding, target TargetFacts, workerArgs []string, timeout time.Duration) ([]string, error) {
+func windowsRunnerArgs(node NodeBinding, target TargetFacts, execution ExecutionFacts, workerArgs []string, timeout time.Duration) ([]string, error) {
 	command := strings.Join(workerArgs, " ")
 	args := []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", node.RunnerExecutable,
 		"-RepoPath", node.RepositoryRoot, "-CommandBase64", utf16Base64(command), "-NodeId", node.NodeID, "-RepositoryId", target.RepositoryID,
 		"-RepositoryRoot", node.RepositoryRoot, "-ObjectStoreRoot", node.ObjectStoreRoot, "-WorktreeRoot", node.WorktreeRoot, "-CacheRoot", node.CachePublicationRoot,
-		"-ToolchainIdentity", node.ToolchainIdentity, "-GOOS", target.GOOS, "-GOARCH", target.GOARCH, "-CGOEnabled", target.CGOEnabled,
-		"-ModuleIdentity", target.ModuleIdentity, "-WorkloadIdentity", target.WorkloadIdentity, "-SourceCommit", target.CommitSHA, "-SourceTree", target.TreeSHA,
+		"-ToolchainIdentity", node.ToolchainIdentity, "-GOOS", execution.GOOS, "-GOARCH", execution.GOARCH, "-CGOEnabled", execution.CGOEnabled,
+		"-ModuleIdentity", execution.ModuleIdentity, "-WorkloadIdentity", execution.WorkloadIdentity, "-SourceCommit", target.CommitSHA, "-SourceTree", target.TreeSHA,
 		"-TimeoutSeconds", timeoutSeconds(timeout)}
 	return args, nil
 }

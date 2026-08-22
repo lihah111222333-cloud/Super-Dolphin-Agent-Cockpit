@@ -21,15 +21,19 @@ type TargetFacts struct {
 	CommitSHA string
 	// TreeSHA 是 exact target tree object。
 	TreeSHA string
-	// GOOS 是 target workload 的 Go OS。
+}
+
+// ExecutionFacts 是每次 node/batch 执行调用显式提供的平台 runtime identity。
+type ExecutionFacts struct {
+	// GOOS 是本次 workload 的 Go OS。
 	GOOS string
-	// GOARCH 是 target workload 的 Go architecture。
+	// GOARCH 是本次 workload 的 Go architecture。
 	GOARCH string
-	// CGOEnabled 是 target workload 的显式 cgo 开关。
+	// CGOEnabled 是本次 workload 的显式 cgo 开关。
 	CGOEnabled string
-	// ModuleIdentity 是 target module cache identity。
+	// ModuleIdentity 是本次 module cache identity。
 	ModuleIdentity string
-	// WorkloadIdentity 是 target workload identity。
+	// WorkloadIdentity 是本次 workload identity。
 	WorkloadIdentity string
 }
 
@@ -54,7 +58,29 @@ func (facts TargetFacts) Validate() error {
 	if err := validateTargetObjects(facts); err != nil {
 		return err
 	}
-	return validateTargetGoFacts(facts)
+	return nil
+}
+
+// ValidateFor 校验 execution facts 与 node platform 的 exact GOOS/GOARCH 绑定。
+func (facts ExecutionFacts) ValidateFor(platform Platform) error {
+	wantOS := ""
+	switch platform {
+	case UbuntuPlatform:
+		wantOS = "linux"
+	case WindowsPlatform:
+		wantOS = "windows"
+	default:
+		return errors.New("execution platform is unsupported")
+	}
+	if facts.GOOS != wantOS || facts.GOARCH != "amd64" || (facts.CGOEnabled != "0" && facts.CGOEnabled != "1") {
+		return errors.New("execution Go facts do not match node platform")
+	}
+	for name, value := range map[string]string{"module_identity": facts.ModuleIdentity, "workload_identity": facts.WorkloadIdentity} {
+		if err := validateStableIdentity(value); err != nil {
+			return fmt.Errorf("execution %s is invalid", name)
+		}
+	}
+	return nil
 }
 
 func validateTargetObjects(facts TargetFacts) error {
@@ -66,18 +92,6 @@ func validateTargetObjects(facts TargetFacts) error {
 		if len(value) != objectLength || !isLowerHex(value) {
 			return fmt.Errorf("target %s is invalid", name)
 		}
-	}
-	return nil
-}
-
-func validateTargetGoFacts(facts TargetFacts) error {
-	for name, value := range map[string]string{"goos": facts.GOOS, "goarch": facts.GOARCH, "cgo_enabled": facts.CGOEnabled, "module_identity": facts.ModuleIdentity, "workload_identity": facts.WorkloadIdentity} {
-		if err := validateStableIdentity(value); err != nil {
-			return fmt.Errorf("target %s is invalid", name)
-		}
-	}
-	if (facts.GOOS != "linux" && facts.GOOS != "windows") || facts.GOARCH != "amd64" || (facts.CGOEnabled != "0" && facts.CGOEnabled != "1") {
-		return errors.New("target Go execution facts are invalid")
 	}
 	return nil
 }
@@ -106,15 +120,15 @@ func (transport *Transport) BindPortableRun(target TargetFacts) (BoundPortableRu
 }
 
 // Execute 将 target facts 显式注入一次 bounded operation，并拒绝隐式 target 发现。
-func (transport *Transport) Execute(ctx context.Context, target TargetFacts, operation Operation, nodeID string, request []byte) (NodeResult, error) {
+func (transport *Transport) Execute(ctx context.Context, target TargetFacts, execution ExecutionFacts, operation Operation, nodeID string, request []byte) (NodeResult, error) {
 	if _, err := transport.BindPortableRun(target); err != nil {
 		return NodeResult{}, err
 	}
-	return transport.execute(ctx, operation, target, nodeID, request)
+	return transport.execute(ctx, operation, target, execution, nodeID, request)
 }
 
 // Execute 将已绑定 target 的 operation 投影到指定 transport。
-func (bound BoundPortableRun) Execute(ctx context.Context, transport *Transport, operation Operation, nodeID string, request []byte) (NodeResult, error) {
+func (bound BoundPortableRun) Execute(ctx context.Context, transport *Transport, execution ExecutionFacts, operation Operation, nodeID string, request []byte) (NodeResult, error) {
 	if transport == nil {
 		return NodeResult{}, ErrInvalidTransportDependencies
 	}
@@ -123,7 +137,7 @@ func (bound BoundPortableRun) Execute(ctx context.Context, transport *Transport,
 	if boundErr != nil || transportErr != nil || !bytes.Equal(boundPolicy, transportPolicy) {
 		return NodeResult{}, errors.New("bound runtime config drifted")
 	}
-	return transport.execute(ctx, operation, bound.Target, nodeID, request)
+	return transport.execute(ctx, operation, bound.Target, execution, nodeID, request)
 }
 
 // DeriveOwnerNamespace 使用 repository_id、object format 和 exact target object 派生 namespace。
@@ -136,8 +150,7 @@ func DeriveOwnerNamespace(ownerNamespace string, target TargetFacts) (string, er
 	}
 	material := strings.Join([]string{
 		"remote-ci-runtime-target/v1", ownerNamespace, target.RepositoryID,
-		target.ObjectFormat, target.CommitSHA, target.TreeSHA, target.GOOS, target.GOARCH,
-		target.CGOEnabled, target.ModuleIdentity, target.WorkloadIdentity,
+		target.ObjectFormat, target.CommitSHA, target.TreeSHA,
 	}, "\x00")
 	digest := sha256.Sum256([]byte(material))
 	return ownerNamespace + "/sha256:" + hex.EncodeToString(digest[:]), nil

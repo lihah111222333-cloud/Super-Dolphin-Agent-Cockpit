@@ -20,7 +20,7 @@ func TestTransportProbeUsesBoundedContextAndSeparateChannels(t *testing.T) {
 	var calls atomic.Int32
 	var gotSpec CommandSpec
 	transport := probeTransportFixture(t, &gotSpec, &calls)
-	result, err := transport.Probe(context.Background(), targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
+	result, err := transport.Probe(context.Background(), targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
 	if err != nil {
 		t.Fatalf("Probe() error = %v", err)
 	}
@@ -142,7 +142,7 @@ func TestTransportRejectsMultipleOrNonCanonicalResults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := transport.Probe(context.Background(), targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`)); !errors.Is(err, ErrNodeResultInvalid) {
+			if _, err := transport.Probe(context.Background(), targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"probe"}`)); !errors.Is(err, ErrNodeResultInvalid) {
 				t.Fatalf("Probe() error = %v, want ErrNodeResultInvalid", err)
 			}
 		})
@@ -162,7 +162,7 @@ func TestTransportTimeoutDoesNotRetry(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err = transport.Probe(ctx, targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
+	_, err = transport.Probe(ctx, targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"probe"}`))
 	if !errors.Is(err, ErrCommandTimedOut) {
 		t.Fatalf("Probe() error = %v, want timeout", err)
 	}
@@ -179,7 +179,7 @@ func TestTransportWindowsArgvHasNoUnixPlatformFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := transport.Command(OperationRun, targetFixture("target"), Windows01NodeID, []byte(`{"request":"run"}`))
+	spec, err := transport.Command(OperationRun, targetFixture("target"), executionFixture(WindowsPlatform), Windows01NodeID, []byte(`{"request":"run"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestTransportLinuxRunnerUsesDaemonContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec, err := transport.Command(OperationRun, targetFixture("target"), Ubuntu01NodeID, []byte(`{"request":"run"}`))
+	spec, err := transport.Command(OperationRun, targetFixture("target"), executionFixture(UbuntuPlatform), Ubuntu01NodeID, []byte(`{"request":"run"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
