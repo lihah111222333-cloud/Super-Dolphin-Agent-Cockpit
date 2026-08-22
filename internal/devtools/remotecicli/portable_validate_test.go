@@ -305,16 +305,26 @@ func portableCLIManifest(t *testing.T) []byte {
 			{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 500, MemoryBytes: 512 << 20, HistoricalEstimateMS: 500, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
 			{Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 500, MemoryBytes: 512 << 20, HistoricalEstimateMS: 750, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
 		},
-		Profile: remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"},
+		Profile: remoteportable.ProfileLocalFast, CapacityPolicyDigest: "", RequiredNodeCapabilities: []string{"go1.26.5"},
 		LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
 		Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
 		Modules:   []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{},
 	}
+	manifest.CapacityPolicyDigest = derivePortableCapacityPolicyDigestFixture(t, manifest)
 	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func derivePortableCapacityPolicyDigestFixture(t testing.TB, manifest remoteportable.PortableManifest) string {
+	t.Helper()
+	digest, err := remoteportable.DerivePortableCapacityPolicyDigest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 
 // assertPortableProgressStages 验证 validate 的 bounded stage 日志完整可观察。

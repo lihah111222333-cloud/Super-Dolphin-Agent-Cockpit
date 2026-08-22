@@ -133,11 +133,12 @@ func newDetectedRepositoryFixture(t *testing.T, repositoryID string) string {
 		Target:          remoteportable.PortableManifestTarget{RepositoryID: repositoryID, ObjectFormat: "sha1", WorktreeMount: "worktree"},
 		Workloads:       workloads,
 		CatalogPolicies: []remoteportable.PortableManifestCatalogPolicy{{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}, {Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 2_000, MemoryBytes: 2 << 30, HistoricalEstimateMS: 2_000, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}},
-		Profile:         remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"},
+		Profile:         remoteportable.ProfileLocalFast, CapacityPolicyDigest: "", RequiredNodeCapabilities: []string{"go1.26.5"},
 		LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
 		Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
 		Modules:   []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/" + repositoryID}}, ExcludedNestedModules: []string{},
 	}
+	manifest.CapacityPolicyDigest = derivePortableCapacityPolicyDigestFixture(t, manifest)
 	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatalf("encode manifest: %v", err)

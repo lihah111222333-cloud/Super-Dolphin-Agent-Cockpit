@@ -23,8 +23,10 @@ const (
 	PortableManifestABIDigestDomain = "remote-ci-portable-manifest-abi/v1"
 	// PortableManifestWorkloadExecutionDigestDomain separates one workload's execution identity.
 	PortableManifestWorkloadExecutionDigestDomain = "remote-ci-portable-workload-execution/v1"
-	PortableManifestMaxResultBytes                = 1 << 20
-	PortableManifestMaxEventBytes                 = 64 << 10
+	// PortableManifestCapacityPolicyDigestDomain separates capacity policy identity.
+	PortableManifestCapacityPolicyDigestDomain = "remote-ci-portable-capacity-policy/v1"
+	PortableManifestMaxResultBytes             = 1 << 20
+	PortableManifestMaxEventBytes              = 64 << 10
 )
 
 // PortableManifest 是 remote-ci-portable-manifest/v1 的唯一顶层输入。
@@ -147,6 +149,82 @@ func DerivePortableWorkloadExecutionDigest(workload PortableManifestWorkload) (s
 	return portableFramedDigest(PortableManifestWorkloadExecutionDigestDomain, encoded), nil
 }
 
+type portableCapacityPolicyMaterial struct {
+	Profile                  Profile                         `json:"profile"`
+	CatalogPolicies          []PortableManifestCatalogPolicy `json:"catalog_policies"`
+	RequiredNodeCapabilities []string                        `json:"required_node_capabilities"`
+	ExplicitWorkloads        []portableCapacityWorkload      `json:"workloads"`
+}
+
+type portableCapacityWorkload struct {
+	UnitID               string `json:"unit_id"`
+	TargetPlatform       string `json:"target_platform"`
+	RuntimeCapability    string `json:"runtime_capability"`
+	CPUMilli             int64  `json:"cpu_milli"`
+	MemoryBytes          int64  `json:"memory_bytes"`
+	HistoricalEstimateMS int64  `json:"historical_estimate_ms"`
+}
+
+// DerivePortableCapacityPolicyDigest derives the canonical capacity policy
+// identity with capacity_policy_digest itself cleared from the material.
+func DerivePortableCapacityPolicyDigest(manifest PortableManifest) (string, error) {
+	manifest.CapacityPolicyDigest = ""
+	if err := validatePortableCapacityPolicyMaterial(manifest); err != nil {
+		return "", err
+	}
+	catalogPolicies := slices.Clone(manifest.CatalogPolicies)
+	if catalogPolicies == nil {
+		catalogPolicies = []PortableManifestCatalogPolicy{}
+	}
+	requiredCapabilities := slices.Clone(manifest.RequiredNodeCapabilities)
+	if requiredCapabilities == nil {
+		requiredCapabilities = []string{}
+	}
+	workloads := make([]portableCapacityWorkload, len(manifest.Workloads))
+	for index, workload := range manifest.Workloads {
+		workloads[index] = portableCapacityWorkload{
+			UnitID: workload.UnitID, TargetPlatform: workload.TargetPlatform, RuntimeCapability: workload.RuntimeCapability,
+			CPUMilli: workload.CPUMilli, MemoryBytes: workload.MemoryBytes, HistoricalEstimateMS: workload.HistoricalEstimateMS,
+		}
+	}
+	material := portableCapacityPolicyMaterial{
+		Profile: manifest.Profile, CatalogPolicies: catalogPolicies,
+		RequiredNodeCapabilities: requiredCapabilities, ExplicitWorkloads: workloads,
+	}
+	encoded, err := json.Marshal(material)
+	if err != nil {
+		return "", fmt.Errorf("encode portable capacity policy material: %w", err)
+	}
+	return portableFramedDigest(PortableManifestCapacityPolicyDigestDomain, encoded), nil
+}
+
+func validatePortableCapacityPolicyMaterial(manifest PortableManifest) error {
+	if err := manifest.Profile.Validate(); err != nil {
+		return err
+	}
+	if err := validatePortableManifestCatalogPolicies(manifest.CatalogPolicies); err != nil {
+		return err
+	}
+	if err := validatePortableCapabilities(manifest.RequiredNodeCapabilities); err != nil {
+		return err
+	}
+	return validatePortableCapacityWorkloads(manifest.Workloads)
+}
+
+func validatePortableCapacityWorkloads(workloads []PortableManifestWorkload) error {
+	seen := make(map[string]struct{}, len(workloads))
+	for index, workload := range workloads {
+		if err := validatePortableWorkloadMaterial(workload); err != nil {
+			return err
+		}
+		if _, duplicate := seen[workload.UnitID]; duplicate || index > 0 && workloads[index-1].UnitID >= workload.UnitID {
+			return errors.New("portable capacity workloads must be sorted and unique")
+		}
+		seen[workload.UnitID] = struct{}{}
+	}
+	return nil
+}
+
 // DecodePortableManifest 严格解码 remote-ci-portable-manifest/v1。
 func DecodePortableManifest(data []byte) (PortableManifest, error) {
 	if len(data) == 0 || len(data) > PortableWorkloadManifestMaxBytes {
@@ -209,14 +287,15 @@ func (manifest PortableManifest) validateStaticIdentity() error {
 }
 
 func (manifest PortableManifest) validateStaticPolicy() error {
-	if err := manifest.Profile.Validate(); err != nil {
+	if err := validatePortableCapacityPolicyMaterial(manifest); err != nil {
 		return err
 	}
-	if !validPortableDigest(manifest.CapacityPolicyDigest) {
-		return errors.New("portable capacity_policy_digest is invalid")
-	}
-	if err := validatePortableCapabilities(manifest.RequiredNodeCapabilities); err != nil {
+	expected, err := DerivePortableCapacityPolicyDigest(manifest)
+	if err != nil {
 		return err
+	}
+	if manifest.CapacityPolicyDigest != expected {
+		return errors.New("portable capacity_policy_digest does not match canonical material")
 	}
 	if err := manifest.LogPolicy.validate(); err != nil {
 		return err
