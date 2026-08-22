@@ -2,6 +2,7 @@ package remotecicli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"go/ast"
@@ -15,7 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteruntime"
 )
 
 // TestValidateRequiresExplicitDescriptor 锁定 validate 的显式绝对 descriptor 边界。
@@ -121,6 +125,131 @@ func TestValidateOutputDeclaresMacOSNonExecutor(t *testing.T) {
 	}
 }
 
+// TestPrepareExecuteInputsBindsExactFourNodeRunWithoutNetwork 验证 execute 的纯离线 preflight。
+func TestPrepareExecuteInputsBindsExactFourNodeRunWithoutNetwork(t *testing.T) {
+	descriptorPath := portableCLIRealDescriptor(t)
+	repositoryRoot := filepath.Dir(descriptorPath)
+	runtimePath, topology := writeExecuteRuntimeFixture(t, repositoryRoot)
+	prepared, err := prepareExecuteInputs(context.Background(), []string{"--request", descriptorPath, "--repository", repositoryRoot, "--runtime-config", runtimePath})
+	if err != nil {
+		t.Fatalf("prepareExecuteInputs() error = %v", err)
+	}
+	assertPreparedExecuteIdentity(t, prepared)
+	assertPreparedExecutePlatforms(t, prepared)
+	assertPreparedExecuteRequestDigest(t, prepared)
+	assertExecuteTopologyRejectsDrift(t, prepared.Runtime, topology)
+}
+
+func assertPreparedExecuteIdentity(t *testing.T, prepared executePreparedInputs) {
+	t.Helper()
+	if prepared.Portable.RepositoryID != "fixture" || prepared.RunRequest.RepositoryID != "fixture" || prepared.RunRequest.RunID != strings.Repeat("a", 64) {
+		t.Fatalf("execute target identity drifted: portable=%#v request=%#v", prepared.Portable, prepared.RunRequest)
+	}
+	if prepared.Runtime.HeartbeatTTLMS != 30_000 || prepared.RunRequest.HeartbeatTTL != 30*time.Second || len(prepared.Topology.Nodes) != 4 {
+		t.Fatalf("execute runtime binding drifted: runtime=%#v topology=%#v", prepared.Runtime, prepared.Topology)
+	}
+}
+
+func assertPreparedExecutePlatforms(t *testing.T, prepared executePreparedInputs) {
+	t.Helper()
+	platforms := map[heteroci.Platform]int{}
+	for _, unit := range prepared.RunRequest.Units {
+		platforms[unit.TargetPlatform]++
+	}
+	if platforms[heteroci.PlatformLinuxAMD64] == 0 || platforms[heteroci.PlatformWindowsAMD64] == 0 {
+		t.Fatalf("execute catalog omitted a platform: %v", platforms)
+	}
+}
+
+func assertPreparedExecuteRequestDigest(t *testing.T, prepared executePreparedInputs) {
+	t.Helper()
+	wantDigest, err := heterociworkflow.DeriveRunRequestDigest(prepared.RunRequest)
+	if err != nil || wantDigest != prepared.RunRequest.RequestDigest {
+		t.Fatalf("execute request digest = %q, %v; want %q", prepared.RunRequest.RequestDigest, err, wantDigest)
+	}
+}
+
+func assertExecuteTopologyRejectsDrift(t *testing.T, runtimeConfig remoteruntime.RuntimeConfig, topology heteroci.Manifest) {
+	t.Helper()
+	drifted := topology
+	drifted.Nodes = append([]heteroci.NodeConfig(nil), topology.Nodes...)
+	drifted.Nodes[0].Endpoint = "ssh://drifted.invalid"
+	if err := validateExecuteRuntimeTopology(runtimeConfig, drifted); err == nil {
+		t.Fatal("validateExecuteRuntimeTopology() accepted endpoint drift")
+	}
+}
+
+func writeExecuteRuntimeFixture(t *testing.T, root string) (string, heteroci.Manifest) {
+	t.Helper()
+	topology := executeTopologyFixture()
+	topologyBytes, err := json.Marshal(topology)
+	if err != nil {
+		t.Fatal(err)
+	}
+	topologyPath := filepath.Join(root, "topology.json")
+	mustWriteTestFile(t, topologyPath, topologyBytes)
+	config := executeRuntimeFixture(topologyPath, topology)
+	runtimeBytes, err := remoteruntime.EncodeConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimePath := filepath.Join(root, "runtime.json")
+	mustWriteTestFile(t, runtimePath, runtimeBytes)
+	return runtimePath, topology
+}
+
+func executeTopologyFixture() heteroci.Manifest {
+	manifest := heteroci.Manifest{SchemaVersion: heteroci.ManifestSchemaVersion, Authority: heteroci.AuthorityLocalNonAuthoritative}
+	for index, nodeID := range []string{remoteruntime.Ubuntu01NodeID, remoteruntime.Ubuntu02NodeID, remoteruntime.Windows01NodeID, remoteruntime.Windows02NodeID} {
+		platform := heteroci.Platform(heteroci.PlatformLinuxAMD64)
+		capability := heteroci.CapabilityConfig{Runtime: heteroci.RuntimeUbuntuContainer, Image: "fixture/ubuntu", ImageDigest: digestBytes([]byte("fixture-image"))}
+		if index >= 2 {
+			platform = heteroci.Platform(heteroci.PlatformWindowsAMD64)
+			capability = heteroci.CapabilityConfig{Runtime: heteroci.RuntimeWindowsNative}
+		}
+		manifest.Nodes = append(manifest.Nodes, heteroci.NodeConfig{
+			NodeID: nodeID, Endpoint: "ssh://" + strings.ToLower(nodeID), ProbeIdentity: digestBytes([]byte(nodeID + "-probe")),
+			Platform: platform, Capabilities: []heteroci.CapabilityConfig{capability},
+		})
+	}
+	return manifest
+}
+
+func executeRuntimeFixture(topologyPath string, topology heteroci.Manifest) remoteruntime.RuntimeConfig {
+	config := remoteruntime.RuntimeConfig{
+		SchemaVersion: remoteruntime.ConfigSchemaVersion, TopologyManifestPath: topologyPath,
+		OwnerDSNEnv: "REMOTE_CI_OWNER_DSN", ReceiptDSNEnv: "REMOTE_CI_RECEIPT_DSN", OwnerNamespace: "remote-ci-fixture", SSHExecutable: "/usr/bin/ssh",
+		ProbeTimeoutMS: 1_700, HeartbeatTTLMS: 30_000, RunTimeoutMS: 45_000, CleanupTimeoutMS: 3_100, WorkerTimeoutMS: 90_000,
+	}
+	for index, node := range topology.Nodes {
+		config.Nodes = append(config.Nodes, executeRuntimeNode(node, index))
+	}
+	return config
+}
+
+func executeRuntimeNode(node heteroci.NodeConfig, index int) remoteruntime.NodeBinding {
+	probeIdentity := node.ProbeIdentity
+	if node.Platform == heteroci.PlatformLinuxAMD64 {
+		privateRoot := "/srv/ci/u0" + strconv.Itoa(index+1)
+		return remoteruntime.NodeBinding{
+			NodeID: node.NodeID, Platform: remoteruntime.UbuntuPlatform, Endpoint: node.Endpoint,
+			ProbeExecutable: "/opt/super-dolphin/probe", ProbeConfigPath: "/etc/super-dolphin/probe.json", ProbeIdentity: probeIdentity,
+			RunnerExecutable: "/opt/super-dolphin/linux_runner_daemon.sh", RunnerIdentity: digestBytes([]byte(node.NodeID + "-runner")), WorkerExecutable: "/opt/super-dolphin/worker", WorkerIdentity: digestBytes([]byte(node.NodeID + "-worker")),
+			RepositoryRoot: privateRoot + "/worktree", ObjectStoreRoot: "/srv/ci/shared/object-store", WorktreeRoot: privateRoot + "/worktree", CachePublicationRoot: "/srv/ci/shared/cache-publication", PrivateOverlayRoot: privateRoot + "/overlay", TempRoot: privateRoot + "/temp",
+			GoExecutable: "/usr/local/go/bin/go", ToolchainIdentity: digestBytes([]byte("linux-toolchain")),
+			Linux: &remoteruntime.LinuxContainerBinding{DockerExecutable: "/usr/bin/docker", DockerImage: "fixture/ubuntu", DockerImageIdentity: digestBytes([]byte("fixture-image")), CgroupRoot: "/sys/fs/cgroup/super-dolphin", RunAsUser: "ci", DockerGroup: "docker"},
+		}
+	}
+	privateRoot := "C:/ci/w0" + strconv.Itoa(index-1)
+	return remoteruntime.NodeBinding{
+		NodeID: node.NodeID, Platform: remoteruntime.WindowsPlatform, Endpoint: node.Endpoint,
+		ProbeExecutable: "C:/super-dolphin/probe.exe", ProbeConfigPath: "C:/super-dolphin/probe.json", ProbeIdentity: probeIdentity,
+		RunnerExecutable: "C:/super-dolphin/windows_runner.ps1", RunnerIdentity: digestBytes([]byte(node.NodeID + "-runner")), WorkerExecutable: "C:/super-dolphin/worker.exe", WorkerIdentity: digestBytes([]byte(node.NodeID + "-worker")),
+		RepositoryRoot: privateRoot + "/worktree", ObjectStoreRoot: privateRoot + "/objects", WorktreeRoot: privateRoot + "/worktree", CachePublicationRoot: privateRoot + "/cache-publication", PrivateOverlayRoot: privateRoot + "/overlay", TempRoot: privateRoot + "/temp",
+		GoExecutable: "C:/Go/bin/go.exe", ToolchainIdentity: digestBytes([]byte("windows-toolchain")),
+	}
+}
+
 // portableCLIRealDescriptor 建立真实 Git ODB 与 authority 文件并返回 canonical descriptor。
 func portableCLIRealDescriptor(t *testing.T) string {
 	t.Helper()
@@ -132,7 +261,10 @@ func portableCLIRealDescriptor(t *testing.T) string {
 	mustMkdirAll(t, filepath.Dir(manifestPath))
 	manifest := portableCLIManifest(t)
 	mustWriteTestFile(t, manifestPath, manifest)
-	runGitFixture(t, repository, "add", "ci/workloads.json")
+	mustWriteTestFile(t, filepath.Join(repository, "go.mod"), []byte("module example.invalid/fixture\n\ngo 1.26.0\n"))
+	mustMkdirAll(t, filepath.Join(repository, "example"))
+	mustWriteTestFile(t, filepath.Join(repository, "example", "example_test.go"), []byte("package example\n\nimport \"testing\"\n\nfunc TestExample(t *testing.T) {}\n"))
+	runGitFixture(t, repository, "add", ".")
 	runGitFixture(t, repository, "commit", "-m", "测试 portable manifest")
 	commit := runGitFixture(t, repository, "rev-parse", "HEAD")
 	tree := runGitFixture(t, repository, "rev-parse", "HEAD^{tree}")
@@ -159,7 +291,24 @@ func portableCLIManifest(t *testing.T) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := remoteportable.PortableManifest{SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID, Engine: remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: engineFacts.ProtocolABIDigest, RequiredToolchainDigest: engineFacts.ToolchainDigest, RequiredCapabilities: []string{"go"}}, Target: remoteportable.PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"}, Workloads: []remoteportable.PortableManifestWorkload{{UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest, Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)}}, Profile: remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"}, LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10}, Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"}, Modules: []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{}}
+	manifest := remoteportable.PortableManifest{
+		SchemaVersion: remoteportable.PortableManifestSchemaVersion, ContractID: remoteportable.PortableManifestContractID,
+		Engine: remoteportable.PortableManifestEngine{RequiredProtocolABIDigest: engineFacts.ProtocolABIDigest, RequiredToolchainDigest: engineFacts.ToolchainDigest, RequiredCapabilities: []string{"go"}},
+		Target: remoteportable.PortableManifestTarget{RepositoryID: "fixture", ObjectFormat: "sha1", WorktreeMount: "worktree"},
+		Workloads: []remoteportable.PortableManifestWorkload{{
+			UnitID: "go-test/example", CommandDigest: digest, TargetPlatform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), RuntimeCapability: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer),
+			CPUMilli: 1_000, MemoryBytes: 1 << 30, HistoricalEstimateMS: 1_000, ExecutionDigest: digest,
+			Kind: remoteportable.RepositoryWorkloadKindGoTest, ModuleRoot: ".", Package: "./example", Name: "TestExample", ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal),
+		}},
+		CatalogPolicies: []remoteportable.PortableManifestCatalogPolicy{
+			{Platform: string(remoteportable.RepositoryWorkloadPlatformLinuxAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeUbuntuContainer), CPUMilli: 500, MemoryBytes: 512 << 20, HistoricalEstimateMS: 500, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
+			{Platform: string(remoteportable.RepositoryWorkloadPlatformWindowsAMD64), Runtime: string(remoteportable.RepositoryWorkloadRuntimeWindowsNative), CPUMilli: 500, MemoryBytes: 512 << 20, HistoricalEstimateMS: 750, ExecutionPolicy: string(remoteportable.RepositoryWorkloadExecutionPolicyNormal)},
+		},
+		Profile: remoteportable.ProfileLocalFast, CapacityPolicyDigest: digest, RequiredNodeCapabilities: []string{"go1.26.5"},
+		LogPolicy: remoteportable.PortableManifestLogPolicy{ResultSchema: "remote-ci-result/v1", EventSchema: "remote-ci-event/v1", MaxResultBytes: 1 << 20, MaxEventBytes: 64 << 10},
+		Authority: remoteportable.PortableManifestAuthority{ContractID: remoteportable.PortableManifestContractID, PostgreSQLIdentity: "remote-ci-postgresql-primary/v1"},
+		Modules:   []remoteportable.RepositoryWorkloadModule{{Root: ".", ModulePath: "example.invalid/fixture"}}, ExcludedNestedModules: []string{},
+	}
 	encoded, err := remoteportable.PortableManifestCanonicalEncode(manifest)
 	if err != nil {
 		t.Fatal(err)

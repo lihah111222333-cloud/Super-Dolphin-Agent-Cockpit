@@ -27,17 +27,38 @@ func portableGoCatalogPlatforms() [2]portableGoPlatform {
 
 // expandDetectedRepositoryGoCatalog 从 exact tree 派生 execution workloads，不改写原始 tree blob。
 func expandDetectedRepositoryGoCatalog(ctx context.Context, repository DetectedRepository) (DetectedRepository, error) {
-	if ctx == nil || repository.Root == "" || repository.TreeSHA == "" {
-		return DetectedRepository{}, errors.New("portable Go catalog repository identity is invalid")
-	}
-	if err := repository.Manifest.Validate(); err != nil {
-		return DetectedRepository{}, fmt.Errorf("validate portable Go catalog manifest: %w", err)
+	if err := validatePortableCatalogRepository(ctx, repository); err != nil {
+		return DetectedRepository{}, err
 	}
 	seenUnitIDs, err := portableWorkloadUnitIDs(repository.Workloads)
 	if err != nil {
 		return DetectedRepository{}, err
 	}
 	reader := gitObjectResolver{repositoryRoot: repository.Root}
+	if len(repository.Manifest.CatalogPolicies) == 0 {
+		return validateExplicitPortableCatalog(ctx, reader, repository)
+	}
+	return expandGeneratedPortableCatalog(ctx, reader, repository, seenUnitIDs)
+}
+
+func validatePortableCatalogRepository(ctx context.Context, repository DetectedRepository) error {
+	if ctx == nil || repository.Root == "" || repository.TreeSHA == "" {
+		return errors.New("portable Go catalog repository identity is invalid")
+	}
+	if err := repository.Manifest.Validate(); err != nil {
+		return fmt.Errorf("validate portable Go catalog manifest: %w", err)
+	}
+	return nil
+}
+
+func validateExplicitPortableCatalog(ctx context.Context, reader remoteportable.ExactGitTreeReader, repository DetectedRepository) (DetectedRepository, error) {
+	if err := remoteportable.ValidatePortableGoModuleTopology(ctx, reader, repository.TreeSHA, repository.Manifest.Modules, repository.Manifest.ExcludedNestedModules); err != nil {
+		return DetectedRepository{}, fmt.Errorf("validate portable Go module topology: %w", err)
+	}
+	return repository, nil
+}
+
+func expandGeneratedPortableCatalog(ctx context.Context, reader remoteportable.ExactGitTreeReader, repository DetectedRepository, seenUnitIDs map[string]struct{}) (DetectedRepository, error) {
 	for _, target := range portableGoCatalogPlatforms() {
 		workloads, err := portableGoTargetWorkloads(ctx, reader, repository.TreeSHA, repository.Manifest.Modules, repository.Manifest.ExcludedNestedModules, repository.Manifest.CatalogPolicies, target)
 		if err != nil {

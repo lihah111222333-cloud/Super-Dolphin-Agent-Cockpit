@@ -45,6 +45,22 @@ func BuildPortableGoWorkloadInventory(ctx context.Context, reader ExactGitTreeRe
 	return PortableGoWorkloadInventory{GoPackages: packages, NestedGoModules: moduleDirs}, nil
 }
 
+// ValidatePortableGoModuleTopology 只校验 exact tree 的 module/exclusion 闭包，不生成平台 package catalog。
+func ValidatePortableGoModuleTopology(ctx context.Context, reader ExactGitTreeReader, tree string, modules []RepositoryWorkloadModule, excludedNestedModules []string) error {
+	if err := validatePortableGoInventoryRequest(ctx, reader, tree, string(RepositoryWorkloadPlatformLinuxAMD64), modules, excludedNestedModules); err != nil {
+		return err
+	}
+	entries, err := reader.ListTree(ctx, tree)
+	if err != nil {
+		return fmt.Errorf("list exact portable Go tree: %w", err)
+	}
+	if err := validatePortableTreeEntries(entries); err != nil {
+		return err
+	}
+	_, err = loadDeclaredPortableModules(ctx, reader, tree, entries, modules, excludedNestedModules)
+	return err
+}
+
 // validatePortableGoInventoryRequest 校验 exact-tree inventory 的调用输入和 manifest 集合。
 func validatePortableGoInventoryRequest(ctx context.Context, reader ExactGitTreeReader, tree, platform string, modules []RepositoryWorkloadModule, excludedNestedModules []string) error {
 	if ctx == nil || reader == nil || tree == "" || len(modules) == 0 {

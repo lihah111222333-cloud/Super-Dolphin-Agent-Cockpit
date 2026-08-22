@@ -83,6 +83,23 @@ func TestExpandDetectedRepositoryGoCatalogBindsDualPlatformPoliciesAndStableDige
 	}
 }
 
+func TestExpandDetectedRepositoryGoCatalogSupportsExplicitWorkloadOnlyManifest(t *testing.T) {
+	root := newDetectedRepositoryFixture(t, "portable-explicit-only")
+	detected, err := DetectRepository(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detected.Manifest.CatalogPolicies = nil
+	want := append([]remoteportable.PortableManifestWorkload(nil), detected.Workloads...)
+	expanded, err := expandDetectedRepositoryGoCatalog(context.Background(), detected)
+	if err != nil {
+		t.Fatalf("expand explicit-only manifest: %v", err)
+	}
+	if !slices.Equal(expanded.Workloads, want) {
+		t.Fatalf("explicit-only workloads changed: got=%#v want=%#v", expanded.Workloads, want)
+	}
+}
+
 func assertGeneratedPortableGoPackage(t *testing.T, workload remoteportable.PortableManifestWorkload) {
 	t.Helper()
 	switch workload.TargetPlatform {
