@@ -31,6 +31,7 @@ func TestRunTypeScriptNavigationTreeUsesExplicitProductTypeScript(t *testing.T) 
 	requireNodeForNavigationTest(t)
 	root := canonicalScopePath(t.TempDir(), "")
 	target := filepath.Join(root, "src", "app.ts")
+	writeGenericTestFile(t, filepath.Join(root, "tsconfig.json"), `{"compilerOptions":{"strict":true}}`)
 	writeGenericTestFile(t, target, "export function actualSymbol() { return 1; }\n")
 	writeFakeTypeScriptModule(t, root)
 

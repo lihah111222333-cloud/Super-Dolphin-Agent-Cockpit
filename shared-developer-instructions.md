@@ -1,33 +1,32 @@
-# 共享开发者指令：原生工具与 LSP 三工具分工
+Produce one complete candidate production patch and validate it with public tests. Do not edit tests, benchmark instructions, generated version files, or hidden grader material.
 
-## 一级作战法则：轻武器优先
+## 1. Native Lightweight Tools First (Light Weapons)
+- Read and inspect files using native shell commands (`cat`, `head`, `sed`).
+- Search plain text within known files or directories using native `grep` / `rg`.
+- Modify code strictly using the agent's native patch editor (`apply_patch`).
+- For simple, local, single-file bugs with clear context, locate, edit, and verify directly using native shell tools. Do not start broad explorations.
 
-- 查看文件内容使用原生 `cat`、`head`；需要局部窗口时使用等价的原生命令。
-- 在单个文件或明确目录中定位文本使用原生 `grep`、`rg`。
-- 修改代码统一使用 Agent 原生 `apply_patch`；不得寻找或调用 LSP 编辑工具。
-- 局部、单文件、影响面明确的小 Bug，直接用原生工具完成定位、修改和局部验证。
+## 2. LSP Semantic Radar (Heavy Weapons: structure, xref, diagnostics)
+When the `lsp` namespace is exposed, it provides only three pure semantic tools: `structure`, `xref`, and `diagnostics`.
+- `structure`: Locate symbol definitions or document outlines across the workspace when text search is ambiguous or when multiple classes override the same method name:
+  * `structure(action="workspace_symbol", query="SymbolName", workspace_language="python")`
+  * `structure(action="document_symbol", file_path="relative/path.py")`
+- `xref`: Trace callers, references, or call hierarchy across files before modifying shared APIs:
+  * `xref(action="references", pos="relative/path.py:line:column")`
+  * `xref(action="call_hierarchy", pos="relative/path.py:line:column", direction="incoming")`
+- `diagnostics`: Immediately after editing production code, request syntax and static type diagnostics to catch errors before running heavy tests:
+  * `diagnostics(file_path="relative/changed.py")`
+  * `diagnostics(file_paths=["relative/file1.py", "relative/file2.py"])`
 
-## 二级作战法则：LSP 重武器
+## 3. Anti-Overkill Discipline & Negative Constraints
+- Anti-Overkill Rule: Do NOT initiate heavy cross-file explorations for trivial, single-file fixes.
+- No redundant tools: Tools such as `file`, `read_file`, `edit`, `patch_edit`, `inspect`, `grep`, or `completion` DO NOT exist in LSP. All file reading, text searching, and editing must use native shell/editor tools.
+- Diagnostics focus: Focus on diagnostics introduced by or directly related to your edited code. Do not let pre-existing type warnings in untouched legacy code derail your progress, but ensure your patch introduces zero syntax or type regressions.
 
-MCP-LSP 对外只提供三个纯语义工具：`structure`、`xref`、`diagnostics`。
-
-- 找类、函数、方法或其他符号定义：使用 `structure`。
-- 查调用方、引用、调用层级或类型影响面：使用 `xref`。
-- 修改后检查语法、类型和语言服务器诊断：使用 `diagnostics`。
-
-`structure` 和 `xref` 只在需要跨文件语义、符号归属或真实影响面时使用。`diagnostics` 用于修改后的语义验证，不替代构建和测试。
-
-## 克制原则（Anti-Overkill）
-
-- 禁止为了局部单文件小 Bug 启动重型跨文件探索。
-- 已知文件、已知位置、已知修复边界时，先用轻武器直接解决；只有定义不明、调用关系不明或影响面跨文件时才升级到 LSP。
-- 不得把 `structure` 当文本搜索、不得把 `xref` 当目录扫描、不得把 `diagnostics` 当文件读取器。
-- 不存在 `file`、`read_file`、`inspect`、`grep`、`edit`、`patch_edit` 或 `completion` LSP 工具；文件读取、文本搜索和代码编辑必须回到原生工具。
-
-## 最小验证闭环
-
-1. 原生工具读取与定位。
-2. 原生 `apply_patch` 修改。
-3. 对改动文件运行 `diagnostics`。
-4. 运行与变更面匹配的格式化、构建和测试。
-5. 仅在影响面仍不明确时追加 `structure` / `xref`。
+## 4. Hard Test Gate & Rapid Verification Loop (Crucial)
+1. Reproduce & Locate: Run the reproduction or targeted test first to observe failure; locate exact cause.
+2. Edit: Apply minimal necessary changes with `apply_patch`.
+3. Quick Type Check: Run `diagnostics` on modified files for instant static validation.
+4. Hard Test Gate: Run the targeted test and broader affected public test suites.
+   - **MANDATORY**: The targeted test must PASS (0 failures, 0 errors, exit=0).
+   - **NEVER** submit a patch if public tests are failing (`exit != 0`). Never treat `git diff --check`, `py_compile`, or clean git status as a substitute for passing tests. If tests fail, fix the logic or revert breaking changes before completing.
