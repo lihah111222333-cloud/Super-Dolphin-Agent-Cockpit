@@ -117,8 +117,8 @@ func TestWorkflowReusesOneSnapshotAcrossTTLSpanningWaves(t *testing.T) {
 	if _, err := Execute(t.Context(), fixture.deps, fixture.request); err != nil {
 		t.Fatalf("Execute() across TTL-spanning waves = %v", err)
 	}
-	if snapshotCalls != 1 || executor.calls != 2 || fixture.owner.startCount != 2 || fixture.owner.finishCount != 2 {
-		t.Fatalf("snapshot/executor/start/finish counts = %d/%d/%d/%d, want 1/2/2/2", snapshotCalls, executor.calls, fixture.owner.startCount, fixture.owner.finishCount)
+	if snapshotCalls != 1 || executor.calls != 2 || fixture.owner.startCount != 2 || fixture.owner.finishCount != 2 || fixture.binder.count != 1 {
+		t.Fatalf("snapshot/executor/start/finish/bind counts = %d/%d/%d/%d/%d, want 1/2/2/2/1", snapshotCalls, executor.calls, fixture.owner.startCount, fixture.owner.finishCount, fixture.binder.count)
 	}
 	for index, startedSnapshot := range fixture.owner.startSnapshots {
 		if !reflect.DeepEqual(startedSnapshot, fixture.owner.startSnapshots[0]) {

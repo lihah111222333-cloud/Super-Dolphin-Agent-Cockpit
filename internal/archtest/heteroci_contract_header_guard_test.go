@@ -14,7 +14,7 @@ func TestHeterociAcceptedContractDefinesFourNodePostgreSQLBoundary(t *testing.T)
 	for _, marker := range []string{
 		"状态：Accepted",
 		"契约身份：remote-ci-four-node/v1",
-		"请求协议：remote-ci-portable-manifest/v1",
+		"请求协议：remote-ci-run-request/v1",
 		"结果协议：remote-ci-result/v1",
 		"事件协议：remote-ci-event/v1",
 		"远程权威：remote-ci-postgresql-primary/v1",
@@ -201,5 +201,62 @@ func assertHeterociNoLocalPostgreSQLAuthority(t *testing.T, sources map[string]s
 				t.Errorf("%s retains forbidden PG-path local authority marker %q", sourceName, forbidden)
 			}
 		}
+	}
+}
+
+func TestHeterociSingleBindingAndMutationFailFastBoundary(t *testing.T) {
+	root := findRepoRoot(t)
+	workflow := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociworkflow", "run.go"))
+	types := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociworkflow", "types.go"))
+	registry := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociexec", "registry.go"))
+	command := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociexec", "command_executor.go"))
+	sources := readHeterociMutationGuardSources(t, root)
+	assertHeterociSingleBindingGuard(t, workflow, types, registry)
+	assertHeterociNoMutationRetryGuard(t, sources)
+	assertHeterociNoCommandWaitGuard(t, command)
+}
+
+func readHeterociMutationGuardSources(t *testing.T, root string) map[string]string {
+	t.Helper()
+	paths := []string{"internal/devtools/heterociowner/postgresql_owner.go", "internal/devtools/heterociowner/postgresql_owner_plan.go", "internal/devtools/heterociowner/postgresql_owner_lifecycle.go", "internal/devtools/heterociexec/postgresql_receipt_store.go", "internal/devtools/heterociexec/postgresql_terminal_receipt_store.go"}
+	sources := make(map[string]string, len(paths))
+	for _, relative := range paths {
+		sources[relative] = readRemoteCIContractGuardFile(t, filepath.Join(root, filepath.FromSlash(relative)))
+	}
+	return sources
+}
+
+func assertHeterociSingleBindingGuard(t *testing.T, workflow, types, registry string) {
+	t.Helper()
+	for _, marker := range []string{"ExecutorBindingPlan", "Bind(plan ExecutorBindingPlan)", "validateBoundExecutors", "sortExecutorBindingPlan"} {
+		if !strings.Contains(types+workflow, marker) {
+			t.Errorf("single executor binding boundary is missing %q", marker)
+		}
+	}
+	if strings.Count(workflow, "Executors.Bind(") != 1 || strings.Contains(workflow, "Bind(batch.Batch.Key)") || !strings.Contains(registry, "Bind(plan heterociworkflow.ExecutorBindingPlan)") {
+		t.Error("executor binding is not a single exact plan call")
+	}
+}
+
+func assertHeterociNoMutationRetryGuard(t *testing.T, sources map[string]string) {
+	t.Helper()
+	for name, source := range sources {
+		for _, forbidden := range []string{"MutationAttempts", "for range postgresqlOwnerMutationAttempts", "for range postgreSQLReceiptMutationAttempts", "isRetryablePostgreSQLError", "postgreSQLReceiptRetryable", "after retries"} {
+			if strings.Contains(source, forbidden) {
+				t.Errorf("%s retains automatic mutation retry marker %q", name, forbidden)
+			}
+		}
+	}
+}
+
+func assertHeterociNoCommandWaitGuard(t *testing.T, command string) {
+	t.Helper()
+	for _, forbidden := range []string{"waitExistingExecution", "waitCommandExecution", "waiting for existing batch execution"} {
+		if strings.Contains(command, forbidden) {
+			t.Errorf("command executor retains implicit queue/wait marker %q", forbidden)
+		}
+	}
+	if !strings.Contains(command, "ErrCommandInFlight") || strings.Count(command, "runner.Run(") != 1 {
+		t.Error("command executor does not prove immediate in-flight conflict and one runner call")
 	}
 }

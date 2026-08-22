@@ -222,7 +222,7 @@ internal/archtest/guard_freeze.go	internal	other	go-source	10906	架构守卫、
 internal/archtest/guard_freeze_acceptance_test.go	internal	other	go-test	4536	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,acceptance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guard_freeze_ssot_test.go	internal	other	go-test	3693	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,ssot,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guardlib.go	internal	other	go-source	19453	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/heteroci_contract_header_guard_test.go	internal	other	go-test	8382	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,contract,header,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/heteroci_contract_header_guard_test.go	internal	other	go-test	11491	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,contract,header,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_four_node_capacity_contract_guard_test.go	internal	other	go-test	12736	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,four,node,capacity,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_aggregate_ssa_guard_test.go	internal	other	go-test	22477	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,aggregate,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_boundary_ssa_guard_test.go	internal	other	go-test	9184	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,boundary,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -921,20 +921,20 @@ internal/devtools/heteroci/started_occupancy_test.go	internal	other	go-test	3192
 internal/devtools/heteroci/topology_session.go	internal	other	go-source	5587	开发工具与生成器辅助包	internal,devtools,heteroci,topology,session,开发工具与生成器辅助包
 internal/devtools/heteroci/topology_session_test.go	internal	other	go-test	7833	开发工具与生成器辅助包	internal,devtools,heteroci,topology,session,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/command.go	internal	other	go-source	5285	开发工具与生成器辅助包	internal,devtools,heterociexec,command,开发工具与生成器辅助包
-internal/devtools/heterociexec/command_executor.go	internal	other	go-source	28237	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,开发工具与生成器辅助包
-internal/devtools/heterociexec/command_executor_test.go	internal	other	go-test	27542	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,test,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_receipt_schema.go	internal	other	go-source	6915	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,schema,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_receipt_store.go	internal	other	go-source	13354	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,开发工具与生成器辅助包
+internal/devtools/heterociexec/command_executor.go	internal	other	go-source	27119	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,开发工具与生成器辅助包
+internal/devtools/heterociexec/command_executor_test.go	internal	other	go-test	27844	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_receipt_schema.go	internal	other	go-source	7118	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,schema,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_receipt_store.go	internal	other	go-source	13253	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_store_test.go	internal	other	go-test	16926	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt.go	internal	other	go-source	15807	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_fake_test.go	internal	other	go-test	15586	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,fake,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_rows.go	internal	other	go-source	15459	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,rows,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_schema.go	internal	other	go-source	6230	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,schema,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt_store.go	internal	other	go-source	19437	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,store,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt_store.go	internal	other	go-source	19457	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_test.go	internal	other	go-test	21750	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/receipt_common.go	internal	other	go-source	10755	开发工具与生成器辅助包	internal,devtools,heterociexec,receipt,common,开发工具与生成器辅助包
-internal/devtools/heterociexec/registry.go	internal	other	go-source	14556	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,开发工具与生成器辅助包
-internal/devtools/heterociexec/registry_test.go	internal	other	go-test	13963	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/registry.go	internal	other	go-source	14971	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,开发工具与生成器辅助包
+internal/devtools/heterociexec/registry_test.go	internal	other	go-test	14391	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_schema.go	internal	other	go-source	10601	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store.go	internal	other	go-source	19426	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store_test.go	internal	other	go-test	10708	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,test,开发工具与生成器辅助包
@@ -956,10 +956,10 @@ internal/devtools/heterociowner/owner_clock_test.go	internal	other	go-test	1694	
 internal/devtools/heterociowner/owner_fence.go	internal	other	go-source	8651	开发工具与生成器辅助包	internal,devtools,heterociowner,owner,fence,开发工具与生成器辅助包
 internal/devtools/heterociowner/owner_fence_test.go	internal	other	go-test	2876	开发工具与生成器辅助包	internal,devtools,heterociowner,owner,fence,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_index_explain_pg14_test.sql	internal	other	sql	3848	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,index,explain,pg14,test,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner.go	internal	other	go-source	13236	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner.go	internal	other	go-source	13165	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_adapter.go	internal	other	go-source	4116	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,adapter,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_lifecycle.go	internal	other	go-source	38022	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,lifecycle,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_plan.go	internal	other	go-source	16460	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_lifecycle.go	internal	other	go-source	37500	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,lifecycle,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_plan.go	internal	other	go-source	16216	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_plan_test.go	internal	other	go-test	5767	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_read.go	internal	other	go-source	27161	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,read,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_reservations.go	internal	other	go-source	3573	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,reservations,开发工具与生成器辅助包
@@ -984,19 +984,19 @@ internal/devtools/heterocitransport/ssh_requester_test.go	internal	other	go-test
 internal/devtools/heterocitransport/transport.go	internal	other	go-source	5429	开发工具与生成器辅助包	internal,devtools,heterocitransport,transport,开发工具与生成器辅助包
 internal/devtools/heterocitransport/transport_test.go	internal	other	go-test	9458	开发工具与生成器辅助包	internal,devtools,heterocitransport,transport,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/concurrent_run.go	internal	other	go-source	5441	开发工具与生成器辅助包	internal,devtools,heterociworkflow,concurrent,run,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/fake_test.go	internal	other	go-test	16577	开发工具与生成器辅助包	internal,devtools,heterociworkflow,fake,test,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/fake_test.go	internal	other	go-test	16866	开发工具与生成器辅助包	internal,devtools,heterociworkflow,fake,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/finish_recovery.go	internal	other	go-source	7789	开发工具与生成器辅助包	internal,devtools,heterociworkflow,finish,recovery,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/finish_uncertain_test.go	internal	other	go-test	6489	开发工具与生成器辅助包	internal,devtools,heterociworkflow,finish,uncertain,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/graph.go	internal	other	go-source	12360	开发工具与生成器辅助包	internal,devtools,heterociworkflow,graph,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/ids.go	internal	other	go-source	3321	开发工具与生成器辅助包	internal,devtools,heterociworkflow,ids,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/ids.go	internal	other	go-source	6579	开发工具与生成器辅助包	internal,devtools,heterociworkflow,ids,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/material_digest.go	internal	other	go-source	7031	开发工具与生成器辅助包	internal,devtools,heterociworkflow,material,digest,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/material_digest_test.go	internal	other	go-test	6086	开发工具与生成器辅助包	internal,devtools,heterociworkflow,material,digest,test,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/run.go	internal	other	go-source	38838	开发工具与生成器辅助包	internal,devtools,heterociworkflow,run,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/types.go	internal	other	go-source	8354	开发工具与生成器辅助包	internal,devtools,heterociworkflow,types,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/workflow_additional_test.go	internal	other	go-test	13098	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,additional,test,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/workflow_concurrency_test.go	internal	other	go-test	10608	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,concurrency,test,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/run.go	internal	other	go-source	41139	开发工具与生成器辅助包	internal,devtools,heterociworkflow,run,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/types.go	internal	other	go-source	8921	开发工具与生成器辅助包	internal,devtools,heterociworkflow,types,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/workflow_additional_test.go	internal	other	go-test	14367	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,additional,test,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/workflow_concurrency_test.go	internal	other	go-test	10831	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,concurrency,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/workflow_integrity_test.go	internal	other	go-test	12937	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,integrity,test,开发工具与生成器辅助包
-internal/devtools/heterociworkflow/workflow_test.go	internal	other	go-test	11035	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,test,开发工具与生成器辅助包
+internal/devtools/heterociworkflow/workflow_test.go	internal	other	go-test	11096	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,test,开发工具与生成器辅助包
 internal/devtools/mcplspguardcore/authority_control_flow_test.go	internal	other	go-test	22776	开发工具与生成器辅助包	internal,devtools,mcplspguardcore,authority,control,flow,test,开发工具与生成器辅助包
 internal/devtools/mcplspguardcore/consumer_ast_helpers.go	internal	other	go-source	19009	开发工具与生成器辅助包	internal,devtools,mcplspguardcore,consumer,ast,helpers,开发工具与生成器辅助包
 internal/devtools/mcplspguardcore/consumer_validation.go	internal	other	go-source	20317	开发工具与生成器辅助包	internal,devtools,mcplspguardcore,consumer,validation,开发工具与生成器辅助包
@@ -1013,7 +1013,7 @@ internal/devtools/projectmaptrusted/project_map.go	internal	other	go-source	3193
 internal/devtools/projectmaptrusted/project_map_test.go	internal	other	go-test	14700	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_route.go	internal	other	go-source	14232	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,route,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_route_test.go	internal	other	go-test	8854	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,route,test,开发工具与生成器辅助包
-internal/devtools/remotecicli/automatic_run.go	internal	other	go-source	15171	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,run,开发工具与生成器辅助包
+internal/devtools/remotecicli/automatic_run.go	internal	other	go-source	15613	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,run,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_ssh_runner.go	internal	other	go-source	12697	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,ssh,runner,开发工具与生成器辅助包
 internal/devtools/remotecicli/automatic_ssh_runner_test.go	internal	other	go-test	4030	开发工具与生成器辅助包	internal,devtools,remotecicli,automatic,ssh,runner,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/engine_facts.go	internal	other	go-source	3198	开发工具与生成器辅助包	internal,devtools,remotecicli,engine,facts,开发工具与生成器辅助包

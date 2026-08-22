@@ -76,9 +76,22 @@ type BatchReceiptReader interface {
 	ReadBatchReceipt(ctx context.Context, batch ExecutionBatch) (BatchResult, bool, error)
 }
 
-// ExecutorBinder 在所有 Start 发生前为一个 executor key 绑定唯一执行端。
+// ExecutorBinding 是一个 executor key 与其完整 batch identity 集合的绑定计划项。
+// BatchIDs 必须按字典序排列且在整个计划中唯一；它们是 binder 校验 lane 覆盖的稳定输入。
+type ExecutorBinding struct {
+	Key      ExecutorKey
+	BatchIDs []BatchID
+}
+
+// ExecutorBindingPlan 是一次 run 的完整、排序且去重的 executor binding 计划。
+// 计划在任何 Start mutation 前一次性交给 binder，禁止按 key 逐次绑定。
+type ExecutorBindingPlan struct {
+	Bindings []ExecutorBinding
+}
+
+// ExecutorBinder 在所有 Start 发生前为一个 run 一次绑定全部 executor。
 type ExecutorBinder interface {
-	Bind(key ExecutorKey) (BatchExecutor, error)
+	Bind(plan ExecutorBindingPlan) (map[ExecutorKey]BatchExecutor, error)
 }
 
 // ExecutorKey 标识一个不可替换的 local node execution lane。

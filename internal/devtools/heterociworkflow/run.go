@@ -406,26 +406,79 @@ func validObservedPlannedLease(found bool, runID string, expected, observed hete
 	return found && observed.RunID == runID && observed.State == heteroci.LeaseStatePlanned && reflect.DeepEqual(observed, expected)
 }
 
-// bindExecutors 在任何 Start 前按 batch 首次出现顺序绑定唯一 executor。
+// bindExecutors 在任何 Start 前一次性交付排序、去重且完整的 key/batch 计划。
 func (workflow *Workflow) bindExecutors(ctx context.Context, batches []BatchPlan) (map[ExecutorKey]BatchExecutor, error) {
-	bound := make(map[ExecutorKey]BatchExecutor, len(batches))
-	for _, batch := range batches {
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("%w: bind executor context: %w", ErrExecutorBinding, err)
+	if ctx == nil {
+		return nil, fmt.Errorf("%w: bind executor context is nil", ErrExecutorBinding)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: bind executor context: %w", ErrExecutorBinding, err)
+	}
+	batchIDsByKey := make(map[ExecutorKey][]BatchID, len(batches))
+	seenBatchIDs := make(map[BatchID]struct{}, len(batches))
+	for _, plan := range batches {
+		if err := plan.Batch.Key.Validate(); err != nil {
+			return nil, fmt.Errorf("%w: batch executor key is invalid", ErrExecutorBinding)
 		}
-		if _, exists := bound[batch.Batch.Key]; exists {
-			continue
+		if !validWorkflowUnitID(string(plan.Batch.BatchID)) {
+			return nil, fmt.Errorf("%w: batch executor identity is invalid", ErrExecutorBinding)
 		}
-		executor, err := workflow.deps.Executors.Bind(batch.Batch.Key)
-		if err != nil {
-			return nil, fmt.Errorf("%w: bind executor: %w", ErrExecutorBinding, err)
+		if _, duplicate := seenBatchIDs[plan.Batch.BatchID]; duplicate {
+			return nil, fmt.Errorf("%w: batch identity is duplicated", ErrExecutorBinding)
 		}
-		if isNilWorkflowValue(executor) {
-			return nil, fmt.Errorf("%w: bound executor is nil", ErrExecutorBinding)
-		}
-		bound[batch.Batch.Key] = executor
+		seenBatchIDs[plan.Batch.BatchID] = struct{}{}
+		batchIDsByKey[plan.Batch.Key] = append(batchIDsByKey[plan.Batch.Key], plan.Batch.BatchID)
+	}
+	bindingPlan := sortExecutorBindingPlan(batchIDsByKey)
+	if err := bindingPlan.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: binding plan is invalid: %w", ErrExecutorBinding, err)
+	}
+	expectedPlan := cloneExecutorBindingPlan(bindingPlan)
+	bound, err := workflow.deps.Executors.Bind(bindingPlan)
+	if err != nil {
+		return nil, fmt.Errorf("%w: bind executor plan: %w", ErrExecutorBinding, err)
+	}
+	if err := validateBoundExecutors(expectedPlan, bound); err != nil {
+		return nil, err
 	}
 	return bound, nil
+}
+
+// cloneExecutorBindingPlan isolates the expected plan from a binder mutating caller-owned slices.
+func cloneExecutorBindingPlan(plan ExecutorBindingPlan) ExecutorBindingPlan {
+	clone := ExecutorBindingPlan{Bindings: make([]ExecutorBinding, len(plan.Bindings))}
+	for index, binding := range plan.Bindings {
+		clone.Bindings[index] = ExecutorBinding{Key: binding.Key, BatchIDs: append([]BatchID(nil), binding.BatchIDs...)}
+	}
+	return clone
+}
+
+// validateBoundExecutors requires an exact non-nil key map with no stale or extra lane.
+func validateBoundExecutors(plan ExecutorBindingPlan, bound map[ExecutorKey]BatchExecutor) error {
+	if bound == nil {
+		return fmt.Errorf("%w: bound executor map is nil", ErrExecutorBinding)
+	}
+	expected := make(map[ExecutorKey]struct{}, len(plan.Bindings))
+	for _, binding := range plan.Bindings {
+		expected[binding.Key] = struct{}{}
+	}
+	for key, executor := range bound {
+		if _, ok := expected[key]; !ok {
+			return fmt.Errorf("%w: bound executor map contains stale or extra key", ErrExecutorBinding)
+		}
+		if isNilWorkflowValue(executor) {
+			return fmt.Errorf("%w: bound executor is nil", ErrExecutorBinding)
+		}
+	}
+	if len(bound) != len(expected) {
+		return fmt.Errorf("%w: bound executor map is missing a required key", ErrExecutorBinding)
+	}
+	for key := range expected {
+		if _, ok := bound[key]; !ok {
+			return fmt.Errorf("%w: bound executor key drifted", ErrExecutorBinding)
+		}
+	}
+	return nil
 }
 
 // validatePreparedSourceSnapshot 校验一次采集的 source snapshot 在所有 Start 前保持不变。

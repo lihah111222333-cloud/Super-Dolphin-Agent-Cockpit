@@ -49,6 +49,8 @@ var (
 	ErrPostgreSQLReceiptConflict = errors.New("heteroci PostgreSQL receipt conflicts with persisted identity")
 	// ErrPostgreSQLReceiptCommitUncertain 表示提交确认丢失，必须通过 primary readback 收敛。
 	ErrPostgreSQLReceiptCommitUncertain = errors.New("heteroci PostgreSQL receipt commit outcome is uncertain")
+	// ErrPostgreSQLReceiptMutationFailed 表示一次 SERIALIZABLE receipt mutation 已失败并被阻断。
+	ErrPostgreSQLReceiptMutationFailed = errors.New("heteroci PostgreSQL receipt mutation failed")
 )
 
 const postgreSQLReceiptAuthorityQuery = `SELECT

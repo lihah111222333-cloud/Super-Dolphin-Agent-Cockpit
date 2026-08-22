@@ -89,16 +89,11 @@ func (owner *PostgreSQLOwner) Start(ctx context.Context, fence heteroci.OwnerFen
 	if err != nil {
 		return heteroci.StartedRoutingLease{}, fmt.Errorf("encode PostgreSQL start request: %w", err)
 	}
-	for range postgresqlOwnerMutationAttempts {
-		started, callErr := owner.startPostgreSQLOnce(ctx, fence, operationID, runID, unitID, currentSnapshot, requestBytes, nowUnixMilli)
-		if callErr == nil {
-			return started, nil
-		}
-		if !isRetryablePostgreSQLError(callErr) && !errors.Is(callErr, errPostgreSQLOwnerCommitNotRecorded) {
-			return heteroci.StartedRoutingLease{}, callErr
-		}
+	started, err := owner.startPostgreSQLOnce(ctx, fence, operationID, runID, unitID, currentSnapshot, requestBytes, nowUnixMilli)
+	if err != nil {
+		return heteroci.StartedRoutingLease{}, wrapPostgreSQLOwnerMutationError("start", err)
 	}
-	return heteroci.StartedRoutingLease{}, fmt.Errorf("start PostgreSQL topology lease after retries")
+	return started, nil
 }
 
 func (owner *PostgreSQLOwner) startPostgreSQLOnce(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet, requestBytes []byte, nowUnixMilli int64) (heteroci.StartedRoutingLease, error) {
@@ -111,9 +106,6 @@ func (owner *PostgreSQLOwner) startPostgreSQLOnce(ctx context.Context, fence het
 		return heteroci.StartedRoutingLease{}, rollbackPostgreSQLOwnerTx(tx, err)
 	}
 	if err := tx.Commit(); err != nil {
-		if isRetryablePostgreSQLError(err) {
-			return heteroci.StartedRoutingLease{}, err
-		}
 		replayed, found, reconcileErr := owner.reconcilePostgreSQLStarted(ctx, fence, operationID, requestBytes, err)
 		if reconcileErr != nil {
 			return heteroci.StartedRoutingLease{}, reconcileErr
@@ -121,7 +113,7 @@ func (owner *PostgreSQLOwner) startPostgreSQLOnce(ctx context.Context, fence het
 		if found {
 			return replayed, nil
 		}
-		return heteroci.StartedRoutingLease{}, errPostgreSQLOwnerCommitNotRecorded
+		return heteroci.StartedRoutingLease{}, errors.Join(ErrPostgreSQLOwnerCommitUncertain, err, errPostgreSQLOwnerCommitNotRecorded)
 	}
 	return started, nil
 }
@@ -252,16 +244,11 @@ func (owner *PostgreSQLOwner) transitionPostgreSQLLease(ctx context.Context, fen
 	if err != nil {
 		return DurableLeaseTransition{}, fmt.Errorf("encode PostgreSQL terminal request: %w", err)
 	}
-	for range postgresqlOwnerMutationAttempts {
-		transition, callErr := owner.transitionPostgreSQLOnce(ctx, fence, operationID, runID, unitID, target, kind, requestBytes, nowUnixMilli)
-		if callErr == nil {
-			return transition, nil
-		}
-		if !isRetryablePostgreSQLError(callErr) && !errors.Is(callErr, errPostgreSQLOwnerCommitNotRecorded) {
-			return DurableLeaseTransition{}, callErr
-		}
+	transition, err := owner.transitionPostgreSQLOnce(ctx, fence, operationID, runID, unitID, target, kind, requestBytes, nowUnixMilli)
+	if err != nil {
+		return DurableLeaseTransition{}, wrapPostgreSQLOwnerMutationError("transition", err)
 	}
-	return DurableLeaseTransition{}, fmt.Errorf("transition PostgreSQL topology lease after retries")
+	return transition, nil
 }
 
 func (owner *PostgreSQLOwner) transitionPostgreSQLOnce(ctx context.Context, fence heteroci.OwnerFence, operationID heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, target heteroci.RoutingLeaseState, kind string, requestBytes []byte, nowUnixMilli int64) (DurableLeaseTransition, error) {
@@ -274,9 +261,6 @@ func (owner *PostgreSQLOwner) transitionPostgreSQLOnce(ctx context.Context, fenc
 		return DurableLeaseTransition{}, rollbackPostgreSQLOwnerTx(tx, err)
 	}
 	if err := tx.Commit(); err != nil {
-		if isRetryablePostgreSQLError(err) {
-			return DurableLeaseTransition{}, err
-		}
 		replayed, found, reconcileErr := owner.reconcilePostgreSQLTransition(ctx, fence, operationID, requestBytes, target, err)
 		if reconcileErr != nil {
 			return DurableLeaseTransition{}, reconcileErr
@@ -284,7 +268,7 @@ func (owner *PostgreSQLOwner) transitionPostgreSQLOnce(ctx context.Context, fenc
 		if found {
 			return replayed, nil
 		}
-		return DurableLeaseTransition{}, errPostgreSQLOwnerCommitNotRecorded
+		return DurableLeaseTransition{}, errors.Join(ErrPostgreSQLOwnerCommitUncertain, err, errPostgreSQLOwnerCommitNotRecorded)
 	}
 	return transition, nil
 }

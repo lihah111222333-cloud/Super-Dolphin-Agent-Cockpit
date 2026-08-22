@@ -156,15 +156,23 @@ type concurrencyExecutorBinder struct {
 	executors map[ExecutorKey]BatchExecutor
 }
 
-func (binder *concurrencyExecutorBinder) Bind(key ExecutorKey) (BatchExecutor, error) {
+func (binder *concurrencyExecutorBinder) Bind(plan ExecutorBindingPlan) (map[ExecutorKey]BatchExecutor, error) {
+	if err := plan.Validate(); err != nil {
+		return nil, err
+	}
 	binder.mu.Lock()
 	defer binder.mu.Unlock()
-	if executor, ok := binder.executors[key]; ok {
-		return executor, nil
+	bound := make(map[ExecutorKey]BatchExecutor, len(plan.Bindings))
+	for _, binding := range plan.Bindings {
+		key := binding.Key
+		executor, ok := binder.executors[key]
+		if !ok {
+			executor = &concurrencyBatchExecutor{harness: binder.harness}
+			binder.executors[key] = executor
+		}
+		bound[key] = executor
 	}
-	executor := &concurrencyBatchExecutor{harness: binder.harness}
-	binder.executors[key] = executor
-	return executor, nil
+	return bound, nil
 }
 
 type concurrencyOwner struct {

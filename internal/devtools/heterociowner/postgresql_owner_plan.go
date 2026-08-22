@@ -32,16 +32,11 @@ func (owner *PostgreSQLOwner) PlanAndReserve(ctx context.Context, session hetero
 	if err != nil {
 		return heteroci.TopologyReservedPlan{}, err
 	}
-	for range postgresqlOwnerMutationAttempts {
-		result, err := owner.planAndReserveOnce(ctx, session, request, requestBytes, nowUnixMilli)
-		if err == nil {
-			return result, nil
-		}
-		if !isRetryablePostgreSQLError(err) && !errors.Is(err, errPostgreSQLOwnerCommitNotRecorded) {
-			return heteroci.TopologyReservedPlan{}, err
-		}
+	result, err := owner.planAndReserveOnce(ctx, session, request, requestBytes, nowUnixMilli)
+	if err != nil {
+		return heteroci.TopologyReservedPlan{}, wrapPostgreSQLOwnerMutationError("plan and reserve", err)
 	}
-	return heteroci.TopologyReservedPlan{}, fmt.Errorf("plan and reserve PostgreSQL topology after retries")
+	return result, nil
 }
 
 func (owner *PostgreSQLOwner) preparePostgreSQLPlan(session heteroci.TopologySession, request heteroci.TopologyPlanRequest) ([]byte, int64, error) {
@@ -107,8 +102,6 @@ func executePostgreSQLPlanTransaction(ctx context.Context, tx *sql.Tx, session h
 func (owner *PostgreSQLOwner) commitPostgreSQLPlan(ctx context.Context, tx *sql.Tx, session heteroci.TopologySession, request heteroci.TopologyPlanRequest, requestBytes []byte, result heteroci.TopologyReservedPlan) (heteroci.TopologyReservedPlan, error) {
 	if err := tx.Commit(); err == nil {
 		return result, nil
-	} else if isRetryablePostgreSQLError(err) {
-		return heteroci.TopologyReservedPlan{}, err
 	} else {
 		replayed, found, replayErr := owner.reconcilePostgreSQLPlan(ctx, session, request, requestBytes)
 		if replayErr != nil {
@@ -117,7 +110,7 @@ func (owner *PostgreSQLOwner) commitPostgreSQLPlan(ctx context.Context, tx *sql.
 		if found {
 			return replayed, nil
 		}
-		return heteroci.TopologyReservedPlan{}, errPostgreSQLOwnerCommitNotRecorded
+		return heteroci.TopologyReservedPlan{}, errors.Join(ErrPostgreSQLOwnerCommitUncertain, err, errPostgreSQLOwnerCommitNotRecorded)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
@@ -263,14 +264,14 @@ func TestCommandBatchExecutorMissingReceiptIsUncertainAndNeverReruns(t *testing.
 	}
 	first, firstErr := executor.ExecuteBatch(context.Background(), batch)
 	second, secondErr := executor.ExecuteBatch(context.Background(), batch)
-	if !errors.Is(firstErr, heterociworkflow.ErrBatchReceiptRequired) || !errors.Is(secondErr, heterociworkflow.ErrBatchReceiptRequired) {
-		t.Fatalf("errors first=%v second=%v, want ErrBatchReceiptRequired", firstErr, secondErr)
+	if !errors.Is(firstErr, heterociworkflow.ErrBatchReceiptRequired) || !errors.Is(secondErr, ErrCommandInFlight) {
+		t.Fatalf("errors first=%v second=%v, want receipt-required then ErrCommandInFlight", firstErr, secondErr)
 	}
 	if !reflect.DeepEqual(first, heterociworkflow.BatchResult{}) || !reflect.DeepEqual(second, heterociworkflow.BatchResult{}) {
 		t.Fatalf("uncertain results first=%#v second=%#v, want zero", first, second)
 	}
-	if runner.calls != 1 || len(store.reads) != 4 || !allReceiptReadsMatch(store.reads, batch.BatchID) {
-		t.Fatalf("runner=%d reads=%v, want preflight/recovery reads for both calls", runner.calls, store.reads)
+	if runner.calls != 1 || len(store.reads) != 3 || !allReceiptReadsMatch(store.reads, batch.BatchID) {
+		t.Fatalf("runner=%d reads=%v, want first preflight/recovery and second preflight only", runner.calls, store.reads)
 	}
 }
 
@@ -413,15 +414,24 @@ func TestCommandBatchExecutorConcurrentCallsExecuteOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCommandBatchExecutor() error = %v", err)
 	}
-	results := make(chan error, 2)
+	firstResult := make(chan error, 1)
+	secondResult := make(chan error, 1)
 	var group sync.WaitGroup
-	group.Go(func() { _, callErr := executor.ExecuteBatch(context.Background(), batch); results <- callErr })
+	group.Go(func() { _, callErr := executor.ExecuteBatch(context.Background(), batch); firstResult <- callErr })
 	<-runner.started
-	group.Go(func() { _, callErr := executor.ExecuteBatch(context.Background(), batch); results <- callErr })
+	group.Go(func() { _, callErr := executor.ExecuteBatch(context.Background(), batch); secondResult <- callErr })
+	select {
+	case secondErr := <-secondResult:
+		if !errors.Is(secondErr, ErrCommandInFlight) {
+			t.Fatalf("concurrent second ExecuteBatch error = %v, want ErrCommandInFlight", secondErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("concurrent second ExecuteBatch waited for the first runner")
+	}
 	close(runner.release)
 	group.Wait()
-	if first, second := <-results, <-results; first != nil || second != nil {
-		t.Fatalf("concurrent ExecuteBatch errors = %v, %v", first, second)
+	if firstErr := <-firstResult; firstErr != nil {
+		t.Fatalf("first ExecuteBatch error = %v", firstErr)
 	}
 	if runner.calls != 1 {
 		t.Fatalf("runner calls = %d, want exactly one", runner.calls)
@@ -447,8 +457,8 @@ func TestCommandBatchExecutorSharedStoreClaimsAcrossInstances(t *testing.T) {
 		firstDone <- firstErr
 	})
 	<-runner.started
-	if _, secondErr := second.ExecuteBatch(context.Background(), batch); !errors.Is(secondErr, heterociworkflow.ErrBatchReceiptRequired) {
-		t.Fatalf("second ExecuteBatch while first is running = %v, want receipt-required", secondErr)
+	if _, secondErr := second.ExecuteBatch(context.Background(), batch); !errors.Is(secondErr, ErrCommandInFlight) {
+		t.Fatalf("second ExecuteBatch while first is running = %v, want ErrCommandInFlight", secondErr)
 	}
 	close(runner.release)
 	group.Wait()

@@ -47,8 +47,8 @@ func TestRunHeterociWorkflowRunsLocalAuthorityWithoutRemoteFallback(t *testing.T
 	if fixture.binder.executeCount != 1 {
 		t.Fatalf("executor calls = %d, want one batch execution", fixture.binder.executeCount)
 	}
-	if fixture.transport.callCount != 2 {
-		t.Fatalf("probe calls = %d, want initial and fresh dynamic-node probes", fixture.transport.callCount)
+	if fixture.transport.callCount != 1 {
+		t.Fatalf("probe calls = %d, want exactly one fresh dynamic-node probe", fixture.transport.callCount)
 	}
 }
 
@@ -325,12 +325,19 @@ type rootExecutorBinder struct {
 	executeErr   error
 }
 
-func (binder *rootExecutorBinder) Bind(key heterociworkflow.ExecutorKey) (heterociworkflow.BatchExecutor, error) {
+func (binder *rootExecutorBinder) Bind(plan heterociworkflow.ExecutorBindingPlan) (map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, error) {
+	if err := plan.Validate(); err != nil {
+		return nil, err
+	}
 	binder.mu.Lock()
-	binder.keys = append(binder.keys, key)
 	executeErr := binder.executeErr
+	bound := make(map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, len(plan.Bindings))
+	for _, binding := range plan.Bindings {
+		binder.keys = append(binder.keys, binding.Key)
+		bound[binding.Key] = &rootBatchExecutor{binder: binder, executeErr: executeErr}
+	}
 	binder.mu.Unlock()
-	return &rootBatchExecutor{binder: binder, executeErr: executeErr}, nil
+	return bound, nil
 }
 
 type rootBatchExecutor struct {

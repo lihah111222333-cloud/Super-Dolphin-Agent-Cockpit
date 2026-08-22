@@ -265,12 +265,21 @@ type fakeBinder struct {
 	executor BatchExecutor
 	err      error
 	count    int
+	plan     ExecutorBindingPlan
 }
 
-func (binder *fakeBinder) Bind(ExecutorKey) (BatchExecutor, error) {
+func (binder *fakeBinder) Bind(plan ExecutorBindingPlan) (map[ExecutorKey]BatchExecutor, error) {
 	*binder.events = append(*binder.events, "bind")
 	binder.count++
-	return binder.executor, binder.err
+	binder.plan = cloneExecutorBindingPlan(plan)
+	if binder.err != nil {
+		return nil, binder.err
+	}
+	bound := make(map[ExecutorKey]BatchExecutor, len(plan.Bindings))
+	for _, binding := range plan.Bindings {
+		bound[binding.Key] = binder.executor
+	}
+	return bound, nil
 }
 
 type workflowFixture struct {

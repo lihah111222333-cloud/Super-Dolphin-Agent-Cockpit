@@ -47,6 +47,14 @@ func validBindings(encoder CommandEncoder) []Binding {
 	}
 }
 
+func registryBindingPlan(keys ...heterociworkflow.ExecutorKey) heterociworkflow.ExecutorBindingPlan {
+	bindings := make([]heterociworkflow.ExecutorBinding, 0, len(keys))
+	for _, key := range keys {
+		bindings = append(bindings, heterociworkflow.ExecutorBinding{Key: key, BatchIDs: []heterociworkflow.BatchID{heterociworkflow.BatchID("batch-" + key.NodeID)}})
+	}
+	return heterociworkflow.ExecutorBindingPlan{Bindings: bindings}
+}
+
 func TestRegistryRequiresValidLocalBindings(t *testing.T) {
 	encoder := StrictCommandEncoder{}
 	tests := []struct {
@@ -89,21 +97,18 @@ func TestRegistryBindsOneExecutorPerKindAndRejectsInvalidKeys(t *testing.T) {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 	localKey := heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-a"}
-	first, err := registry.Bind(localKey)
+	bound, err := registry.Bind(registryBindingPlan(localKey))
 	if err != nil {
 		t.Fatalf("Bind(local) error = %v", err)
 	}
-	second, err := registry.Bind(localKey)
-	if err != nil {
-		t.Fatalf("Bind(local repeat) error = %v", err)
+	first := bound[localKey]
+	if first == nil {
+		t.Fatal("Bind(local) omitted the requested executor")
 	}
-	if first != second {
-		t.Fatalf("repeated Bind returned different executor instances: %p vs %p", first, second)
-	}
-	if _, err := registry.Bind(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode}); err == nil {
+	if _, err := registry.Bind(registryBindingPlan(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode})); err == nil {
 		t.Fatal("Bind accepted local key without NodeID")
 	}
-	if _, err := registry.Bind(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKind("other")}); err == nil {
+	if _, err := registry.Bind(registryBindingPlan(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKind("other"), NodeID: "node-other"})); err == nil {
 		t.Fatal("Bind accepted unsupported executor kind")
 	}
 }
@@ -120,18 +125,15 @@ func TestRegistryRequiresDistinctExecutorPerLocalNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry(two local nodes) error = %v", err)
 	}
-	gotA, err := registry.Bind(bindings[0].Key)
+	bound, err := registry.Bind(registryBindingPlan(bindings[0].Key, bindings[1].Key))
 	if err != nil {
-		t.Fatalf("Bind(node-a) error = %v", err)
+		t.Fatalf("Bind(nodes) error = %v", err)
 	}
-	gotB, err := registry.Bind(bindings[1].Key)
-	if err != nil {
-		t.Fatalf("Bind(node-b) error = %v", err)
-	}
+	gotA, gotB := bound[bindings[0].Key], bound[bindings[1].Key]
 	if gotA == gotB {
 		t.Fatal("distinct local node keys shared one executor")
 	}
-	if _, err := registry.Bind(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-unknown"}); err == nil {
+	if _, err := registry.Bind(registryBindingPlan(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-unknown"})); err == nil {
 		t.Fatal("Bind accepted an unknown local node key")
 	}
 	if _, err := registry.EncodeCommand(heteroci.ExecutorKindLocalNode, []string{"tool"}); err == nil {
@@ -153,7 +155,7 @@ func TestRegistryForManifestAllowsLocalOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("local-only registry error = %v", err)
 	}
-	if _, err := registry.Bind(local.Key); err != nil {
+	if _, err := registry.Bind(registryBindingPlan(local.Key)); err != nil {
 		t.Fatalf("Bind(disabled local) error = %v", err)
 	}
 }

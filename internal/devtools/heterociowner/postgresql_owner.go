@@ -14,13 +14,13 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
 
-const postgresqlOwnerMutationAttempts = 3
-
 var (
 	// ErrPostgreSQLOwnerTopology 表示注入连接不满足 remote primary-only owner 拓扑。
 	ErrPostgreSQLOwnerTopology = errors.New("heteroci PostgreSQL owner topology is invalid")
 	// ErrPostgreSQLOwnerCommitUncertain 表示远端 primary 无法证明 mutation 的提交结果。
 	ErrPostgreSQLOwnerCommitUncertain = errors.New("heteroci PostgreSQL owner commit outcome is uncertain")
+	// ErrPostgreSQLOwnerMutationFailed 表示一次 SERIALIZABLE owner mutation 已失败并被阻断。
+	ErrPostgreSQLOwnerMutationFailed = errors.New("heteroci PostgreSQL owner mutation failed")
 )
 
 // PostgreSQLOwner 是调用方注入 remote PostgreSQL primary 连接后的 topology owner adapter。
@@ -167,13 +167,11 @@ func (owner *PostgreSQLOwner) Acquire(ctx context.Context) (heteroci.OwnerFence,
 	if err != nil {
 		return heteroci.OwnerFence{}, err
 	}
-	for range postgresqlOwnerMutationAttempts {
-		fence, err := owner.acquireOnce(ctx, ownerID, nowUnixMilli)
-		if !isRetryablePostgreSQLError(err) {
-			return fence, err
-		}
+	fence, err := owner.acquireOnce(ctx, ownerID, nowUnixMilli)
+	if err != nil {
+		return heteroci.OwnerFence{}, wrapPostgreSQLOwnerMutationError("acquire", err)
 	}
-	return heteroci.OwnerFence{}, fmt.Errorf("acquire PostgreSQL heteroci owner after retries")
+	return fence, nil
 }
 
 func (owner *PostgreSQLOwner) acquireOnce(ctx context.Context, ownerID heteroci.RoutingOwnerID, nowUnixMilli int64) (heteroci.OwnerFence, error) {
@@ -186,9 +184,6 @@ func (owner *PostgreSQLOwner) acquireOnce(ctx context.Context, ownerID heteroci.
 		return heteroci.OwnerFence{}, rollbackPostgreSQLOwnerTx(tx, err)
 	}
 	if err := tx.Commit(); err != nil {
-		if isRetryablePostgreSQLError(err) {
-			return heteroci.OwnerFence{}, err
-		}
 		observed, readErr := owner.CurrentFence(ctx)
 		if readErr == nil && observed == candidate {
 			return candidate, nil
@@ -290,11 +285,9 @@ func requirePostgreSQLRows(result sql.Result, expected int, action string) error
 	return nil
 }
 
-func isRetryablePostgreSQLError(err error) bool {
-	type sqlStateError interface{ SQLState() string }
-	var state sqlStateError
-	if !errors.As(err, &state) {
-		return false
+func wrapPostgreSQLOwnerMutationError(action string, err error) error {
+	if err == nil {
+		return nil
 	}
-	return state.SQLState() == "40001" || state.SQLState() == "40P01"
+	return fmt.Errorf("%w: %s: %w", ErrPostgreSQLOwnerMutationFailed, action, err)
 }

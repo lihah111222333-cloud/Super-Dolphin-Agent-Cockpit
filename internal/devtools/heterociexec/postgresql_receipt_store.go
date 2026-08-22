@@ -10,8 +10,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
 )
 
-const postgreSQLReceiptMutationAttempts = 3
-
 const (
 	selectPostgreSQLReceiptRow = `SELECT schema_version, command_digest, state, claim_bytes, claim_digest, result_bytes, result_digest
 FROM heteroci_receipt.batch_receipts WHERE batch_id = $1 AND material_digest = $2`
@@ -30,26 +28,18 @@ func (store *PostgreSQLReceiptStore) Claim(ctx context.Context, batch heterociwo
 	if err != nil {
 		return false, postgreSQLReceiptDomainError(err)
 	}
-	for range postgreSQLReceiptMutationAttempts {
-		claimed, ambiguous, err := store.claimOnce(ctx, claim, claimBytes, claimDigest)
-		if err == nil {
-			return claimed, nil
-		}
-		if !ambiguous {
-			if postgreSQLReceiptRetryable(err) {
-				continue
-			}
-			return false, err
-		}
-		resolved, retry, replayErr := store.reconcileClaim(ctx, claim, claimBytes, claimDigest, claimed)
-		if replayErr != nil {
-			return false, replayErr
-		}
-		if !retry {
-			return resolved, nil
-		}
+	claimed, ambiguous, err := store.claimOnce(ctx, claim, claimBytes, claimDigest)
+	if err == nil {
+		return claimed, nil
 	}
-	return false, fmt.Errorf("%w: claim retry budget exhausted", ErrPostgreSQLReceiptStore)
+	if !ambiguous {
+		return false, wrapPostgreSQLReceiptMutationError("claim", err)
+	}
+	resolved, replayErr := store.reconcileClaim(ctx, claim, claimBytes, claimDigest, claimed)
+	if replayErr != nil {
+		return false, replayErr
+	}
+	return resolved, nil
 }
 
 func (store *PostgreSQLReceiptStore) claimOnce(ctx context.Context, claim canonicalReceiptClaim, claimBytes []byte, claimDigest string) (bool, bool, error) {
@@ -95,27 +85,27 @@ func insertPostgreSQLClaim(ctx context.Context, tx *sql.Tx, claim canonicalRecei
 	return false, nil
 }
 
-func (store *PostgreSQLReceiptStore) reconcileClaim(ctx context.Context, claim canonicalReceiptClaim, claimBytes []byte, claimDigest string, claimed bool) (bool, bool, error) {
+func (store *PostgreSQLReceiptStore) reconcileClaim(ctx context.Context, claim canonicalReceiptClaim, claimBytes []byte, claimDigest string, claimed bool) (bool, error) {
 	tx, err := store.beginTransaction(ctx)
 	if err != nil {
-		return false, false, err
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
 	row, found, err := readPostgreSQLReceiptRow(ctx, tx, claim.BatchID, claim.MaterialDigest, " FOR SHARE")
 	if err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, rollbackPostgreSQLReceiptTransaction(tx, err))
 	}
 	if found {
 		if err := validateCanonicalReceiptClaimRow(row, claim, claimBytes, claimDigest); err != nil {
-			return false, false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
+			return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return false, false, fmt.Errorf("%w: claim replay commit: %w", ErrPostgreSQLReceiptStore, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
 	if !found {
-		return false, true, nil
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, errors.New("claim commit was not observed"))
 	}
-	return claimed, false, nil
+	return claimed, nil
 }
 
 // Read 只从已验证 primary 读取同一完整 batch/material/command 的 terminal receipt。
@@ -165,29 +155,21 @@ func (store *PostgreSQLReceiptStore) WriteIfAbsent(ctx context.Context, result h
 	if err != nil {
 		return postgreSQLReceiptDomainError(err)
 	}
-	for range postgreSQLReceiptMutationAttempts {
-		ambiguous, err := store.writeTerminalOnce(ctx, result, resultBytes, resultDigest)
-		if err == nil {
-			return nil
-		}
-		if !ambiguous {
-			if postgreSQLReceiptRetryable(err) {
-				continue
-			}
-			return err
-		}
-		resolved, retry, replayErr := store.reconcileTerminal(ctx, result, resultBytes, resultDigest)
-		if replayErr != nil {
-			return replayErr
-		}
-		if resolved {
-			return nil
-		}
-		if !retry {
-			return err
-		}
+	ambiguous, err := store.writeTerminalOnce(ctx, result, resultBytes, resultDigest)
+	if err == nil {
+		return nil
 	}
-	return fmt.Errorf("%w: terminal retry budget exhausted", ErrPostgreSQLReceiptStore)
+	if !ambiguous {
+		return wrapPostgreSQLReceiptMutationError("write terminal", err)
+	}
+	resolved, replayErr := store.reconcileTerminal(ctx, result, resultBytes, resultDigest)
+	if replayErr != nil {
+		return replayErr
+	}
+	if resolved {
+		return nil
+	}
+	return errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 }
 
 func (store *PostgreSQLReceiptStore) writeTerminalOnce(ctx context.Context, result heterociworkflow.BatchResult, resultBytes []byte, resultDigest string) (bool, error) {
@@ -235,34 +217,34 @@ func writePostgreSQLTerminal(ctx context.Context, tx *sql.Tx, result heterociwor
 	return nil
 }
 
-func (store *PostgreSQLReceiptStore) reconcileTerminal(ctx context.Context, result heterociworkflow.BatchResult, resultBytes []byte, resultDigest string) (bool, bool, error) {
+func (store *PostgreSQLReceiptStore) reconcileTerminal(ctx context.Context, result heterociworkflow.BatchResult, resultBytes []byte, resultDigest string) (bool, error) {
 	tx, err := store.beginTransaction(ctx)
 	if err != nil {
-		return false, false, err
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
 	row, found, err := readPostgreSQLReceiptRow(ctx, tx, result.BatchID, result.MaterialDigest, " FOR SHARE")
 	if err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, rollbackPostgreSQLReceiptTransaction(tx, err))
 	}
 	if !found {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, fmt.Errorf("%w: terminal replay lost claim", ErrPostgreSQLReceiptConflict))
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, rollbackPostgreSQLReceiptTransaction(tx, fmt.Errorf("%w: terminal replay lost claim", ErrPostgreSQLReceiptConflict)))
 	}
 	if err := validatePostgreSQLResultClaim(row, result); err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
 	}
 	if row.State == canonicalReceiptStateClaimed {
 		if err := tx.Commit(); err != nil {
-			return false, false, fmt.Errorf("%w: terminal replay commit: %w", ErrPostgreSQLReceiptStore, err)
+			return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 		}
-		return false, true, nil
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, errors.New("terminal receipt commit was not observed"))
 	}
 	if err := validatePostgreSQLTerminalReplay(row, result, resultBytes, resultDigest); err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
 	}
 	if err := tx.Commit(); err != nil {
-		return false, false, fmt.Errorf("%w: terminal replay commit: %w", ErrPostgreSQLReceiptStore, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
-	return true, false, nil
+	return true, nil
 }
 
 func validatePostgreSQLResultClaim(row canonicalReceiptRow, result heterociworkflow.BatchResult) error {
@@ -312,15 +294,11 @@ func postgreSQLReceiptDomainError(err error) error {
 	return fmt.Errorf("%w: canonical receipt is invalid", ErrPostgreSQLReceiptStore)
 }
 
-func postgreSQLReceiptRetryable(err error) bool {
-	type sqlStateError interface {
-		SQLState() string
+func wrapPostgreSQLReceiptMutationError(action string, err error) error {
+	if err == nil {
+		return nil
 	}
-	var state sqlStateError
-	if !errors.As(err, &state) {
-		return false
-	}
-	return state.SQLState() == "40001" || state.SQLState() == "40P01"
+	return fmt.Errorf("%w: %s: %w", ErrPostgreSQLReceiptMutationFailed, action, err)
 }
 
 var _ ReceiptStore = (*PostgreSQLReceiptStore)(nil)

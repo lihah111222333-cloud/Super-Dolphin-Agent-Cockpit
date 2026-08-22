@@ -85,6 +85,35 @@ func TestWorkflowNilBoundExecutorCancelsEveryPlannedLease(t *testing.T) {
 	}
 }
 
+func TestValidateBoundExecutorsRequiresExactKeySet(t *testing.T) {
+	keyA := ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-a"}
+	keyB := ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-b"}
+	keyExtra := ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-extra"}
+	plan := ExecutorBindingPlan{Bindings: []ExecutorBinding{
+		{Key: keyA, BatchIDs: []BatchID{"batch-a"}},
+		{Key: keyB, BatchIDs: []BatchID{"batch-b"}},
+	}}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("binding plan validation: %v", err)
+	}
+	executor := &fakeExecutor{}
+	for _, test := range []struct {
+		name  string
+		bound map[ExecutorKey]BatchExecutor
+	}{
+		{name: "missing", bound: map[ExecutorKey]BatchExecutor{keyA: executor}},
+		{name: "extra", bound: map[ExecutorKey]BatchExecutor{keyA: executor, keyB: executor, keyExtra: executor}},
+		{name: "nil", bound: map[ExecutorKey]BatchExecutor{keyA: executor, keyB: nil}},
+		{name: "key drift", bound: map[ExecutorKey]BatchExecutor{keyA: executor, keyExtra: executor}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateBoundExecutors(plan, test.bound); !errors.Is(err, ErrExecutorBinding) {
+				t.Fatalf("validateBoundExecutors error = %v, want ErrExecutorBinding", err)
+			}
+		})
+	}
+}
+
 func TestWorkflowPostPlanReadValidationCancelsEveryPlannedLease(t *testing.T) {
 	fixture := newWorkflowFixture(&fakeExecutor{})
 	fixture.deps.Owner = &readDriftOwner{fakeOwner: fixture.owner}

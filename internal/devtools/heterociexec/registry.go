@@ -183,21 +183,28 @@ func validateManifestNodeCoverage(manifestNodes map[string]heteroci.Platform, re
 	return nil
 }
 
-// Bind 实现 workflow.ExecutorBinder，并仅返回该完整 key 已注册的 executor。
-func (registry *Registry) Bind(key heterociworkflow.ExecutorKey) (heterociworkflow.BatchExecutor, error) {
+// Bind 实现 workflow.ExecutorBinder，一次返回计划 key 的 exact executor map。
+func (registry *Registry) Bind(plan heterociworkflow.ExecutorBindingPlan) (map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, error) {
 	if registry == nil {
 		return nil, fmt.Errorf("%w: registry is nil", ErrRegistry)
 	}
-	if err := validateExecutorKey(key); err != nil {
-		return nil, err
+	if err := plan.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: binding plan: %w", ErrRegistry, err)
 	}
+	bound := make(map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, len(plan.Bindings))
 	registry.mu.RLock()
-	binding, exists := registry.bindings[key]
-	registry.mu.RUnlock()
-	if !exists {
-		return nil, fmt.Errorf("%w: executor key %v is not registered", ErrRegistry, key)
+	defer registry.mu.RUnlock()
+	for _, requested := range plan.Bindings {
+		binding, exists := registry.bindings[requested.Key]
+		if !exists {
+			return nil, fmt.Errorf("%w: executor key %v is not registered", ErrRegistry, requested.Key)
+		}
+		if isNilInterface(binding.Executor) {
+			return nil, fmt.Errorf("%w: executor key %v is nil", ErrRegistry, requested.Key)
+		}
+		bound[requested.Key] = binding.Executor
 	}
-	return binding.Executor, nil
+	return bound, nil
 }
 
 // EncodeCommand 使用 kind 唯一绑定的显式编码器；多 key kind 必须改用 EncodeCommandForKey。

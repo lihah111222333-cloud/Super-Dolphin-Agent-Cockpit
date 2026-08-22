@@ -68,6 +68,9 @@ var ErrReceiptClaim = errors.New("heteroci command executor receipt claim failed
 // ErrReceiptWrite 表示 durable receipt 写入失败，不能被当作执行成功。
 var ErrReceiptWrite = errors.New("heteroci command executor receipt write failed")
 
+// ErrCommandInFlight 表示同一 operation/batch 已被其他执行路径占用，禁止等待或再次运行。
+var ErrCommandInFlight = errors.New("heteroci command batch is already in flight")
+
 type commandExecution struct {
 	done          chan struct{}
 	commandDigest string
@@ -111,27 +114,11 @@ func (executor *CommandBatchExecutor) ExecuteBatch(ctx context.Context, batch he
 		return heterociworkflow.BatchResult{}, err
 	}
 	if !owner {
-		return executor.waitExistingExecution(ctx, batch, commandDigest, record)
+		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: batch %s", ErrCommandInFlight, batch.BatchID)
 	}
 	result, executeErr := executor.executeClaimed(ctx, batch, command, commandDigest)
 	executor.complete(record, result, executeErr)
 	return cloneBatchResult(result), executeErr
-}
-
-// waitExistingExecution 等待进程内唯一执行；receipt 未决时只读取同一材料和 command digest。
-func (executor *CommandBatchExecutor) waitExistingExecution(ctx context.Context, batch heterociworkflow.ExecutionBatch, commandDigest string, record *commandExecution) (heterociworkflow.BatchResult, error) {
-	result, err := waitCommandExecution(ctx, record)
-	if err == nil || (!errors.Is(err, heterociworkflow.ErrBatchReceiptRequired) && !errors.Is(err, ErrReceiptRead)) {
-		return result, err
-	}
-	receipt, found, readErr := executor.readValidatedReceipt(ctx, batch, commandDigest)
-	if readErr != nil {
-		return heterociworkflow.BatchResult{}, errors.Join(err, readErr)
-	}
-	if found {
-		return receipt, nil
-	}
-	return result, err
 }
 
 // ReadBatchReceipt 实现 workflow.BatchReceiptReader，且严格按完整 expected batch 派生 digest 读取。
@@ -210,7 +197,7 @@ func (executor *CommandBatchExecutor) prepareCommand(batch heterociworkflow.Exec
 	return cloneCommand(command), digest, nil
 }
 
-// claim 建立 BatchID 的唯一执行记录；后续调用只能等待该记录，不能重新 runner。
+// claim 建立 BatchID 的唯一执行记录；后续调用立即冲突，不能等待或重新 runner。
 func (executor *CommandBatchExecutor) claim(key commandExecutionKey, commandDigest string) (*commandExecution, bool, error) {
 	executor.mu.Lock()
 	defer executor.mu.Unlock()
@@ -228,23 +215,13 @@ func (executor *CommandBatchExecutor) claim(key commandExecutionKey, commandDige
 	return record, true, nil
 }
 
-// complete 发布一次执行结果并唤醒所有同 BatchID 等待者。
+// complete 发布一次执行结果供同一实例的诊断读取。
 func (executor *CommandBatchExecutor) complete(record *commandExecution, result heterociworkflow.BatchResult, err error) {
 	executor.mu.Lock()
 	record.result = cloneBatchResult(result)
 	record.err = err
 	close(record.done)
 	executor.mu.Unlock()
-}
-
-// waitCommandExecution 等待已拥有执行权的调用，不触发第二次执行。
-func waitCommandExecution(ctx context.Context, record *commandExecution) (heterociworkflow.BatchResult, error) {
-	select {
-	case <-record.done:
-		return cloneBatchResult(record.result), record.err
-	case <-ctx.Done():
-		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: waiting for existing batch execution: %w", ErrCommandExecutor, ctx.Err())
-	}
 }
 
 // executeClaimed 执行一次 durable Claim→runner→receipt write 链，任何错误均停止该链。
@@ -254,14 +231,7 @@ func (executor *CommandBatchExecutor) executeClaimed(ctx context.Context, batch 
 		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: %w", ErrReceiptClaim, err)
 	}
 	if !claimed {
-		receipt, found, readErr := executor.readValidatedReceipt(ctx, batch, commandDigest)
-		if readErr != nil {
-			return heterociworkflow.BatchResult{}, readErr
-		}
-		if !found {
-			return heterociworkflow.BatchResult{}, heterociworkflow.ErrBatchReceiptRequired
-		}
-		return receipt, nil
+		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: durable claim already exists for batch %s", ErrCommandInFlight, batch.BatchID)
 	}
 	if err := ctx.Err(); err != nil {
 		return heterociworkflow.BatchResult{}, fmt.Errorf("%w: before runner: %w", ErrCommandExecutor, err)

@@ -52,13 +52,23 @@ type automaticExecutorBinder struct {
 	executors map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor
 }
 
-// Bind 只返回自动 route 预绑定的唯一 local node executor。
-func (binder automaticExecutorBinder) Bind(key heterociworkflow.ExecutorKey) (heterociworkflow.BatchExecutor, error) {
-	executor, ok := binder.executors[key]
-	if !ok {
-		return nil, errors.New("automatic executor binding is unavailable")
+// Bind 一次返回自动 route 计划要求的 exact local node executor map。
+func (binder automaticExecutorBinder) Bind(plan heterociworkflow.ExecutorBindingPlan) (map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, error) {
+	if err := plan.Validate(); err != nil {
+		return nil, errors.New("automatic executor binding plan is invalid")
 	}
-	return executor, nil
+	bound := make(map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, len(plan.Bindings))
+	for _, binding := range plan.Bindings {
+		executor, ok := binder.executors[binding.Key]
+		if !ok {
+			return nil, errors.New("automatic executor binding is unavailable")
+		}
+		if executor == nil {
+			return nil, errors.New("automatic executor binding is nil")
+		}
+		bound[binding.Key] = executor
+	}
+	return bound, nil
 }
 
 // dispatchAutomaticRun 执行同一 automatic config 生成的 durable local-first workflow。

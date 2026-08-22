@@ -75,29 +75,21 @@ func (store *PostgreSQLReceiptStore) AppendEvent(ctx context.Context, event Post
 	if err != nil {
 		return err
 	}
-	for range postgreSQLReceiptMutationAttempts {
-		ambiguous, err := store.appendEventOnce(ctx, event, encoded, digest)
-		if err == nil {
-			return nil
-		}
-		if ambiguous {
-			resolved, retry, reconcileErr := store.reconcileEvent(ctx, event, encoded, digest)
-			if reconcileErr != nil {
-				return reconcileErr
-			}
-			if resolved {
-				return nil
-			}
-			if retry {
-				continue
-			}
-		}
-		if postgreSQLReceiptRetryable(err) {
-			continue
-		}
-		return err
+	ambiguous, err := store.appendEventOnce(ctx, event, encoded, digest)
+	if err == nil {
+		return nil
 	}
-	return fmt.Errorf("%w: event retry budget exhausted", ErrPostgreSQLReceiptStore)
+	if !ambiguous {
+		return wrapPostgreSQLReceiptMutationError("append event", err)
+	}
+	resolved, reconcileErr := store.reconcileEvent(ctx, event, encoded, digest)
+	if reconcileErr != nil {
+		return reconcileErr
+	}
+	if resolved {
+		return nil
+	}
+	return errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 }
 
 func (store *PostgreSQLReceiptStore) appendEventOnce(ctx context.Context, event PostgreSQLReceiptEvent, encoded []byte, digest string) (bool, error) {
@@ -211,28 +203,28 @@ func validatePostgreSQLReceiptSequence(head postgresqlReceiptEventRow, found boo
 	return validatePostgreSQLReceiptStateAndIdentity(head, event)
 }
 
-func (store *PostgreSQLReceiptStore) reconcileEvent(ctx context.Context, event PostgreSQLReceiptEvent, encoded []byte, digest string) (bool, bool, error) {
+func (store *PostgreSQLReceiptStore) reconcileEvent(ctx context.Context, event PostgreSQLReceiptEvent, encoded []byte, digest string) (bool, error) {
 	tx, err := store.beginStructuredReceiptTransaction(ctx, event.OperationID)
 	if err != nil {
-		return false, false, err
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
 	persisted, found, err := readPostgreSQLReceiptEvent(ctx, tx, event.OperationID, event.Seq)
 	if err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, rollbackPostgreSQLReceiptTransaction(tx, err))
 	}
 	if !found {
 		if err := tx.Commit(); err != nil {
-			return false, true, fmt.Errorf("%w: event reconciliation read commit: %w", ErrPostgreSQLReceiptStore, err)
+			return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 		}
-		return false, true, nil
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, errors.New("event commit was not observed"))
 	}
 	if err := validatePostgreSQLReceiptEventReplay(persisted, event, encoded, digest); err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
 	}
 	if err := tx.Commit(); err != nil {
-		return false, false, fmt.Errorf("%w: event reconciliation commit: %w", ErrPostgreSQLReceiptStore, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
-	return true, false, nil
+	return true, nil
 }
 
 // ReadReceiptEvents 从同一 primary 的 SERIALIZABLE snapshot 返回完整有序 event sequence。
@@ -265,29 +257,21 @@ func (store *PostgreSQLReceiptStore) WriteTerminalReceipt(ctx context.Context, r
 	if err != nil {
 		return err
 	}
-	for range postgreSQLReceiptMutationAttempts {
-		ambiguous, err := store.writeTerminalReceiptOnce(ctx, receipt, encoded, digest)
-		if err == nil {
-			return nil
-		}
-		if ambiguous {
-			resolved, retry, reconcileErr := store.reconcileTerminalReceipt(ctx, receipt, encoded, digest)
-			if reconcileErr != nil {
-				return reconcileErr
-			}
-			if resolved {
-				return nil
-			}
-			if retry {
-				continue
-			}
-		}
-		if postgreSQLReceiptRetryable(err) {
-			continue
-		}
-		return err
+	ambiguous, err := store.writeTerminalReceiptOnce(ctx, receipt, encoded, digest)
+	if err == nil {
+		return nil
 	}
-	return fmt.Errorf("%w: terminal receipt retry budget exhausted", ErrPostgreSQLReceiptStore)
+	if !ambiguous {
+		return wrapPostgreSQLReceiptMutationError("write terminal receipt", err)
+	}
+	resolved, reconcileErr := store.reconcileTerminalReceipt(ctx, receipt, encoded, digest)
+	if reconcileErr != nil {
+		return reconcileErr
+	}
+	if resolved {
+		return nil
+	}
+	return errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 }
 
 func persistPostgreSQLTerminalReceipt(ctx context.Context, tx *sql.Tx, receipt PostgreSQLTerminalReceipt, encoded []byte, digest string) (bool, error) {
@@ -336,35 +320,35 @@ func (store *PostgreSQLReceiptStore) writeTerminalReceiptOnce(ctx context.Contex
 	return commitPostgreSQLReceiptMutation(tx)
 }
 
-func (store *PostgreSQLReceiptStore) reconcileTerminalReceipt(ctx context.Context, receipt PostgreSQLTerminalReceipt, encoded []byte, digest string) (bool, bool, error) {
+func (store *PostgreSQLReceiptStore) reconcileTerminalReceipt(ctx context.Context, receipt PostgreSQLTerminalReceipt, encoded []byte, digest string) (bool, error) {
 	tx, err := store.beginStructuredReceiptTransaction(ctx, receipt.OperationID)
 	if err != nil {
-		return false, false, err
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
 	persisted, found, err := readPostgreSQLTerminalReceipt(ctx, tx, receipt.OperationID)
 	if err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, rollbackPostgreSQLReceiptTransaction(tx, err))
 	}
 	if !found {
 		if err := tx.Commit(); err != nil {
-			return false, true, fmt.Errorf("%w: terminal reconciliation read commit: %w", ErrPostgreSQLReceiptStore, err)
+			return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 		}
-		return false, true, nil
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, errors.New("terminal receipt commit was not observed"))
 	}
 	events, chainErr := readPostgreSQLReceiptEventChain(ctx, tx, receipt.OperationID)
 	if chainErr != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, chainErr)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, rollbackPostgreSQLReceiptTransaction(tx, chainErr))
 	}
 	if chainErr := validatePostgreSQLReceiptEventChain(events, receipt); chainErr != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, chainErr)
+		return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(chainErr))
 	}
 	if err := validatePostgreSQLTerminalReceiptReplay(persisted, receipt, encoded, digest); err != nil {
-		return false, false, rollbackPostgreSQLReceiptTransaction(tx, err)
+		return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
 	}
 	if err := tx.Commit(); err != nil {
-		return false, false, fmt.Errorf("%w: terminal reconciliation commit: %w", ErrPostgreSQLReceiptStore, err)
+		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
-	return true, false, nil
+	return true, nil
 }
 
 // ReadTerminalReceipt 读取并验证单一 operation 的完整 terminal receipt。
