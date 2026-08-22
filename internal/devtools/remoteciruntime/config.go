@@ -48,6 +48,11 @@ func LoadConfig(configPath string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	return DecodeConfig(data)
+}
+
+// DecodeConfig 从调用方已经冻结的同一字节快照 strict decode 并完整校验配置。
+func DecodeConfig(data []byte) (Config, error) {
 	var config Config
 	if err := gatecontract.DecodeCanonicalStrictJSON(data, &config); err != nil {
 		return Config{}, err
