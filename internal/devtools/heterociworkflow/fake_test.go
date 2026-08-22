@@ -21,17 +21,18 @@ func (fakeProbeTransport) Probe(context.Context, string, []byte) (heteroci.Probe
 }
 
 type fakeOwner struct {
-	events       *[]string
-	now          time.Time
-	fence        heteroci.OwnerFence
-	planned      heterociowner.DurableReservedRoutingPlan
-	run          heterociowner.DurableRunState
-	locateStates []heterociowner.DurableRunState
-	readErr      error
-	startCount   int
-	finishCount  int
-	cancelCount  int
-	planRequest  heteroci.TopologyPlanRequest
+	events         *[]string
+	now            time.Time
+	fence          heteroci.OwnerFence
+	planned        heterociowner.DurableReservedRoutingPlan
+	run            heterociowner.DurableRunState
+	locateStates   []heterociowner.DurableRunState
+	readErr        error
+	startCount     int
+	startSnapshots []heteroci.SnapshotSet
+	finishCount    int
+	cancelCount    int
+	planRequest    heteroci.TopologyPlanRequest
 }
 
 func (owner *fakeOwner) record(event string) {
@@ -105,6 +106,7 @@ func (owner *fakeOwner) ReadRun(context.Context, heteroci.TopologyRunID) (hetero
 func (owner *fakeOwner) Start(_ context.Context, fence heteroci.OwnerFence, _ heteroci.OperationID, runID heteroci.TopologyRunID, unitID string, snapshot heteroci.SnapshotSet) (heteroci.StartedRoutingLease, error) {
 	owner.record("start")
 	owner.startCount++
+	owner.startSnapshots = append(owner.startSnapshots, snapshot)
 	if snapshot.OwnerEpoch != fence.OwnerEpoch {
 		return heteroci.StartedRoutingLease{}, errors.New("fake start snapshot epoch drifted")
 	}
@@ -194,7 +196,6 @@ func fakePlannedLeases(runID string, decision heteroci.RoutingDecision, reserved
 			Endpoint:            assignment.Endpoint,
 			ProbeIdentity:       assignment.ProbeIdentity,
 			ProbeBootID:         assignment.ProbeBootID,
-			ECITier:             assignment.ECITier,
 			State:               heteroci.LeaseStatePlanned,
 			ReservedAtUnixMilli: reservedAt,
 		})
@@ -289,17 +290,12 @@ func newWorkflowFixture(executor BatchExecutor) *workflowFixture {
 	manifest := heteroci.Manifest{
 		SchemaVersion: heteroci.ManifestSchemaVersion,
 		Authority:     heteroci.AuthorityLocalNonAuthoritative,
-		Nodes: []heteroci.NodeConfig{{
-			NodeID:        "workflow-node-1",
-			Endpoint:      "https://workflow-node-1.invalid/runner",
-			ProbeIdentity: "sha256:" + strings.Repeat("1", 64),
-			Platform:      heteroci.PlatformLinuxAMD64,
-			Capabilities: []heteroci.CapabilityConfig{{
-				Runtime:     heteroci.RuntimeUbuntuContainer,
-				Image:       "ubuntu:24.04",
-				ImageDigest: workflowTestImageDigest,
-			}},
-		}},
+		Nodes: []heteroci.NodeConfig{
+			{NodeID: "workflow-node-1", Endpoint: "https://workflow-node-1.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("1", 64), Platform: heteroci.PlatformLinuxAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: workflowTestImageDigest}}},
+			{NodeID: "workflow-node-2", Endpoint: "https://workflow-node-2.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("2", 64), Platform: heteroci.PlatformLinuxAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: workflowTestImageDigest}}},
+			{NodeID: "workflow-node-3", Endpoint: "https://workflow-node-3.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("3", 64), Platform: heteroci.PlatformWindowsAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeWindowsNative}}},
+			{NodeID: "workflow-node-4", Endpoint: "https://workflow-node-4.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("4", 64), Platform: heteroci.PlatformWindowsAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeWindowsNative}}},
+		},
 	}
 	capacity := heteroci.ResourceCapacity{CPUMilli: 4_000, MemoryBytes: 8 << 30, MaxConcurrency: 4}
 	snapshot := heteroci.SnapshotSet{
@@ -308,19 +304,14 @@ func newWorkflowFixture(executor BatchExecutor) *workflowFixture {
 		OwnerEpoch:          1,
 		CapacityBasis:       heteroci.SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations,
 		CapturedAtUnixMilli: now.UnixMilli(),
-		Nodes: []heteroci.NodeSnapshot{{
-			NodeID:             manifest.Nodes[0].NodeID,
-			Endpoint:           manifest.Nodes[0].Endpoint,
-			Platform:           manifest.Nodes[0].Platform,
-			ProbeIdentity:      manifest.Nodes[0].ProbeIdentity,
-			ProbeBootID:        "boot-workflow-node-1",
-			ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: workflowTestImageDigest}},
-			Status:             heteroci.NodeStatusLive,
-			HeartbeatUnixMilli: now.UnixMilli(),
-			Total:              capacity,
-			Available:          capacity,
-		}},
+		Nodes: []heteroci.NodeSnapshot{
+			{NodeID: manifest.Nodes[0].NodeID, Endpoint: manifest.Nodes[0].Endpoint, Platform: manifest.Nodes[0].Platform, ProbeIdentity: manifest.Nodes[0].ProbeIdentity, ProbeBootID: "boot-workflow-node-1", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: workflowTestImageDigest}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+			{NodeID: manifest.Nodes[1].NodeID, Endpoint: manifest.Nodes[1].Endpoint, Platform: manifest.Nodes[1].Platform, ProbeIdentity: manifest.Nodes[1].ProbeIdentity, ProbeBootID: "boot-workflow-node-2", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: workflowTestImageDigest}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+			{NodeID: manifest.Nodes[2].NodeID, Endpoint: manifest.Nodes[2].Endpoint, Platform: manifest.Nodes[2].Platform, ProbeIdentity: manifest.Nodes[2].ProbeIdentity, ProbeBootID: "boot-workflow-node-3", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeWindowsNative}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+			{NodeID: manifest.Nodes[3].NodeID, Endpoint: manifest.Nodes[3].Endpoint, Platform: manifest.Nodes[3].Platform, ProbeIdentity: manifest.Nodes[3].ProbeIdentity, ProbeBootID: "boot-workflow-node-4", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeWindowsNative}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+		},
 	}
+	snapshot.Nodes[1].Available = heteroci.ResourceCapacity{}
 	units := []heteroci.ExecutionUnit{{UnitID: "unit-1", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 << 20}}
 	events := make([]string, 0, 16)
 	owner := &fakeOwner{events: &events, now: now}
@@ -338,10 +329,10 @@ func newWorkflowFixture(executor BatchExecutor) *workflowFixture {
 		},
 		AcquireSnapshot: func(_ context.Context, _ heteroci.Manifest, epoch heteroci.RoutingOwnerEpoch, _ heteroci.ProbeTransport, at time.Time, _ time.Duration) (heteroci.SnapshotSet, error) {
 			fixture.events = append(fixture.events, "snapshot")
-			copySnapshot := snapshot
+			copySnapshot := fixture.snapshot
 			copySnapshot.OwnerEpoch = epoch
 			copySnapshot.CapturedAtUnixMilli = at.UnixMilli()
-			copySnapshot.Nodes = append([]heteroci.NodeSnapshot(nil), snapshot.Nodes...)
+			copySnapshot.Nodes = append([]heteroci.NodeSnapshot(nil), fixture.snapshot.Nodes...)
 			copySnapshot.Nodes[0].HeartbeatUnixMilli = at.UnixMilli()
 			return copySnapshot, nil
 		},

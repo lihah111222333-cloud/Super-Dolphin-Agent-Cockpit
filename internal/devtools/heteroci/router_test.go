@@ -19,8 +19,8 @@ func TestBuildRoutingDecisionAllLocalAssignmentsAreExactAndCanonical(t *testing.
 	}
 
 	plan, decision := routerTestPlan(t, manifest, snapshot, units, now)
-	if decision.SchemaVersion != "heteroci-routing-decision/v2" {
-		t.Fatalf("routing decision schema = %q, want heteroci-routing-decision/v2", decision.SchemaVersion)
+	if decision.SchemaVersion != "heteroci-routing-decision/v4" {
+		t.Fatalf("routing decision schema = %q, want heteroci-routing-decision/v4", decision.SchemaVersion)
 	}
 	if len(plan.UnassignedUnitIDs) != 0 {
 		t.Fatalf("all-local plan has unassigned units: %#v", plan.UnassignedUnitIDs)
@@ -76,116 +76,24 @@ func TestRoutingDecisionRejectsLocalIdentityDriftAndDigestMutation(t *testing.T)
 	}
 }
 
-func TestRoutingDecisionRejectsECIIdentityDriftAndDigestMutation(t *testing.T) {
+func TestBuildRoutingDecisionRejectsOversizeAsCapacityBlocker(t *testing.T) {
 	manifest, snapshot, now := routerTestZeroCapacityLinux(t)
-	units := []ExecutionUnit{routerTestLinuxUnit("cloud", 500, 256*1024*1024)}
-	plan, decision := routerTestPlan(t, manifest, snapshot, units, now)
-	if len(decision.Assignments) != 1 || decision.Assignments[0].Executor != ExecutorKindAliyunECI {
-		t.Fatalf("ECI fixture decision = %#v", decision)
-	}
-	routerTestAssertECIIdentity(t, decision.Assignments[0])
-	baselineDigest := decision.DecisionDigest
-	cases := []struct {
-		name   string
-		mutate func(*RouteAssignment)
-	}{
-		{name: "node id", mutate: func(assignment *RouteAssignment) { assignment.NodeID = "heteroci-forged" }},
-		{name: "endpoint", mutate: func(assignment *RouteAssignment) { assignment.Endpoint = "https://forged.invalid/runner" }},
-		{name: "probe identity", mutate: func(assignment *RouteAssignment) { assignment.ProbeIdentity = snapshotTestWrongProbeIdentity }},
-		{name: "probe boot id", mutate: func(assignment *RouteAssignment) { assignment.ProbeBootID = "boot-forged" }},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			candidate := decision
-			candidate.Assignments = append([]RouteAssignment(nil), decision.Assignments...)
-			testCase.mutate(&candidate.Assignments[0])
-			candidateDigest, err := candidate.CanonicalDigest()
-			if err != nil {
-				t.Fatalf("mutated ECI decision digest: %v", err)
-			}
-			if candidateDigest == baselineDigest {
-				t.Fatalf("ECI decision digest did not change after %s mutation", testCase.name)
-			}
-			if err := candidate.ValidateAgainst(manifest, snapshot, units, plan, now, snapshotTestHeartbeatTTL); err == nil {
-				t.Fatalf("ValidateAgainst accepted ECI %s identity", testCase.name)
-			}
-		})
-	}
-}
-
-func TestBuildRoutingDecisionRoutesMixedLinuxOverflowToECI(t *testing.T) {
-	manifest := testManifest(1)
-	now := snapshotTestNow()
-	snapshot := snapshotForManifest(manifest, now)
-	units := []ExecutionUnit{
-		routerTestLinuxUnit("local", 500, 256*1024*1024),
-		routerTestLinuxUnit("cloud", 5_000, 9*gibibyte),
-	}
-
-	plan, decision := routerTestPlan(t, manifest, snapshot, units, now)
-	if len(plan.UnassignedUnitIDs) != 1 || plan.UnassignedUnitIDs[0] != "cloud" {
-		t.Fatalf("mixed plan unassigned = %#v, want [cloud]", plan.UnassignedUnitIDs)
-	}
-	assignments := routerTestAssignmentMap(decision)
-	routerTestAssertLocalAssignment(t, assignments["local"], snapshot)
-	if assignments["cloud"].Executor != ExecutorKindAliyunECI || assignments["cloud"].ECITier != ECITier8C16GiB {
-		t.Fatalf("cloud assignment = %#v, want smallest 8c16g ECI tier", assignments["cloud"])
-	}
-	routerTestAssertECIIdentity(t, assignments["cloud"])
-}
-
-func TestBuildRoutingDecisionUsesSmallestECITierAtBoundaries(t *testing.T) {
-	cases := []struct {
-		name string
-		cpu  int64
-		mem  int64
-		want ECIResourceTier
-	}{
-		{name: "2c4g boundary", cpu: 2_000, mem: 4 * gibibyte, want: ECITier2C4GiB},
-		{name: "4c8g boundary", cpu: 4_000, mem: 8 * gibibyte, want: ECITier4C8GiB},
-		{name: "8c16g boundary", cpu: 8_000, mem: 16 * gibibyte, want: ECITier8C16GiB},
-	}
-
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			manifest, snapshot, now := routerTestZeroCapacityLinux(t)
-			units := []ExecutionUnit{routerTestLinuxUnit("boundary", testCase.cpu, testCase.mem)}
-			plan, decision, err := PlanRoutingDecision(manifest, snapshot, units, now, snapshotTestHeartbeatTTL)
-			if err != nil {
-				t.Fatalf("PlanRoutingDecision() = %v", err)
-			}
-			if len(plan.UnassignedUnitIDs) != 1 {
-				t.Fatalf("unassigned units = %#v, want one", plan.UnassignedUnitIDs)
-			}
-			assignment := decision.Assignments[0]
-			if assignment.Executor != ExecutorKindAliyunECI || assignment.ECITier != testCase.want {
-				t.Fatalf("assignment = %#v, want ECI tier %q", assignment, testCase.want)
-			}
-			routerTestAssertECIIdentity(t, assignment)
-		})
-	}
-}
-
-func TestBuildRoutingDecisionRejectsOversizeAndDisabledOverflowAsCapacityBlocker(t *testing.T) {
-	manifest, snapshot, now := routerTestZeroCapacityLinux(t)
-	oversize := []ExecutionUnit{routerTestLinuxUnit("too-large", 8_001, 16*gibibyte)}
+	oversize := []ExecutionUnit{routerTestLinuxUnit("too-large", 8_001, 16*1024*1024*1024)}
 	plan, decision, err := PlanRoutingDecision(manifest, snapshot, oversize, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, err, decision)
 	if !reflect.DeepEqual(plan, PackingPlan{}) {
 		t.Fatalf("oversize plan = %#v, want zero plan on blocker", plan)
 	}
 
-	manifest.CloudOverflow = CloudOverflowConfig{}
-	plan, decision, err = PlanRoutingDecision(manifest, snapshot, []ExecutionUnit{routerTestLinuxUnit("linux", 5_000, 9*gibibyte)}, now, snapshotTestHeartbeatTTL)
+	plan, decision, err = PlanRoutingDecision(manifest, snapshot, []ExecutionUnit{routerTestLinuxUnit("linux", 5_000, 9*1024*1024*1024)}, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, err, decision)
 	if !reflect.DeepEqual(plan, PackingPlan{}) {
-		t.Fatalf("disabled overflow plan = %#v, want zero plan on blocker", plan)
+		t.Fatalf("second capacity blocker plan = %#v, want zero plan on blocker", plan)
 	}
 }
 
 func TestBuildRoutingDecisionReturnsZeroForAnyCapacityBlocker(t *testing.T) {
 	manifest := anchorWaveRoutingManifest()
-	manifest.CloudOverflow = CloudOverflowConfig{Enabled: true, Provider: CloudProviderAliyunECI, Platform: PlatformLinuxAMD64}
 	now := snapshotTestNow()
 	snapshot := snapshotForManifest(manifest, now)
 	for index := range snapshot.Nodes {
@@ -211,7 +119,6 @@ func TestBuildRoutingDecisionReturnsZeroForAnyCapacityBlocker(t *testing.T) {
 
 func TestBuildRoutingDecisionCapacityBlockersAreSortedAndInputOrderIndependent(t *testing.T) {
 	manifest, snapshot, now := routerTestZeroCapacityLinux(t)
-	manifest.CloudOverflow = CloudOverflowConfig{}
 	first := []ExecutionUnit{
 		routerTestLinuxUnit("z-linux", 500, 256*1024*1024),
 		routerTestLinuxUnit("a-linux", 500, 256*1024*1024),
@@ -288,72 +195,20 @@ func TestBuildRoutingDecisionRejectsPackingPseudoUnassignedThatFits(t *testing.T
 	}
 }
 
-func TestBuildRoutingDecisionOfflineCapacityRoutesLinuxAndBlocksWindows(t *testing.T) {
-	manifest := testManifest(1)
+func TestBuildRoutingDecisionOfflineCapacityReturnsBlockerWhenAllMatchingNodesOffline(t *testing.T) {
+	manifest := testManifest(4)
 	now := snapshotTestNow()
 	snapshot := snapshotForManifest(manifest, now)
-	routerTestMarkOffline(&snapshot.Nodes[0])
-	linux := []ExecutionUnit{routerTestLinuxUnit("linux", 500, 256*1024*1024)}
-	plan, decision, err := PlanRoutingDecision(manifest, snapshot, linux, now, snapshotTestHeartbeatTTL)
-	if err != nil || len(plan.UnassignedUnitIDs) != 1 || decision.Assignments[0].Executor != ExecutorKindAliyunECI {
-		t.Fatalf("offline Linux route: plan=%#v decision=%#v err=%v", plan, decision, err)
+	for index := range snapshot.Nodes {
+		if snapshot.Nodes[index].Platform == PlatformLinuxAMD64 {
+			routerTestMarkOffline(&snapshot.Nodes[index])
+		}
 	}
-	routerTestAssertECIIdentity(t, decision.Assignments[0])
-
-	windowsManifest := anchorWaveManifest(anchorWaveNodeWithID("windows", 0, PlatformWindowsAMD64, testWindowsCapability()))
-	windowsSnapshot := snapshotForManifest(windowsManifest, now)
-	routerTestMarkOffline(&windowsSnapshot.Nodes[0])
-	windowsUnit := []ExecutionUnit{{UnitID: "windows", TargetPlatform: PlatformWindowsAMD64, RequiredRuntime: RuntimeWindowsNative, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 * 1024 * 1024}}
-	plan, decision, err = PlanRoutingDecision(windowsManifest, windowsSnapshot, windowsUnit, now, snapshotTestHeartbeatTTL)
+	unit := []ExecutionUnit{routerTestLinuxUnit("linux", 500, 256*1024*1024)}
+	plan, decision, err := PlanRoutingDecision(manifest, snapshot, unit, now, snapshotTestHeartbeatTTL)
 	routerTestAssertCapacityBlocker(t, err, decision)
 	if !reflect.DeepEqual(plan, PackingPlan{}) {
-		t.Fatalf("offline Windows plan = %#v, want zero plan", plan)
-	}
-}
-
-func TestPlanRoutingDecisionBlocksEveryNonLinuxOverflowRuntime(t *testing.T) {
-	cases := []struct {
-		name     string
-		manifest Manifest
-		unit     ExecutionUnit
-	}{
-		{
-			name:     "darling compat",
-			manifest: snapshotTestDarlingManifest(),
-			unit:     ExecutionUnit{UnitID: "darling", TargetPlatform: PlatformDarwinAMD64, RequiredRuntime: RuntimeDarlingCompatRuntime, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 * 1024 * 1024},
-		},
-		{
-			name:     "darwin native amd64",
-			manifest: anchorWaveManifest(anchorWaveNodeWithID("darwin-amd64", 0, PlatformDarwinAMD64, testDarwinNativeCapability())),
-			unit:     ExecutionUnit{UnitID: "darwin-amd64", TargetPlatform: PlatformDarwinAMD64, RequiredRuntime: RuntimeDarwinNative, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 * 1024 * 1024},
-		},
-		{
-			name:     "darwin native arm64",
-			manifest: anchorWaveManifest(anchorWaveNodeWithID("darwin-arm64", 0, PlatformDarwinARM64, testDarwinNativeCapability())),
-			unit:     ExecutionUnit{UnitID: "darwin-arm64", TargetPlatform: PlatformDarwinARM64, RequiredRuntime: RuntimeDarwinNative, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 * 1024 * 1024},
-		},
-		{
-			name:     "docker osx",
-			manifest: testDockerOSXManifest(),
-			unit:     ExecutionUnit{UnitID: "docker-osx", TargetPlatform: PlatformDarwinAMD64, RequiredRuntime: RuntimeDockerOSXExperimental, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 * 1024 * 1024},
-		},
-	}
-
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			now := snapshotTestNow()
-			snapshot := snapshotForManifest(testCase.manifest, now)
-			snapshot.Nodes[0].Available = ResourceCapacity{}
-			plan, decision, err := PlanRoutingDecision(testCase.manifest, snapshot, []ExecutionUnit{testCase.unit}, now, snapshotTestHeartbeatTTL)
-			routerTestAssertCapacityBlocker(t, err, decision)
-			if !reflect.DeepEqual(plan, PackingPlan{}) {
-				t.Fatalf("non-Linux overflow plan = %#v, want zero plan", plan)
-			}
-			blockerErr := routerTestCapacityBlockerError(t, err)
-			if len(blockerErr.Blockers) != 1 || blockerErr.Blockers[0].TargetPlatform != testCase.unit.TargetPlatform || blockerErr.Blockers[0].RequiredRuntime != testCase.unit.RequiredRuntime {
-				t.Fatalf("capacity blocker = %#v, want unit target/runtime %#v", blockerErr.Blockers, testCase.unit)
-			}
-		})
+		t.Fatalf("offline Linux plan = %#v, want zero plan", plan)
 	}
 }
 
@@ -374,10 +229,8 @@ func TestRouterHasNoFallbackOrSecondExecutorSurface(t *testing.T) {
 			t.Fatalf("route assignment exposes forbidden fallback/second-executor field %q", fieldName)
 		}
 	}
-	for _, executor := range []ExecutorKind{ExecutorKindLocalNode, ExecutorKindAliyunECI} {
-		if executor != ExecutorKindLocalNode && executor != ExecutorKindAliyunECI {
-			t.Fatalf("unexpected executor kind %q", executor)
-		}
+	if ExecutorKindLocalNode != "local_node" {
+		t.Fatalf("unexpected local executor kind %q", ExecutorKindLocalNode)
 	}
 }
 
@@ -410,7 +263,11 @@ func routerTestZeroCapacityLinux(t *testing.T) (Manifest, SnapshotSet, time.Time
 	manifest := testManifest(1)
 	now := snapshotTestNow()
 	snapshot := snapshotForManifest(manifest, now)
-	snapshot.Nodes[0].Available = ResourceCapacity{}
+	for index := range snapshot.Nodes {
+		if snapshot.Nodes[index].Platform == PlatformLinuxAMD64 {
+			snapshot.Nodes[index].Available = ResourceCapacity{}
+		}
+	}
 	return manifest, snapshot, now
 }
 
@@ -438,7 +295,7 @@ func routerTestAssertLocalAssignments(t *testing.T, decision RoutingDecision, sn
 			t.Fatalf("assignment %q appears more than once", assignment.UnitID)
 		}
 		seen[assignment.UnitID] = struct{}{}
-		if assignment.Executor != ExecutorKindLocalNode || assignment.NodeID == "" || assignment.ECITier != "" {
+		if assignment.Executor != ExecutorKindLocalNode || assignment.NodeID == "" {
 			t.Fatalf("assignment %d is not a local-only binding: %#v", index, assignment)
 		}
 		routerTestAssertLocalAssignment(t, assignment, snapshot)
@@ -458,13 +315,6 @@ func routerTestAssertLocalAssignment(t *testing.T, assignment RouteAssignment, s
 		return
 	}
 	t.Fatalf("assignment %q references unknown local node %q", assignment.UnitID, assignment.NodeID)
-}
-
-func routerTestAssertECIIdentity(t *testing.T, assignment RouteAssignment) {
-	t.Helper()
-	if assignment.NodeID != "" || assignment.Endpoint != "" || assignment.ProbeIdentity != "" || assignment.ProbeBootID != "" {
-		t.Fatalf("ECI assignment carries local identity: %#v", assignment)
-	}
 }
 
 func routerTestAssertCapacityBlocker(t *testing.T, err error, decision RoutingDecision) {

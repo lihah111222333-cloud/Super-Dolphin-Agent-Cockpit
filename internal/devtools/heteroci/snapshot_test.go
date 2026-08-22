@@ -616,24 +616,10 @@ func snapshotTestProbeIdentity(index int) string {
 }
 
 func snapshotTestManifest(nodeCount int) Manifest {
-	manifest := Manifest{
-		SchemaVersion: ManifestSchemaVersion,
-		Authority:     AuthorityLocalNonAuthoritative,
-		Nodes:         make([]NodeConfig, nodeCount),
-	}
+	manifest := Manifest{SchemaVersion: ManifestSchemaVersion, Authority: AuthorityLocalNonAuthoritative, Nodes: make([]NodeConfig, nodeCount)}
 	for index := range manifest.Nodes {
 		nodeID := fmt.Sprintf("heteroci-node-%d", index+1)
-		manifest.Nodes[index] = NodeConfig{
-			NodeID:        nodeID,
-			Endpoint:      "https://" + nodeID + ".invalid/runner",
-			ProbeIdentity: snapshotTestProbeIdentity(index),
-			Platform:      PlatformLinuxAMD64,
-			Capabilities: []CapabilityConfig{{
-				Runtime:     RuntimeUbuntuContainer,
-				Image:       "ubuntu:24.04",
-				ImageDigest: snapshotTestImageDigest,
-			}},
-		}
+		manifest.Nodes[index] = NodeConfig{NodeID: nodeID, Endpoint: "https://" + nodeID + ".invalid/runner", ProbeIdentity: snapshotTestProbeIdentity(index), Platform: PlatformLinuxAMD64, Capabilities: []CapabilityConfig{{Runtime: RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: snapshotTestImageDigest}}}
 	}
 	return manifest
 }

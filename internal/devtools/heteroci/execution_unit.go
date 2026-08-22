@@ -70,7 +70,7 @@ func ValidateExecutionUnits(units []ExecutionUnit) error {
 }
 
 // executionUnitCanRunOnNode 判断工作单元是否能在当前 live 节点的已激活运行时上执行。
-// 该判断只检查平台、运行时能力和 live 状态，不做资源装箱、ECI 溢出或 fallback 决策。
+// 该判断只检查平台、运行时能力和 live 状态，不做资源装箱或 fallback 决策。
 func executionUnitCanRunOnNode(unit ExecutionUnit, node NodeSnapshot) bool {
 	if unit.Validate() != nil || node.Status != NodeStatusLive || !isCanonicalPlatform(node.Platform) {
 		return false

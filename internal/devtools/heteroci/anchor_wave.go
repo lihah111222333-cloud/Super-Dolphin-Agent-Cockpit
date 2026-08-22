@@ -51,14 +51,14 @@ func BuildAnchorWavePlan(manifest Manifest, snapshot SnapshotSet, units []Execut
 		return anchorUnitLess(orderedUnits[i], orderedUnits[j])
 	})
 	globalMakespan := int64(0)
-	unassigned := make([]string, 0)
+	blockers := make([]CapacityBlocker, 0)
 	for _, unit := range orderedUnits {
 		candidate, found, err := chooseAnchorCandidate(states, unit, globalMakespan)
 		if err != nil {
 			return PackingPlan{}, fmt.Errorf("choose anchor wave for unit %q: %w", unit.UnitID, err)
 		}
 		if !found {
-			unassigned = append(unassigned, unit.UnitID)
+			blockers = append(blockers, *newCapacityBlocker(unit, routingBlockerCapacity))
 			continue
 		}
 		if err := applyAnchorCandidate(states, candidate, unit); err != nil {
@@ -66,8 +66,12 @@ func BuildAnchorWavePlan(manifest Manifest, snapshot SnapshotSet, units []Execut
 		}
 		globalMakespan = candidate.projectedGlobal
 	}
+	if len(blockers) != 0 {
+		sort.Slice(blockers, func(left, right int) bool { return capacityBlockerLess(blockers[left], blockers[right]) })
+		return PackingPlan{}, &CapacityBlockerError{Blockers: blockers}
+	}
 
-	plan := anchorPlanFromStates(snapshot, states, unassigned)
+	plan := anchorPlanFromStates(snapshot, states, nil)
 	if err := plan.ValidateAgainst(manifest, snapshot, units, now, heartbeatTTL); err != nil {
 		return PackingPlan{}, fmt.Errorf("validate anchor wave plan: %w", err)
 	}

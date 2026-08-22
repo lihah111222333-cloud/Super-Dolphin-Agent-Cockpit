@@ -57,7 +57,7 @@ func TestHeterociRoutingStartRejectsStaleHeartbeatWithoutMutation(t *testing.T) 
 
 func prepareHeterociRoutingStartBehavior(t *testing.T, runID string) (heterociRoutingLeaseFixture, heteroci.RouteAssignment, *heteroci.RoutingLeaseBook) {
 	t.Helper()
-	fixture := newHeterociRoutingLeaseFixture(t, false)
+	fixture := newHeterociRoutingLeaseFixture(t)
 	assignment := assertHeterociRoutingDecision(t, fixture, heteroci.ExecutorKindLocalNode)
 	book := heteroci.NewRoutingLeaseBook()
 	leases, err := book.Reserve(runID, fixture.decision, fixture.manifest, fixture.snapshot, fixture.units, fixture.plan, fixture.now, fixture.heartbeatTTL)

@@ -1,7 +1,7 @@
 package heteroci
 
 // RoutingLeaseSchemaVersion 是异构 CI 路由租约 wire schema 的冻结版本。
-const RoutingLeaseSchemaVersion = "heteroci-routing-lease/v2"
+const RoutingLeaseSchemaVersion = "heteroci-routing-lease/v4"
 
 // RoutingLeaseState 表示路由租约的生命周期状态。
 type RoutingLeaseState string
@@ -33,16 +33,14 @@ type RoutingLease struct {
 	UnitID string `json:"unit_id"`
 	// Executor 是承载工作单元的执行器类别。
 	Executor ExecutorKind `json:"executor"`
-	// NodeID 是本地执行器节点标识；ECI 执行时为空。
+	// NodeID 是本地执行器节点标识。
 	NodeID string `json:"node_id"`
-	// Endpoint 是本地执行器节点的执行端点；ECI 执行时为空。
+	// Endpoint 是本地执行器节点的执行端点。
 	Endpoint string `json:"endpoint"`
 	// ProbeIdentity 是绑定节点容量与探针生命周期的稳定身份摘要。
 	ProbeIdentity string `json:"probe_identity"`
 	// ProbeBootID 是绑定节点当前启动生命周期的探针启动标识。
 	ProbeBootID string `json:"probe_boot_id"`
-	// ECITier 是 ECI 执行时使用的固定资源档位；本地执行时为空。
-	ECITier ECIResourceTier `json:"eci_tier"`
 	// State 是租约当前的生命周期状态。
 	State RoutingLeaseState `json:"state"`
 	// ReservedAtUnixMilli 是租约预留时间的 Unix 毫秒时间戳。

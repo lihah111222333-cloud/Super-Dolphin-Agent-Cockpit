@@ -65,7 +65,7 @@ func TestWorkflowExecutorErrorRecoversFromSingleDurableReceipt(t *testing.T) {
 	if fixture.owner.finishCount != 1 || fixture.owner.cancelCount != 0 || len(result.Units) != 1 || result.Units[0].State != heteroci.LeaseStateSucceeded {
 		t.Fatalf("receipt recovery result=%+v finish/cancel=%d/%d", result.Units, fixture.owner.finishCount, fixture.owner.cancelCount)
 	}
-	if err := assertWorkflowEvents(fixture.events, "load", "acquire", "locate", "snapshot", "plan", "read", "bind", "snapshot", "start", "execute", "receipt", "finish"); err != nil {
+	if err := assertWorkflowEvents(fixture.events, "load", "acquire", "locate", "snapshot", "plan", "read", "bind", "start", "execute", "receipt", "finish"); err != nil {
 		t.Fatal(err)
 	}
 }

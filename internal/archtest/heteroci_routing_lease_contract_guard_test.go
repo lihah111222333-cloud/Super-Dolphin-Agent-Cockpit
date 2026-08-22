@@ -14,13 +14,13 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 )
 
-// TestHeterociRoutingSchemaVersionsFreezeV2 prevents a legacy routing wire
+// TestHeterociRoutingSchemaVersionsFreezeV3 prevents a legacy routing wire
 // identity from being accepted as a current local routing decision or lease.
-func TestHeterociRoutingSchemaVersionsFreezeV2(t *testing.T) {
-	if got, want := heteroci.RoutingDecisionSchemaVersion, "heteroci-routing-decision/v2"; got != want {
+func TestHeterociRoutingSchemaVersionsFreezeV3(t *testing.T) {
+	if got, want := heteroci.RoutingDecisionSchemaVersion, "heteroci-routing-decision/v4"; got != want {
 		t.Fatalf("RoutingDecisionSchemaVersion = %q, want %q", got, want)
 	}
-	if got, want := heteroci.RoutingLeaseSchemaVersion, "heteroci-routing-lease/v2"; got != want {
+	if got, want := heteroci.RoutingLeaseSchemaVersion, "heteroci-routing-lease/v4"; got != want {
 		t.Fatalf("RoutingLeaseSchemaVersion = %q, want %q", got, want)
 	}
 }
@@ -35,7 +35,6 @@ func TestHeterociRoutingWireLayoutsAreExact(t *testing.T) {
 		{name: "Endpoint", typ: reflect.TypeFor[string](), tag: `json:"endpoint"`},
 		{name: "ProbeIdentity", typ: reflect.TypeFor[string](), tag: `json:"probe_identity"`},
 		{name: "ProbeBootID", typ: reflect.TypeFor[string](), tag: `json:"probe_boot_id"`},
-		{name: "ECITier", typ: reflect.TypeFor[heteroci.ECIResourceTier](), tag: `json:"eci_tier"`},
 	})
 	assertHeterociRoutingStructLayout(t, reflect.TypeFor[heteroci.RoutingLease](), []heterociRoutingFieldSpec{
 		{name: "SchemaVersion", typ: reflect.TypeFor[string](), tag: `json:"schema_version"`},
@@ -48,7 +47,6 @@ func TestHeterociRoutingWireLayoutsAreExact(t *testing.T) {
 		{name: "Endpoint", typ: reflect.TypeFor[string](), tag: `json:"endpoint"`},
 		{name: "ProbeIdentity", typ: reflect.TypeFor[string](), tag: `json:"probe_identity"`},
 		{name: "ProbeBootID", typ: reflect.TypeFor[string](), tag: `json:"probe_boot_id"`},
-		{name: "ECITier", typ: reflect.TypeFor[heteroci.ECIResourceTier](), tag: `json:"eci_tier"`},
 		{name: "State", typ: reflect.TypeFor[heteroci.RoutingLeaseState](), tag: `json:"state"`},
 		{name: "ReservedAtUnixMilli", typ: reflect.TypeFor[int64](), tag: `json:"reserved_at_unix_milli"`},
 		{name: "StartedAtUnixMilli", typ: reflect.TypeFor[int64](), tag: `json:"started_at_unix_milli"`},
@@ -90,39 +88,11 @@ func assertHeterociRoutingStructLayout(t *testing.T, got reflect.Type, want []he
 // production chain from a live NodeSnapshot through assignment digest,
 // planned lease reservation, and an exact Start binding.
 func TestHeterociRoutingLocalIdentityChainGuardsFourIdentities(t *testing.T) {
-	fixture := newHeterociRoutingLeaseFixture(t, false)
+	fixture := newHeterociRoutingLeaseFixture(t)
 	assignment := assertHeterociRoutingDecision(t, fixture, heteroci.ExecutorKindLocalNode)
 	assertHeterociRoutingDecisionDigest(t, fixture)
 	assertHeterociLocalAssignmentIdentities(t, fixture, assignment)
 	reserveAndStartHeterociRoutingLease(t, fixture, assignment, "r9b-local-run")
-}
-
-// TestHeterociRoutingECIIdentityIsExplicitlyEmpty guards the ECI branch from
-// leaking a local node identity into the cloud overflow lease.
-func TestHeterociRoutingECIIdentityIsExplicitlyEmpty(t *testing.T) {
-	fixture := newHeterociRoutingLeaseFixture(t, true)
-	assignment := assertHeterociRoutingDecision(t, fixture, heteroci.ExecutorKindAliyunECI)
-	if assignment.NodeID != "" || assignment.Endpoint != "" || assignment.ProbeIdentity != "" || assignment.ProbeBootID != "" {
-		t.Fatalf("ECI assignment carries local identity: %#v", assignment)
-	}
-	if assignment.ECITier == "" {
-		t.Fatal("ECI assignment must carry a fixed resource tier")
-	}
-
-	book := heteroci.NewRoutingLeaseBook()
-	leases, err := book.Reserve("r9b-eci-run", fixture.decision, fixture.manifest, fixture.snapshot, fixture.units, fixture.plan, fixture.now, fixture.heartbeatTTL)
-	if err != nil {
-		t.Fatalf("ECI RoutingLeaseBook.Reserve() = %v", err)
-	}
-	if len(leases) != 1 {
-		t.Fatalf("ECI planned lease count = %d, want 1", len(leases))
-	}
-	assertHeterociRoutingLeaseBinding(t, leases[0], assignment, heteroci.LeaseStatePlanned)
-	started, err := book.Start("r9b-eci-run", assignment.UnitID, fixture.snapshot, fixture.now.Add(time.Second))
-	if err != nil {
-		t.Fatalf("ECI RoutingLeaseBook.Start() = %v", err)
-	}
-	assertHeterociRoutingLeaseBinding(t, started, assignment, heteroci.LeaseStateStarted)
 }
 
 type heterociRoutingLeaseFixture struct {
@@ -153,9 +123,6 @@ func assertHeterociLocalAssignmentIdentities(t *testing.T, fixture heterociRouti
 	assertHeterociStringEqual(t, "local endpoint", assignment.Endpoint, node.Endpoint)
 	assertHeterociStringEqual(t, "local probe_identity", assignment.ProbeIdentity, node.ProbeIdentity)
 	assertHeterociStringEqual(t, "local probe_boot_id", assignment.ProbeBootID, node.ProbeBootID)
-	if assignment.ECITier != "" {
-		t.Fatalf("local assignment carries ECI tier %q", assignment.ECITier)
-	}
 }
 
 func reserveAndStartHeterociRoutingLease(t *testing.T, fixture heterociRoutingLeaseFixture, assignment heteroci.RouteAssignment, runID string) {
@@ -176,7 +143,7 @@ func reserveAndStartHeterociRoutingLease(t *testing.T, fixture heterociRoutingLe
 	assertHeterociRoutingLeaseBinding(t, started, assignment, heteroci.LeaseStateStarted)
 }
 
-func newHeterociRoutingLeaseFixture(t *testing.T, eci bool) heterociRoutingLeaseFixture {
+func newHeterociRoutingLeaseFixture(t *testing.T) heterociRoutingLeaseFixture {
 	t.Helper()
 	now := time.UnixMilli(1_700_000_000_000)
 	const nodeID = "r9b-local-node"
@@ -186,7 +153,6 @@ func newHeterociRoutingLeaseFixture(t *testing.T, eci bool) heterociRoutingLease
 	manifest := heteroci.Manifest{
 		SchemaVersion: heteroci.ManifestSchemaVersion,
 		Authority:     heteroci.AuthorityLocalNonAuthoritative,
-		CloudOverflow: heteroci.CloudOverflowConfig{Enabled: true, Provider: heteroci.CloudProviderAliyunECI, Platform: heteroci.PlatformLinuxAMD64},
 		Nodes: []heteroci.NodeConfig{{
 			NodeID: nodeID, Endpoint: endpoint, ProbeIdentity: probeIdentity, Platform: heteroci.PlatformLinuxAMD64,
 			Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeUbuntuContainer, Image: "ubuntu:22.04", ImageDigest: imageDigest}},
@@ -210,9 +176,6 @@ func newHeterociRoutingLeaseFixture(t *testing.T, eci bool) heterociRoutingLease
 			Available: heteroci.ResourceCapacity{CPUMilli: 2_000, MemoryBytes: 4 * 1024 * 1024 * 1024, MaxConcurrency: 1},
 		}},
 	}
-	if eci {
-		snapshot.Nodes[0].Available = heteroci.ResourceCapacity{}
-	}
 	units := []heteroci.ExecutionUnit{{
 		UnitID: "r9b-unit", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer,
 		EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 * 1024 * 1024,
@@ -220,7 +183,7 @@ func newHeterociRoutingLeaseFixture(t *testing.T, eci bool) heterociRoutingLease
 	const heartbeatTTL = 5 * time.Minute
 	plan, decision, err := heteroci.PlanRoutingDecision(manifest, snapshot, units, now, heartbeatTTL)
 	if err != nil {
-		t.Fatalf("PlanRoutingDecision(eci=%t) = %v", eci, err)
+		t.Fatalf("PlanRoutingDecision(local) = %v", err)
 	}
 	return heterociRoutingLeaseFixture{manifest: manifest, snapshot: snapshot, units: units, plan: plan, decision: decision, now: now, heartbeatTTL: heartbeatTTL}
 }
@@ -257,7 +220,6 @@ func assertHeterociRoutingLeaseIdentity(t *testing.T, lease heteroci.RoutingLeas
 	assertHeterociStringEqual(t, "lease endpoint", lease.Endpoint, assignment.Endpoint)
 	assertHeterociStringEqual(t, "lease probe_identity", lease.ProbeIdentity, assignment.ProbeIdentity)
 	assertHeterociStringEqual(t, "lease probe_boot_id", lease.ProbeBootID, assignment.ProbeBootID)
-	assertHeterociStringEqual(t, "lease ECI tier", string(lease.ECITier), string(assignment.ECITier))
 }
 
 func assertHeterociStringEqual(t *testing.T, label, got, want string) {
@@ -751,9 +713,9 @@ func heterociRoutingConstructionSites(source heterociRoutingProductionSource, ty
 }
 
 // TestHeterociRoutingV1IsStrictlyRejected verifies no compatibility read path
-// accepts either retired v1 schema after the v2 decision/lease chain exists.
+// accepts either retired v1 schema after the v3 decision/lease chain exists.
 func TestHeterociRoutingV1IsStrictlyRejected(t *testing.T) {
-	fixture := newHeterociRoutingLeaseFixture(t, false)
+	fixture := newHeterociRoutingLeaseFixture(t)
 	legacyDecision := fixture.decision
 	legacyDecision.SchemaVersion = "heteroci-routing-decision/v1"
 	if err := legacyDecision.ValidateAgainst(fixture.manifest, fixture.snapshot, fixture.units, fixture.plan, fixture.now, fixture.heartbeatTTL); err == nil {
@@ -765,7 +727,7 @@ func TestHeterociRoutingV1IsStrictlyRejected(t *testing.T) {
 	}
 	leases, err := book.Reserve("r9b-valid-lease", fixture.decision, fixture.manifest, fixture.snapshot, fixture.units, fixture.plan, fixture.now, fixture.heartbeatTTL)
 	if err != nil {
-		t.Fatalf("reserve valid v2 lease: %v", err)
+		t.Fatalf("reserve valid v3 lease: %v", err)
 	}
 	legacyLease := leases[0]
 	legacyLease.SchemaVersion = "heteroci-routing-lease/v1"

@@ -14,88 +14,13 @@ func TestRoutingTypesFreezeWireEnums(t *testing.T) {
 		got  string
 		want string
 	}{
-		{name: "schema", got: RoutingDecisionSchemaVersion, want: "heteroci-routing-decision/v2"},
+		{name: "schema", got: RoutingDecisionSchemaVersion, want: "heteroci-routing-decision/v4"},
 		{name: "local executor", got: string(ExecutorKindLocalNode), want: "local_node"},
-		{name: "aliyun executor", got: string(ExecutorKindAliyunECI), want: "aliyun_eci"},
-		{name: "small ECI tier", got: string(ECITier2C4GiB), want: "aliyun-eci/2c4g"},
-		{name: "medium ECI tier", got: string(ECITier4C8GiB), want: "aliyun-eci/4c8g"},
-		{name: "large ECI tier", got: string(ECITier8C16GiB), want: "aliyun-eci/8c16g"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.got != test.want {
 				t.Fatalf("wire value = %q, want %q", test.got, test.want)
-			}
-		})
-	}
-}
-
-func TestECIResourceTierCapacityIsFrozen(t *testing.T) {
-	gibibyte := int64(1 << 30)
-	tests := []struct {
-		name     string
-		tier     ECIResourceTier
-		wantCPU  int64
-		wantMem  int64
-		wantCaps int
-	}{
-		{name: "2c4g", tier: ECITier2C4GiB, wantCPU: 2_000, wantMem: 4 * gibibyte, wantCaps: 1},
-		{name: "4c8g", tier: ECITier4C8GiB, wantCPU: 4_000, wantMem: 8 * gibibyte, wantCaps: 1},
-		{name: "8c16g", tier: ECITier8C16GiB, wantCPU: 8_000, wantMem: 16 * gibibyte, wantCaps: 1},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			capacity, ok := test.tier.Capacity()
-			if !ok {
-				t.Fatal("known ECI tier was rejected")
-			}
-			want := ResourceCapacity{CPUMilli: test.wantCPU, MemoryBytes: test.wantMem, MaxConcurrency: test.wantCaps}
-			if capacity != want {
-				t.Fatalf("capacity = %+v, want %+v", capacity, want)
-			}
-		})
-	}
-	unknown, ok := ECIResourceTier("unknown-tier").Capacity()
-	if ok {
-		t.Fatal("unknown ECI tier unexpectedly resolved")
-	}
-	if unknown != (ResourceCapacity{}) {
-		t.Fatalf("unknown ECI tier capacity = %+v, want zero", unknown)
-	}
-}
-
-func TestSmallestFittingECITierUsesIndependentBoundaries(t *testing.T) {
-	gibibyte := int64(1 << 30)
-	base := ExecutionUnit{
-		UnitID:              "boundary-unit",
-		TargetPlatform:      PlatformLinuxAMD64,
-		RequiredRuntime:     RuntimeUbuntuContainer,
-		EstimatedDurationMS: 1,
-	}
-	tests := []struct {
-		name string
-		cpu  int64
-		mem  int64
-		want ECIResourceTier
-		ok   bool
-	}{
-		{name: "small exact", cpu: 2_000, mem: 4 * gibibyte, want: ECITier2C4GiB, ok: true},
-		{name: "CPU crosses small", cpu: 2_001, mem: 4 * gibibyte, want: ECITier4C8GiB, ok: true},
-		{name: "memory crosses small", cpu: 2_000, mem: 4*gibibyte + 1, want: ECITier4C8GiB, ok: true},
-		{name: "medium exact", cpu: 4_000, mem: 8 * gibibyte, want: ECITier4C8GiB, ok: true},
-		{name: "CPU crosses medium", cpu: 4_001, mem: 8 * gibibyte, want: ECITier8C16GiB, ok: true},
-		{name: "memory crosses medium", cpu: 4_000, mem: 8*gibibyte + 1, want: ECITier8C16GiB, ok: true},
-		{name: "large exact", cpu: 8_000, mem: 16 * gibibyte, want: ECITier8C16GiB, ok: true},
-		{name: "CPU exceeds large", cpu: 8_001, mem: 16 * gibibyte, ok: false},
-		{name: "memory exceeds large", cpu: 8_000, mem: 16*gibibyte + 1, ok: false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			unit := base
-			unit.CPUMilli, unit.MemoryBytes = test.cpu, test.mem
-			got, ok := smallestFittingECITier(unit)
-			if ok != test.ok || (ok && got != test.want) {
-				t.Fatalf("smallestFittingECITier() = (%q, %v), want (%q, %v)", got, ok, test.want, test.ok)
 			}
 		})
 	}
@@ -109,9 +34,9 @@ func TestCapacityBlockerErrorIsStableAndSafe(t *testing.T) {
 		t.Fatalf("empty blocker slice error = %q, want stable empty error", got)
 	}
 	blockers := []CapacityBlocker{
-		{UnitID: "unit-z", TargetPlatform: PlatformWindowsAMD64, RequiredRuntime: RuntimeWindowsNative, Reason: "endpoint=https://secret.example/z?token=opaque"},
-		{UnitID: "unit-a", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, Reason: "secret-token=unit-a-token"},
-		{UnitID: "unit-m", TargetPlatform: PlatformDarwinAMD64, RequiredRuntime: RuntimeDarwinNative, Reason: "endpoint=https://secret.example/m"},
+		{UnitID: "unit-z", TargetPlatform: PlatformWindowsAMD64, RequiredRuntime: RuntimeWindowsNative, Reason: CapacityBlockerReasonCapacityUnavailable},
+		{UnitID: "unit-a", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, Reason: CapacityBlockerReasonCapacityUnavailable},
+		{UnitID: "unit-m", TargetPlatform: PlatformDarwinAMD64, RequiredRuntime: RuntimeDarwinNative, Reason: CapacityBlockerReasonCapacityUnavailable},
 	}
 	reversed := append([]CapacityBlocker(nil), blockers...)
 	for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
@@ -156,9 +81,8 @@ func TestRoutingWireTypesRetainAllJSONTagsAndFieldTypes(t *testing.T) {
 				"Endpoint":      reflect.TypeFor[string](),
 				"ProbeIdentity": reflect.TypeFor[string](),
 				"ProbeBootID":   reflect.TypeFor[string](),
-				"ECITier":       reflect.TypeFor[ECIResourceTier](),
 			},
-			fieldOrder: []string{"UnitID", "Executor", "NodeID", "Endpoint", "ProbeIdentity", "ProbeBootID", "ECITier"},
+			fieldOrder: []string{"UnitID", "Executor", "NodeID", "Endpoint", "ProbeIdentity", "ProbeBootID"},
 		},
 		{
 			name: "routing decision",

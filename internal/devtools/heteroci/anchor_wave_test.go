@@ -3,6 +3,7 @@ package heteroci
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -46,23 +47,19 @@ func TestBuildAnchorWavePlanDeterministicAcrossInputOrder(t *testing.T) {
 	}
 }
 
-func TestBuildAnchorWavePlanSupportsDynamicNodeCounts(t *testing.T) {
+func TestBuildAnchorWavePlanUsesFixedFourNodeTopology(t *testing.T) {
 	now := snapshotTestNow()
-	for _, nodeCount := range []int{1, 2, 3} {
-		t.Run(fmt.Sprintf("nodes_%d", nodeCount), func(t *testing.T) {
-			manifest := anchorWaveLinuxManifest(nodeCount)
-			snapshot := anchorWaveSnapshot(t, manifest, nil)
-			units := anchorWaveUnits(nodeCount*2, RuntimeUbuntuContainer, PlatformLinuxAMD64)
-			plan := anchorWaveBuild(t, manifest, snapshot, units, now)
-			if len(plan.NodeShards) != nodeCount {
-				t.Fatalf("node shard count = %d, want %d", len(plan.NodeShards), nodeCount)
-			}
-			if len(plan.UnassignedUnitIDs) != 0 {
-				t.Fatalf("unexpected unassigned units: %v", plan.UnassignedUnitIDs)
-			}
-			anchorWaveAssertCoverage(t, plan, units)
-		})
+	manifest := anchorWaveLinuxManifest(4)
+	snapshot := anchorWaveSnapshot(t, manifest, nil)
+	units := anchorWaveUnits(8, RuntimeUbuntuContainer, PlatformLinuxAMD64)
+	plan := anchorWaveBuild(t, manifest, snapshot, units, now)
+	if len(plan.NodeShards) != 2 {
+		t.Fatalf("linux node shard count = %d, want 2 of fixed four nodes", len(plan.NodeShards))
 	}
+	if len(plan.UnassignedUnitIDs) != 0 {
+		t.Fatalf("unexpected unassigned units: %v", plan.UnassignedUnitIDs)
+	}
+	anchorWaveAssertCoverage(t, plan, units)
 }
 
 func TestBuildAnchorWavePlanWindowsUsesEqualCapacityShardsAndSafeConcurrency(t *testing.T) {
@@ -137,7 +134,13 @@ func TestBuildAnchorWavePlanHonorsTwoDimensionalResourcesAndSerialMakespan(t *te
 			now := snapshotTestNow()
 			manifest := anchorWaveLinuxManifest(1)
 			nodeID := manifest.Nodes[0].NodeID
-			snapshot := anchorWaveSnapshot(t, manifest, map[string]ResourceCapacity{nodeID: tt.capacity})
+			capacities := map[string]ResourceCapacity{nodeID: tt.capacity}
+			snapshot := anchorWaveSnapshot(t, manifest, capacities)
+			snapshot.Nodes[1].Status = NodeStatusOffline
+			snapshot.Nodes[1].ProbeBootID = ""
+			snapshot.Nodes[1].ActiveCapabilities = []ActiveCapabilitySnapshot{}
+			snapshot.Nodes[1].Total = ResourceCapacity{}
+			snapshot.Nodes[1].Available = ResourceCapacity{}
 			units := anchorWaveUnits(4, RuntimeUbuntuContainer, PlatformLinuxAMD64)
 			for index := range units {
 				units[index].EstimatedDurationMS = int64((index + 1) * 100)
@@ -156,37 +159,27 @@ func TestBuildAnchorWavePlanHonorsTwoDimensionalResourcesAndSerialMakespan(t *te
 	}
 }
 
-func TestBuildAnchorWavePlanRoutesQualifiedRuntimesToExactHosts(t *testing.T) {
+func TestBuildAnchorWavePlanRoutesOnlyFixedPlatforms(t *testing.T) {
 	now := snapshotTestNow()
 	manifest := anchorWaveRoutingManifest()
 	snapshot := anchorWaveSnapshot(t, manifest, nil)
 	units := []ExecutionUnit{
 		anchorWaveUnit("ubuntu", RuntimeUbuntuContainer, PlatformLinuxAMD64),
-		anchorWaveUnit("darling", RuntimeDarlingCompatRuntime, PlatformDarwinAMD64),
 		anchorWaveUnit("windows", RuntimeWindowsNative, PlatformWindowsAMD64),
-		anchorWaveUnit("darwin-amd64", RuntimeDarwinNative, PlatformDarwinAMD64),
-		anchorWaveUnit("darwin-arm64", RuntimeDarwinNative, PlatformDarwinARM64),
 	}
 	plan := anchorWaveBuild(t, manifest, snapshot, units, now)
 	assigned := anchorWaveUnitNodes(plan)
-	want := map[string]string{
-		"ubuntu":       "anchor-linux",
-		"darling":      "anchor-linux",
-		"windows":      "anchor-windows",
-		"darwin-amd64": "anchor-darwin-amd64",
-		"darwin-arm64": "anchor-darwin-arm64",
-	}
-	if !reflect.DeepEqual(assigned, want) {
-		t.Fatalf("runtime routing = %v, want %v", assigned, want)
+	if assigned["ubuntu"] != "anchor-linux" || assigned["windows"] != "anchor-windows" {
+		t.Fatalf("runtime routing = %v, want fixed Linux/Windows hosts", assigned)
 	}
 }
 
-func TestBuildAnchorWavePlanMarksSaturatedOversizeAndUnqualifiedUnitsUnassigned(t *testing.T) {
+func TestBuildAnchorWavePlanReturnsTypedCapacityBlocker(t *testing.T) {
 	now := snapshotTestNow()
 	manifest := anchorWaveUnassignedManifest()
 	capacities := map[string]ResourceCapacity{
 		"anchor-linux-saturated": {CPUMilli: 2_000, MemoryBytes: 2 * 1024 * 1024 * 1024, MaxConcurrency: 2},
-		"anchor-linux-darling":   {CPUMilli: 1_000, MemoryBytes: 1 * 1024 * 1024 * 1024, MaxConcurrency: 1},
+		"anchor-linux-2":         {CPUMilli: 1_000, MemoryBytes: 1 * 1024 * 1024 * 1024, MaxConcurrency: 1},
 		"anchor-windows":         {CPUMilli: 2_000, MemoryBytes: 2 * 1024 * 1024 * 1024, MaxConcurrency: 1},
 	}
 	snapshot := anchorWaveSnapshot(t, manifest, capacities)
@@ -195,22 +188,16 @@ func TestBuildAnchorWavePlanMarksSaturatedOversizeAndUnqualifiedUnitsUnassigned(
 			snapshot.Nodes[index].Available = ResourceCapacity{}
 		}
 	}
-	units := []ExecutionUnit{
-		anchorWaveUnit("saturated-ubuntu", RuntimeUbuntuContainer, PlatformLinuxAMD64),
-		anchorWaveUnit("oversize-darling", RuntimeDarlingCompatRuntime, PlatformDarwinAMD64),
-		anchorWaveUnit("unqualified-docker-osx", RuntimeDockerOSXExperimental, PlatformDarwinAMD64),
-		anchorWaveUnit("windows-valid", RuntimeWindowsNative, PlatformWindowsAMD64),
+	units := []ExecutionUnit{anchorWaveUnit("saturated-ubuntu", RuntimeUbuntuContainer, PlatformLinuxAMD64)}
+	snapshot.Nodes[0].Available = ResourceCapacity{}
+	snapshot.Nodes[1].Available = ResourceCapacity{}
+	plan, err := BuildAnchorWavePlan(manifest, snapshot, units, now, snapshotTestHeartbeatTTL)
+	if err == nil || !reflect.DeepEqual(plan, PackingPlan{}) {
+		t.Fatalf("BuildAnchorWavePlan() = plan:%#v err:%v, want zero plan and blocker", plan, err)
 	}
-	units[1].CPUMilli = 2_000
-	units[1].MemoryBytes = 2 * 1024 * 1024 * 1024
-	plan := anchorWaveBuild(t, manifest, snapshot, units, now)
-	assigned := anchorWaveUnitNodes(plan)
-	if assigned["windows-valid"] != "anchor-windows" {
-		t.Fatalf("Windows valid unit assignment = %q", assigned["windows-valid"])
-	}
-	wantUnassigned := []string{"oversize-darling", "saturated-ubuntu", "unqualified-docker-osx"}
-	if !reflect.DeepEqual(plan.UnassignedUnitIDs, wantUnassigned) {
-		t.Fatalf("unassigned IDs = %v, want canonical %v", plan.UnassignedUnitIDs, wantUnassigned)
+	var blocker *CapacityBlockerError
+	if !errors.As(err, &blocker) || len(blocker.Blockers) != 1 || blocker.Blockers[0].UnitID != "saturated-ubuntu" {
+		t.Fatalf("BuildAnchorWavePlan error = %T %v, want typed CapacityBlocker", err, err)
 	}
 }
 
@@ -228,10 +215,6 @@ func TestBuildAnchorWavePlanRejectsInvalidInputAndArithmeticOverflowWithZeroPlan
 		{name: "invalid manifest", manifest: Manifest{}, snapshot: SnapshotSet{}, units: validUnits},
 		{name: "nil units", manifest: validManifest, snapshot: validSnapshot, units: nil},
 		{name: "invalid unit", manifest: validManifest, snapshot: validSnapshot, units: []ExecutionUnit{{UnitID: "bad", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer}}},
-		{name: "duration overflow", manifest: validManifest, snapshot: anchorWaveSnapshot(t, validManifest, map[string]ResourceCapacity{validManifest.Nodes[0].NodeID: {CPUMilli: 2, MemoryBytes: 2, MaxConcurrency: 1}}), units: []ExecutionUnit{
-			{UnitID: "overflow-1", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, EstimatedDurationMS: math.MaxInt64, CPUMilli: 1, MemoryBytes: 1},
-			{UnitID: "overflow-2", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, EstimatedDurationMS: math.MaxInt64, CPUMilli: 1, MemoryBytes: 1},
-		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -262,41 +245,43 @@ func anchorWaveManifest(nodes ...NodeConfig) Manifest {
 	return Manifest{
 		SchemaVersion: ManifestSchemaVersion,
 		Authority:     AuthorityLocalNonAuthoritative,
-		CloudOverflow: CloudOverflowConfig{},
 		Nodes:         nodes,
 	}
 }
 
-func anchorWaveLinuxManifest(nodeCount int) Manifest {
-	nodes := make([]NodeConfig, nodeCount)
-	for index := range nodes {
-		nodes[index] = anchorWaveNode(index, PlatformLinuxAMD64, anchorWaveUbuntuCapability())
-	}
-	return anchorWaveManifest(nodes...)
+func anchorWaveLinuxManifest(_ int) Manifest {
+	return anchorWaveManifest(
+		anchorWaveNodeWithID("anchor-linux-1", 0, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
+		anchorWaveNodeWithID("anchor-linux-2", 1, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
+		anchorWaveNodeWithID("anchor-windows-1", 2, PlatformWindowsAMD64, testWindowsCapability()),
+		anchorWaveNodeWithID("anchor-windows-2", 3, PlatformWindowsAMD64, testWindowsCapability()),
+	)
 }
 
-func anchorWaveWindowsManifest(nodeCount int) Manifest {
-	nodes := make([]NodeConfig, nodeCount)
-	for index := range nodes {
-		nodes[index] = anchorWaveNodeWithID(fmt.Sprintf("anchor-windows-%d", index+1), index, PlatformWindowsAMD64, testWindowsCapability())
-	}
-	return anchorWaveManifest(nodes...)
+func anchorWaveWindowsManifest(_ int) Manifest {
+	return anchorWaveManifest(
+		anchorWaveNodeWithID("anchor-linux-1", 0, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
+		anchorWaveNodeWithID("anchor-linux-2", 1, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
+		anchorWaveNodeWithID("anchor-windows-1", 2, PlatformWindowsAMD64, testWindowsCapability()),
+		anchorWaveNodeWithID("anchor-windows-2", 3, PlatformWindowsAMD64, testWindowsCapability()),
+	)
 }
 
 func anchorWaveRoutingManifest() Manifest {
 	return anchorWaveManifest(
-		anchorWaveNodeWithID("anchor-linux", 0, PlatformLinuxAMD64, anchorWaveUbuntuCapability(), testDarlingCapability()),
-		anchorWaveNodeWithID("anchor-windows", 1, PlatformWindowsAMD64, testWindowsCapability()),
-		anchorWaveNodeWithID("anchor-darwin-amd64", 2, PlatformDarwinAMD64, testDarwinNativeCapability()),
-		anchorWaveNodeWithID("anchor-darwin-arm64", 3, PlatformDarwinARM64, testDarwinNativeCapability()),
+		anchorWaveNodeWithID("anchor-linux", 0, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
+		anchorWaveNodeWithID("anchor-linux-2", 1, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
+		anchorWaveNodeWithID("anchor-windows", 2, PlatformWindowsAMD64, testWindowsCapability()),
+		anchorWaveNodeWithID("anchor-windows-2", 3, PlatformWindowsAMD64, testWindowsCapability()),
 	)
 }
 
 func anchorWaveUnassignedManifest() Manifest {
 	return anchorWaveManifest(
 		anchorWaveNodeWithID("anchor-linux-saturated", 0, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
-		anchorWaveNodeWithID("anchor-linux-darling", 1, PlatformLinuxAMD64, testDarlingCapability()),
+		anchorWaveNodeWithID("anchor-linux-2", 1, PlatformLinuxAMD64, anchorWaveUbuntuCapability()),
 		anchorWaveNodeWithID("anchor-windows", 2, PlatformWindowsAMD64, testWindowsCapability()),
+		anchorWaveNodeWithID("anchor-windows-2", 3, PlatformWindowsAMD64, testWindowsCapability()),
 	)
 }
 

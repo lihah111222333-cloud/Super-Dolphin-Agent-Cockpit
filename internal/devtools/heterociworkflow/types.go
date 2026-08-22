@@ -81,14 +81,13 @@ type ExecutorBinder interface {
 	Bind(key ExecutorKey) (BatchExecutor, error)
 }
 
-// ExecutorKey 标识一个不可替换的 local node 或 ECI execution lane。
+// ExecutorKey 标识一个不可替换的 local node execution lane。
 type ExecutorKey struct {
-	Kind    heteroci.ExecutorKind
-	NodeID  string
-	ECITier heteroci.ECIResourceTier
+	Kind   heteroci.ExecutorKind
+	NodeID string
 }
 
-// ExecutionBatch 是一次恰好一次的节点波次或单 unit ECI 批次。
+// ExecutionBatch 是一次恰好一次的本地节点波次批次。
 type ExecutionBatch struct {
 	BatchID     BatchID
 	RunID       string

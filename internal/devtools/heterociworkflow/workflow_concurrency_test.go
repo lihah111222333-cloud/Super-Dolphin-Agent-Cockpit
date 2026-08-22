@@ -228,23 +228,13 @@ func newWorkflowConcurrencyFixture(nodeCount int, mode batchHarnessMode) *workfl
 	manifest.Nodes = append([]heteroci.NodeConfig(nil), manifest.Nodes...)
 	snapshot := base.snapshot
 	snapshot.Nodes = append([]heteroci.NodeSnapshot(nil), snapshot.Nodes...)
-	if nodeCount == 2 {
-		node := manifest.Nodes[0]
-		node.NodeID = "workflow-node-2"
-		node.Endpoint = "https://workflow-node-2.invalid/runner"
-		node.ProbeIdentity = "sha256:" + "2" + "222222222222222222222222222222222222222222222222222222222222222"
-		manifest.Nodes = append(manifest.Nodes, node)
-		second := snapshot.Nodes[0]
-		second.NodeID = node.NodeID
-		second.Endpoint = node.Endpoint
-		second.ProbeIdentity = node.ProbeIdentity
-		second.ProbeBootID = "boot-workflow-node-2"
-		snapshot.Nodes = append(snapshot.Nodes, second)
-	}
 	capacity := heteroci.ResourceCapacity{CPUMilli: 1_000, MemoryBytes: 1 << 30, MaxConcurrency: 1}
 	for index := range snapshot.Nodes {
 		snapshot.Nodes[index].Total = capacity
 		snapshot.Nodes[index].Available = capacity
+	}
+	if nodeCount == 1 {
+		snapshot.Nodes[1].Available = heteroci.ResourceCapacity{}
 	}
 	units := []heteroci.ExecutionUnit{
 		{UnitID: "unit-1", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer, EstimatedDurationMS: 100, CPUMilli: concurrencyUnitCPU, MemoryBytes: concurrencyUnitMemory},

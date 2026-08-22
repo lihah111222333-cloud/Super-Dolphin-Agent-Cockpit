@@ -136,7 +136,7 @@ func TestOwnerStartRejectsLeaseJSONIdentitySwapWithoutMutation(t *testing.T) {
 	}
 	assertOwnerLeaseState(t, owner, fence, "run-target", "unit-a", heteroci.LeaseStatePlanned, plan.Fence.Revision)
 	assertOwnerLeaseState(t, owner, fence, "run-target", "unit-b", heteroci.LeaseStatePlanned, plan.Fence.Revision)
-	assertDurablePlanRows(t, owner, fence, "run-target", 2, 1)
+	assertDurablePlanRows(t, owner, fence, "run-target", 2, 2)
 	assertOwnerRowCount(t, owner, "heteroci_routing_leases", "scope = ? AND owner_epoch = ? AND state = ?", []any{fence.Scope, fence.OwnerEpoch, heteroci.LeaseStateStarted}, 0)
 	assertOwnerRunRevision(t, owner, fence, "run-target", plan.Fence.Revision)
 	assertOwnerCurrentFence(t, owner, plan.Fence)
@@ -399,17 +399,12 @@ func durableRoutingManifest() heteroci.Manifest {
 	return heteroci.Manifest{
 		SchemaVersion: heteroci.ManifestSchemaVersion,
 		Authority:     heteroci.AuthorityLocalNonAuthoritative,
-		Nodes: []heteroci.NodeConfig{{
-			NodeID:        "node-a",
-			Endpoint:      "https://node-a.invalid/runner",
-			ProbeIdentity: "sha256:" + strings.Repeat("1", 64),
-			Platform:      heteroci.PlatformLinuxAMD64,
-			Capabilities: []heteroci.CapabilityConfig{{
-				Runtime:     heteroci.RuntimeUbuntuContainer,
-				Image:       "ubuntu:24.04",
-				ImageDigest: "sha256:" + strings.Repeat("2", 64),
-			}},
-		}},
+		Nodes: []heteroci.NodeConfig{
+			{NodeID: "node-a", Endpoint: "https://node-a.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("1", 64), Platform: heteroci.PlatformLinuxAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: "sha256:" + strings.Repeat("2", 64)}}},
+			{NodeID: "node-b", Endpoint: "https://node-b.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("3", 64), Platform: heteroci.PlatformLinuxAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: "sha256:" + strings.Repeat("2", 64)}}},
+			{NodeID: "node-c", Endpoint: "https://node-c.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("4", 64), Platform: heteroci.PlatformWindowsAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeWindowsNative}}},
+			{NodeID: "node-d", Endpoint: "https://node-d.invalid/runner", ProbeIdentity: "sha256:" + strings.Repeat("5", 64), Platform: heteroci.PlatformWindowsAMD64, Capabilities: []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeWindowsNative}}},
+		},
 	}
 }
 
@@ -422,18 +417,12 @@ func durableRoutingSnapshot(manifest heteroci.Manifest, ownerEpoch heteroci.Rout
 		OwnerEpoch:          ownerEpoch,
 		CapacityBasis:       heteroci.SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations,
 		CapturedAtUnixMilli: now.UnixMilli(),
-		Nodes: []heteroci.NodeSnapshot{{
-			NodeID:             config.NodeID,
-			Endpoint:           config.Endpoint,
-			Platform:           config.Platform,
-			ProbeIdentity:      config.ProbeIdentity,
-			ProbeBootID:        "boot-a",
-			ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: config.Capabilities[0].ImageDigest}},
-			Status:             heteroci.NodeStatusLive,
-			HeartbeatUnixMilli: now.UnixMilli(),
-			Total:              capacity,
-			Available:          capacity,
-		}},
+		Nodes: []heteroci.NodeSnapshot{
+			{NodeID: config.NodeID, Endpoint: config.Endpoint, Platform: config.Platform, ProbeIdentity: config.ProbeIdentity, ProbeBootID: "boot-a", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: config.Capabilities[0].ImageDigest}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+			{NodeID: manifest.Nodes[1].NodeID, Endpoint: manifest.Nodes[1].Endpoint, Platform: manifest.Nodes[1].Platform, ProbeIdentity: manifest.Nodes[1].ProbeIdentity, ProbeBootID: "boot-b", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeUbuntuContainer, ImageDigest: manifest.Nodes[1].Capabilities[0].ImageDigest}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+			{NodeID: manifest.Nodes[2].NodeID, Endpoint: manifest.Nodes[2].Endpoint, Platform: manifest.Nodes[2].Platform, ProbeIdentity: manifest.Nodes[2].ProbeIdentity, ProbeBootID: "boot-c", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeWindowsNative}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+			{NodeID: manifest.Nodes[3].NodeID, Endpoint: manifest.Nodes[3].Endpoint, Platform: manifest.Nodes[3].Platform, ProbeIdentity: manifest.Nodes[3].ProbeIdentity, ProbeBootID: "boot-d", ActiveCapabilities: []heteroci.ActiveCapabilitySnapshot{{Runtime: heteroci.RuntimeWindowsNative}}, Status: heteroci.NodeStatusLive, HeartbeatUnixMilli: now.UnixMilli(), Total: capacity, Available: capacity},
+		},
 	}
 }
 

@@ -40,29 +40,22 @@ func DeriveBatchID(runID string, key ExecutorKey, wave int, unitIDs []string) (B
 	if len(unitIDs) == 0 || wave < -1 {
 		return "", errors.New("heteroci workflow batch shape is invalid")
 	}
-	parts := []string{runID, string(key.Kind), key.NodeID, string(key.ECITier), strconv.Itoa(wave)}
+	parts := []string{runID, string(key.Kind), key.NodeID, strconv.Itoa(wave)}
 	for _, unitID := range unitIDs {
 		if !validWorkflowUnitID(unitID) {
 			return "", errors.New("heteroci workflow batch unit is invalid")
 		}
 		parts = append(parts, unitID)
 	}
-	return BatchID(workflowDigest("heteroci-workflow-batch/v1", parts...)), nil
+	return BatchID(workflowDigest("heteroci-workflow-batch/v2", parts...)), nil
 }
 
 // Validate 校验 executor lane 的平台绑定形状。
 func (key ExecutorKey) Validate() error {
 	switch key.Kind {
 	case heteroci.ExecutorKindLocalNode:
-		if !validWorkflowUnitID(key.NodeID) || key.ECITier != "" {
+		if !validWorkflowUnitID(key.NodeID) {
 			return errors.New("heteroci workflow local executor key is invalid")
-		}
-	case heteroci.ExecutorKindAliyunECI:
-		if key.NodeID != "" {
-			return errors.New("heteroci workflow ECI executor key carries node identity")
-		}
-		if key.ECITier != heteroci.ECITier2C4GiB && key.ECITier != heteroci.ECITier4C8GiB && key.ECITier != heteroci.ECITier8C16GiB {
-			return errors.New("heteroci workflow ECI executor tier is invalid")
 		}
 	default:
 		return errors.New("heteroci workflow executor kind is invalid")

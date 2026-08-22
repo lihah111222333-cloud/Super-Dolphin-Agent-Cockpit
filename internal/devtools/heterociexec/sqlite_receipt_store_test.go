@@ -220,7 +220,12 @@ func TestSQLiteReceiptStoreDetectsTamperingAndPersistsAllResultFields(t *testing
 
 func openSQLiteReceiptStoreForTest(t *testing.T, path string) *SQLiteReceiptStore {
 	t.Helper()
-	store, err := OpenSQLiteReceiptStore(context.Background(), path)
+	resolvedDirectory, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", filepath.Dir(path), err)
+	}
+	resolvedPath := filepath.Join(resolvedDirectory, filepath.Base(path))
+	store, err := OpenSQLiteReceiptStore(context.Background(), resolvedPath)
 	if err != nil {
 		t.Fatalf("OpenSQLiteReceiptStore: %v", err)
 	}

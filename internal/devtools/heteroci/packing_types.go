@@ -1,7 +1,7 @@
 package heteroci
 
 // PackingPlanSchemaVersion 是异构 CI 装箱规划 wire schema 的冻结版本。
-const PackingPlanSchemaVersion = "heteroci-packing-plan/v1"
+const PackingPlanSchemaVersion = "heteroci-packing-plan/v2"
 
 // ExecutionWave 描述同一执行波次中的工作单元与资源估计。
 type ExecutionWave struct {

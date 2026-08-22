@@ -57,9 +57,12 @@ func validateRoutingLeaseIdentity(lease RoutingLease, decision RoutingDecision) 
 	return nil
 }
 
-// validateRoutingLeaseBinding 校验租约执行器、节点、端点、探针身份和 ECI 档位精确复用决策绑定。
+// validateRoutingLeaseBinding 校验租约执行器、节点、端点和探针身份精确复用决策绑定。
 func validateRoutingLeaseBinding(lease RoutingLease, assignment RouteAssignment) error {
 	if lease.Executor != assignment.Executor {
+		return routingLeaseBindingFieldMismatch(lease.UnitID, "executor")
+	}
+	if lease.Executor != ExecutorKindLocalNode {
 		return routingLeaseBindingFieldMismatch(lease.UnitID, "executor")
 	}
 	if lease.NodeID != assignment.NodeID {
@@ -73,9 +76,6 @@ func validateRoutingLeaseBinding(lease RoutingLease, assignment RouteAssignment)
 	}
 	if lease.ProbeBootID != assignment.ProbeBootID {
 		return routingLeaseBindingFieldMismatch(lease.UnitID, "probe_boot_id")
-	}
-	if lease.ECITier != assignment.ECITier {
-		return routingLeaseBindingFieldMismatch(lease.UnitID, "eci_tier")
 	}
 	return nil
 }

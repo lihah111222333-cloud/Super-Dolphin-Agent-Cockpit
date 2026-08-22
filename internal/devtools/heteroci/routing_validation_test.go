@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-const routingValidationGiB = int64(1 << 30)
-
 type routingValidationFixture struct {
 	now          time.Time
 	heartbeatTTL time.Duration
@@ -24,10 +22,10 @@ type routingDecisionMutation struct {
 	mutate func(*routingValidationFixture)
 }
 
-func TestRoutingDecisionValidateAgainstAcceptsCanonicalMixedLocalECI(t *testing.T) {
+func TestRoutingDecisionValidateAgainstAcceptsCanonicalLocalAssignments(t *testing.T) {
 	fixture := newRoutingValidationMixedFixture(t)
-	if fixture.decision.SchemaVersion != "heteroci-routing-decision/v2" {
-		t.Fatalf("routing decision schema = %q, want heteroci-routing-decision/v2", fixture.decision.SchemaVersion)
+	if fixture.decision.SchemaVersion != "heteroci-routing-decision/v4" {
+		t.Fatalf("routing decision schema = %q, want heteroci-routing-decision/v4", fixture.decision.SchemaVersion)
 	}
 	if fixture.decision.Authority != AuthorityLocalNonAuthoritative {
 		t.Fatalf("routing decision authority = %q, want %q", fixture.decision.Authority, AuthorityLocalNonAuthoritative)
@@ -95,18 +93,8 @@ func TestRoutingDecisionValidateAgainstRejectsLocalBoundaryDrift(t *testing.T) {
 		{name: "local probe boot id drift", mutate: func(f *routingValidationFixture) {
 			f.decision.Assignments[1].ProbeBootID = "boot-drift"
 		}},
-		{name: "local nonempty ECI tier", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[1].ECITier = ECITier2C4GiB
-		}},
-		{name: "plan unassigned pseudo local", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[0].Executor = ExecutorKindLocalNode
-			f.decision.Assignments[0].NodeID = f.manifest.Nodes[0].NodeID
-			f.decision.Assignments[0].ECITier = ""
-		}},
-		{name: "local pseudo ECI", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[1].Executor = ExecutorKindAliyunECI
-			f.decision.Assignments[1].NodeID = ""
-			f.decision.Assignments[1].ECITier = ECITier4C8GiB
+		{name: "local assignment drift", mutate: func(f *routingValidationFixture) {
+			f.decision.Assignments[0].NodeID = "heteroci-forged"
 		}},
 	}
 	runRoutingDecisionMutations(t, fixture, mutations)
@@ -176,72 +164,6 @@ func TestRoutingDecisionValidateAgainstRedactsSensitiveLocalIdentityDrift(t *tes
 	}
 }
 
-func TestRoutingDecisionValidateAgainstRejectsECIBoundaryDrift(t *testing.T) {
-	fixture := newRoutingValidationMixedFixture(t)
-	mutations := []routingDecisionMutation{
-		{name: "ECI nonempty node", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[0].NodeID = f.manifest.Nodes[0].NodeID
-		}},
-		{name: "ECI nonempty endpoint", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[0].Endpoint = f.manifest.Nodes[0].Endpoint
-		}},
-		{name: "ECI nonempty probe identity", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[0].ProbeIdentity = f.snapshot.Nodes[0].ProbeIdentity
-		}},
-		{name: "ECI nonempty probe boot id", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[0].ProbeBootID = f.snapshot.Nodes[0].ProbeBootID
-		}},
-		{name: "overflow disabled", mutate: func(f *routingValidationFixture) {
-			f.manifest.CloudOverflow = CloudOverflowConfig{}
-		}},
-		{name: "overflow provider drift", mutate: func(f *routingValidationFixture) {
-			f.manifest.CloudOverflow.Provider = CloudProvider("docker")
-		}},
-		{name: "overflow platform drift", mutate: func(f *routingValidationFixture) {
-			f.manifest.CloudOverflow.Platform = PlatformWindowsAMD64
-		}},
-	}
-	runRoutingDecisionMutations(t, fixture, mutations)
-}
-
-func TestRoutingDecisionValidateAgainstRejectsForbiddenECIRuntimes(t *testing.T) {
-	fixture := newRoutingValidationMixedFixture(t)
-	cases := []struct {
-		name     string
-		platform Platform
-		runtime  RuntimeKind
-	}{
-		{name: "windows", platform: PlatformWindowsAMD64, runtime: RuntimeWindowsNative},
-		{name: "darling", platform: PlatformDarwinAMD64, runtime: RuntimeDarlingCompatRuntime},
-		{name: "darwin native", platform: PlatformDarwinARM64, runtime: RuntimeDarwinNative},
-		{name: "docker osx", platform: PlatformDarwinAMD64, runtime: RuntimeDockerOSXExperimental},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			candidate := cloneRoutingValidationFixture(fixture)
-			candidate.units[1].TargetPlatform = tc.platform
-			candidate.units[1].RequiredRuntime = tc.runtime
-			assertRoutingDecisionInvalid(t, candidate)
-		})
-	}
-}
-
-func TestRoutingDecisionValidateAgainstRejectsECITierDrift(t *testing.T) {
-	fixture := newRoutingValidationMixedFixture(t)
-	mutations := []routingDecisionMutation{
-		{name: "non-minimal tier", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[0].ECITier = ECITier8C16GiB
-		}},
-		{name: "too-large tier", mutate: func(f *routingValidationFixture) {
-			f.units[1].CPUMilli = 8_001
-		}},
-		{name: "unknown executor", mutate: func(f *routingValidationFixture) {
-			f.decision.Assignments[0].Executor = ExecutorKind("fallback")
-		}},
-	}
-	runRoutingDecisionMutations(t, fixture, mutations)
-}
-
 func TestRoutingDecisionUsesLocalAuthorityAndNoFallbackFields(t *testing.T) {
 	fixture := newRoutingValidationMixedFixture(t)
 	if fixture.manifest.Authority != AuthorityLocalNonAuthoritative ||
@@ -278,10 +200,9 @@ func assertRoutingDecisionWireAssignments(t *testing.T, raw []byte) {
 	if len(wire.Assignments) != 2 {
 		t.Fatalf("wire assignments = %d, want 2", len(wire.Assignments))
 	}
-	for _, field := range []string{"node_id", "endpoint", "probe_identity", "probe_boot_id"} {
-		value, exists := wire.Assignments[0][field]
-		if !exists || string(value) != `""` {
-			t.Fatalf("ECI assignment wire field %q = %s, want explicit empty string", field, value)
+	for index, assignment := range wire.Assignments {
+		if string(assignment["executor"]) != `"local_node"` || string(assignment["node_id"]) == `""` {
+			t.Fatalf("assignment %d is not a local fixed-node binding: %v", index, assignment)
 		}
 	}
 }
@@ -306,70 +227,31 @@ func TestRoutingDecisionValidateAgainstRejectsInvalidPlanBeforeIdentity(t *testi
 func newRoutingValidationMixedFixture(t *testing.T) routingValidationFixture {
 	t.Helper()
 	now := time.UnixMilli(1_700_000_000_000).UTC()
-	manifest := testManifest(1)
+	manifest := testManifest(2)
 	snapshot := snapshotForManifest(manifest, now)
-	snapshot.Nodes[0].Available = ResourceCapacity{CPUMilli: 2_000, MemoryBytes: 4 * routingValidationGiB, MaxConcurrency: 2}
 	units := []ExecutionUnit{
 		executionUnitTestUnit("unit-local", RuntimeUbuntuContainer, PlatformLinuxAMD64),
-		{
-			UnitID:              "unit-eci",
-			TargetPlatform:      PlatformLinuxAMD64,
-			RequiredRuntime:     RuntimeUbuntuContainer,
-			EstimatedDurationMS: 2_000,
-			CPUMilli:            2_500,
-			MemoryBytes:         5 * routingValidationGiB,
-		},
+		executionUnitTestUnit("unit-eci", RuntimeUbuntuContainer, PlatformLinuxAMD64),
 	}
 	plan := PackingPlan{
-		SchemaVersion:               PackingPlanSchemaVersion,
-		Authority:                   AuthorityLocalNonAuthoritative,
-		SnapshotCapturedAtUnixMilli: snapshot.CapturedAtUnixMilli,
-		NodeShards: []NodeShard{{
-			NodeID: manifest.Nodes[0].NodeID,
-			Waves: []ExecutionWave{{
-				Wave:                0,
-				UnitIDs:             []string{"unit-local"},
-				CPUMilli:            units[0].CPUMilli,
-				MemoryBytes:         units[0].MemoryBytes,
-				Concurrency:         1,
-				EstimatedDurationMS: units[0].EstimatedDurationMS,
-			}},
-			EstimatedMakespanMS: units[0].EstimatedDurationMS,
-		}},
-		UnassignedUnitIDs: []string{"unit-eci"},
+		SchemaVersion: PackingPlanSchemaVersion, Authority: AuthorityLocalNonAuthoritative, SnapshotCapturedAtUnixMilli: snapshot.CapturedAtUnixMilli,
+		NodeShards:        []NodeShard{{NodeID: manifest.Nodes[0].NodeID, Waves: []ExecutionWave{{Wave: 0, UnitIDs: []string{"unit-eci", "unit-local"}, CPUMilli: units[0].CPUMilli + units[1].CPUMilli, MemoryBytes: units[0].MemoryBytes + units[1].MemoryBytes, Concurrency: 2, EstimatedDurationMS: units[0].EstimatedDurationMS}}, EstimatedMakespanMS: units[0].EstimatedDurationMS}},
+		UnassignedUnitIDs: []string{},
 	}
 	packingDigest, err := plan.CanonicalDigest()
 	if err != nil {
 		t.Fatalf("compute packing digest: %v", err)
 	}
-	decision := RoutingDecision{
-		SchemaVersion:               RoutingDecisionSchemaVersion,
-		Authority:                   AuthorityLocalNonAuthoritative,
-		SnapshotCapturedAtUnixMilli: snapshot.CapturedAtUnixMilli,
-		PackingPlanDigest:           packingDigest,
-		Assignments: []RouteAssignment{
-			{
-				UnitID: "unit-eci", Executor: ExecutorKindAliyunECI,
-				NodeID: "", Endpoint: "", ProbeIdentity: "", ProbeBootID: "", ECITier: ECITier4C8GiB,
-			},
-			{
-				UnitID: "unit-local", Executor: ExecutorKindLocalNode,
-				NodeID:        manifest.Nodes[0].NodeID,
-				Endpoint:      manifest.Nodes[0].Endpoint,
-				ProbeIdentity: snapshot.Nodes[0].ProbeIdentity,
-				ProbeBootID:   snapshot.Nodes[0].ProbeBootID,
-			},
-		},
+	assignments := []RouteAssignment{
+		{UnitID: "unit-eci", Executor: ExecutorKindLocalNode, NodeID: manifest.Nodes[0].NodeID, Endpoint: manifest.Nodes[0].Endpoint, ProbeIdentity: snapshot.Nodes[0].ProbeIdentity, ProbeBootID: snapshot.Nodes[0].ProbeBootID},
+		{UnitID: "unit-local", Executor: ExecutorKindLocalNode, NodeID: manifest.Nodes[0].NodeID, Endpoint: manifest.Nodes[0].Endpoint, ProbeIdentity: snapshot.Nodes[0].ProbeIdentity, ProbeBootID: snapshot.Nodes[0].ProbeBootID},
 	}
-	decisionDigest, err := decision.CanonicalDigest()
+	decision := RoutingDecision{SchemaVersion: RoutingDecisionSchemaVersion, Authority: AuthorityLocalNonAuthoritative, SnapshotCapturedAtUnixMilli: snapshot.CapturedAtUnixMilli, PackingPlanDigest: packingDigest, Assignments: assignments}
+	decision.DecisionDigest, err = decision.CanonicalDigest()
 	if err != nil {
 		t.Fatalf("compute decision digest: %v", err)
 	}
-	decision.DecisionDigest = decisionDigest
-	return routingValidationFixture{
-		now: now, heartbeatTTL: time.Minute, manifest: manifest, snapshot: snapshot,
-		units: units, plan: plan, decision: decision,
-	}
+	return routingValidationFixture{now: now, heartbeatTTL: time.Minute, manifest: manifest, snapshot: snapshot, units: units, plan: plan, decision: decision}
 }
 
 func cloneRoutingValidationFixture(source routingValidationFixture) routingValidationFixture {

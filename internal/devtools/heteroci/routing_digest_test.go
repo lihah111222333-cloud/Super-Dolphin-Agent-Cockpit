@@ -39,7 +39,7 @@ func TestRoutingDecisionCanonicalDigestUsesFrozenWireOrderAndBytes(t *testing.T)
 	encoded := routingDecisionDigestWireJSON(t, decision)
 	wantJSON := `{"schema_version":"` + RoutingDecisionSchemaVersion + `","authority":"LOCAL_NON_AUTHORITATIVE","snapshot_captured_at_unix_milli":1712345678901,"packing_plan_digest":"sha256:` +
 		strings.Repeat("1", sha256.Size*2) +
-		`","assignments":[{"unit_id":"unit-a","executor":"local_node","node_id":"node-linux-1","endpoint":"http://node-linux-1:9100","probe_identity":"probe-linux-1","probe_boot_id":"boot-linux-1","eci_tier":""},{"unit_id":"unit-b","executor":"aliyun_eci","node_id":"","endpoint":"","probe_identity":"","probe_boot_id":"","eci_tier":"aliyun-eci/4c8g"}],"decision_digest":""}`
+		`","assignments":[{"unit_id":"unit-a","executor":"local_node","node_id":"node-linux-1","endpoint":"http://node-linux-1:9100","probe_identity":"probe-linux-1","probe_boot_id":"boot-linux-1"},{"unit_id":"unit-b","executor":"local_node","node_id":"node-linux-2","endpoint":"http://node-linux-2:9100","probe_identity":"probe-linux-2","probe_boot_id":"boot-linux-2"}],"decision_digest":""}`
 	if string(encoded) != wantJSON {
 		t.Fatalf("canonical wire JSON changed:\n got=%s\nwant=%s", encoded, wantJSON)
 	}
@@ -92,12 +92,11 @@ func TestRoutingDecisionCanonicalDigestChangesForEveryCanonicalField(t *testing.
 			decision.PackingPlanDigest = "sha256:" + strings.Repeat("2", sha256.Size*2)
 		}},
 		{name: "assignment_unit_id", mutate: func(decision *RoutingDecision) { decision.Assignments[0].UnitID = "unit-a-changed" }},
-		{name: "assignment_executor", mutate: func(decision *RoutingDecision) { decision.Assignments[0].Executor = ExecutorKindAliyunECI }},
+		{name: "assignment_executor", mutate: func(decision *RoutingDecision) { decision.Assignments[0].Executor = ExecutorKind("future_executor") }},
 		{name: "assignment_node_id", mutate: func(decision *RoutingDecision) { decision.Assignments[0].NodeID = "node-linux-2" }},
 		{name: "assignment_endpoint", mutate: func(decision *RoutingDecision) { decision.Assignments[0].Endpoint = "http://node-linux-2:9100" }},
 		{name: "assignment_probe_identity", mutate: func(decision *RoutingDecision) { decision.Assignments[0].ProbeIdentity = "probe-linux-2" }},
 		{name: "assignment_probe_boot_id", mutate: func(decision *RoutingDecision) { decision.Assignments[0].ProbeBootID = "boot-linux-2" }},
-		{name: "assignment_eci_tier", mutate: func(decision *RoutingDecision) { decision.Assignments[0].ECITier = ECITier8C16GiB }},
 	}
 
 	for _, testCase := range cases {
@@ -156,12 +155,11 @@ func routingDecisionDigestFixture() RoutingDecision {
 			},
 			{
 				UnitID:        "unit-b",
-				Executor:      ExecutorKindAliyunECI,
-				NodeID:        "",
-				Endpoint:      "",
-				ProbeIdentity: "",
-				ProbeBootID:   "",
-				ECITier:       ECITier4C8GiB,
+				Executor:      ExecutorKindLocalNode,
+				NodeID:        "node-linux-2",
+				Endpoint:      "http://node-linux-2:9100",
+				ProbeIdentity: "probe-linux-2",
+				ProbeBootID:   "boot-linux-2",
 			},
 		},
 		DecisionDigest: "sha256:" + strings.Repeat("a", sha256.Size*2),
@@ -184,7 +182,6 @@ type routingAssignmentDigestWire struct {
 	Endpoint      string `json:"endpoint"`
 	ProbeIdentity string `json:"probe_identity"`
 	ProbeBootID   string `json:"probe_boot_id"`
-	ECITier       string `json:"eci_tier"`
 }
 
 func routingDecisionDigestOracle(t *testing.T, decision RoutingDecision) string {
@@ -207,7 +204,6 @@ func routingDecisionDigestWireJSON(t *testing.T, decision RoutingDecision) []byt
 				Endpoint:      assignment.Endpoint,
 				ProbeIdentity: assignment.ProbeIdentity,
 				ProbeBootID:   assignment.ProbeBootID,
-				ECITier:       string(assignment.ECITier),
 			}
 		}
 	}

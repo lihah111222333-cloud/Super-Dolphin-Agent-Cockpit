@@ -377,10 +377,7 @@ func validateExecutionBatchMaterial(batch heterociworkflow.ExecutionBatch) error
 
 // validateBatchShape 校验 wave 语义以及单 execution lane 的唯一目标平台。
 func validateBatchShape(batch heterociworkflow.ExecutionBatch) (heteroci.Platform, error) {
-	if batch.Key.Kind == heteroci.ExecutorKindAliyunECI && batch.Wave != -1 {
-		return "", fmt.Errorf("%w: ECI batch wave must be -1", ErrCommandExecutor)
-	}
-	if batch.Key.Kind == heteroci.ExecutorKindLocalNode && batch.Wave < 0 {
+	if batch.Wave < 0 {
 		return "", fmt.Errorf("%w: local batch wave must be non-negative", ErrCommandExecutor)
 	}
 	platform := batch.Units[0].TargetPlatform
@@ -388,9 +385,6 @@ func validateBatchShape(batch heterociworkflow.ExecutionBatch) (heteroci.Platfor
 		if unit.TargetPlatform != platform {
 			return "", fmt.Errorf("%w: batch units target mixed platforms", ErrCommandExecutor)
 		}
-	}
-	if batch.Key.Kind == heteroci.ExecutorKindAliyunECI && platform != heteroci.PlatformLinuxAMD64 {
-		return "", fmt.Errorf("%w: ECI batch must target linux/amd64", ErrCommandExecutor)
 	}
 	return platform, nil
 }
@@ -416,19 +410,13 @@ func validateBatchAssignments(batch heterociworkflow.ExecutionBatch) error {
 	return nil
 }
 
-// validateAssignmentForKey 防止 local node 或 ECI tier identity 跨 lane 泄漏。
+// validateAssignmentForKey 防止 local node identity 跨 lane 泄漏。
 func validateAssignmentForKey(key heterociworkflow.ExecutorKey, assignment heteroci.RouteAssignment) error {
-	if assignment.Executor != key.Kind {
+	if assignment.Executor != heteroci.ExecutorKindLocalNode || key.Kind != heteroci.ExecutorKindLocalNode {
 		return fmt.Errorf("%w: assignment executor kind drifted", ErrCommandExecutor)
 	}
-	if key.Kind == heteroci.ExecutorKindLocalNode {
-		if assignment.NodeID != key.NodeID || assignment.ECITier != "" {
-			return fmt.Errorf("%w: local assignment identity drifted", ErrCommandExecutor)
-		}
-		return nil
-	}
-	if assignment.NodeID != "" || assignment.Endpoint != "" || assignment.ProbeIdentity != "" || assignment.ProbeBootID != "" || assignment.ECITier != key.ECITier {
-		return fmt.Errorf("%w: ECI assignment identity drifted", ErrCommandExecutor)
+	if assignment.NodeID != key.NodeID || assignment.Endpoint == "" || assignment.ProbeIdentity == "" || assignment.ProbeBootID == "" {
+		return fmt.Errorf("%w: local assignment identity drifted", ErrCommandExecutor)
 	}
 	return nil
 }

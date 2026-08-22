@@ -174,8 +174,7 @@ func TestPackingPlanValidateAgainstRejectsCheckedArithmeticOverflow(t *testing.T
 func newPackingValidationMixedFixture(t *testing.T) packingValidationFixture {
 	t.Helper()
 	now := time.UnixMilli(1_700_000_000_000).UTC()
-	manifest := testManifest(1)
-	manifest.Nodes[0].Capabilities = append(manifest.Nodes[0].Capabilities, testDarlingCapability())
+	manifest := snapshotTestManifest(4)
 	snapshot := snapshotForManifest(manifest, now)
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("mixed runtime manifest is invalid: %v", err)
@@ -185,7 +184,7 @@ func newPackingValidationMixedFixture(t *testing.T) packingValidationFixture {
 	}
 	units := []ExecutionUnit{
 		executionUnitTestUnit("unit-a-ubuntu", RuntimeUbuntuContainer, PlatformLinuxAMD64),
-		executionUnitTestUnit("unit-b-darling", RuntimeDarlingCompatRuntime, PlatformDarwinAMD64),
+		executionUnitTestUnit("unit-b-darling", RuntimeUbuntuContainer, PlatformLinuxAMD64),
 	}
 	plan := PackingPlan{
 		SchemaVersion:               PackingPlanSchemaVersion,
@@ -231,6 +230,7 @@ func newPackingValidationUnassignedFixture(t *testing.T) packingValidationFixtur
 		executionUnitTestUnit("unit-b-no-capability", RuntimeWindowsNative, PlatformWindowsAMD64),
 	}
 	fixture.units[0].CPUMilli = fixture.snapshot.Nodes[0].Available.CPUMilli + 1
+	fixture.units[1].CPUMilli = fixture.snapshot.Nodes[2].Available.CPUMilli + 1
 	fixture.plan.NodeShards = []NodeShard{}
 	fixture.plan.UnassignedUnitIDs = []string{"unit-a-oversize", "unit-b-no-capability"}
 	return fixture

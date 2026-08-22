@@ -271,11 +271,8 @@ func loadDurableLease(ctx context.Context, tx *sql.Tx, fence heteroci.OwnerFence
 	return lease, revision, nil
 }
 
-// validateDurableStartBinding 校验 fresh snapshot、决策 assignment、lease 和工作单元。
+// validateDurableStartBinding 校验已在规划阶段验证的 snapshot identity、assignment、lease 和工作单元。
 func validateDurableStartBinding(run durableRunRecord, lease heteroci.RoutingLease, snapshot heteroci.SnapshotSet, unitID string, fence heteroci.OwnerFence, now time.Time) error {
-	if err := snapshot.ValidateAgainst(run.manifest, now, run.heartbeatTTL); err != nil {
-		return fmt.Errorf("validate durable current snapshot: %w", err)
-	}
 	if snapshot.OwnerEpoch != fence.OwnerEpoch {
 		return fmt.Errorf("durable current snapshot owner epoch drifted")
 	}
@@ -337,13 +334,11 @@ func durableExecutionUnit(units []heteroci.ExecutionUnit, unitID string) (hetero
 	return *found, nil
 }
 
-// validateDurableExecutorBinding 锁定 local identity 或唯一 canonical ECI tier。
+// validateDurableExecutorBinding 锁定本地节点身份。
 func validateDurableExecutorBinding(assignment heteroci.RouteAssignment, unit heteroci.ExecutionUnit, snapshot heteroci.SnapshotSet) error {
 	switch assignment.Executor {
 	case heteroci.ExecutorKindLocalNode:
 		return validateDurableLocalBinding(assignment, unit, snapshot)
-	case heteroci.ExecutorKindAliyunECI:
-		return validateDurableECIBinding(assignment, unit)
 	default:
 		return fmt.Errorf("durable routing executor is unknown")
 	}
@@ -351,9 +346,6 @@ func validateDurableExecutorBinding(assignment heteroci.RouteAssignment, unit he
 
 // validateDurableLocalBinding 校验节点四身份和当前 active runtime。
 func validateDurableLocalBinding(assignment heteroci.RouteAssignment, unit heteroci.ExecutionUnit, snapshot heteroci.SnapshotSet) error {
-	if assignment.ECITier != "" {
-		return fmt.Errorf("durable local assignment carries an ECI tier")
-	}
 	for _, node := range snapshot.Nodes {
 		if node.NodeID != assignment.NodeID {
 			continue
@@ -391,29 +383,6 @@ func durableNodeSupportsUnit(node heteroci.NodeSnapshot, unit heteroci.Execution
 	default:
 		return false
 	}
-}
-
-// validateDurableECIBinding 校验 cloud assignment 的空本地身份和最小资源档位。
-func validateDurableECIBinding(assignment heteroci.RouteAssignment, unit heteroci.ExecutionUnit) error {
-	if assignment.NodeID != "" || assignment.Endpoint != "" || assignment.ProbeIdentity != "" || assignment.ProbeBootID != "" {
-		return fmt.Errorf("durable ECI assignment carries local identity")
-	}
-	want, ok := smallestDurableECITier(unit)
-	if !ok || assignment.ECITier != want {
-		return fmt.Errorf("durable ECI tier does not match execution unit")
-	}
-	return nil
-}
-
-// smallestDurableECITier 返回满足工作单元的最小 canonical ECI 档位。
-func smallestDurableECITier(unit heteroci.ExecutionUnit) (heteroci.ECIResourceTier, bool) {
-	for _, tier := range []heteroci.ECIResourceTier{heteroci.ECITier2C4GiB, heteroci.ECITier4C8GiB, heteroci.ECITier8C16GiB} {
-		capacity, ok := tier.Capacity()
-		if ok && unit.CPUMilli <= capacity.CPUMilli && unit.MemoryBytes <= capacity.MemoryBytes {
-			return tier, true
-		}
-	}
-	return "", false
 }
 
 // buildStartedTransition 构造 next fence 和 started lease 并校验时间顺序。

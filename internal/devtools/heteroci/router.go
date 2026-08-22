@@ -7,13 +7,10 @@ import (
 )
 
 const (
-	routingBlockerOverflowDisabled = "cloud overflow is disabled"
-	routingBlockerPlatform         = "ECI overflow requires linux/amd64 target platform"
-	routingBlockerRuntime          = "ECI overflow requires ubuntu_container runtime"
-	routingBlockerTier             = "execution unit does not fit any ECI resource tier"
+	routingBlockerCapacity = CapacityBlockerReasonCapacityUnavailable
 )
 
-// BuildRoutingDecision 将已验证的装箱规划闭合为唯一的本地或 ECI 路由决策。
+// BuildRoutingDecision 将已验证的装箱规划闭合为固定本地四节点路由决策。
 func BuildRoutingDecision(
 	manifest Manifest,
 	snapshot SnapshotSet,
@@ -73,7 +70,7 @@ func BuildRoutingDecision(
 	return decision, nil
 }
 
-// PlanRoutingDecision 真实执行 Anchor/Wave 规划并构造其生产可达的路由决策。
+// PlanRoutingDecision 真实执行 Anchor/Wave 规划并构造固定节点路由决策。
 func PlanRoutingDecision(
 	manifest Manifest,
 	snapshot SnapshotSet,
@@ -119,7 +116,6 @@ func routingLocalAssignments(plan PackingPlan, snapshot SnapshotSet) ([]RouteAss
 					Endpoint:      node.Endpoint,
 					ProbeIdentity: node.ProbeIdentity,
 					ProbeBootID:   node.ProbeBootID,
-					ECITier:       "",
 				})
 			}
 		}
@@ -141,30 +137,9 @@ func validateRoutingLocalNodeIdentity(node NodeSnapshot, expectedNodeID string) 
 	return nil
 }
 
-// routeUnassignedUnit 将未装入本地节点的单元映射到 ECI 或形成容量阻塞。
-func routeUnassignedUnit(manifest Manifest, unit ExecutionUnit) (RouteAssignment, *CapacityBlocker) {
-	if !manifest.CloudOverflow.Enabled {
-		return RouteAssignment{}, newCapacityBlocker(unit, routingBlockerOverflowDisabled)
-	}
-	if unit.TargetPlatform != PlatformLinuxAMD64 {
-		return RouteAssignment{}, newCapacityBlocker(unit, routingBlockerPlatform)
-	}
-	if unit.RequiredRuntime != RuntimeUbuntuContainer {
-		return RouteAssignment{}, newCapacityBlocker(unit, routingBlockerRuntime)
-	}
-	tier, fits := smallestFittingECITier(unit)
-	if !fits {
-		return RouteAssignment{}, newCapacityBlocker(unit, routingBlockerTier)
-	}
-	return RouteAssignment{
-		UnitID:        unit.UnitID,
-		Executor:      ExecutorKindAliyunECI,
-		NodeID:        "",
-		Endpoint:      "",
-		ProbeIdentity: "",
-		ProbeBootID:   "",
-		ECITier:       tier,
-	}, nil
+// routeUnassignedUnit 将未装入固定节点的单元统一形成为容量阻塞。
+func routeUnassignedUnit(_ Manifest, unit ExecutionUnit) (RouteAssignment, *CapacityBlocker) {
+	return RouteAssignment{}, newCapacityBlocker(unit, routingBlockerCapacity)
 }
 
 // newCapacityBlocker 生成不泄露节点端点且字段稳定的容量阻塞记录。

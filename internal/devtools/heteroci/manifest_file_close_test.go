@@ -74,17 +74,12 @@ func validManifestFileCloseFixture(t *testing.T) (Manifest, []string) {
 	manifest := Manifest{
 		SchemaVersion: ManifestSchemaVersion,
 		Authority:     AuthorityLocalNonAuthoritative,
-		Nodes: []NodeConfig{{
-			NodeID:        "node-close-test",
-			Endpoint:      "https://" + secrets[2] + "/probe",
-			ProbeIdentity: secrets[3],
-			Platform:      PlatformLinuxAMD64,
-			Capabilities: []CapabilityConfig{{
-				Runtime:     RuntimeUbuntuContainer,
-				Image:       "registry.invalid/" + secrets[1],
-				ImageDigest: "sha256:" + strings.Repeat("d", 64),
-			}},
-		}},
+		Nodes: []NodeConfig{
+			{NodeID: "node-close-test", Endpoint: "https://" + secrets[2] + "/probe", ProbeIdentity: secrets[3], Platform: PlatformLinuxAMD64, Capabilities: []CapabilityConfig{{Runtime: RuntimeUbuntuContainer, Image: "registry.invalid/" + secrets[1], ImageDigest: "sha256:" + strings.Repeat("d", 64)}}},
+			{NodeID: "node-close-test-2", Endpoint: "https://node-close-test-2.invalid/probe", ProbeIdentity: "sha256:" + strings.Repeat("e", 64), Platform: PlatformLinuxAMD64, Capabilities: []CapabilityConfig{{Runtime: RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: "sha256:" + strings.Repeat("f", 64)}}},
+			{NodeID: "node-close-test-3", Endpoint: "https://node-close-test-3.invalid/probe", ProbeIdentity: "sha256:" + strings.Repeat("1", 64), Platform: PlatformWindowsAMD64, Capabilities: []CapabilityConfig{{Runtime: RuntimeWindowsNative}}},
+			{NodeID: "node-close-test-4", Endpoint: "https://node-close-test-4.invalid/probe", ProbeIdentity: "sha256:" + strings.Repeat("2", 64), Platform: PlatformWindowsAMD64, Capabilities: []CapabilityConfig{{Runtime: RuntimeWindowsNative}}},
+		},
 	}
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("fixture manifest is invalid: %v", err)

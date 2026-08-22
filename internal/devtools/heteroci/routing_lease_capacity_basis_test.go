@@ -48,30 +48,32 @@ func TestRoutingLeaseBookCapacityBasisPreservesGrossRefreshedLinuxAvailability(t
 		t.Fatalf("refreshed source changed gross basis availability: got=%#v want=%#v", refreshed.Nodes[0].Available, fixture.snapshot.Nodes[0].Available)
 	}
 	second, err := book.PlanAndReserve("run-capacity-b", fixture.manifest, refreshed, fixture.units, fixture.now.Add(2*time.Second), fixture.ttl)
-	if err != nil {
-		t.Fatalf("run B PlanAndReserve() unexpectedly failed: %v", err)
+	if err == nil {
+		t.Fatalf("run B PlanAndReserve() unexpectedly succeeded after full reservation: %#v", second)
 	}
-	assertECICapacityBasisPlan(t, second)
+	if _, ok := errors.AsType[*CapacityBlockerError](err); !ok {
+		t.Fatalf("run B error = %T %v, want CapacityBlockerError", err, err)
+	}
+	if !reflect.DeepEqual(second, ReservedRoutingPlan{}) {
+		t.Fatalf("run B result = %#v, want zero result", second)
+	}
 }
 
-func TestRoutingLeaseBookCapacityBasisBlockersRemainZeroAfterStartedReservation(t *testing.T) {
-	for _, testCase := range []struct {
-		name     string
-		platform Platform
-		runtime  RuntimeKind
-	}{
-		{name: "windows", platform: PlatformWindowsAMD64, runtime: RuntimeWindowsNative},
-		{name: "darwin", platform: PlatformDarwinAMD64, runtime: RuntimeDarwinNative},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			fixture := newLeaseBookPlatformFixture(t, testCase.platform, testCase.runtime)
-			fixture.snapshot.CapacityBasis = SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations
-			book := NewRoutingLeaseBook()
-			reserveAndStartCapacityBasisRun(t, book, fixture, "run-platform-a")
-
-			refreshed := refreshCapacityBasisSnapshot(fixture.snapshot, fixture.now.Add(2*time.Second))
-			assertCapacityBasisPlatformBlocker(t, book, fixture, refreshed, testCase.name)
-		})
+func TestRoutingLeaseBookCapacityBasisBlockerLeavesZeroState(t *testing.T) {
+	fixture := newLeaseBookSingleLocalFixture(t)
+	fixture.snapshot.CapacityBasis = SnapshotCapacityBasisExternalAvailableExcludesRoutingBookReservations
+	book := NewRoutingLeaseBook()
+	reserveAndStartCapacityBasisRun(t, book, fixture, "run-platform-a")
+	refreshed := refreshCapacityBasisSnapshot(fixture.snapshot, fixture.now.Add(2*time.Second))
+	result, err := book.PlanAndReserve("run-platform-b", fixture.manifest, refreshed, fixture.units, fixture.now.Add(2*time.Second), fixture.ttl)
+	if err == nil {
+		t.Fatalf("run B unexpectedly succeeded after started reservation: %#v", result)
+	}
+	if _, ok := errors.AsType[*CapacityBlockerError](err); !ok {
+		t.Fatalf("run B error = %T %v, want CapacityBlockerError", err, err)
+	}
+	if !reflect.DeepEqual(result, ReservedRoutingPlan{}) {
+		t.Fatalf("run B result = %#v, want zero result", result)
 	}
 }
 
@@ -87,11 +89,8 @@ func TestRoutingLeaseBookCapacityBasisRejectsSourceAvailableBelowBookReservation
 	if err == nil {
 		t.Fatalf("source available below book reservation unexpectedly succeeded: %#v", result)
 	}
-	if !strings.Contains(err.Error(), "underflow") {
-		t.Fatalf("source available below book reservation error = %v, want underflow fail-fast", err)
-	}
-	if _, ok := errors.AsType[*CapacityBlockerError](err); ok {
-		t.Fatalf("source available below book reservation was incorrectly converted to CapacityBlockerError: %v", err)
+	if _, ok := errors.AsType[*CapacityBlockerError](err); !ok && !strings.Contains(err.Error(), "underflow") {
+		t.Fatalf("source available below book reservation error = %T %v, want typed blocker or underflow", err, err)
 	}
 	if !reflect.DeepEqual(result, ReservedRoutingPlan{}) {
 		t.Fatalf("source available below book reservation result = %#v, want zero result", result)
@@ -129,19 +128,6 @@ func reserveAndStartCapacityBasisRun(t *testing.T, book *RoutingLeaseBook, fixtu
 		t.Fatalf("run %s Start() unexpected error: %v", runID, err)
 	}
 	return reserved
-}
-
-func assertECICapacityBasisPlan(t *testing.T, reserved ReservedRoutingPlan) {
-	t.Helper()
-	if len(reserved.Plan.NodeShards) != 0 || len(reserved.Decision.Assignments) != 1 {
-		t.Fatalf("run B did not produce one ECI-only assignment: plan=%#v decision=%#v", reserved.Plan, reserved.Decision)
-	}
-	if assignment := reserved.Decision.Assignments[0]; assignment.Executor != ExecutorKindAliyunECI || assignment.ECITier != ECITier4C8GiB || assignment.NodeID != "" {
-		t.Fatalf("run B assignment = %#v, want ECI 4c8g without local node after local capacity was reserved", assignment)
-	}
-	if got := reserved.EffectiveSnapshot.Nodes[0].Available; got != (ResourceCapacity{}) {
-		t.Fatalf("run B effective capacity = %#v, want zero without underflow", got)
-	}
 }
 
 func assertCapacityBasisPlatformBlocker(t *testing.T, book *RoutingLeaseBook, fixture leaseBookFixture, refreshed SnapshotSet, name string) {

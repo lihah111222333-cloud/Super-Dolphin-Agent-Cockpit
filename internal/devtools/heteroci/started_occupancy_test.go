@@ -8,7 +8,7 @@ import (
 
 func TestStartedRoutingOccupancyValidatesAndDerivesFromStartedLease(t *testing.T) {
 	fixture := newRoutingValidationMixedFixture(t)
-	lease := validRoutingLease(fixture, 0, LeaseStateStarted, fixture.now.UnixMilli()-5_000, fixture.now.UnixMilli()-1_000, 0)
+	lease := validRoutingLease(fixture, 1, LeaseStateStarted, fixture.now.UnixMilli()-5_000, fixture.now.UnixMilli()-1_000, 0)
 	fence := validStartedOccupancyFence()
 	started, err := NewStartedRoutingLease(fence, lease, fixture.decision, fixture.now)
 	if err != nil {
@@ -24,7 +24,7 @@ func TestStartedRoutingOccupancyValidatesAndDerivesFromStartedLease(t *testing.T
 
 func TestStartedRoutingOccupancyRejectsDriftAndWrongState(t *testing.T) {
 	fixture := newRoutingValidationMixedFixture(t)
-	lease := validRoutingLease(fixture, 0, LeaseStateStarted, fixture.now.UnixMilli()-5_000, fixture.now.UnixMilli()-1_000, 0)
+	lease := validRoutingLease(fixture, 1, LeaseStateStarted, fixture.now.UnixMilli()-5_000, fixture.now.UnixMilli()-1_000, 0)
 	fence := validStartedOccupancyFence()
 	started, err := NewStartedRoutingLease(fence, lease, fixture.decision, fixture.now)
 	if err != nil {

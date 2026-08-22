@@ -72,30 +72,18 @@ func validateExecutionMaterialAssignments(batch ExecutionBatch) error {
 	return nil
 }
 
-// validateExecutionMaterialAssignmentForKey 校验 local/ECI assignment 的完整 lane 形状。
+// validateExecutionMaterialAssignmentForKey 校验 local assignment 的完整 lane 形状。
 func validateExecutionMaterialAssignmentForKey(key ExecutorKey, assignment heteroci.RouteAssignment) error {
-	switch key.Kind {
-	case heteroci.ExecutorKindLocalNode:
-		return validateExecutionMaterialLocalAssignment(key, assignment)
-	case heteroci.ExecutorKindAliyunECI:
-		return validateExecutionMaterialECIAssignment(key, assignment)
-	default:
+	if key.Kind != heteroci.ExecutorKindLocalNode {
 		return fmt.Errorf("%w: execution material executor kind is invalid", ErrBatchResult)
 	}
+	return validateExecutionMaterialLocalAssignment(key, assignment)
 }
 
 // validateExecutionMaterialLocalAssignment 校验 local node assignment 的端点与探针身份。
 func validateExecutionMaterialLocalAssignment(key ExecutorKey, assignment heteroci.RouteAssignment) error {
-	if assignment.NodeID != key.NodeID || assignment.ECITier != "" || assignment.Endpoint == "" || assignment.ProbeIdentity == "" || assignment.ProbeBootID == "" {
+	if assignment.NodeID != key.NodeID || assignment.Endpoint == "" || assignment.ProbeIdentity == "" || assignment.ProbeBootID == "" {
 		return fmt.Errorf("%w: execution material local assignment is invalid", ErrBatchResult)
-	}
-	return nil
-}
-
-// validateExecutionMaterialECIAssignment 校验 ECI assignment 不携带 local identity。
-func validateExecutionMaterialECIAssignment(key ExecutorKey, assignment heteroci.RouteAssignment) error {
-	if assignment.NodeID != "" || assignment.Endpoint != "" || assignment.ProbeIdentity != "" || assignment.ProbeBootID != "" || assignment.ECITier != key.ECITier {
-		return fmt.Errorf("%w: execution material ECI assignment is invalid", ErrBatchResult)
 	}
 	return nil
 }
@@ -118,7 +106,7 @@ func validateExecutionMaterialStarted(batch ExecutionBatch) error {
 
 // validateExecutionMaterialAssignmentLease 将 started lease 的不可变路由字段绑定回 assignment。
 func validateExecutionMaterialAssignmentLease(assignment heteroci.RouteAssignment, lease heteroci.RoutingLease) error {
-	if lease.Executor != assignment.Executor || lease.NodeID != assignment.NodeID || lease.Endpoint != assignment.Endpoint || lease.ProbeIdentity != assignment.ProbeIdentity || lease.ProbeBootID != assignment.ProbeBootID || lease.ECITier != assignment.ECITier {
+	if lease.Executor != assignment.Executor || lease.NodeID != assignment.NodeID || lease.Endpoint != assignment.Endpoint || lease.ProbeIdentity != assignment.ProbeIdentity || lease.ProbeBootID != assignment.ProbeBootID {
 		return fmt.Errorf("%w: execution material assignment and started lease drifted", ErrBatchResult)
 	}
 	return nil

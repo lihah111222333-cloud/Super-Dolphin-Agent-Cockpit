@@ -9,7 +9,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
 )
 
-// BatchPlan 是一个不可拆分的节点波次或单 unit ECI 执行批次。
+// BatchPlan 是一个不可拆分的本地节点波次执行批次。
 // Batch 内所有 unit 必须先逐一 Start，再恰好调用一次 BatchExecutor.ExecuteBatch。
 type BatchPlan struct {
 	Batch   ExecutionBatch
@@ -17,7 +17,7 @@ type BatchPlan struct {
 }
 
 // BuildBatches 将 durable plan/decision/lease 闭合为确定性的执行批次图。
-// local NodeShard 的每个 wave 是一个 batch；ECI assignment 固定为单 unit batch。
+// local NodeShard 的每个 wave 是一个 batch。
 func BuildBatches(
 	runID string,
 	manifest heteroci.Manifest,
@@ -39,8 +39,23 @@ func BuildBatches(
 		return nil, err
 	}
 	seen := make(map[string]struct{}, len(units))
-	batches := make([]BatchPlan, 0, len(planned.Plan.NodeShards)+len(planned.Plan.UnassignedUnitIDs))
-	for _, shard := range planned.Plan.NodeShards {
+	batches, err := buildLocalBatches(runID, planned.Plan.NodeShards, unitIndex, assignments, leases, seen)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectUnassignedUnits(planned.Plan.UnassignedUnitIDs, unitIndex); err != nil {
+		return nil, err
+	}
+	if err := validateBatchCoverage(units, assignments, leases, seen); err != nil {
+		return nil, err
+	}
+	return batches, nil
+}
+
+// buildLocalBatches 将所有节点波次展开为 local execution batches。
+func buildLocalBatches(runID string, shards []heteroci.NodeShard, unitIndex map[string]heteroci.ExecutionUnit, assignments map[string]heteroci.RouteAssignment, leases map[string]heteroci.RoutingLease, seen map[string]struct{}) ([]BatchPlan, error) {
+	batches := make([]BatchPlan, 0)
+	for _, shard := range shards {
 		for _, wave := range shard.Waves {
 			batch, plannedLeases, err := buildLocalBatch(runID, shard, wave, unitIndex, assignments, leases, seen)
 			if err != nil {
@@ -49,17 +64,23 @@ func BuildBatches(
 			batches = append(batches, BatchPlan{Batch: batch, Planned: plannedLeases})
 		}
 	}
-	for _, unitID := range planned.Plan.UnassignedUnitIDs {
-		batch, plannedLease, err := buildECIBatch(runID, unitID, unitIndex, assignments, leases, seen)
-		if err != nil {
-			return nil, err
-		}
-		batches = append(batches, BatchPlan{Batch: batch, Planned: []heteroci.RoutingLease{plannedLease}})
-	}
-	if err := validateBatchCoverage(units, assignments, leases, seen); err != nil {
-		return nil, err
-	}
 	return batches, nil
+}
+
+// rejectUnassignedUnits 将规划中未装入的 unit 映射为 typed capacity blocker。
+func rejectUnassignedUnits(unitIDs []string, unitIndex map[string]heteroci.ExecutionUnit) error {
+	if len(unitIDs) == 0 {
+		return nil
+	}
+	blockers := make([]heteroci.CapacityBlocker, 0, len(unitIDs))
+	for _, unitID := range unitIDs {
+		unit, exists := unitIndex[unitID]
+		if !exists {
+			return errors.New("heteroci workflow unassigned plan references unknown unit")
+		}
+		blockers = append(blockers, heteroci.CapacityBlocker{UnitID: unit.UnitID, TargetPlatform: unit.TargetPlatform, RequiredRuntime: unit.RequiredRuntime, Reason: heteroci.CapacityBlockerReasonCapacityUnavailable})
+	}
+	return &heteroci.CapacityBlockerError{Blockers: blockers}
 }
 
 // validateBatchInputs 校验 batch graph 的 owner fence、快照、规划和路由投影。
@@ -227,49 +248,9 @@ func resolveLocalBatchUnit(nodeID, unitID string, unitIndex map[string]heteroci.
 	return unit, assignment, lease, nil
 }
 
-// validLocalAssignment 判断 assignment 是否绑定当前 local node 且不携带 ECI tier。
+// validLocalAssignment 判断 assignment 是否绑定当前 local node 且不携带废弃资源档位。
 func validLocalAssignment(found bool, assignment heteroci.RouteAssignment, nodeID string) bool {
-	return found && assignment.Executor == heteroci.ExecutorKindLocalNode && assignment.NodeID == nodeID && assignment.ECITier == ""
-}
-
-// buildECIBatch 构造一个固定单 unit 的 ECI batch。
-func buildECIBatch(runID, unitID string, unitIndex map[string]heteroci.ExecutionUnit, assignments map[string]heteroci.RouteAssignment, leases map[string]heteroci.RoutingLease, seen map[string]struct{}) (ExecutionBatch, heteroci.RoutingLease, error) {
-	unit, assignment, lease, err := resolveECIBatchUnit(unitID, unitIndex, assignments, leases, seen)
-	if err != nil {
-		return ExecutionBatch{}, heteroci.RoutingLease{}, err
-	}
-	key := ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: assignment.ECITier}
-	batchID, err := DeriveBatchID(runID, key, -1, []string{unitID})
-	if err != nil {
-		return ExecutionBatch{}, heteroci.RoutingLease{}, err
-	}
-	return ExecutionBatch{BatchID: batchID, RunID: runID, Key: key, Wave: -1, Units: []heteroci.ExecutionUnit{unit}, Assignments: []heteroci.RouteAssignment{assignment}}, lease, nil
-}
-
-// resolveECIBatchUnit 校验并返回一个 ECI unit 的三路绑定。
-func resolveECIBatchUnit(unitID string, unitIndex map[string]heteroci.ExecutionUnit, assignments map[string]heteroci.RouteAssignment, leases map[string]heteroci.RoutingLease, seen map[string]struct{}) (heteroci.ExecutionUnit, heteroci.RouteAssignment, heteroci.RoutingLease, error) {
-	unit, ok := unitIndex[unitID]
-	if !ok {
-		return heteroci.ExecutionUnit{}, heteroci.RouteAssignment{}, heteroci.RoutingLease{}, errors.New("heteroci workflow ECI batch references unknown unit")
-	}
-	assignment, ok := assignments[unitID]
-	if !validECIAssignment(ok, assignment) {
-		return heteroci.ExecutionUnit{}, heteroci.RouteAssignment{}, heteroci.RoutingLease{}, errors.New("heteroci workflow ECI batch assignment drifted")
-	}
-	lease, ok := leases[unitID]
-	if !ok {
-		return heteroci.ExecutionUnit{}, heteroci.RouteAssignment{}, heteroci.RoutingLease{}, errors.New("heteroci workflow ECI batch lease is missing")
-	}
-	if _, duplicate := seen[unitID]; duplicate {
-		return heteroci.ExecutionUnit{}, heteroci.RouteAssignment{}, heteroci.RoutingLease{}, errors.New("heteroci workflow unit appears in more than one batch")
-	}
-	seen[unitID] = struct{}{}
-	return unit, assignment, lease, nil
-}
-
-// validECIAssignment 判断 ECI assignment 是否没有伪造本地节点身份。
-func validECIAssignment(found bool, assignment heteroci.RouteAssignment) bool {
-	return found && assignment.Executor == heteroci.ExecutorKindAliyunECI && assignment.NodeID == "" && assignment.Endpoint == "" && assignment.ProbeIdentity == "" && assignment.ProbeBootID == ""
+	return found && assignment.Executor == heteroci.ExecutorKindLocalNode && assignment.NodeID == nodeID
 }
 
 // validateBatchCoverage 确保每个 unit、assignment 和 durable lease 恰好被消费一次。

@@ -14,7 +14,7 @@ func TestRoutingLeaseWireLiteralsAreFrozen(t *testing.T) {
 		got  string
 		want string
 	}{
-		{name: "schema", got: RoutingLeaseSchemaVersion, want: "heteroci-routing-lease/v2"},
+		{name: "schema", got: RoutingLeaseSchemaVersion, want: "heteroci-routing-lease/v4"},
 		{name: "planned", got: string(LeaseStatePlanned), want: "planned"},
 		{name: "started", got: string(LeaseStateStarted), want: "started"},
 		{name: "succeeded", got: string(LeaseStateSucceeded), want: "succeeded"},
@@ -47,7 +47,6 @@ func TestRoutingLeaseFieldLayoutAndJSONTagsAreFrozen(t *testing.T) {
 		{name: "Endpoint", typ: reflect.TypeFor[string](), json: "endpoint"},
 		{name: "ProbeIdentity", typ: reflect.TypeFor[string](), json: "probe_identity"},
 		{name: "ProbeBootID", typ: reflect.TypeFor[string](), json: "probe_boot_id"},
-		{name: "ECITier", typ: reflect.TypeFor[ECIResourceTier](), json: "eci_tier"},
 		{name: "State", typ: reflect.TypeFor[RoutingLeaseState](), json: "state"},
 		{name: "ReservedAtUnixMilli", typ: reflect.TypeFor[int64](), json: "reserved_at_unix_milli"},
 		{name: "StartedAtUnixMilli", typ: reflect.TypeFor[int64](), json: "started_at_unix_milli"},
@@ -127,7 +126,7 @@ func TestRoutingLeasePlannedZeroTimestampsRemainExplicitInJSON(t *testing.T) {
 	}
 	wantKeys := []string{
 		"schema_version", "authority", "run_id", "decision_digest", "unit_id", "executor",
-		"node_id", "endpoint", "probe_identity", "probe_boot_id", "eci_tier", "state",
+		"node_id", "endpoint", "probe_identity", "probe_boot_id", "state",
 		"reserved_at_unix_milli", "started_at_unix_milli", "finished_at_unix_milli",
 	}
 	gotKeys := make([]string, 0, len(object))

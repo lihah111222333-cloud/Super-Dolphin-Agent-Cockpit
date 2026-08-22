@@ -44,24 +44,17 @@ func validBindings(encoder CommandEncoder) []Binding {
 			Executor: &testBatchExecutor{id: "local"},
 			Encoder:  encoder,
 		},
-		{
-			Kind:     heteroci.ExecutorKindAliyunECI,
-			Key:      heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: heteroci.ECITier2C4GiB},
-			Platform: heteroci.PlatformLinuxAMD64,
-			Executor: &testBatchExecutor{id: "eci"},
-			Encoder:  encoder,
-		},
 	}
 }
 
-func TestRegistryRequiresExactlyOneBindingPerExecutorKind(t *testing.T) {
+func TestRegistryRequiresValidLocalBindings(t *testing.T) {
 	encoder := StrictCommandEncoder{}
 	tests := []struct {
 		name     string
 		bindings []Binding
 		want     string
 	}{
-		{name: "missing eci", bindings: validBindings(encoder)[:1], want: "missing executor kind"},
+		{name: "missing binding", bindings: nil, want: "at least one binding"},
 		{name: "duplicate local", bindings: append(validBindings(encoder), validBindings(encoder)[0]), want: "duplicate executor key"},
 		{name: "unknown kind", bindings: append(validBindings(encoder), Binding{Kind: heteroci.ExecutorKind("other"), Platform: heteroci.PlatformLinuxAMD64, Executor: &testBatchExecutor{id: "other"}, Encoder: encoder}), want: "unsupported executor kind"},
 		{name: "unsupported platform", bindings: func() []Binding {
@@ -110,12 +103,6 @@ func TestRegistryBindsOneExecutorPerKindAndRejectsInvalidKeys(t *testing.T) {
 	if _, err := registry.Bind(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode}); err == nil {
 		t.Fatal("Bind accepted local key without NodeID")
 	}
-	if _, err := registry.Bind(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, NodeID: "unexpected", ECITier: heteroci.ECITier2C4GiB}); err == nil {
-		t.Fatal("Bind accepted ECI key with NodeID")
-	}
-	if _, err := registry.Bind(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: heteroci.ECIResourceTier("aliyun-eci/16c32g")}); err == nil {
-		t.Fatal("Bind accepted unsupported ECI tier")
-	}
 	if _, err := registry.Bind(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKind("other")}); err == nil {
 		t.Fatal("Bind accepted unsupported executor kind")
 	}
@@ -128,7 +115,6 @@ func TestRegistryRequiresDistinctExecutorPerLocalNode(t *testing.T) {
 	bindings := []Binding{
 		{Kind: heteroci.ExecutorKindLocalNode, Key: heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-a"}, Platform: heteroci.PlatformLinuxAMD64, Executor: firstExecutor, Encoder: encoder},
 		{Kind: heteroci.ExecutorKindLocalNode, Key: heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-b"}, Platform: heteroci.PlatformLinuxAMD64, Executor: secondExecutor, Encoder: encoder},
-		{Kind: heteroci.ExecutorKindAliyunECI, Key: heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: heteroci.ECITier2C4GiB}, Platform: heteroci.PlatformLinuxAMD64, Executor: &testBatchExecutor{id: "eci"}, Encoder: encoder},
 	}
 	registry, err := NewRegistry(bindings)
 	if err != nil {
@@ -155,50 +141,41 @@ func TestRegistryRequiresDistinctExecutorPerLocalNode(t *testing.T) {
 	sharedBindings := []Binding{
 		{Kind: heteroci.ExecutorKindLocalNode, Key: heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-a"}, Platform: heteroci.PlatformLinuxAMD64, Executor: shared, Encoder: encoder},
 		{Kind: heteroci.ExecutorKindLocalNode, Key: heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-b"}, Platform: heteroci.PlatformLinuxAMD64, Executor: shared, Encoder: encoder},
-		{Kind: heteroci.ExecutorKindAliyunECI, Key: heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: heteroci.ECITier2C4GiB}, Platform: heteroci.PlatformLinuxAMD64, Executor: &testBatchExecutor{id: "eci-shared-check"}, Encoder: encoder},
 	}
 	if _, err := NewRegistry(sharedBindings); err == nil || !strings.Contains(err.Error(), "reused across keys") {
 		t.Fatalf("shared executor error = %v, want reuse rejection", err)
 	}
 }
 
-func TestRegistryForManifestDisabledAllowsLocalOnly(t *testing.T) {
+func TestRegistryForManifestAllowsLocalOnly(t *testing.T) {
 	local := testLocalBinding("local", heteroci.PlatformLinuxAMD64)
-	registry, err := NewRegistryForManifest(testRegistryManifest(false), []Binding{local})
+	registry, err := NewRegistryForManifest(testRegistryManifest(), []Binding{local})
 	if err != nil {
-		t.Fatalf("disabled cloud_overflow local-only registry error = %v", err)
+		t.Fatalf("local-only registry error = %v", err)
 	}
 	if _, err := registry.Bind(local.Key); err != nil {
 		t.Fatalf("Bind(disabled local) error = %v", err)
 	}
 }
 
-func TestRegistryForManifestEnabledRequiresECI(t *testing.T) {
+func TestRegistryForManifestRejectsExtraBindingAndIdentityDrift(t *testing.T) {
 	local := testLocalBinding("local", heteroci.PlatformLinuxAMD64)
-	if _, err := NewRegistryForManifest(testRegistryManifest(true), []Binding{local}); err == nil || !strings.Contains(err.Error(), "missing executor kind") {
-		t.Fatalf("enabled cloud_overflow missing ECI error = %v, want missing executor kind", err)
+	extra := append([]Binding{local}, Binding{
+		Kind:     heteroci.ExecutorKindLocalNode,
+		Key:      heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-extra"},
+		Platform: heteroci.PlatformLinuxAMD64,
+		Executor: &testBatchExecutor{id: "extra"},
+		Encoder:  StrictCommandEncoder{},
+	})
+	if _, err := NewRegistryForManifest(testRegistryManifest(), extra); err == nil {
+		t.Fatal("manifest accepted an extra local binding")
 	}
-	allECI := testECIBindings()
-	if _, err := NewRegistryForManifest(testRegistryManifest(true), append([]Binding{local}, allECI...)); err != nil {
-		t.Fatalf("enabled cloud_overflow complete registry error = %v", err)
-	}
-	if _, err := NewRegistryForManifest(testRegistryManifest(true), append([]Binding{local}, allECI[:2]...)); err == nil || !strings.Contains(err.Error(), "missing executor key") {
-		t.Fatalf("enabled cloud_overflow missing ECI tier error = %v, want missing executor key", err)
-	}
-}
-
-func TestRegistryForManifestRejectsExtraECIAndIdentityDrift(t *testing.T) {
-	local := testLocalBinding("local", heteroci.PlatformLinuxAMD64)
-	extra := append([]Binding{local}, testECIBindings()...)
-	if _, err := NewRegistryForManifest(testRegistryManifest(false), extra); err == nil {
-		t.Fatal("disabled cloud_overflow accepted an extra ECI binding")
-	}
-	badAuthority := testRegistryManifest(false)
+	badAuthority := testRegistryManifest()
 	badAuthority.Authority = "REMOTE_AUTHORITATIVE"
 	if _, err := NewRegistryForManifest(badAuthority, []Binding{local}); err == nil || !strings.Contains(err.Error(), "manifest validation") {
 		t.Fatalf("invalid manifest authority error = %v", err)
 	}
-	badPlatform := testRegistryManifest(false)
+	badPlatform := testRegistryManifest()
 	badPlatform.Nodes[0].Platform = heteroci.PlatformWindowsAMD64
 	if _, err := NewRegistryForManifest(badPlatform, []Binding{local}); err == nil {
 		t.Fatal("manifest/node platform mismatch unexpectedly accepted")
@@ -206,7 +183,7 @@ func TestRegistryForManifestRejectsExtraECIAndIdentityDrift(t *testing.T) {
 }
 
 func TestRegistryForManifestSupportsWindowsLocalEncoding(t *testing.T) {
-	manifest := testRegistryManifest(false)
+	manifest := testRegistryManifest()
 	manifest.Nodes[0].Platform = heteroci.PlatformWindowsAMD64
 	manifest.Nodes[0].Capabilities = []heteroci.CapabilityConfig{{Runtime: heteroci.RuntimeWindowsNative}}
 	windowsBinding := testLocalBinding("windows", heteroci.PlatformWindowsAMD64)
@@ -248,12 +225,12 @@ func TestRegistryCommandEncodingForExactKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
-	perKey, err := registry.EncodeCommandForKey(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: heteroci.ECITier2C4GiB}, []string{"tool", "arg"})
+	perKey, err := registry.EncodeCommandForKey(heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: "node-a"}, []string{"tool", "arg"})
 	if err != nil {
 		t.Fatalf("EncodeCommandForKey() error = %v", err)
 	}
 	if perKey.Platform != heteroci.PlatformLinuxAMD64 || !slices.Equal(perKey.Argv, []string{"tool", "arg"}) {
-		t.Fatalf("per-key command = %#v, want exact ECI binding", perKey)
+		t.Fatalf("per-key command = %#v, want exact local binding", perKey)
 	}
 }
 
@@ -327,11 +304,10 @@ func TestCommandEncoderFuncRejectsNil(t *testing.T) {
 	}
 }
 
-func testRegistryManifest(cloudOverflow bool) heteroci.Manifest {
+func testRegistryManifest() heteroci.Manifest {
 	manifest := heteroci.Manifest{
 		SchemaVersion: heteroci.ManifestSchemaVersion,
 		Authority:     heteroci.AuthorityLocalNonAuthoritative,
-		CloudOverflow: heteroci.CloudOverflowConfig{Enabled: cloudOverflow},
 		Nodes: []heteroci.NodeConfig{{
 			NodeID:        "node-a",
 			Endpoint:      "https://node-a.invalid/runner",
@@ -344,10 +320,6 @@ func testRegistryManifest(cloudOverflow bool) heteroci.Manifest {
 			}},
 		}},
 	}
-	if cloudOverflow {
-		manifest.CloudOverflow.Provider = heteroci.CloudProviderAliyunECI
-		manifest.CloudOverflow.Platform = heteroci.PlatformLinuxAMD64
-	}
 	return manifest
 }
 
@@ -359,20 +331,6 @@ func testLocalBinding(id string, platform heteroci.Platform) Binding {
 		Executor: &testBatchExecutor{id: id},
 		Encoder:  StrictCommandEncoder{},
 	}
-}
-
-func testECIBindings() []Binding {
-	bindings := make([]Binding, 0, 3)
-	for index, tier := range []heteroci.ECIResourceTier{heteroci.ECITier2C4GiB, heteroci.ECITier4C8GiB, heteroci.ECITier8C16GiB} {
-		bindings = append(bindings, Binding{
-			Kind:     heteroci.ExecutorKindAliyunECI,
-			Key:      heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: tier},
-			Platform: heteroci.PlatformLinuxAMD64,
-			Executor: &testBatchExecutor{id: "eci-" + string(rune('a'+index))},
-			Encoder:  StrictCommandEncoder{},
-		})
-	}
-	return bindings
 }
 
 func expectedUTF16LEBytes(value string) []byte {

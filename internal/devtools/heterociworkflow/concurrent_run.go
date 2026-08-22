@@ -11,7 +11,7 @@ import (
 )
 
 // executeRunBatchesConcurrent 按 lane 并行执行，且让同一 local node 的 wave 保持顺序。
-func (workflow *Workflow) executeRunBatchesConcurrent(ctx context.Context, request RunRequest, prepared *preparedRun) error {
+func (workflow *Workflow) executeRunBatchesConcurrent(ctx context.Context, prepared *preparedRun) error {
 	if prepared == nil || prepared.state == nil {
 		return fmt.Errorf("%w: prepared execution state is missing", ErrExecutionState)
 	}
@@ -26,7 +26,7 @@ func (workflow *Workflow) executeRunBatchesConcurrent(ctx context.Context, reque
 	var waitGroup sync.WaitGroup
 	for _, lane := range lanes {
 		waitGroup.Go(func() {
-			err := workflow.executeConcurrentBatchLane(executionCtx, request, prepared, lane, coordinator)
+			err := workflow.executeConcurrentBatchLane(executionCtx, prepared, lane, coordinator)
 			if err != nil {
 				cancel()
 			}
@@ -63,20 +63,16 @@ type concurrentBatchLane struct {
 }
 
 type concurrentBatchLaneKey struct {
-	kind    heteroci.ExecutorKind
-	nodeID  string
-	batchID BatchID
+	kind   heteroci.ExecutorKind
+	nodeID string
 }
 
-// buildConcurrentBatchLanes 按节点聚合 local wave，并让每个 ECI batch 保持独立。
+// buildConcurrentBatchLanes 按节点聚合 local wave。
 func buildConcurrentBatchLanes(batches []BatchPlan) []concurrentBatchLane {
 	lanes := make([]concurrentBatchLane, 0, len(batches))
 	indexes := make(map[concurrentBatchLaneKey]int, len(batches))
 	for index, batch := range batches {
 		key := concurrentBatchLaneKey{kind: batch.Batch.Key.Kind, nodeID: batch.Batch.Key.NodeID}
-		if batch.Batch.Key.Kind != heteroci.ExecutorKindLocalNode {
-			key.batchID = batch.Batch.BatchID
-		}
 		laneIndex, found := indexes[key]
 		if !found {
 			laneIndex = len(lanes)
@@ -86,7 +82,7 @@ func buildConcurrentBatchLanes(batches []BatchPlan) []concurrentBatchLane {
 		lanes[laneIndex].batches = append(lanes[laneIndex].batches, batch)
 	}
 	for index := range lanes {
-		if len(lanes[index].batches) < 2 || lanes[index].batches[0].Batch.Key.Kind != heteroci.ExecutorKindLocalNode {
+		if len(lanes[index].batches) < 2 {
 			continue
 		}
 		sort.SliceStable(lanes[index].batches, func(left, right int) bool {
@@ -97,12 +93,12 @@ func buildConcurrentBatchLanes(batches []BatchPlan) []concurrentBatchLane {
 }
 
 // executeConcurrentBatchLane 顺序推进单 lane，且不会重试任何 batch。
-func (workflow *Workflow) executeConcurrentBatchLane(ctx context.Context, request RunRequest, prepared *preparedRun, lane concurrentBatchLane, coordinator *concurrentExecutionCoordinator) error {
+func (workflow *Workflow) executeConcurrentBatchLane(ctx context.Context, prepared *preparedRun, lane concurrentBatchLane, coordinator *concurrentExecutionCoordinator) error {
 	for _, plan := range lane.batches {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w: batch lane canceled: %w", ErrExecutionState, err)
 		}
-		if err := workflow.executeConcurrentBatch(ctx, request, prepared, plan, coordinator); err != nil {
+		if err := workflow.executeConcurrentBatch(ctx, prepared, plan, coordinator); err != nil {
 			return err
 		}
 	}
@@ -110,8 +106,8 @@ func (workflow *Workflow) executeConcurrentBatchLane(ctx context.Context, reques
 }
 
 // executeConcurrentBatch 串行保护 owner mutation，并在锁外执行 ExecuteBatch。
-func (workflow *Workflow) executeConcurrentBatch(ctx context.Context, request RunRequest, prepared *preparedRun, plan BatchPlan, coordinator *concurrentExecutionCoordinator) error {
-	started, err := coordinator.prepareAndStart(ctx, workflow, request, prepared, plan)
+func (workflow *Workflow) executeConcurrentBatch(ctx context.Context, prepared *preparedRun, plan BatchPlan, coordinator *concurrentExecutionCoordinator) error {
+	started, err := coordinator.prepareAndStart(ctx, workflow, prepared, plan)
 	if err != nil {
 		return err
 	}
@@ -133,14 +129,16 @@ type concurrentExecutionCoordinator struct {
 }
 
 // prepareAndStart 在单锁内捕获当前 fence 并完成全部 Start mutation。
-func (coordinator *concurrentExecutionCoordinator) prepareAndStart(ctx context.Context, workflow *Workflow, request RunRequest, prepared *preparedRun, plan BatchPlan) ([]heteroci.StartedRoutingLease, error) {
+func (coordinator *concurrentExecutionCoordinator) prepareAndStart(ctx context.Context, workflow *Workflow, prepared *preparedRun, plan BatchPlan) ([]heteroci.StartedRoutingLease, error) {
 	coordinator.state.mu.Lock()
 	defer coordinator.state.mu.Unlock()
-	snapshot, _, err := workflow.prepareBatchSnapshot(ctx, prepared.manifest, request.HeartbeatTTL, coordinator.state.fence)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: batch context: %w", ErrExecutionState, err)
+	}
+	if err := validatePreparedSourceSnapshot(prepared); err != nil {
 		return nil, err
 	}
-	started, err := workflow.startBatchUnitsLocked(ctx, prepared.runIdentity.DurableRunID, prepared.planned.Decision, prepared.ids, plan, snapshot, coordinator.state)
+	started, err := workflow.startBatchUnitsLocked(ctx, prepared.runIdentity.DurableRunID, prepared.planned.Decision, prepared.ids, plan, prepared.sourceSnapshot, coordinator.state)
 	if err != nil {
 		return nil, err
 	}

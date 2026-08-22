@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestRoutingLeaseBookTransitionStartsExactLocalAndECIAssignments(t *testing.T) {
+func TestRoutingLeaseBookTransitionStartsExactLocalAssignments(t *testing.T) {
 	fixture := newLeaseBookMixedFixture(t)
 	book := NewRoutingLeaseBook()
 	reserveTransitionRun(t, book, "run-transition-start", fixture)
@@ -75,20 +75,20 @@ func TestRoutingLeaseBookTransitionRejectsInvalidStartWithoutMutation(t *testing
 
 }
 
-func TestRoutingLeaseBookTransitionECIStartRejectsInvalidSnapshotWithoutMutation(t *testing.T) {
-	fixture := newLeaseBookECIFixture(t)
+func TestRoutingLeaseBookTransitionRejectsInvalidCurrentSnapshotWithoutMutation(t *testing.T) {
+	fixture := newLeaseBookSingleLocalFixture(t)
 	book := NewRoutingLeaseBook()
-	runID := "run-invalid-eci-snapshot"
+	runID := "run-invalid-current-snapshot"
 	reserveTransitionRun(t, book, runID, fixture)
 	invalid := cloneSnapshotSet(fixture.snapshot)
 	invalid.Nodes[0].HeartbeatUnixMilli = fixture.now.Add(time.Second).UnixMilli()
 	before := transitionSnapshot(t, book, runID)
-	if _, err := book.Start(runID, "unit-eci", invalid, fixture.now.Add(time.Millisecond)); err == nil {
-		t.Fatal("ECI Start() accepted invalid current snapshot")
+	if _, err := book.Start(runID, "unit-local", invalid, fixture.now.Add(time.Millisecond)); err == nil {
+		t.Fatal("Start() accepted invalid current snapshot")
 	}
 	after := transitionSnapshot(t, book, runID)
 	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("invalid ECI Start() mutated state: before=%#v after=%#v", before, after)
+		t.Fatalf("invalid Start() mutated state: before=%#v after=%#v", before, after)
 	}
 }
 
@@ -205,12 +205,12 @@ func TestRoutingLeaseBookTransitionCancelsOnlyPlannedLeases(t *testing.T) {
 		t.Fatalf("duplicate CancelPlanned() mutated state: before=%#v after=%#v", before, after)
 	}
 
-	eci := transitionAssignment(t, fixture.decision, "unit-eci")
-	if _, err := book.Start(runID, eci.UnitID, fixture.snapshot, fixture.now.Add(2*time.Millisecond)); err != nil {
-		t.Fatalf("Start(ECI) unexpected error: %v", err)
+	second := transitionAssignment(t, fixture.decision, "unit-second")
+	if _, err := book.Start(runID, second.UnitID, fixture.snapshot, fixture.now.Add(2*time.Millisecond)); err != nil {
+		t.Fatalf("Start(second local) unexpected error: %v", err)
 	}
 	before = transitionSnapshot(t, book, runID)
-	if _, err := book.CancelPlanned(runID, eci.UnitID, fixture.now.Add(3*time.Millisecond)); err == nil {
+	if _, err := book.CancelPlanned(runID, second.UnitID, fixture.now.Add(3*time.Millisecond)); err == nil {
 		t.Fatal("CancelPlanned() on started lease unexpectedly succeeded")
 	}
 	if after := transitionSnapshot(t, book, runID); !reflect.DeepEqual(after, before) {
@@ -228,24 +228,24 @@ func TestRoutingLeaseBookTransitionReleasesMixedRunOnlyAfterAllUnitsTerminal(t *
 		t.Fatal("second Reserve() unexpectedly ignored held local capacity")
 	}
 	local := transitionAssignment(t, fixture.decision, "unit-local")
-	eci := transitionAssignment(t, fixture.decision, "unit-eci")
+	second := transitionAssignment(t, fixture.decision, "unit-second")
 	if _, err := book.CancelPlanned(firstRun, local.UnitID, fixture.now.Add(time.Millisecond)); err != nil {
 		t.Fatalf("CancelPlanned(local) unexpected error: %v", err)
 	}
 	if _, err := book.Reserve(secondRun, fixture.decision, fixture.manifest, fixture.snapshot, fixture.units, fixture.plan, fixture.now.Add(2*time.Millisecond), fixture.ttl); err == nil {
 		t.Fatal("second Reserve() succeeded before all units became terminal")
 	}
-	if _, err := book.Start(firstRun, eci.UnitID, fixture.snapshot, fixture.now.Add(2*time.Millisecond)); err != nil {
-		t.Fatalf("Start(ECI) unexpected error: %v", err)
+	if _, err := book.Start(firstRun, second.UnitID, fixture.snapshot, fixture.now.Add(2*time.Millisecond)); err != nil {
+		t.Fatalf("Start(second local) unexpected error: %v", err)
 	}
-	if _, err := book.Finish(firstRun, eci.UnitID, LeaseStateSucceeded, fixture.now.Add(2*time.Millisecond)); err != nil {
-		t.Fatalf("Finish(ECI) unexpected error: %v", err)
+	if _, err := book.Finish(firstRun, second.UnitID, LeaseStateSucceeded, fixture.now.Add(2*time.Millisecond)); err != nil {
+		t.Fatalf("Finish(second local) unexpected error: %v", err)
 	}
 	if _, err := book.Reserve(secondRun, fixture.decision, fixture.manifest, fixture.snapshot, fixture.units, fixture.plan, fixture.now.Add(3*time.Millisecond), fixture.ttl); err != nil {
 		t.Fatalf("second Reserve() after release unexpected error: %v", err)
 	}
 	history := transitionSnapshot(t, book, firstRun)
-	if transitionState(history, "unit-local") != LeaseStateCancelled || transitionState(history, "unit-eci") != LeaseStateSucceeded {
+	if transitionState(history, "unit-local") != LeaseStateCancelled || transitionState(history, "unit-second") != LeaseStateSucceeded {
 		t.Fatalf("historical terminal states not retained: %#v", history)
 	}
 }
@@ -348,7 +348,7 @@ func assertTransitionLease(t *testing.T, got RoutingLease, assignment RouteAssig
 
 func assertTransitionLeaseAssignment(t *testing.T, got RoutingLease, assignment RouteAssignment) {
 	t.Helper()
-	if got.UnitID != assignment.UnitID || got.Executor != assignment.Executor || got.NodeID != assignment.NodeID || got.Endpoint != assignment.Endpoint || got.ProbeIdentity != assignment.ProbeIdentity || got.ProbeBootID != assignment.ProbeBootID || got.ECITier != assignment.ECITier {
+	if got.UnitID != assignment.UnitID || got.Executor != assignment.Executor || got.NodeID != assignment.NodeID || got.Endpoint != assignment.Endpoint || got.ProbeIdentity != assignment.ProbeIdentity || got.ProbeBootID != assignment.ProbeBootID {
 		t.Fatalf("lease assignment = %#v, want %#v", got, assignment)
 	}
 }

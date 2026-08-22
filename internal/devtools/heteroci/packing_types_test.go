@@ -9,8 +9,8 @@ import (
 )
 
 func TestPackingPlanSchemaVersionIsFrozen(t *testing.T) {
-	if PackingPlanSchemaVersion != "heteroci-packing-plan/v1" {
-		t.Fatalf("PackingPlanSchemaVersion = %q, want %q", PackingPlanSchemaVersion, "heteroci-packing-plan/v1")
+	if PackingPlanSchemaVersion != "heteroci-packing-plan/v2" {
+		t.Fatalf("PackingPlanSchemaVersion = %q, want %q", PackingPlanSchemaVersion, "heteroci-packing-plan/v2")
 	}
 }
 
@@ -26,7 +26,7 @@ func TestPackingPlanJSONUsesCanonicalSnakeCase(t *testing.T) {
 
 	root := mustPackingJSONObject(t, mustMarshalPackingJSON(t, plan))
 	assertExactPackingJSONKeys(t, root, []string{"schema_version", "authority", "snapshot_captured_at_unix_milli", "node_shards", "unassigned_unit_ids"})
-	assertPackingJSONRaw(t, root, "schema_version", `"heteroci-packing-plan/v1"`)
+	assertPackingJSONRaw(t, root, "schema_version", `"heteroci-packing-plan/v2"`)
 	assertPackingJSONRaw(t, root, "authority", `"LOCAL_NON_AUTHORITATIVE"`)
 	assertPackingJSONRaw(t, root, "snapshot_captured_at_unix_milli", `1712345678901`)
 	assertPackingJSONRaw(t, root, "unassigned_unit_ids", `["unit-c"]`)

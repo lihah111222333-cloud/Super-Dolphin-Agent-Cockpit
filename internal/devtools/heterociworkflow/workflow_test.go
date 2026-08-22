@@ -4,12 +4,28 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
 )
+
+type multiWaveTestExecutor struct {
+	events *[]string
+	calls  int
+}
+
+func (executor *multiWaveTestExecutor) ExecuteBatch(_ context.Context, batch ExecutionBatch) (BatchResult, error) {
+	*executor.events = append(*executor.events, "execute")
+	executor.calls++
+	outcomes := make([]BatchOutcome, 0, len(batch.Units))
+	for _, unit := range batch.Units {
+		outcomes = append(outcomes, BatchOutcome{UnitID: unit.UnitID, State: heteroci.LeaseStateSucceeded})
+	}
+	return BatchResult{BatchID: batch.BatchID, RunID: batch.RunID, Executor: batch.Key, MaterialDigest: batch.MaterialDigest, CommandDigest: "sha256:" + strings.Repeat("c", 64), Authority: heteroci.AuthorityLocalNonAuthoritative, Status: ResultStatusNotVerified, Outcomes: outcomes}, nil
+}
 
 func TestWorkflowRunExecutesOneBoundBatchAndFinishesLocalNonAuthoritative(t *testing.T) {
 	executor := &fakeExecutor{}
@@ -47,13 +63,13 @@ func TestWorkflowValidatesStartedLeaseWithPostStartClock(t *testing.T) {
 	fixture.deps.AcquireSnapshot = func(ctx context.Context, manifest heteroci.Manifest, epoch heteroci.RoutingOwnerEpoch, transport heteroci.ProbeTransport, at time.Time, ttl time.Duration) (heteroci.SnapshotSet, error) {
 		snapshotCalls++
 		result, err := acquireSnapshot(ctx, manifest, epoch, transport, at, ttl)
-		if snapshotCalls == 2 {
-			fixture.owner.now = fixture.now.Add(10 * time.Second)
-		}
 		return result, err
 	}
 	if _, err := Execute(t.Context(), fixture.deps, fixture.request); err != nil {
 		t.Fatalf("Execute() error = %v", err)
+	}
+	if snapshotCalls != 1 {
+		t.Fatalf("snapshot calls = %d, want exactly one", snapshotCalls)
 	}
 	if clockCalls < 3 {
 		t.Fatalf("clock calls = %d, want post-Start validation read", clockCalls)
@@ -70,12 +86,71 @@ func assertSuccessfulWorkflowResult(t *testing.T, result RunResult) {
 	}
 }
 
+func TestWorkflowReusesOneSnapshotAcrossTTLSpanningWaves(t *testing.T) {
+	executor := &multiWaveTestExecutor{}
+	fixture := newWorkflowFixture(executor)
+	executor.events = &fixture.events
+	capacity := heteroci.ResourceCapacity{CPUMilli: 4_000, MemoryBytes: 8 << 30, MaxConcurrency: 1}
+	fixture.snapshot.Nodes[0].Total = capacity
+	fixture.snapshot.Nodes[0].Available = capacity
+	fixture.snapshot.Nodes[1].Available = heteroci.ResourceCapacity{}
+	fixture.units = []heteroci.ExecutionUnit{
+		fixture.units[0],
+		{UnitID: "unit-2", TargetPlatform: heteroci.PlatformLinuxAMD64, RequiredRuntime: heteroci.RuntimeUbuntuContainer, EstimatedDurationMS: 100, CPUMilli: 500, MemoryBytes: 256 << 20},
+	}
+	fixture.request.Units = fixture.units
+	fixture.request.HeartbeatTTL = time.Second
+	snapshotCalls := 0
+	acquireSnapshot := fixture.deps.AcquireSnapshot
+	fixture.deps.AcquireSnapshot = func(ctx context.Context, manifest heteroci.Manifest, epoch heteroci.RoutingOwnerEpoch, transport heteroci.ProbeTransport, at time.Time, ttl time.Duration) (heteroci.SnapshotSet, error) {
+		snapshotCalls++
+		return acquireSnapshot(ctx, manifest, epoch, transport, at, ttl)
+	}
+	clockCalls := 0
+	fixture.deps.Now = func() time.Time {
+		clockCalls++
+		if clockCalls > 2 {
+			return fixture.now.Add(10 * time.Second)
+		}
+		return fixture.now
+	}
+	if _, err := Execute(t.Context(), fixture.deps, fixture.request); err != nil {
+		t.Fatalf("Execute() across TTL-spanning waves = %v", err)
+	}
+	if snapshotCalls != 1 || executor.calls != 2 || fixture.owner.startCount != 2 || fixture.owner.finishCount != 2 {
+		t.Fatalf("snapshot/executor/start/finish counts = %d/%d/%d/%d, want 1/2/2/2", snapshotCalls, executor.calls, fixture.owner.startCount, fixture.owner.finishCount)
+	}
+	for index, startedSnapshot := range fixture.owner.startSnapshots {
+		if !reflect.DeepEqual(startedSnapshot, fixture.owner.startSnapshots[0]) {
+			t.Fatalf("Start snapshot %d drifted from first snapshot", index)
+		}
+	}
+}
+
+func TestValidatePreparedSourceSnapshotRejectsContentDrift(t *testing.T) {
+	fixture := newWorkflowFixture(&fakeExecutor{})
+	drifted := fixture.snapshot
+	drifted.Nodes = append([]heteroci.NodeSnapshot(nil), fixture.snapshot.Nodes...)
+	drifted.Nodes[0].ProbeBootID = "boot-drift"
+	prepared := &preparedRun{
+		manifest:       fixture.manifest,
+		sourceSnapshot: fixture.snapshot,
+		planned:        heterociowner.DurableReservedRoutingPlan{SourceSnapshot: drifted},
+	}
+	if err := validatePreparedSourceSnapshot(prepared); err == nil {
+		t.Fatal("validatePreparedSourceSnapshot accepted snapshot content drift")
+	}
+}
+
 func assertSuccessfulWorkflowTrace(t *testing.T, fixture *workflowFixture, executor *fakeExecutor) {
 	t.Helper()
 	if executor.executeCount != 1 || fixture.owner.startCount != 1 || fixture.owner.finishCount != 1 || fixture.owner.cancelCount != 0 {
 		t.Fatalf("counts execute/start/finish/cancel = %d/%d/%d/%d", executor.executeCount, fixture.owner.startCount, fixture.owner.finishCount, fixture.owner.cancelCount)
 	}
-	want := []string{"load", "acquire", "locate", "snapshot", "plan", "read", "bind", "snapshot", "start", "execute", "finish"}
+	if len(fixture.owner.startSnapshots) != 1 || !reflect.DeepEqual(fixture.owner.startSnapshots[0], fixture.snapshot) {
+		t.Fatalf("Start snapshot identity = %#v, want exactly the planned snapshot", fixture.owner.startSnapshots)
+	}
+	want := []string{"load", "acquire", "locate", "snapshot", "plan", "read", "bind", "start", "execute", "finish"}
 	if !reflect.DeepEqual(fixture.events, want) {
 		t.Fatalf("events = %v, want %v", fixture.events, want)
 	}

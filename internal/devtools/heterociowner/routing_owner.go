@@ -319,7 +319,7 @@ func buildDurableLeases(runID string, decision heteroci.RoutingDecision, reserve
 			return nil, fmt.Errorf("durable decision assigns a unit twice")
 		}
 		seen[assignment.UnitID] = true
-		leases = append(leases, heteroci.RoutingLease{SchemaVersion: heteroci.RoutingLeaseSchemaVersion, Authority: heteroci.AuthorityLocalNonAuthoritative, RunID: runID, DecisionDigest: decision.DecisionDigest, UnitID: assignment.UnitID, Executor: assignment.Executor, NodeID: assignment.NodeID, Endpoint: assignment.Endpoint, ProbeIdentity: assignment.ProbeIdentity, ProbeBootID: assignment.ProbeBootID, ECITier: assignment.ECITier, State: heteroci.LeaseStatePlanned, ReservedAtUnixMilli: reservedAt})
+		leases = append(leases, heteroci.RoutingLease{SchemaVersion: heteroci.RoutingLeaseSchemaVersion, Authority: heteroci.AuthorityLocalNonAuthoritative, RunID: runID, DecisionDigest: decision.DecisionDigest, UnitID: assignment.UnitID, Executor: assignment.Executor, NodeID: assignment.NodeID, Endpoint: assignment.Endpoint, ProbeIdentity: assignment.ProbeIdentity, ProbeBootID: assignment.ProbeBootID, State: heteroci.LeaseStatePlanned, ReservedAtUnixMilli: reservedAt})
 	}
 	sort.Slice(leases, func(left, right int) bool { return leases[left].UnitID < leases[right].UnitID })
 	return leases, nil

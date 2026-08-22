@@ -54,33 +54,14 @@ func TestRoutingLeaseBookPlanAndReserveValidatesPlanRouteAndLeases(t *testing.T)
 	}
 }
 
-func TestRoutingLeaseBookReserveReturnsSortedExactLocalAndECILeases(t *testing.T) {
-	fixture := newLeaseBookMixedFixture(t)
+func TestRoutingLeaseBookReserveRejectsOversizeWithCapacityBlocker(t *testing.T) {
+	fixture := newLeaseBookSingleLocalFixture(t)
+	fixture.units[0].CPUMilli = fixture.snapshot.Nodes[0].Available.CPUMilli + 1
 	book := NewRoutingLeaseBook()
-	freshSnapshot := cloneSnapshotSet(fixture.snapshot)
-	leases, err := book.Reserve(
-		"run-reserve",
-		fixture.decision,
-		fixture.manifest,
-		fixture.snapshot,
-		fixture.units,
-		fixture.plan,
-		fixture.now,
-		fixture.ttl,
-	)
-	if err != nil {
-		t.Fatalf("Reserve() unexpected error: %v", err)
-	}
-	assertLeaseBookLeasesMatchDecision(t, leases, fixture.decision, fixture.now)
-	if leases[0].UnitID != "unit-eci" || leases[1].UnitID != "unit-local" {
-		t.Fatalf("leases are not sorted by unit_id: %#v", leases)
-	}
-	assertLeaseBookECIIdentity(t, leases[0])
-	assertLeaseBookLocalIdentity(t, leases[1], fixture.manifest.Nodes[0], fixture.snapshot.Nodes[0])
-	localUnitID := leases[1].UnitID
-	mutateLeaseBookCallerInputs(&fixture)
-	if _, err := book.Start("run-reserve", localUnitID, freshSnapshot, fixture.now.Add(time.Second)); err != nil {
-		t.Fatalf("Start() after caller input mutation unexpected error: %v", err)
+	if _, err := book.PlanAndReserve("run-reserve", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl); err == nil {
+		t.Fatal("oversize PlanAndReserve unexpectedly succeeded")
+	} else if _, ok := errors.AsType[*CapacityBlockerError](err); !ok {
+		t.Fatalf("oversize PlanAndReserve error = %T %v, want CapacityBlockerError", err, err)
 	}
 }
 
@@ -130,91 +111,33 @@ func TestRoutingLeaseBookConcurrentFullPeakReserveHasOneWinner(t *testing.T) {
 	}
 }
 
-func TestRoutingLeaseBookConcurrentPlanAndReserveReplansToECI(t *testing.T) {
+func TestRoutingLeaseBookPlanAndReserveReturnsCapacityBlocker(t *testing.T) {
 	fixture := newLeaseBookSingleLocalFixture(t)
+	fixture.units[0].CPUMilli = fixture.snapshot.Nodes[0].Available.CPUMilli + 1
 	book := NewRoutingLeaseBook()
-	results := concurrentLeaseBookPlanAndReserveResults(t, book, fixture, []string{"run-plan-a", "run-plan-b"})
-	localCount, eciCount := 0, 0
-	for _, result := range results {
-		switch assertConcurrentPlanAndReserveResult(t, fixture, result) {
-		case ExecutorKindLocalNode:
-			localCount++
-		case ExecutorKindAliyunECI:
-			eciCount++
-		}
-	}
-	if localCount != 1 || eciCount != 1 {
-		t.Fatalf("concurrent plans must produce exactly one local and one ECI result: local=%d eci=%d results=%#v", localCount, eciCount, results)
+	if _, err := book.PlanAndReserve("run-plan", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl); err == nil {
+		t.Fatal("oversize PlanAndReserve unexpectedly succeeded")
+	} else if _, ok := errors.AsType[*CapacityBlockerError](err); !ok {
+		t.Fatalf("oversize PlanAndReserve error = %T %v, want CapacityBlockerError", err, err)
 	}
 }
 
-func assertConcurrentPlanAndReserveResult(t *testing.T, fixture leaseBookFixture, result reservedPlanResult) ExecutorKind {
-	t.Helper()
-	if result.err != nil {
-		t.Fatalf("concurrent PlanAndReserve(%q) failed: %v", result.runID, result.err)
+func TestRoutingLeaseBookFixedWindowsUseRemainingNodeCapacity(t *testing.T) {
+	fixture := newLeaseBookPlatformFixture(t, PlatformWindowsAMD64, RuntimeWindowsNative)
+	book := NewRoutingLeaseBook()
+	first, err := book.PlanAndReserve("run-platform-first", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl)
+	if err != nil {
+		t.Fatalf("first PlanAndReserve() unexpected error: %v", err)
 	}
-	if !reflect.DeepEqual(result.reserved.SourceSnapshot, fixture.snapshot) {
-		t.Fatalf("run %q changed source snapshot: got=%#v want=%#v", result.runID, result.reserved.SourceSnapshot, fixture.snapshot)
+	second, err := book.PlanAndReserve("run-platform-second", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl)
+	if err != nil {
+		t.Fatalf("second PlanAndReserve() should use remaining Windows node: %v", err)
 	}
-	if err := result.reserved.Plan.ValidateAgainst(fixture.manifest, result.reserved.EffectiveSnapshot, fixture.units, fixture.now, fixture.ttl); err != nil {
-		t.Fatalf("run %q plan is invalid against effective snapshot: %v", result.runID, err)
-	}
-	if err := result.reserved.Decision.ValidateAgainst(fixture.manifest, result.reserved.EffectiveSnapshot, fixture.units, result.reserved.Plan, fixture.now, fixture.ttl); err != nil {
-		t.Fatalf("run %q decision is invalid against effective snapshot: %v", result.runID, err)
-	}
-	assertLeaseBookLeasesMatchDecision(t, result.reserved.Leases, result.reserved.Decision, fixture.now)
-	if len(result.reserved.Decision.Assignments) != 1 {
-		t.Fatalf("run %q has unexpected assignments: %#v", result.runID, result.reserved.Decision.Assignments)
-	}
-	assignment := result.reserved.Decision.Assignments[0]
-	if assignment.Executor == ExecutorKindAliyunECI {
-		if err := result.reserved.Plan.ValidateAgainst(fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl); err == nil {
-			t.Fatalf("run %q pseudo-unassigned plan unexpectedly validates against raw source snapshot", result.runID)
+	for _, plan := range []ReservedRoutingPlan{first, second} {
+		if len(plan.Plan.NodeShards) != 1 || plan.Decision.Assignments[0].Executor != ExecutorKindLocalNode {
+			t.Fatalf("fixed Windows plan is not local-only: %#v", plan)
 		}
-	}
-	if assignment.Executor != ExecutorKindLocalNode && assignment.Executor != ExecutorKindAliyunECI {
-		t.Fatalf("run %q has unknown executor: %#v", result.runID, assignment)
-	}
-	return assignment.Executor
-}
-
-func TestRoutingLeaseBookNonLinuxCapacityBlockerLeavesZeroState(t *testing.T) {
-	for _, testCase := range []struct {
-		name     string
-		platform Platform
-		runtime  RuntimeKind
-	}{
-		{name: "windows", platform: PlatformWindowsAMD64, runtime: RuntimeWindowsNative},
-		{name: "darwin", platform: PlatformDarwinAMD64, runtime: RuntimeDarwinNative},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			fixture := newLeaseBookPlatformFixture(t, testCase.platform, testCase.runtime)
-			book := NewRoutingLeaseBook()
-			first, err := book.PlanAndReserve("run-platform-first", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl)
-			if err != nil {
-				t.Fatalf("first PlanAndReserve() unexpected error: %v", err)
-			}
-			if len(first.Plan.NodeShards) != 1 || first.Decision.Assignments[0].Executor != ExecutorKindLocalNode {
-				t.Fatalf("first platform run did not consume local node: %#v", first)
-			}
-			assertLeaseBookLeasesMatchDecision(t, first.Leases, first.Decision, fixture.now)
-			result, err := book.PlanAndReserve("run-platform-second", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl)
-			if err == nil {
-				t.Fatalf("second %s PlanAndReserve() unexpectedly succeeded: %#v", testCase.name, result)
-			}
-			if _, ok := errors.AsType[*CapacityBlockerError](err); !ok {
-				t.Fatalf("second %s error = %T %v, want CapacityBlockerError", testCase.name, err, err)
-			}
-			if !reflect.DeepEqual(result, ReservedRoutingPlan{}) {
-				t.Fatalf("blocked %s result is not zero: %#v", testCase.name, result)
-			}
-			if _, err := book.Snapshot("run-platform-second"); err == nil {
-				t.Fatalf("blocked %s run left a partial snapshot", testCase.name)
-			}
-			if got := leaseBookSnapshot(t, book, "run-platform-first"); !reflect.DeepEqual(got, first.Leases) {
-				t.Fatalf("blocked %s run mutated first snapshot: got=%#v want=%#v", testCase.name, got, first.Leases)
-			}
-		})
+		assertLeaseBookLeasesMatchDecision(t, plan.Leases, plan.Decision, fixture.now)
 	}
 }
 
@@ -270,13 +193,14 @@ func assertReservedPlanSnapshotUnchanged(t *testing.T, book *RoutingLeaseBook, w
 func assertReservedPlanCapacityUnchanged(t *testing.T, book *RoutingLeaseBook, fixture leaseBookFixture) {
 	t.Helper()
 	second, err := book.PlanAndReserve("run-copy-second", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl)
-	if err != nil {
-		t.Fatalf("second PlanAndReserve() unexpected error after wrapper mutation: %v", err)
+	if err == nil {
+		t.Fatalf("second PlanAndReserve unexpectedly succeeded after full local reservation: %#v", second)
 	}
-	for _, assignment := range second.Decision.Assignments {
-		if assignment.Executor == ExecutorKindLocalNode {
-			t.Fatalf("wrapper mutation failed to preserve local capacity reservation: %#v", second.Decision.Assignments)
-		}
+	if _, ok := errors.AsType[*CapacityBlockerError](err); !ok {
+		t.Fatalf("second PlanAndReserve error = %T %v, want CapacityBlockerError", err, err)
+	}
+	if !reflect.DeepEqual(second, ReservedRoutingPlan{}) {
+		t.Fatalf("second PlanAndReserve result = %#v, want zero result", second)
 	}
 }
 
@@ -456,18 +380,14 @@ func TestRoutingLeaseBookSnapshotIsDeepCopyAndSorted(t *testing.T) {
 	}
 }
 
-func TestRoutingLeaseBookECIOnlyRunsDoNotConsumeSharedLocalCapacity(t *testing.T) {
-	fixture := newLeaseBookECIFixture(t)
+func TestRoutingLeaseBookRejectsCapacityOverflow(t *testing.T) {
+	fixture := newLeaseBookSingleLocalFixture(t)
+	fixture.units[0].CPUMilli = fixture.snapshot.Nodes[0].Available.CPUMilli + 1
 	book := NewRoutingLeaseBook()
-	for _, runID := range []string{"run-eci-a", "run-eci-b", "run-eci-c"} {
-		leases, err := book.Reserve(runID, fixture.decision, fixture.manifest, fixture.snapshot, fixture.units, fixture.plan, fixture.now, fixture.ttl)
-		if err != nil {
-			t.Fatalf("Reserve(%s) unexpected error: %v", runID, err)
-		}
-		assertLeaseBookLeasesMatchDecision(t, leases, fixture.decision, fixture.now)
-		if leases[0].Executor != ExecutorKindAliyunECI {
-			t.Fatalf("ECI-only run %s was not routed to ECI: %#v", runID, leases)
-		}
+	if _, err := book.PlanAndReserve("run-overflow", fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl); err == nil {
+		t.Fatal("capacity overflow Reserve unexpectedly succeeded")
+	} else if _, ok := errors.AsType[*CapacityBlockerError](err); !ok {
+		t.Fatalf("capacity overflow error = %T %v, want CapacityBlockerError", err, err)
 	}
 }
 
@@ -537,7 +457,7 @@ func newLeaseBookMixedFixture(t *testing.T) leaseBookFixture {
 	snapshot.Nodes[0].Available = ResourceCapacity{CPUMilli: 2_000, MemoryBytes: 4 * leaseBookGiB, MaxConcurrency: 1}
 	units := []ExecutionUnit{
 		{UnitID: "unit-local", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, EstimatedDurationMS: 1_000, CPUMilli: 500, MemoryBytes: 64 * 1024 * 1024},
-		{UnitID: "unit-eci", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, EstimatedDurationMS: 2_000, CPUMilli: 2_500, MemoryBytes: 5 * leaseBookGiB},
+		{UnitID: "unit-second", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, EstimatedDurationMS: 2_000, CPUMilli: 500, MemoryBytes: 64 * 1024 * 1024},
 	}
 	plan, decision, err := PlanRoutingDecision(manifest, snapshot, units, now, ttl)
 	if err != nil {
@@ -553,6 +473,9 @@ func newLeaseBookSingleLocalFixture(t *testing.T) leaseBookFixture {
 	manifest := testManifest(1)
 	snapshot := snapshotForManifest(manifest, now)
 	snapshot.Nodes[0].Available = ResourceCapacity{CPUMilli: 4_000, MemoryBytes: 8 * leaseBookGiB, MaxConcurrency: 1}
+	for index := 1; index < len(snapshot.Nodes); index++ {
+		snapshot.Nodes[index].Available = ResourceCapacity{}
+	}
 	units := []ExecutionUnit{{UnitID: "unit-local", TargetPlatform: PlatformLinuxAMD64, RequiredRuntime: RuntimeUbuntuContainer, EstimatedDurationMS: 1_000, CPUMilli: 4_000, MemoryBytes: 8 * leaseBookGiB}}
 	plan, decision, err := PlanRoutingDecision(manifest, snapshot, units, now, ttl)
 	if err != nil {
@@ -599,24 +522,6 @@ func newLeaseBookTwoNodeFixture(t *testing.T) leaseBookFixture {
 	return leaseBookFixture{now: now, ttl: ttl, manifest: manifest, snapshot: snapshot, units: units, plan: plan, decision: decision}
 }
 
-func newLeaseBookECIFixture(t *testing.T) leaseBookFixture {
-	t.Helper()
-	fixture := newLeaseBookMixedFixture(t)
-	fixture.units = []ExecutionUnit{fixture.units[1]}
-	plan, decision, err := PlanRoutingDecision(fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl)
-	if err != nil {
-		t.Fatalf("PlanRoutingDecision(ECI fixture) unexpected error: %v", err)
-	}
-	fixture.plan, fixture.decision = plan, decision
-	if err := fixture.plan.ValidateAgainst(fixture.manifest, fixture.snapshot, fixture.units, fixture.now, fixture.ttl); err != nil {
-		t.Fatalf("ECI fixture plan invalid: %v", err)
-	}
-	if len(fixture.decision.Assignments) != 1 || fixture.decision.Assignments[0].Executor != ExecutorKindAliyunECI {
-		t.Fatalf("ECI fixture did not produce an ECI assignment: %#v", fixture.decision.Assignments)
-	}
-	return fixture
-}
-
 func assertLeaseBookLeasesMatchDecision(t *testing.T, leases []RoutingLease, decision RoutingDecision, now time.Time) {
 	t.Helper()
 	if len(leases) != len(decision.Assignments) {
@@ -638,21 +543,14 @@ func assertLeaseBookLease(t *testing.T, index int, lease RoutingLease, assignmen
 
 func assertLeaseBookAssignment(t *testing.T, index int, lease RoutingLease, assignment RouteAssignment) {
 	t.Helper()
-	if lease.UnitID != assignment.UnitID || lease.Executor != assignment.Executor || lease.NodeID != assignment.NodeID || lease.Endpoint != assignment.Endpoint || lease.ProbeIdentity != assignment.ProbeIdentity || lease.ProbeBootID != assignment.ProbeBootID || lease.ECITier != assignment.ECITier {
+	if lease.UnitID != assignment.UnitID || lease.Executor != assignment.Executor || lease.NodeID != assignment.NodeID || lease.Endpoint != assignment.Endpoint || lease.ProbeIdentity != assignment.ProbeIdentity || lease.ProbeBootID != assignment.ProbeBootID {
 		t.Fatalf("lease[%d] = %#v, want exact assignment %#v", index, lease, assignment)
-	}
-}
-
-func assertLeaseBookECIIdentity(t *testing.T, lease RoutingLease) {
-	t.Helper()
-	if lease.Executor != ExecutorKindAliyunECI || lease.NodeID != "" || lease.Endpoint != "" || lease.ProbeIdentity != "" || lease.ProbeBootID != "" || lease.ECITier != ECITier4C8GiB {
-		t.Fatalf("ECI lease does not preserve exact assignment: %#v", lease)
 	}
 }
 
 func assertLeaseBookLocalIdentity(t *testing.T, lease RoutingLease, config NodeConfig, snapshot NodeSnapshot) {
 	t.Helper()
-	if lease.Executor != ExecutorKindLocalNode || lease.NodeID != config.NodeID || lease.Endpoint != config.Endpoint || lease.ProbeIdentity != config.ProbeIdentity || lease.ProbeBootID != snapshot.ProbeBootID || lease.ECITier != "" {
+	if lease.Executor != ExecutorKindLocalNode || lease.NodeID != config.NodeID || lease.Endpoint != config.Endpoint || lease.ProbeIdentity != config.ProbeIdentity || lease.ProbeBootID != snapshot.ProbeBootID {
 		t.Fatalf("local lease does not preserve exact assignment: %#v", lease)
 	}
 }

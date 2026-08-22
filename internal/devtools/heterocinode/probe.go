@@ -97,11 +97,7 @@ func (config Config) Validate() error {
 	if config.SchemaVersion != ConfigSchemaVersion {
 		return errors.New("node probe config schema_version is invalid")
 	}
-	manifest := heteroci.Manifest{
-		SchemaVersion: heteroci.ManifestSchemaVersion, Authority: heteroci.AuthorityLocalNonAuthoritative,
-		CloudOverflow: heteroci.CloudOverflowConfig{}, Nodes: []heteroci.NodeConfig{config.Node},
-	}
-	if err := manifest.Validate(); err != nil {
+	if err := heteroci.ValidateNodeConfig(config.Node); err != nil {
 		return fmt.Errorf("node probe config node is invalid: %w", err)
 	}
 	return nil

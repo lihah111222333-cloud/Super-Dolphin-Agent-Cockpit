@@ -37,21 +37,22 @@ func (workflow *Workflow) Run(ctx context.Context, request RunRequest) (RunResul
 	if err := workflow.prepareExecution(ctx, request, &prepared); err != nil {
 		return RunResult{}, workflow.failPlannedRun(ctx, prepared.runIdentity.DurableRunID, &prepared, err)
 	}
-	if err := workflow.executeRunBatches(ctx, request, &prepared); err != nil {
+	if err := workflow.executeRunBatches(ctx, &prepared); err != nil {
 		return RunResult{}, workflow.failPlannedRun(ctx, prepared.runIdentity.DurableRunID, &prepared, err)
 	}
 	return buildRunResult(prepared.manifest, prepared.planned, prepared.state), nil
 }
 
 type preparedRun struct {
-	acquired    heteroci.OwnerFence
-	runIdentity heteroci.TopologyRunIdentity
-	ids         operationIDs
-	manifest    heteroci.Manifest
-	planned     heterociowner.DurableReservedRoutingPlan
-	state       *executionState
-	batches     []BatchPlan
-	executors   map[ExecutorKey]BatchExecutor
+	acquired       heteroci.OwnerFence
+	runIdentity    heteroci.TopologyRunIdentity
+	ids            operationIDs
+	manifest       heteroci.Manifest
+	sourceSnapshot heteroci.SnapshotSet
+	planned        heterociowner.DurableReservedRoutingPlan
+	state          *executionState
+	batches        []BatchPlan
+	executors      map[ExecutorKey]BatchExecutor
 }
 
 // planRun 完成 strict load、owner acquire、initial snapshot 与 durable PlanAndReserve。
@@ -97,7 +98,7 @@ func (workflow *Workflow) planRun(ctx context.Context, request RunRequest) (prep
 	if err != nil {
 		return preparedRun{}, fmt.Errorf("plan and reserve heteroci run: %w", err)
 	}
-	return preparedRun{acquired: fence, runIdentity: runIdentity, ids: ids, manifest: manifest, planned: planned}, nil
+	return preparedRun{acquired: fence, runIdentity: runIdentity, ids: ids, manifest: manifest, sourceSnapshot: snapshot, planned: planned}, nil
 }
 
 // prepareExecution 校验 durable read-back、构建批次并在首个 Start 前绑定全部 executor。
@@ -125,8 +126,8 @@ func (workflow *Workflow) prepareExecution(ctx context.Context, request RunReque
 }
 
 // executeRunBatches 并行推进独立 lane，并保持同一 local node 的 wave barrier。
-func (workflow *Workflow) executeRunBatches(ctx context.Context, request RunRequest, prepared *preparedRun) error {
-	return workflow.executeRunBatchesConcurrent(ctx, request, prepared)
+func (workflow *Workflow) executeRunBatches(ctx context.Context, prepared *preparedRun) error {
+	return workflow.executeRunBatchesConcurrent(ctx, prepared)
 }
 
 // failPlannedRun 对 PlanAndReserve 之后的失败执行统一 bounded cleanup。
@@ -427,20 +428,15 @@ func (workflow *Workflow) bindExecutors(ctx context.Context, batches []BatchPlan
 	return bound, nil
 }
 
-// prepareBatchSnapshot 在每个 wave 前采集一次与当前 fence epoch 绑定的 fresh snapshot。
-func (workflow *Workflow) prepareBatchSnapshot(ctx context.Context, manifest heteroci.Manifest, ttl time.Duration, fence heteroci.OwnerFence) (heteroci.SnapshotSet, time.Time, error) {
-	if err := ctx.Err(); err != nil {
-		return heteroci.SnapshotSet{}, time.Time{}, fmt.Errorf("%w: batch context: %w", ErrExecutionState, err)
+// validatePreparedSourceSnapshot 校验一次采集的 source snapshot 在所有 Start 前保持不变。
+func validatePreparedSourceSnapshot(prepared *preparedRun) error {
+	if prepared == nil {
+		return fmt.Errorf("%w: prepared execution state is missing", ErrExecutionState)
 	}
-	now, err := workflow.now()
-	if err != nil {
-		return heteroci.SnapshotSet{}, time.Time{}, err
+	if !reflect.DeepEqual(prepared.sourceSnapshot, prepared.planned.SourceSnapshot) {
+		return fmt.Errorf("%w: source snapshot identity drifted before Start", ErrExecutionState)
 	}
-	snapshot, err := workflow.acquireSnapshot(ctx, manifest, fence, now, ttl)
-	if err != nil {
-		return heteroci.SnapshotSet{}, time.Time{}, err
-	}
-	return snapshot, now, nil
+	return nil
 }
 
 // startBatchUnitsLocked 在已持有 state 锁时顺序推进 owner Start 和 fence。
@@ -613,13 +609,12 @@ type immutableLeaseIdentity struct {
 	endpoint        string
 	probeIdentity   string
 	probeBootID     string
-	eciTier         heteroci.ECIResourceTier
 	reservedAtMilli int64
 }
 
 // immutableLeaseIdentityOf 提取 lease 生命周期之外的 comparable identity。
 func immutableLeaseIdentityOf(lease heteroci.RoutingLease) immutableLeaseIdentity {
-	return immutableLeaseIdentity{schemaVersion: lease.SchemaVersion, authority: lease.Authority, runID: lease.RunID, decisionDigest: lease.DecisionDigest, unitID: lease.UnitID, executor: lease.Executor, nodeID: lease.NodeID, endpoint: lease.Endpoint, probeIdentity: lease.ProbeIdentity, probeBootID: lease.ProbeBootID, eciTier: lease.ECITier, reservedAtMilli: lease.ReservedAtUnixMilli}
+	return immutableLeaseIdentity{schemaVersion: lease.SchemaVersion, authority: lease.Authority, runID: lease.RunID, decisionDigest: lease.DecisionDigest, unitID: lease.UnitID, executor: lease.Executor, nodeID: lease.NodeID, endpoint: lease.Endpoint, probeIdentity: lease.ProbeIdentity, probeBootID: lease.ProbeBootID, reservedAtMilli: lease.ReservedAtUnixMilli}
 }
 
 // validateFinishedLease 校验 Finish 返回的 terminal lease/fence 绑定。

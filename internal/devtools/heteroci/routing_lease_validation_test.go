@@ -25,18 +25,12 @@ type routingLeaseWireField struct {
 	tag  string
 }
 
-func TestRoutingLeaseValidateAgainstAcceptsLocalAndECILifecycleStates(t *testing.T) {
+func TestRoutingLeaseValidateAgainstAcceptsLocalLifecycleStates(t *testing.T) {
 	fixture := newRoutingValidationMixedFixture(t)
-	identities := []struct {
+	runRoutingLeaseLifecycle(t, fixture, struct {
 		name string
 		unit int
-	}{
-		{name: "ECI", unit: 0},
-		{name: "local", unit: 1},
-	}
-	for _, identity := range identities {
-		runRoutingLeaseLifecycle(t, fixture, identity)
-	}
+	}{name: "local", unit: 1})
 }
 
 func runRoutingLeaseLifecycle(t *testing.T, fixture routingValidationFixture, identity struct {
@@ -69,16 +63,13 @@ func runRoutingLeaseLifecycle(t *testing.T, fixture routingValidationFixture, id
 
 func assertRoutingLeaseAssignmentIdentity(t *testing.T, lease RoutingLease, assignment RouteAssignment) {
 	t.Helper()
-	if lease.Executor == ExecutorKindLocalNode {
-		assertNonEmptyRoutingLeaseIdentity(t, "node", assignment.NodeID)
-		assertNonEmptyRoutingLeaseIdentity(t, "endpoint", assignment.Endpoint)
-		assertNonEmptyRoutingLeaseIdentity(t, "probe_identity", assignment.ProbeIdentity)
-		assertNonEmptyRoutingLeaseIdentity(t, "probe_boot_id", assignment.ProbeBootID)
-		return
+	if lease.Executor != ExecutorKindLocalNode {
+		t.Fatalf("lease executor = %q, want local_node", lease.Executor)
 	}
-	if assignment.NodeID != "" || assignment.Endpoint != "" || assignment.ProbeIdentity != "" || assignment.ProbeBootID != "" {
-		t.Fatalf("ECI assignment must keep local identity fields empty: %+v", assignment)
-	}
+	assertNonEmptyRoutingLeaseIdentity(t, "node", assignment.NodeID)
+	assertNonEmptyRoutingLeaseIdentity(t, "endpoint", assignment.Endpoint)
+	assertNonEmptyRoutingLeaseIdentity(t, "probe_identity", assignment.ProbeIdentity)
+	assertNonEmptyRoutingLeaseIdentity(t, "probe_boot_id", assignment.ProbeBootID)
 }
 
 func assertNonEmptyRoutingLeaseIdentity(t *testing.T, name, value string) {
@@ -103,7 +94,7 @@ func TestRoutingLeaseValidateAgainstRejectsIdentityDrift(t *testing.T) {
 		{name: "decision digest drift", mutate: func(lease *RoutingLease) { lease.DecisionDigest = "sha256:" + strings.Repeat("0", 64) }},
 		{name: "unknown unit", mutate: func(lease *RoutingLease) { lease.UnitID = "unit-unknown" }},
 		{name: "unknown executor", mutate: func(lease *RoutingLease) { lease.Executor = ExecutorKind("fallback") }},
-		{name: "local executor drift", mutate: func(lease *RoutingLease) { lease.Executor = ExecutorKindAliyunECI }},
+		{name: "local executor drift", mutate: func(lease *RoutingLease) { lease.Executor = ExecutorKind("fallback") }},
 		{name: "local node empty", mutate: func(lease *RoutingLease) { lease.NodeID = "" }},
 		{name: "local node drift", mutate: func(lease *RoutingLease) { lease.NodeID = "node-drift" }},
 		{name: "local endpoint empty", mutate: func(lease *RoutingLease) { lease.Endpoint = "" }},
@@ -112,21 +103,9 @@ func TestRoutingLeaseValidateAgainstRejectsIdentityDrift(t *testing.T) {
 		{name: "local probe identity drift", mutate: func(lease *RoutingLease) { lease.ProbeIdentity = "probe-drift" }},
 		{name: "local probe boot id empty", mutate: func(lease *RoutingLease) { lease.ProbeBootID = "" }},
 		{name: "local probe boot id drift", mutate: func(lease *RoutingLease) { lease.ProbeBootID = "boot-drift" }},
-		{name: "local tier populated", mutate: func(lease *RoutingLease) { lease.ECITier = ECITier2C4GiB }},
 	}
 	runRoutingLeaseMutations(t, local, mutations, fixture)
 
-	eci := validRoutingLease(fixture, 0, LeaseStateStarted, fixture.now.UnixMilli()-5_000, fixture.now.UnixMilli()-3_000, 0)
-	runRoutingLeaseMutations(t, eci, []routingLeaseMutation{
-		{name: "ECI executor drift", mutate: func(lease *RoutingLease) { lease.Executor = ExecutorKindLocalNode }},
-		{name: "ECI node populated", mutate: func(lease *RoutingLease) { lease.NodeID = "node-local" }},
-		{name: "ECI endpoint populated", mutate: func(lease *RoutingLease) { lease.Endpoint = "https://eci.invalid/runner" }},
-		{name: "ECI probe identity populated", mutate: func(lease *RoutingLease) { lease.ProbeIdentity = "probe-eci" }},
-		{name: "ECI probe boot id populated", mutate: func(lease *RoutingLease) { lease.ProbeBootID = "boot-eci" }},
-		{name: "ECI tier empty", mutate: func(lease *RoutingLease) { lease.ECITier = "" }},
-		{name: "ECI tier drift", mutate: func(lease *RoutingLease) { lease.ECITier = ECITier8C16GiB }},
-		{name: "ECI tier unknown", mutate: func(lease *RoutingLease) { lease.ECITier = ECIResourceTier("eci/unknown") }},
-	}, fixture)
 }
 
 func TestRoutingLeaseValidateAgainstErrorsDoNotLeakIdentitySecrets(t *testing.T) {
@@ -262,7 +241,6 @@ func routingLeaseWireFields() []routingLeaseWireField {
 		{name: "Endpoint", typ: reflect.TypeFor[string](), tag: "endpoint"},
 		{name: "ProbeIdentity", typ: reflect.TypeFor[string](), tag: "probe_identity"},
 		{name: "ProbeBootID", typ: reflect.TypeFor[string](), tag: "probe_boot_id"},
-		{name: "ECITier", typ: reflect.TypeFor[ECIResourceTier](), tag: "eci_tier"},
 		{name: "State", typ: reflect.TypeFor[RoutingLeaseState](), tag: "state"},
 		{name: "ReservedAtUnixMilli", typ: reflect.TypeFor[int64](), tag: "reserved_at_unix_milli"},
 		{name: "StartedAtUnixMilli", typ: reflect.TypeFor[int64](), tag: "started_at_unix_milli"},
@@ -335,7 +313,6 @@ func validRoutingLease(fixture routingValidationFixture, assignmentIndex int, st
 		Endpoint:            assignment.Endpoint,
 		ProbeIdentity:       assignment.ProbeIdentity,
 		ProbeBootID:         assignment.ProbeBootID,
-		ECITier:             assignment.ECITier,
 		State:               state,
 		ReservedAtUnixMilli: reserved,
 		StartedAtUnixMilli:  started,

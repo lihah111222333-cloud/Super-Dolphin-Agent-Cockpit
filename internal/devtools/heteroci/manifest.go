@@ -12,7 +12,7 @@ import (
 
 const (
 	// ManifestSchemaVersion 是本包拥有的 wire schema 版本。
-	ManifestSchemaVersion = "heteroci-manifest/v1"
+	ManifestSchemaVersion = "heteroci-manifest/v2"
 	// AuthorityLocalNonAuthoritative 标记本地主机证据不具备远程权威性。
 	AuthorityLocalNonAuthoritative = "LOCAL_NON_AUTHORITATIVE"
 	// ResultStatusNotVerified 标记本地异构执行结果尚未取得远程权威资格。
@@ -30,7 +30,6 @@ const (
 	RuntimeWindowsNative         = "windows_native"
 	RuntimeDarwinNative          = "darwin_native"
 	RuntimeDockerOSXExperimental = "docker_osx_experimental"
-	CloudProviderAliyunECI       = "aliyun-eci"
 )
 
 // Platform 是规范的目标平台标识。
@@ -38,16 +37,6 @@ type Platform string
 
 // RuntimeKind 是规范的执行运行时标识。
 type RuntimeKind string
-
-// CloudProvider 是规范的云溢出 provider 标识。
-type CloudProvider string
-
-// CloudOverflowConfig 描述可选的 Linux/amd64 ECI 溢出通道。
-type CloudOverflowConfig struct {
-	Enabled  bool          `json:"enabled"`
-	Provider CloudProvider `json:"provider"`
-	Platform Platform      `json:"platform"`
-}
 
 // NodeConfig 描述一个动态声明的本地执行节点。
 type NodeConfig struct {
@@ -74,10 +63,9 @@ type CapabilityConfig struct {
 
 // Manifest 是严格、本地且不具备远程权威性的异构 CI 清单。
 type Manifest struct {
-	SchemaVersion string              `json:"schema_version"`
-	Authority     string              `json:"authority"`
-	CloudOverflow CloudOverflowConfig `json:"cloud_overflow"`
-	Nodes         []NodeConfig        `json:"nodes"`
+	SchemaVersion string       `json:"schema_version"`
+	Authority     string       `json:"authority"`
+	Nodes         []NodeConfig `json:"nodes"`
 }
 
 // DecodeManifest 从 r 严格解码并校验一个异构 CI 清单。
@@ -110,7 +98,7 @@ func DecodeManifest(r io.Reader) (Manifest, error) {
 	return manifest, nil
 }
 
-// Validate 校验清单的完整契约。
+// Validate 校验清单的通用动态节点契约。
 func (manifest Manifest) Validate() error {
 	if manifest.SchemaVersion != ManifestSchemaVersion {
 		return fmt.Errorf("heterogeneous CI manifest schema_version %q is invalid", manifest.SchemaVersion)
@@ -118,24 +106,86 @@ func (manifest Manifest) Validate() error {
 	if manifest.Authority != AuthorityLocalNonAuthoritative {
 		return fmt.Errorf("heterogeneous CI manifest authority %q is invalid", manifest.Authority)
 	}
-	if err := manifest.CloudOverflow.validate(); err != nil {
-		return err
-	}
-	if len(manifest.Nodes) == 0 {
-		return errors.New("heterogeneous CI manifest nodes must not be empty")
-	}
-	if err := validateManifestNodes(manifest.Nodes, manifest.CloudOverflow.Enabled); err != nil {
+	if err := validateManifestNodes(manifest.Nodes); err != nil {
 		return err
 	}
 	return nil
 }
 
-// validateManifestNodes 校验节点集合唯一性并证明本地 Linux/amd64 溢出能力。
-func validateManifestNodes(nodes []NodeConfig, cloudOverflowEnabled bool) error {
+// ValidateFourNodeExecutionPool 校验自动执行使用的固定两 Linux、两 Windows 节点池。
+func (manifest Manifest) ValidateFourNodeExecutionPool() error {
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+	if len(manifest.Nodes) != 4 {
+		return fmt.Errorf("heterogeneous CI execution pool requires exactly 4 nodes")
+	}
+	linuxNodes, windowsNodes := 0, 0
+	for _, node := range manifest.Nodes {
+		platform, err := validateFourNodeExecutionNode(node)
+		if err != nil {
+			return err
+		}
+		switch platform {
+		case PlatformLinuxAMD64:
+			linuxNodes++
+		case PlatformWindowsAMD64:
+			windowsNodes++
+		}
+	}
+	if linuxNodes != 2 || windowsNodes != 2 {
+		return fmt.Errorf("heterogeneous CI execution pool requires 2 linux/amd64 and 2 windows/amd64 nodes")
+	}
+	return nil
+}
+
+// validateFourNodeExecutionNode 校验固定执行池中的单节点平台与唯一能力。
+func validateFourNodeExecutionNode(node NodeConfig) (Platform, error) {
+	expectedPlatform, ok := expectedFourNodePlatform(node.NodeID)
+	if !ok {
+		return "", fmt.Errorf("heterogeneous CI execution pool rejects node_id %q", node.NodeID)
+	}
+	if node.Platform != expectedPlatform {
+		return "", fmt.Errorf("heterogeneous CI execution pool node %q platform %q does not match fixed topology", node.NodeID, node.Platform)
+	}
+	if len(node.Capabilities) != 1 {
+		return "", fmt.Errorf("heterogeneous CI execution pool node %q must declare exactly one capability", node.NodeID)
+	}
+	switch node.Platform {
+	case PlatformLinuxAMD64:
+		if node.Capabilities[0].Runtime != RuntimeUbuntuContainer {
+			return "", fmt.Errorf("heterogeneous CI Linux node %q must use ubuntu_container", node.NodeID)
+		}
+	case PlatformWindowsAMD64:
+		if node.Capabilities[0].Runtime != RuntimeWindowsNative {
+			return "", fmt.Errorf("heterogeneous CI Windows node %q must use windows_native", node.NodeID)
+		}
+	default:
+		return "", fmt.Errorf("heterogeneous CI execution pool rejects platform %q", node.Platform)
+	}
+	return node.Platform, nil
+}
+
+// expectedFourNodePlatform 返回固定执行池四个节点身份对应的平台。
+func expectedFourNodePlatform(nodeID string) (Platform, bool) {
+	switch nodeID {
+	case "Ubuntu-01", "Ubuntu-02":
+		return PlatformLinuxAMD64, true
+	case "Windows-01", "Windows-02":
+		return PlatformWindowsAMD64, true
+	default:
+		return "", false
+	}
+}
+
+// validateManifestNodes 校验动态节点集合唯一性。
+func validateManifestNodes(nodes []NodeConfig) error {
+	if len(nodes) == 0 {
+		return errors.New("heterogeneous CI manifest nodes must not be empty")
+	}
 	seen := make(map[string]struct{}, len(nodes))
 	seenEndpoints := make(map[string]struct{}, len(nodes))
 	seenProbeIdentities := make(map[string]struct{}, len(nodes))
-	hasLocalLinuxUbuntu := false
 	for index, node := range nodes {
 		if err := node.validate(index); err != nil {
 			return err
@@ -143,10 +193,6 @@ func validateManifestNodes(nodes []NodeConfig, cloudOverflowEnabled bool) error 
 		if err := validateNodeUniqueness(node, seen, seenEndpoints, seenProbeIdentities); err != nil {
 			return err
 		}
-		hasLocalLinuxUbuntu = hasLocalLinuxUbuntu || nodeHasRuntime(node, RuntimeUbuntuContainer)
-	}
-	if cloudOverflowEnabled && !hasLocalLinuxUbuntu {
-		return errors.New("heterogeneous CI cloud_overflow requires a local linux/amd64 node with ubuntu_container capability")
 	}
 	return nil
 }
@@ -168,43 +214,6 @@ func validateNodeUniqueness(node NodeConfig, seen, seenEndpoints, seenProbeIdent
 	return nil
 }
 
-// nodeHasRuntime 判断节点平台与运行时是否组成指定的有效能力。
-func nodeHasRuntime(node NodeConfig, runtime RuntimeKind) bool {
-	if node.Platform != PlatformLinuxAMD64 {
-		return false
-	}
-	for _, capability := range node.Capabilities {
-		if capability.Runtime == runtime {
-			return true
-		}
-	}
-	return false
-}
-
-// validate 校验云溢出配置的 one-of 语义。
-func (config CloudOverflowConfig) validate() error {
-	if !config.Enabled {
-		return validateDisabledCloudOverflow(config)
-	}
-	return validateEnabledCloudOverflow(config)
-}
-
-// validateDisabledCloudOverflow 校验关闭状态不携带任何 provider 身份。
-func validateDisabledCloudOverflow(config CloudOverflowConfig) error {
-	if config.Provider != "" || config.Platform != "" {
-		return errors.New("heterogeneous CI cloud_overflow disabled config must not contain provider or platform")
-	}
-	return nil
-}
-
-// validateEnabledCloudOverflow 校验启用状态只能使用规范 ECI 溢出通道。
-func validateEnabledCloudOverflow(config CloudOverflowConfig) error {
-	if config.Provider != CloudProviderAliyunECI || config.Platform != PlatformLinuxAMD64 {
-		return errors.New("heterogeneous CI cloud_overflow must use aliyun-eci on linux/amd64")
-	}
-	return nil
-}
-
 // validate 校验节点身份、平台与动态能力列表。
 func (node NodeConfig) validate(index int) error {
 	if err := validateNodeIdentity(node, index); err != nil {
@@ -214,6 +223,11 @@ func (node NodeConfig) validate(index int) error {
 		return fmt.Errorf("heterogeneous CI node %q platform %q is invalid", node.NodeID, node.Platform)
 	}
 	return validateNodeCapabilities(node)
+}
+
+// ValidateNodeConfig 校验单个 probe 配置节点的通用动态能力，不执行固定四节点池约束。
+func ValidateNodeConfig(node NodeConfig) error {
+	return node.validate(0)
 }
 
 // validateNodeIdentity 校验节点 ID 与执行端点的稳定非空身份。
@@ -288,8 +302,7 @@ func validateDarlingCapability(capability CapabilityConfig, platform Platform, n
 	if err := validateContainerImage(capability, nodeID, index); err != nil {
 		return err
 	}
-	if !strings.HasPrefix(capability.SourceRevision, "https://github.com/darlinghq/darling@") ||
-		!validPinnedRevision(strings.TrimPrefix(capability.SourceRevision, "https://github.com/darlinghq/darling@")) {
+	if !strings.HasPrefix(capability.SourceRevision, "https://github.com/darlinghq/darling@") || !validPinnedRevision(strings.TrimPrefix(capability.SourceRevision, "https://github.com/darlinghq/darling@")) {
 		return fmt.Errorf("heterogeneous CI node %q Darling source_revision is not pinned to an official revision", nodeID)
 	}
 	if strings.TrimSpace(capability.QualificationSuite) == "" || capability.QualificationSuite != strings.TrimSpace(capability.QualificationSuite) || hasControl(capability.QualificationSuite) {
@@ -468,24 +481,15 @@ func validateManifestJSON(data []byte) error {
 	return nil
 }
 
-// validateManifestRootFields 拒绝缺失的顶层字段及 cloud_overflow 子字段。
+// validateManifestRootFields 拒绝缺失的顶层字段。
 func validateManifestRootFields(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("heterogeneous CI manifest root must be an object: %w", err)
 	}
-	for _, field := range []string{"schema_version", "authority", "cloud_overflow", "nodes"} {
+	for _, field := range []string{"schema_version", "authority", "nodes"} {
 		if _, exists := fields[field]; !exists {
 			return fmt.Errorf("heterogeneous CI manifest root field %q is required", field)
-		}
-	}
-	var cloudOverflow map[string]json.RawMessage
-	if err := json.Unmarshal(fields["cloud_overflow"], &cloudOverflow); err != nil {
-		return fmt.Errorf("heterogeneous CI manifest cloud_overflow must be an object: %w", err)
-	}
-	for _, field := range []string{"enabled", "provider", "platform"} {
-		if _, exists := cloudOverflow[field]; !exists {
-			return fmt.Errorf("heterogeneous CI manifest cloud_overflow field %q is required", field)
 		}
 	}
 	return nil

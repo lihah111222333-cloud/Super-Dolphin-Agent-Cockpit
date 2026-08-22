@@ -35,7 +35,7 @@ func TestPackingPlanCanonicalDigestChangesForEveryPlanFieldAndOrderMutation(t *t
 		name   string
 		mutate func(*PackingPlan)
 	}{
-		{name: "schema root", mutate: func(plan *PackingPlan) { plan.SchemaVersion = "heteroci-packing-plan/v2" }},
+		{name: "schema root", mutate: func(plan *PackingPlan) { plan.SchemaVersion = "heteroci-packing-plan/v1" }},
 		{name: "authority root", mutate: func(plan *PackingPlan) { plan.Authority = "REMOTE" }},
 		{name: "capture root", mutate: func(plan *PackingPlan) { plan.SnapshotCapturedAtUnixMilli++ }},
 		{name: "unassigned root value", mutate: func(plan *PackingPlan) { plan.UnassignedUnitIDs[0] = "unit-z-mutated" }},

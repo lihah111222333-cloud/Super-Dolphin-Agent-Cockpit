@@ -9,21 +9,37 @@ import (
 
 const testImageDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-func TestDecodeManifestStrictDynamicNodeCounts(t *testing.T) {
-	for _, nodeCount := range []int{1, 2, 3} {
-		t.Run(fmt.Sprintf("nodes_%d", nodeCount), func(t *testing.T) {
-			manifest := testManifest(nodeCount)
-			decoded, err := DecodeManifest(bytes.NewReader(mustMarshalManifest(t, manifest)))
-			if err != nil {
-				t.Fatalf("DecodeManifest(%d nodes): %v", nodeCount, err)
-			}
-			if err := decoded.Validate(); err != nil {
-				t.Fatalf("Validate(%d nodes): %v", nodeCount, err)
-			}
-			if len(decoded.Nodes) != nodeCount {
-				t.Fatalf("decoded node count = %d, want %d", len(decoded.Nodes), nodeCount)
-			}
-		})
+func TestDecodeManifestStrictFixedFourNodeTopology(t *testing.T) {
+	manifest := testManifest(4)
+	decoded, err := DecodeManifest(bytes.NewReader(mustMarshalManifest(t, manifest)))
+	if err != nil {
+		t.Fatalf("DecodeManifest: %v", err)
+	}
+	if err := decoded.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if len(decoded.Nodes) != 4 {
+		t.Fatalf("decoded node count = %d, want 4", len(decoded.Nodes))
+	}
+}
+
+func TestManifestValidateFourNodeExecutionPoolLocksNodeIDsAndRuntimeMapping(t *testing.T) {
+	valid := testManifest(4)
+	if err := valid.ValidateFourNodeExecutionPool(); err != nil {
+		t.Fatalf("ValidateFourNodeExecutionPool(valid) = %v", err)
+	}
+	unknownID := valid
+	unknownID.Nodes = append([]NodeConfig(nil), valid.Nodes...)
+	unknownID.Nodes[0].NodeID = "linux-node-1"
+	if err := unknownID.ValidateFourNodeExecutionPool(); err == nil {
+		t.Fatal("ValidateFourNodeExecutionPool accepted an unknown fixed-pool node_id")
+	}
+	wrongMapping := valid
+	wrongMapping.Nodes = append([]NodeConfig(nil), valid.Nodes...)
+	wrongMapping.Nodes[0].Platform = PlatformWindowsAMD64
+	wrongMapping.Nodes[0].Capabilities = []CapabilityConfig{{Runtime: RuntimeWindowsNative}}
+	if err := wrongMapping.ValidateFourNodeExecutionPool(); err == nil {
+		t.Fatal("ValidateFourNodeExecutionPool accepted a mismatched node_id/platform/runtime mapping")
 	}
 }
 
@@ -31,9 +47,7 @@ func TestDecodeManifestRejectsMalformedJSONAndDuplicates(t *testing.T) {
 	valid := mustMarshalManifest(t, testManifest(1))
 	unknown := addRootField(t, valid, "unknown_field", json.RawMessage(`true`))
 	duplicate := append([]byte(`{"authority":"LOCAL_NON_AUTHORITATIVE",`), valid[1:]...)
-	missingCloudOverflow := removeRootField(t, valid, "cloud_overflow")
 	missingProbeIdentity := removeNodeField(t, valid, 0, "probe_identity")
-	emptyCloudOverflow := addRootField(t, removeRootField(t, valid, "cloud_overflow"), "cloud_overflow", json.RawMessage(`{}`))
 	emptyNodes := addRootField(t, removeRootField(t, valid, "nodes"), "nodes", json.RawMessage(`[]`))
 	nullNodes := addRootField(t, removeRootField(t, valid, "nodes"), "nodes", json.RawMessage(`null`))
 
@@ -44,9 +58,7 @@ func TestDecodeManifestRejectsMalformedJSONAndDuplicates(t *testing.T) {
 		{name: "unknown field", raw: unknown},
 		{name: "null root", raw: []byte("null")},
 		{name: "trailing value", raw: append(append([]byte(nil), valid...), []byte(` {}`)...)},
-		{name: "missing cloud overflow", raw: missingCloudOverflow},
 		{name: "missing probe identity", raw: missingProbeIdentity},
-		{name: "empty cloud overflow", raw: emptyCloudOverflow},
 		{name: "empty nodes", raw: emptyNodes},
 		{name: "null nodes", raw: nullNodes},
 		{name: "duplicate root field", raw: duplicate},
@@ -88,166 +100,22 @@ func TestManifestRejectsInvalidProbeIdentity(t *testing.T) {
 	assertManifestRejects(t, nonSHA256, "non-sha256 probe_identity")
 }
 
-func TestManifestCloudOverflowIsStrictECIOnly(t *testing.T) {
-	valid := testManifest(1)
-	if err := valid.Validate(); err != nil {
-		t.Fatalf("valid ECI overflow manifest: %v", err)
-	}
+func TestManifestRejectsDarwinAndCapabilityMismatches(t *testing.T) {
+	wrongWindowsRuntime := testManifest(4)
+	wrongWindowsRuntime.Nodes[2].Capabilities = []CapabilityConfig{{Runtime: RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: testImageDigest}}
+	assertManifestRejects(t, wrongWindowsRuntime, "Ubuntu capability on Windows")
 
-	disabled := testManifest(1)
-	disabled.CloudOverflow = CloudOverflowConfig{}
-	if err := disabled.Validate(); err != nil {
-		t.Fatalf("disabled cloud overflow should be valid for V2: %v", err)
-	}
+	wrongLinuxRuntime := testManifest(4)
+	wrongLinuxRuntime.Nodes[0].Capabilities = []CapabilityConfig{{Runtime: RuntimeWindowsNative}}
+	assertManifestRejects(t, wrongLinuxRuntime, "Windows capability on Linux")
 
-	badProvider := testManifest(1)
-	badProvider.CloudOverflow.Provider = "docker"
-	assertManifestRejects(t, badProvider, "non-ECI provider")
+	darwinPlatform := testManifest(4)
+	darwinPlatform.Nodes[0].Platform = PlatformDarwinARM64
+	assertManifestRejects(t, darwinPlatform, "Darwin platform")
 
-	badPlatform := testManifest(1)
-	badPlatform.CloudOverflow.Platform = "windows/amd64"
-	assertManifestRejects(t, badPlatform, "non-linux/amd64 overflow")
-
-	windowsOnly := testManifest(1)
-	windowsOnly.Nodes[0].Platform = PlatformWindowsAMD64
-	windowsOnly.Nodes[0].Capabilities = []CapabilityConfig{testWindowsCapability()}
-	assertManifestRejects(t, windowsOnly, "enabled overflow with Windows-only inventory")
-
-	darwinOnly := testManifest(1)
-	darwinOnly.Nodes[0].Platform = PlatformDarwinARM64
-	darwinOnly.Nodes[0].Capabilities = []CapabilityConfig{testDarwinNativeCapability()}
-	assertManifestRejects(t, darwinOnly, "enabled overflow with Darwin-only inventory")
-
-	withoutUbuntu := testManifest(1)
-	withoutUbuntu.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	assertManifestRejects(t, withoutUbuntu, "enabled overflow without Ubuntu capability")
-
-	withUbuntu := testManifest(2)
-	withUbuntu.Nodes[0].Platform = PlatformWindowsAMD64
-	withUbuntu.Nodes[0].Capabilities = []CapabilityConfig{testWindowsCapability()}
-	if err := withUbuntu.Validate(); err != nil {
-		t.Fatalf("enabled overflow with at least one Linux Ubuntu node should be valid: %v", err)
-	}
-
-	windowsV2 := testManifest(1)
-	windowsV2.CloudOverflow = CloudOverflowConfig{}
-	windowsV2.Nodes[0].Platform = PlatformWindowsAMD64
-	windowsV2.Nodes[0].Capabilities = []CapabilityConfig{testWindowsCapability()}
-	if err := windowsV2.Validate(); err != nil {
-		t.Fatalf("disabled cloud overflow should accept a Windows-only V2 manifest: %v", err)
-	}
-}
-
-func TestManifestRejectsMutuallyExclusivePlatformsAndRuntimes(t *testing.T) {
-	windows := testManifest(1)
-	windows.CloudOverflow = CloudOverflowConfig{}
-	windows.Nodes[0].Platform = PlatformWindowsAMD64
-	windows.Nodes[0].Capabilities = []CapabilityConfig{testWindowsCapability()}
-	if err := windows.Validate(); err != nil {
-		t.Fatalf("Windows native platform should be valid: %v", err)
-	}
-
-	darwin := testManifest(1)
-	darwin.CloudOverflow = CloudOverflowConfig{}
-	darwin.Nodes[0].Platform = PlatformDarwinARM64
-	darwin.Nodes[0].Capabilities = []CapabilityConfig{testDarwinNativeCapability()}
-	if err := darwin.Validate(); err != nil {
-		t.Fatalf("Darwin native platform should be valid: %v", err)
-	}
-
-	windowsOnLinux := testManifest(1)
-	windowsOnLinux.CloudOverflow = CloudOverflowConfig{}
-	windowsOnLinux.Nodes[0].Capabilities = []CapabilityConfig{testWindowsCapability()}
-	assertManifestRejects(t, windowsOnLinux, "Windows runtime on Linux")
-
-	darwinOnLinux := testManifest(1)
-	darwinOnLinux.CloudOverflow = CloudOverflowConfig{}
-	darwinOnLinux.Nodes[0].Capabilities = []CapabilityConfig{testDarwinNativeCapability()}
-	assertManifestRejects(t, darwinOnLinux, "Darwin runtime on Linux")
-
-	windowsWithDarling := testManifest(1)
-	windowsWithDarling.CloudOverflow = CloudOverflowConfig{}
-	windowsWithDarling.Nodes[0].Platform = PlatformWindowsAMD64
-	windowsWithDarling.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	assertManifestRejects(t, windowsWithDarling, "Darling on Windows")
-
-	darwinWithDarling := testManifest(1)
-	darwinWithDarling.CloudOverflow = CloudOverflowConfig{}
-	darwinWithDarling.Nodes[0].Platform = PlatformDarwinARM64
-	darwinWithDarling.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	assertManifestRejects(t, darwinWithDarling, "Darling on native Darwin")
-
-	darlingWithNativePlatform := testManifest(1)
-	darlingWithNativePlatform.CloudOverflow = CloudOverflowConfig{}
-	darlingWithNativePlatform.Nodes[0].Platform = PlatformDarwinAMD64
-	darlingWithNativePlatform.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	assertManifestRejects(t, darlingWithNativePlatform, "Darling/native Darwin collision")
-}
-
-func TestManifestDarlingCapabilityRequiresPinnedQualification(t *testing.T) {
-	latest := testManifest(1)
-	latest.CloudOverflow = CloudOverflowConfig{}
-	latest.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	latest.Nodes[0].Capabilities[0].Image = "darlinghq/darling:latest"
-	assertManifestRejects(t, latest, "Darling latest")
-
-	for _, source := range []string{"main", "dev", "feature/foo"} {
-		floatingSource := testManifest(1)
-		floatingSource.CloudOverflow = CloudOverflowConfig{}
-		floatingSource.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-		floatingSource.Nodes[0].Capabilities[0].SourceRevision = source
-		assertManifestRejects(t, floatingSource, "floating Darling source "+source)
-	}
-
-	missingDigest := testManifest(1)
-	missingDigest.CloudOverflow = CloudOverflowConfig{}
-	missingDigest.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	missingDigest.Nodes[0].Capabilities[0].ImageDigest = ""
-	assertManifestRejects(t, missingDigest, "Darling without OCI digest")
-
-	missingQualification := testManifest(1)
-	missingQualification.CloudOverflow = CloudOverflowConfig{}
-	missingQualification.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	missingQualification.Nodes[0].Capabilities[0].QualificationSuite = ""
-	assertManifestRejects(t, missingQualification, "Darling without qualification")
-
-	pinned := testManifest(1)
-	pinned.CloudOverflow = CloudOverflowConfig{}
-	pinned.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
-	if err := pinned.Validate(); err != nil {
-		t.Fatalf("fixed official Darling ref should be valid: %v", err)
-	}
-}
-
-func TestManifestDockerOSXIsOptInAndFullyAttested(t *testing.T) {
-	defaultManifest := testManifest(1)
-	if err := defaultManifest.Validate(); err != nil {
-		t.Fatalf("Docker-OSX absence should remain valid: %v", err)
-	}
-
-	missing := testDockerOSXManifest()
-	for _, mutate := range []struct {
-		name string
-		fn   func(*CapabilityConfig)
-	}{
-		{name: "experimental opt-in", fn: func(c *CapabilityConfig) { c.ExperimentalOptIn = false }},
-		{name: "attestation", fn: func(c *CapabilityConfig) { c.AppleHardwareAttested = false }},
-		{name: "kvm", fn: func(c *CapabilityConfig) { c.KVM = false }},
-		{name: "compliant image", fn: func(c *CapabilityConfig) { c.CompliantImage = false }},
-		{name: "digest", fn: func(c *CapabilityConfig) { c.ImageDigest = "" }},
-		{name: "guest identity", fn: func(c *CapabilityConfig) { c.ImmutableIdentity = "" }},
-	} {
-		t.Run("missing_"+mutate.name, func(t *testing.T) {
-			candidate := missing
-			mutate.fn(&candidate.Nodes[0].Capabilities[0])
-			assertManifestRejects(t, candidate, "Docker-OSX "+mutate.name)
-		})
-	}
-
-	accepted := testDockerOSXManifest()
-	if err := accepted.Validate(); err != nil {
-		t.Fatalf("fully explicit Docker-OSX capability should be valid: %v", err)
-	}
+	darwinRuntime := testManifest(4)
+	darwinRuntime.Nodes[0].Capabilities = []CapabilityConfig{{Runtime: RuntimeDarwinNative}}
+	assertManifestRejects(t, darwinRuntime, "Darwin runtime")
 }
 
 func TestManifestRejectsNonLocalAuthority(t *testing.T) {
@@ -255,31 +123,59 @@ func TestManifestRejectsNonLocalAuthority(t *testing.T) {
 	manifest.Authority = "REMOTE_AUTHORITATIVE"
 	assertManifestRejects(t, manifest, "non-local authority")
 }
-
-func testManifest(nodeCount int) Manifest {
-	manifest := Manifest{
-		SchemaVersion: ManifestSchemaVersion,
-		Authority:     AuthorityLocalNonAuthoritative,
-		CloudOverflow: CloudOverflowConfig{
-			Enabled:  true,
-			Provider: "aliyun-eci",
-			Platform: "linux/amd64",
-		},
-		Nodes: make([]NodeConfig, nodeCount),
-	}
-	for i := range manifest.Nodes {
-		id := fmt.Sprintf("heteroci-node-%d", i+1)
-		manifest.Nodes[i] = NodeConfig{
-			NodeID:        id,
-			ProbeIdentity: testProbeIdentity(i),
-			Endpoint:      "https://" + id + ".invalid/runner",
-			Platform:      "linux/amd64",
-			Capabilities: []CapabilityConfig{{
-				Runtime:     RuntimeUbuntuContainer,
-				Image:       "super-dolphin-ci-runner:ubuntu",
-				ImageDigest: testImageDigest,
-			}},
+func TestManifestValidateAcceptsGenericDarwinDarlingAndDockerOSX(t *testing.T) {
+	manifests := []Manifest{}
+	darwin := testManifest(1)
+	darwin.Nodes[0].Platform = PlatformDarwinAMD64
+	darwin.Nodes[0].Capabilities = []CapabilityConfig{testDarwinNativeCapability()}
+	manifests = append(manifests, darwin)
+	darling := testManifest(1)
+	darling.Nodes[0].Capabilities = []CapabilityConfig{testDarlingCapability()}
+	manifests = append(manifests, darling)
+	manifests = append(manifests, testDockerOSXManifest())
+	for index, manifest := range manifests {
+		if err := manifest.Validate(); err != nil {
+			t.Fatalf("generic manifest %d Validate() = %v", index, err)
 		}
+		if err := manifest.ValidateFourNodeExecutionPool(); err == nil {
+			t.Fatalf("generic manifest %d unexpectedly passed fixed pool validation", index)
+		}
+	}
+}
+
+func TestManifestRejectsDockerOSXQualificationAndAttestationDrift(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*CapabilityConfig)
+	}{
+		{name: "source revision", mutate: func(capability *CapabilityConfig) { capability.SourceRevision = "https://example.invalid/source@v1" }},
+		{name: "qualification suite", mutate: func(capability *CapabilityConfig) { capability.QualificationSuite = "darwin-suite" }},
+		{name: "identity leading whitespace", mutate: func(capability *CapabilityConfig) { capability.ImmutableIdentity = " " + capability.ImmutableIdentity }},
+		{name: "identity trailing whitespace", mutate: func(capability *CapabilityConfig) { capability.ImmutableIdentity += " " }},
+		{name: "identity control", mutate: func(capability *CapabilityConfig) { capability.ImmutableIdentity += string(rune(0x7f)) }},
+		{name: "experimental opt-in", mutate: func(capability *CapabilityConfig) { capability.ExperimentalOptIn = false }},
+		{name: "apple hardware attestation", mutate: func(capability *CapabilityConfig) { capability.AppleHardwareAttested = false }},
+		{name: "kvm attestation", mutate: func(capability *CapabilityConfig) { capability.KVM = false }},
+		{name: "compliant image attestation", mutate: func(capability *CapabilityConfig) { capability.CompliantImage = false }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := testDockerOSXManifest()
+			test.mutate(&manifest.Nodes[0].Capabilities[0])
+			assertManifestRejects(t, manifest, "Docker-OSX "+test.name)
+		})
+	}
+}
+func testManifest(_ int) Manifest {
+	manifest := Manifest{SchemaVersion: ManifestSchemaVersion, Authority: AuthorityLocalNonAuthoritative, Nodes: make([]NodeConfig, 0, 4)}
+	for i := 0; i < 4; i++ {
+		id := []string{"Ubuntu-01", "Ubuntu-02", "Windows-01", "Windows-02"}[i]
+		node := NodeConfig{NodeID: id, ProbeIdentity: testProbeIdentity(i), Endpoint: "https://" + id + ".invalid/runner", Platform: PlatformLinuxAMD64, Capabilities: []CapabilityConfig{{Runtime: RuntimeUbuntuContainer, Image: "super-dolphin-ci-runner:ubuntu", ImageDigest: testImageDigest}}}
+		if i >= 2 {
+			node.Platform = PlatformWindowsAMD64
+			node.Capabilities = []CapabilityConfig{{Runtime: RuntimeWindowsNative}}
+		}
+		manifest.Nodes = append(manifest.Nodes, node)
 	}
 	return manifest
 }

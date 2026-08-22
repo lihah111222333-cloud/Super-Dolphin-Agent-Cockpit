@@ -651,9 +651,8 @@ import (
 	"testing"
 )
 
-func TestV2PortabilityFixtureStrictManifestAndDisabledCloudOverflow(t *testing.T) {
-	manifest := testManifest(1)
-	manifest.CloudOverflow = CloudOverflowConfig{}
+func TestV2PortabilityFixtureStrictManifestAndCapacityBlocker(t *testing.T) {
+	manifest := snapshotTestManifest(1)
 	raw, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatalf("marshal V2 fixture manifest: %v", err)
@@ -667,8 +666,8 @@ func TestV2PortabilityFixtureStrictManifestAndDisabledCloudOverflow(t *testing.T
 	if err != nil {
 		t.Fatalf("LoadManifestFile(valid) failed: %v", err)
 	}
-	if loaded.CloudOverflow.Enabled || len(loaded.Nodes) != 1 {
-		t.Fatalf("LoadManifestFile(valid) = %#v, want one node with cloud overflow disabled", loaded)
+	if len(loaded.Nodes) != 1 {
+		t.Fatalf("LoadManifestFile(valid) = %#v, want one dynamic node", loaded)
 	}
 
 	unknownPath := filepath.Join(directory, "unknown.json")
@@ -686,7 +685,7 @@ func TestV2PortabilityFixtureStrictManifestAndDisabledCloudOverflow(t *testing.T
 	snapshot := snapshotForManifest(loaded, now)
 	snapshot.Nodes[0].Available = ResourceCapacity{}
 	units := []ExecutionUnit{{
-		UnitID: "overflow-disabled",
+		UnitID: "capacity-blocked",
 		TargetPlatform: PlatformLinuxAMD64,
 		RequiredRuntime: RuntimeUbuntuContainer,
 		EstimatedDurationMS: 100,
@@ -695,11 +694,11 @@ func TestV2PortabilityFixtureStrictManifestAndDisabledCloudOverflow(t *testing.T
 	}}
 	plan, decision, err := PlanRoutingDecision(loaded, snapshot, units, now, snapshotTestHeartbeatTTL)
 	if err == nil || !reflect.DeepEqual(plan, PackingPlan{}) || !reflect.DeepEqual(decision, RoutingDecision{}) {
-		t.Fatalf("PlanRoutingDecision(disabled overflow) = plan:%#v decision:%#v err:%v; want zero values and blocker", plan, decision, err)
+		t.Fatalf("PlanRoutingDecision(capacity blocker) = plan:%#v decision:%#v err:%v; want zero values and blocker", plan, decision, err)
 	}
 	var blockerErr *CapacityBlockerError
-	if !errors.As(err, &blockerErr) || len(blockerErr.Blockers) != 1 || blockerErr.Blockers[0].Reason != "cloud overflow is disabled" {
-		t.Fatalf("disabled overflow error = %#v; want one explicit cloud-overflow blocker", err)
+	if !errors.As(err, &blockerErr) || len(blockerErr.Blockers) != 1 || blockerErr.Blockers[0].Reason != CapacityBlockerReasonCapacityUnavailable {
+		t.Fatalf("capacity blocker error = %#v; want one explicit capacity blocker", err)
 	}
 }
 `

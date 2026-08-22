@@ -581,7 +581,11 @@ func TestAcquireSnapshotRedactsSecretsFromErrors(t *testing.T) {
 func acquireFixture(t *testing.T, nodeCount int, order []int) (time.Time, Manifest, map[string]ProbeResponse) {
 	t.Helper()
 	now := time.UnixMilli(acquireTestNowUnixMilli)
-	manifest := snapshotTestManifest(nodeCount)
+	manifest := Manifest{SchemaVersion: ManifestSchemaVersion, Authority: AuthorityLocalNonAuthoritative, Nodes: make([]NodeConfig, nodeCount)}
+	for index := range manifest.Nodes {
+		nodeID := fmt.Sprintf("heteroci-node-%d", index+1)
+		manifest.Nodes[index] = NodeConfig{NodeID: nodeID, Endpoint: "https://" + nodeID + ".invalid/runner", ProbeIdentity: snapshotTestProbeIdentity(index), Platform: PlatformLinuxAMD64, Capabilities: []CapabilityConfig{{Runtime: RuntimeUbuntuContainer, Image: "ubuntu:24.04", ImageDigest: acquireTestImageDigest}}}
+	}
 	if len(order) >= nodeCount {
 		nodes := append([]NodeConfig(nil), manifest.Nodes...)
 		manifest.Nodes = make([]NodeConfig, 0, nodeCount)

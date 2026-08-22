@@ -143,8 +143,6 @@ func validateStartBinding(run *routingLeaseRun, lease RoutingLease, unitID strin
 	switch expected.Executor {
 	case ExecutorKindLocalNode:
 		return validateLocalStartBinding(expected, unit, currentSnapshot)
-	case ExecutorKindAliyunECI:
-		return validateECIStartBinding(expected, unit)
 	default:
 		return fmt.Errorf("routing lease unit %q executor %q is unknown", unitID, expected.Executor)
 	}
@@ -175,9 +173,6 @@ func routingLeaseExecutionUnit(units []ExecutionUnit, unitID string) (ExecutionU
 
 // validateLocalStartBinding 校验本地节点四身份和当前运行时能力。
 func validateLocalStartBinding(assignment RouteAssignment, unit ExecutionUnit, snapshot SnapshotSet) error {
-	if assignment.ECITier != "" {
-		return fmt.Errorf("routing lease local start binding must not carry an ECI tier")
-	}
 	node, err := routingLeaseSnapshotNode(snapshot, assignment.NodeID)
 	if err != nil {
 		return err
@@ -205,21 +200,6 @@ func routingLeaseSnapshotNode(snapshot SnapshotSet, nodeID string) (NodeSnapshot
 		}
 	}
 	return NodeSnapshot{}, fmt.Errorf("routing lease local node is unknown")
-}
-
-// validateECIStartBinding 校验 ECI 无本地身份且使用规范资源档位。
-func validateECIStartBinding(assignment RouteAssignment, unit ExecutionUnit) error {
-	if assignment.NodeID != "" || assignment.Endpoint != "" || assignment.ProbeIdentity != "" || assignment.ProbeBootID != "" {
-		return fmt.Errorf("routing lease ECI start binding must have empty local identity")
-	}
-	if _, ok := assignment.ECITier.Capacity(); !ok {
-		return fmt.Errorf("routing lease ECI start tier is not canonical")
-	}
-	expectedTier, fits := smallestFittingECITier(unit)
-	if !fits || assignment.ECITier != expectedTier {
-		return fmt.Errorf("routing lease ECI start tier does not match execution unit")
-	}
-	return nil
 }
 
 // routingLeaseStartFieldMismatch 返回不回显节点端点或探针值的字段错误。
@@ -341,8 +321,7 @@ func routingLeaseMatchesAssignment(lease RoutingLease, assignment RouteAssignmen
 		lease.NodeID == assignment.NodeID &&
 		lease.Endpoint == assignment.Endpoint &&
 		lease.ProbeIdentity == assignment.ProbeIdentity &&
-		lease.ProbeBootID == assignment.ProbeBootID &&
-		lease.ECITier == assignment.ECITier
+		lease.ProbeBootID == assignment.ProbeBootID
 }
 
 // commitLeaseTransitionLocked 先预演终态释放，再一次性提交租约和容量变化。

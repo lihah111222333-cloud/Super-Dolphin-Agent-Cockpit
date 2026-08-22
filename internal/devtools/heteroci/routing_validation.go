@@ -28,11 +28,11 @@ func (decision RoutingDecision) ValidateAgainst(
 	if err != nil {
 		return err
 	}
-	localUnits, unassignedUnits, err := indexRoutingPlanCoverage(plan)
+	localUnits, _, err := indexRoutingPlanCoverage(plan)
 	if err != nil {
 		return err
 	}
-	if err := validateRoutingAssignments(decision.Assignments, manifest, unitIndex, snapshotIndex, localUnits, unassignedUnits); err != nil {
+	if err := validateRoutingAssignments(decision.Assignments, unitIndex, snapshotIndex, localUnits); err != nil {
 		return err
 	}
 	return validateRoutingDecisionDigest(decision)
@@ -112,14 +112,12 @@ func indexRoutingPlanCoverage(plan PackingPlan) (map[string]string, map[string]s
 	return localUnits, unassignedUnits, nil
 }
 
-// validateRoutingAssignments 校验排序、唯一覆盖和 local/ECI 执行器约束。
+// validateRoutingAssignments 校验排序、唯一覆盖和本地执行器约束。
 func validateRoutingAssignments(
 	assignments []RouteAssignment,
-	manifest Manifest,
 	units map[string]ExecutionUnit,
 	snapshots map[string]NodeSnapshot,
 	localUnits map[string]string,
-	unassignedUnits map[string]struct{},
 ) error {
 	if assignments == nil {
 		return fmt.Errorf("routing decision assignments must be non-nil")
@@ -133,14 +131,14 @@ func validateRoutingAssignments(
 		if index > 0 && assignment.UnitID <= previousUnitID {
 			return fmt.Errorf("routing decision assignments must be strictly ascending by unit_id")
 		}
-		unit, exists := units[assignment.UnitID]
+		_, exists := units[assignment.UnitID]
 		if !exists {
 			return fmt.Errorf("routing decision references unknown execution unit %q", assignment.UnitID)
 		}
 		if _, exists := seen[assignment.UnitID]; exists {
 			return fmt.Errorf("routing decision assigns execution unit %q more than once", assignment.UnitID)
 		}
-		if err := validateRouteAssignment(assignment, unit, manifest, snapshots, localUnits, unassignedUnits); err != nil {
+		if err := validateRouteAssignment(assignment, snapshots, localUnits); err != nil {
 			return fmt.Errorf("validate routing assignment for unit %q: %w", assignment.UnitID, err)
 		}
 		seen[assignment.UnitID] = struct{}{}
@@ -152,20 +150,15 @@ func validateRoutingAssignments(
 	return nil
 }
 
-// validateRouteAssignment 校验单个 local 或 ECI 路由的唯一执行边界。
+// validateRouteAssignment 校验单个本地路由的唯一执行边界。
 func validateRouteAssignment(
 	assignment RouteAssignment,
-	unit ExecutionUnit,
-	manifest Manifest,
 	snapshots map[string]NodeSnapshot,
 	localUnits map[string]string,
-	unassignedUnits map[string]struct{},
 ) error {
 	switch assignment.Executor {
 	case ExecutorKindLocalNode:
 		return validateLocalRouteAssignment(assignment, snapshots, localUnits)
-	case ExecutorKindAliyunECI:
-		return validateECIRouteAssignment(assignment, unit, manifest, unassignedUnits)
 	default:
 		return fmt.Errorf("executor %q is unknown", assignment.Executor)
 	}
@@ -192,55 +185,6 @@ func validateLocalRouteAssignment(assignment RouteAssignment, snapshots map[stri
 	}
 	if assignment.ProbeBootID != node.ProbeBootID {
 		return fmt.Errorf("local probe_boot_id field mismatch for snapshot node %q", node.NodeID)
-	}
-	if assignment.ECITier != "" {
-		return fmt.Errorf("local assignment must not carry an ECI tier")
-	}
-	return nil
-}
-
-// validateECIRouteAssignment 校验 ECI 溢出能力、目标矩阵和最小资源档位。
-func validateECIRouteAssignment(
-	assignment RouteAssignment,
-	unit ExecutionUnit,
-	manifest Manifest,
-	unassignedUnits map[string]struct{},
-) error {
-	if _, exists := unassignedUnits[assignment.UnitID]; !exists {
-		return fmt.Errorf("ECI executor requires a unit unassigned by the packing plan")
-	}
-	if err := validateEmptyECIRouteIdentity(assignment); err != nil {
-		return err
-	}
-	if !manifest.CloudOverflow.Enabled || manifest.CloudOverflow.Provider != CloudProviderAliyunECI || manifest.CloudOverflow.Platform != PlatformLinuxAMD64 {
-		return fmt.Errorf("ECI assignment requires enabled aliyun-eci linux/amd64 cloud overflow")
-	}
-	if unit.TargetPlatform != PlatformLinuxAMD64 || unit.RequiredRuntime != RuntimeUbuntuContainer {
-		return fmt.Errorf("ECI assignment requires a linux/amd64 ubuntu_container unit")
-	}
-	expectedTier, fits := smallestFittingECITier(unit)
-	if !fits {
-		return fmt.Errorf("execution unit does not fit any ECI resource tier")
-	}
-	if assignment.ECITier != expectedTier {
-		return fmt.Errorf("ECI tier %q does not match smallest fitting tier %q", assignment.ECITier, expectedTier)
-	}
-	return nil
-}
-
-// validateEmptyECIRouteIdentity 校验 ECI 路由不携带本地节点身份字段。
-func validateEmptyECIRouteIdentity(assignment RouteAssignment) error {
-	if assignment.NodeID != "" {
-		return fmt.Errorf("ECI assignment must not carry a node_id")
-	}
-	if assignment.Endpoint != "" {
-		return fmt.Errorf("ECI assignment must not carry an endpoint")
-	}
-	if assignment.ProbeIdentity != "" {
-		return fmt.Errorf("ECI assignment must not carry a probe_identity")
-	}
-	if assignment.ProbeBootID != "" {
-		return fmt.Errorf("ECI assignment must not carry a probe_boot_id")
 	}
 	return nil
 }

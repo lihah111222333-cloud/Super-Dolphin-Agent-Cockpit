@@ -29,30 +29,22 @@ type Registry struct {
 // ErrRegistry 表示 executor registry 的结构或绑定契约不合法。
 var ErrRegistry = errors.New("heteroci executor registry is invalid")
 
-// NewRegistry 构建完整能力 registry，要求 local_node 与 aliyun_eci 各至少一个精确 key 绑定。
+// NewRegistry 构建本地节点能力 registry，要求每个绑定 key 精确指向一个本地节点。
 func NewRegistry(bindings []Binding) (*Registry, error) {
-	return newRegistry(bindings, supportedExecutorKinds(), nil, nil)
+	return newRegistry(bindings, []heteroci.ExecutorKind{heteroci.ExecutorKindLocalNode}, nil, nil)
 }
 
-// NewRegistryForManifest 按 manifest 的节点和 cloud_overflow 选择严格 required key 集合。
+// NewRegistryForManifest 按 manifest 的节点选择严格 required key 集合。
 func NewRegistryForManifest(manifest heteroci.Manifest, bindings []Binding) (*Registry, error) {
 	if err := manifest.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: manifest validation: %w", ErrRegistry, err)
 	}
 	requiredKinds := []heteroci.ExecutorKind{heteroci.ExecutorKindLocalNode}
-	if manifest.CloudOverflow.Enabled {
-		requiredKinds = append(requiredKinds, heteroci.ExecutorKindAliyunECI)
-	}
 	nodes := make(map[string]heteroci.Platform, len(manifest.Nodes))
 	requiredKeys := make([]heterociworkflow.ExecutorKey, 0, len(manifest.Nodes)+3)
 	for _, node := range manifest.Nodes {
 		nodes[node.NodeID] = node.Platform
 		requiredKeys = append(requiredKeys, heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindLocalNode, NodeID: node.NodeID})
-	}
-	if manifest.CloudOverflow.Enabled {
-		for _, tier := range []heteroci.ECIResourceTier{heteroci.ECITier2C4GiB, heteroci.ECITier4C8GiB, heteroci.ECITier8C16GiB} {
-			requiredKeys = append(requiredKeys, heterociworkflow.ExecutorKey{Kind: heteroci.ExecutorKindAliyunECI, ECITier: tier})
-		}
 	}
 	return newRegistry(bindings, requiredKinds, nodes, requiredKeys)
 }
@@ -160,7 +152,7 @@ func validateRequiredKinds(required map[heteroci.ExecutorKind]struct{}, register
 	return nil
 }
 
-// validateRequiredKeys 确认 manifest 要求的每个节点和固定 ECI tier 都有精确绑定。
+// validateRequiredKeys 确认 manifest 要求的每个节点都有精确绑定。
 func validateRequiredKeys(required []heterociworkflow.ExecutorKey, registered map[heterociworkflow.ExecutorKey]Binding) error {
 	for _, key := range required {
 		if _, exists := registered[key]; !exists {
@@ -312,7 +304,6 @@ func SupportedExecutorKinds() []heteroci.ExecutorKind {
 func supportedExecutorKinds() []heteroci.ExecutorKind {
 	return []heteroci.ExecutorKind{
 		heteroci.ExecutorKindLocalNode,
-		heteroci.ExecutorKindAliyunECI,
 	}
 }
 
@@ -326,9 +317,6 @@ func validateBinding(binding Binding) error {
 	}
 	if err := validatePlatform(binding.Platform); err != nil {
 		return fmt.Errorf("%w: binding %q: %w", ErrRegistry, binding.Kind, err)
-	}
-	if binding.Kind == heteroci.ExecutorKindAliyunECI && binding.Platform != heteroci.PlatformLinuxAMD64 {
-		return fmt.Errorf("%w: ECI binding must use %q, got %q", ErrRegistry, heteroci.PlatformLinuxAMD64, binding.Platform)
 	}
 	return nil
 }
@@ -366,7 +354,7 @@ func isSupportedExecutorKind(kind heteroci.ExecutorKind) bool {
 	return slices.Contains(supportedExecutorKinds(), kind)
 }
 
-// manifestAllowsKinds 拒绝 manifest 禁用 cloud overflow 时携带额外 ECI binding。
+// manifestAllowsKinds 拒绝 manifest 未声明的 executor binding。
 func manifestAllowsKinds(required map[heteroci.ExecutorKind]struct{}, bindings map[heterociworkflow.ExecutorKey]Binding) bool {
 	for key := range bindings {
 		if _, allowed := required[key.Kind]; !allowed {

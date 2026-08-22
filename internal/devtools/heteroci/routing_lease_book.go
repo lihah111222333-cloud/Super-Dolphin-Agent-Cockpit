@@ -174,7 +174,6 @@ func buildPlannedRoutingLeases(runID string, decision RoutingDecision, reservedA
 			Endpoint:            assignment.Endpoint,
 			ProbeIdentity:       assignment.ProbeIdentity,
 			ProbeBootID:         assignment.ProbeBootID,
-			ECITier:             assignment.ECITier,
 			State:               LeaseStatePlanned,
 			ReservedAtUnixMilli: reservedAtUnixMilli,
 		}

@@ -366,6 +366,8 @@ func TestDecodeSnapshotSetRejectsStaleFutureAndMismatchedManifest(t *testing.T) 
 	manifest := snapshotTestManifest(1)
 	mustSnapshotManifestValidate(t, manifest)
 	valid := mustMarshalSnapshotSet(t, snapshotForManifest(manifest, now))
+	mismatchedManifest := snapshotTestManifest(2)
+	mismatchedManifest.Nodes[0].NodeID = "mismatched-node"
 
 	tests := []struct {
 		name     string
@@ -374,7 +376,7 @@ func TestDecodeSnapshotSetRejectsStaleFutureAndMismatchedManifest(t *testing.T) 
 	}{
 		{name: "stale capture", manifest: manifest, now: func() time.Time { return now.Add(snapshotTestHeartbeatTTL + time.Millisecond) }},
 		{name: "future capture", manifest: manifest, now: func() time.Time { return now.Add(-time.Millisecond) }},
-		{name: "mismatched manifest", manifest: snapshotTestManifest(2), now: func() time.Time { return now }},
+		{name: "mismatched manifest", manifest: mismatchedManifest, now: func() time.Time { return now }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -387,7 +389,7 @@ func TestDecodeSnapshotSetRejectsStaleFutureAndMismatchedManifest(t *testing.T) 
 	if err != nil {
 		t.Fatalf("DecodeSnapshotSet(valid snapshot): %v", err)
 	}
-	if err := decoded.ValidateAgainst(snapshotTestManifest(2), now, snapshotTestHeartbeatTTL); err == nil {
+	if err := decoded.ValidateAgainst(mismatchedManifest, now, snapshotTestHeartbeatTTL); err == nil {
 		t.Fatal("ValidateAgainst unexpectedly accepted a mismatched manifest")
 	}
 	for _, tt := range []struct {
