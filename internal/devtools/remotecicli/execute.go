@@ -106,10 +106,9 @@ type executePreparedInputs struct {
 }
 
 type executeLocatorBinding struct {
-	raw               []byte
-	portable          remoteportable.BoundPortableRun
-	repositoryRoot    string
-	runtimeConfigPath string
+	raw            []byte
+	portable       remoteportable.BoundPortableRun
+	repositoryRoot string
 }
 
 type executeRuntimePolicy struct {
@@ -126,11 +125,27 @@ type executeCatalogBinding struct {
 
 // prepareExecuteInputs 完成 exact tree、runtime、四节点 topology 和请求摘要绑定；不连接节点或 PostgreSQL。
 func prepareExecuteInputs(ctx context.Context, args []string) (executePreparedInputs, error) {
-	locator, err := loadExecuteLocatorBinding(args)
+	_, _, runtimeConfigPath, err := parseExecuteArgs(args)
 	if err != nil {
 		return executePreparedInputs{}, err
 	}
-	runtimePolicy, err := loadExecuteRuntimePolicy(locator.runtimeConfigPath)
+	config, err := loadExecuteRuntimeConfig(runtimeConfigPath)
+	if err != nil {
+		return executePreparedInputs{}, err
+	}
+	return prepareExecuteInputsWithConfig(ctx, args, config)
+}
+
+// prepareExecuteInputsWithConfig 使用调用方已经读取并校验的 runtime config snapshot 完成 preflight；不得重读 config。
+func prepareExecuteInputsWithConfig(ctx context.Context, args []string, config remoteruntime.RuntimeConfig) (executePreparedInputs, error) {
+	if err := checkExecuteContext(ctx); err != nil {
+		return executePreparedInputs{}, err
+	}
+	locator, err := loadExecuteLocatorBinding(ctx, args)
+	if err != nil {
+		return executePreparedInputs{}, err
+	}
+	runtimePolicy, err := loadExecuteRuntimePolicy(ctx, config)
 	if err != nil {
 		return executePreparedInputs{}, err
 	}
@@ -138,17 +153,38 @@ func prepareExecuteInputs(ctx context.Context, args []string) (executePreparedIn
 	if err != nil {
 		return executePreparedInputs{}, err
 	}
-	return assembleExecutePreparedInputs(locator, runtimePolicy, catalog)
+	prepared, err := assembleExecutePreparedInputs(locator, runtimePolicy, catalog)
+	if err != nil {
+		return executePreparedInputs{}, err
+	}
+	if err := checkExecuteContext(ctx); err != nil {
+		return executePreparedInputs{}, err
+	}
+	return prepared, nil
 }
 
-func loadExecuteLocatorBinding(args []string) (executeLocatorBinding, error) {
-	requestPath, repositoryRoot, runtimeConfigPath, err := parseExecuteArgs(args)
+func loadExecuteRuntimeConfig(path string) (remoteruntime.RuntimeConfig, error) {
+	config, err := remoteruntime.LoadConfig(path)
+	if err != nil {
+		return remoteruntime.RuntimeConfig{}, newCLIFailure("load execute runtime config", err)
+	}
+	return config, nil
+}
+
+func loadExecuteLocatorBinding(ctx context.Context, args []string) (executeLocatorBinding, error) {
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeLocatorBinding{}, err
+	}
+	requestPath, repositoryRoot, _, err := parseExecuteArgs(args)
 	if err != nil {
 		return executeLocatorBinding{}, err
 	}
 	raw, err := readDescriptorFile(requestPath)
 	if err != nil {
 		return executeLocatorBinding{}, newCLIFailure("read execute request", err)
+	}
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeLocatorBinding{}, err
 	}
 	descriptor, err := remoteportable.DecodePortableRunDescriptor(raw)
 	if err != nil {
@@ -158,17 +194,22 @@ func loadExecuteLocatorBinding(args []string) (executeLocatorBinding, error) {
 	if err != nil {
 		return executeLocatorBinding{}, newCLIFailure("bind execute target", err)
 	}
-	return executeLocatorBinding{raw: append([]byte(nil), raw...), portable: portable, repositoryRoot: repositoryRoot, runtimeConfigPath: runtimeConfigPath}, nil
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeLocatorBinding{}, err
+	}
+	return executeLocatorBinding{raw: append([]byte(nil), raw...), portable: portable, repositoryRoot: repositoryRoot}, nil
 }
 
-func loadExecuteRuntimePolicy(path string) (executeRuntimePolicy, error) {
-	config, err := remoteruntime.LoadConfig(path)
-	if err != nil {
-		return executeRuntimePolicy{}, newCLIFailure("load execute runtime config", err)
+func loadExecuteRuntimePolicy(ctx context.Context, config remoteruntime.RuntimeConfig) (executeRuntimePolicy, error) {
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeRuntimePolicy{}, err
 	}
 	topology, err := heteroci.LoadManifestFile(config.TopologyManifestPath)
 	if err != nil {
 		return executeRuntimePolicy{}, newCLIFailure("load execute topology", err)
+	}
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeRuntimePolicy{}, err
 	}
 	if err := validateExecuteRuntimeTopology(config, topology); err != nil {
 		return executeRuntimePolicy{}, newCLIFailure("bind execute topology", err)
@@ -177,10 +218,16 @@ func loadExecuteRuntimePolicy(path string) (executeRuntimePolicy, error) {
 	if err != nil {
 		return executeRuntimePolicy{}, newCLIFailure("derive execute runtime policy digest", err)
 	}
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeRuntimePolicy{}, err
+	}
 	return executeRuntimePolicy{config: config, policyDigest: policyDigest, topology: topology}, nil
 }
 
 func bindExecuteCatalog(ctx context.Context, locator executeLocatorBinding, config remoteruntime.RuntimeConfig) (executeCatalogBinding, error) {
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeCatalogBinding{}, err
+	}
 	repository, err := expandBoundPortableRepositoryCatalog(ctx, locator.repositoryRoot, locator.portable)
 	if err != nil {
 		return executeCatalogBinding{}, newCLIFailure("expand execute workload catalog", err)
@@ -189,12 +236,30 @@ func bindExecuteCatalog(ctx context.Context, locator executeLocatorBinding, conf
 	if err != nil {
 		return executeCatalogBinding{}, newCLIFailure("project execute workloads", err)
 	}
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeCatalogBinding{}, err
+	}
 	target := remoteruntime.TargetFacts{RepositoryID: locator.portable.RepositoryID, ObjectFormat: locator.portable.ObjectFormat, CommitSHA: locator.portable.CommitSHA, TreeSHA: locator.portable.TreeSHA}
 	runtimeBinding, err := remoteruntime.BindPortableRun(config, target)
 	if err != nil {
 		return executeCatalogBinding{}, newCLIFailure("bind execute runtime target", err)
 	}
+	if err := checkExecuteContext(ctx); err != nil {
+		return executeCatalogBinding{}, err
+	}
 	return executeCatalogBinding{repository: repository, runtimeBinding: runtimeBinding, units: units}, nil
+}
+
+func checkExecuteContext(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("execute context is required")
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
 }
 
 func assembleExecutePreparedInputs(locator executeLocatorBinding, runtimePolicy executeRuntimePolicy, catalog executeCatalogBinding) (executePreparedInputs, error) {

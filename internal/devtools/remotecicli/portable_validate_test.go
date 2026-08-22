@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -190,6 +191,43 @@ func TestPrepareExecuteInputsBindsExactFourNodeRunWithoutNetwork(t *testing.T) {
 	assertPreparedExecutePlatforms(t, prepared)
 	assertPreparedExecuteRequestDigest(t, prepared)
 	assertExecuteTopologyRejectsDrift(t, prepared.Runtime, topology)
+}
+
+// TestExecutePreflightDeadlineStopsBeforeComponentsOpen 锁定 preflight 与组件打开共享同一 request context。
+func TestExecutePreflightDeadlineStopsBeforeComponentsOpen(t *testing.T) {
+	descriptorPath := portableCLIRealDescriptor(t)
+	repositoryRoot := filepath.Dir(descriptorPath)
+	runtimePath, _ := writeExecuteRuntimeFixture(t, repositoryRoot)
+	runtimeConfig, err := loadExecuteRuntimeConfig(runtimePath)
+	if err != nil {
+		t.Fatalf("loadExecuteRuntimeConfig() error = %v", err)
+	}
+	args := []string{"--request", descriptorPath, "--repository", repositoryRoot, "--runtime-config", runtimePath}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := prepareExecuteInputsWithConfig(ctx, args, runtimeConfig); !errors.Is(err, context.Canceled) {
+		t.Fatalf("prepareExecuteInputsWithConfig() error = %v, want context.Canceled", err)
+	}
+	opened := false
+	dependencies := executeCommandDependencies{
+		clock: func() time.Time { return time.Now().UTC() },
+		components: func(ctx context.Context, _ executePreparedInputs, _ func() time.Time) (executeComponents, error) {
+			if err := ctx.Err(); err != nil {
+				return executeComponents{}, err
+			}
+			opened = true
+			return executeComponents{}, errors.New("unexpected uncanceled component open")
+		},
+		run: func(context.Context, heterociworkflow.Dependencies, heterociworkflow.RunRequest) (heterociworkflow.RunResult, error) {
+			return heterociworkflow.RunResult{}, errors.New("unexpected workflow run")
+		},
+	}
+	if err := runPreparedExecute(ctx, executePreparedInputs{}, bytes.NewBuffer(nil), bytes.NewBuffer(nil), dependencies); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runPreparedExecute() error = %v, want context.Canceled", err)
+	}
+	if opened {
+		t.Fatal("runPreparedExecute() opened components with canceled request context")
+	}
 }
 
 func assertPreparedExecuteIdentity(t *testing.T, prepared executePreparedInputs) {

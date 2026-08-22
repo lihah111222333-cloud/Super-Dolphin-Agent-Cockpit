@@ -422,13 +422,21 @@ func dispatchExecuteWithDependencies(args []string, stdout, stderr io.Writer, de
 	if stdout == nil || stderr == nil || dependencies.clock == nil || dependencies.components == nil || dependencies.run == nil {
 		return ErrExecuteComposition
 	}
-	prepared, err := prepareExecuteInputs(context.Background(), args)
+	_, _, runtimeConfigPath, err := parseExecuteArgs(args)
 	if err != nil {
 		return err
 	}
-	requestTimeout := time.Duration(prepared.Runtime.RequestTimeoutMS) * time.Millisecond
+	runtimeConfig, err := loadExecuteRuntimeConfig(runtimeConfigPath)
+	if err != nil {
+		return err
+	}
+	requestTimeout := time.Duration(runtimeConfig.RequestTimeoutMS) * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
+	prepared, err := prepareExecuteInputsWithConfig(ctx, args, runtimeConfig)
+	if err != nil {
+		return err
+	}
 	return runPreparedExecute(ctx, prepared, stdout, stderr, dependencies)
 }
 
