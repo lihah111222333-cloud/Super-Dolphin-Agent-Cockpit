@@ -5,68 +5,184 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 )
 
 const (
-	selectPostgreSQLReceiptEvent = `SELECT schema_version, operation_id, manifest_digest, plan_digest, node_id, executor_kind, authority_generation, seq, occurred_at, stage, state, node_id_digest, code, event_bytes, event_digest
+	selectPostgreSQLReceiptEvent = `SELECT schema_version, operation_id, manifest_digest, plan_digest, executor_binding_digest, node_set_digest, authority_generation, seq, occurred_at, stage, state, code, shard_set_bytes, shard_set_digest, event_bytes, event_digest
 FROM heteroci_receipt.receipt_events WHERE operation_id = $1 AND seq = $2`
-	selectPostgreSQLReceiptEventHead = `SELECT schema_version, operation_id, manifest_digest, plan_digest, node_id, executor_kind, authority_generation, seq, occurred_at, stage, state, node_id_digest, code, event_bytes, event_digest
+	selectPostgreSQLReceiptEventHead = `SELECT schema_version, operation_id, manifest_digest, plan_digest, executor_binding_digest, node_set_digest, authority_generation, seq, occurred_at, stage, state, code, shard_set_bytes, shard_set_digest, event_bytes, event_digest
 FROM heteroci_receipt.receipt_events WHERE operation_id = $1 ORDER BY seq DESC LIMIT 1`
-	selectPostgreSQLReceiptEvents = `SELECT schema_version, operation_id, manifest_digest, plan_digest, node_id, executor_kind, authority_generation, seq, occurred_at, stage, state, node_id_digest, code, event_bytes, event_digest
+	selectPostgreSQLReceiptEvents = `SELECT schema_version, operation_id, manifest_digest, plan_digest, executor_binding_digest, node_set_digest, authority_generation, seq, occurred_at, stage, state, code, shard_set_bytes, shard_set_digest, event_bytes, event_digest
 FROM heteroci_receipt.receipt_events WHERE operation_id = $1 ORDER BY seq ASC`
 	insertPostgreSQLReceiptEvent = `INSERT INTO heteroci_receipt.receipt_events(
-schema_version, operation_id, manifest_digest, plan_digest, node_id, executor_kind, authority_generation, seq, occurred_at, stage, state, node_id_digest, code, event_bytes, event_digest)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+schema_version, operation_id, manifest_digest, plan_digest, executor_binding_digest, node_set_digest, authority_generation, seq, occurred_at, stage, state, code, shard_set_bytes, shard_set_digest, event_bytes, event_digest)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (operation_id, seq) DO NOTHING`
-	selectPostgreSQLTerminalReceipt = `SELECT schema_version, operation_id, request_digest, manifest_digest, plan_digest, node_id, executor_kind, authority_generation, started_at, finished_at, exit_code, cleanup_state, error_code, capacity_code, status, event_seq, event_digest, receipt_bytes, receipt_digest
+	selectPostgreSQLTerminalReceipt = `SELECT schema_version, operation_id, request_digest, manifest_digest, plan_digest, executor_binding_digest, node_set_digest, authority_generation, started_at, finished_at, exit_code, cleanup_state, error_code, capacity_code, status, shard_set_bytes, shard_set_digest, event_seq, event_digest, receipt_bytes, receipt_digest
 FROM heteroci_receipt.terminal_receipts WHERE operation_id = $1`
 	insertPostgreSQLTerminalReceipt = `INSERT INTO heteroci_receipt.terminal_receipts(
-schema_version, operation_id, request_digest, manifest_digest, plan_digest, node_id, executor_kind, authority_generation, started_at, finished_at, exit_code, cleanup_state, error_code, capacity_code, status, event_seq, event_digest, receipt_bytes, receipt_digest)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+schema_version, operation_id, request_digest, manifest_digest, plan_digest, executor_binding_digest, node_set_digest, authority_generation, started_at, finished_at, exit_code, cleanup_state, error_code, capacity_code, status, shard_set_bytes, shard_set_digest, event_seq, event_digest, receipt_bytes, receipt_digest)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 ON CONFLICT (operation_id) DO NOTHING`
+	insertPostgreSQLReceiptEventShard = `INSERT INTO heteroci_receipt.receipt_event_shards(operation_id, seq, node_id, node_id_digest, executor_kind, shard_digest, batch_set_digest, unit_set_digest, state, code)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (operation_id, seq, node_id) DO NOTHING`
+	selectPostgreSQLReceiptEventShards = `SELECT node_id, node_id_digest, executor_kind, shard_digest, batch_set_digest, unit_set_digest, state, code
+FROM heteroci_receipt.receipt_event_shards WHERE operation_id = $1 AND seq = $2 ORDER BY node_id ASC`
+	insertPostgreSQLTerminalShard = `INSERT INTO heteroci_receipt.terminal_shards(operation_id, child_operation_id, node_id, node_id_digest, executor_kind, shard_digest, batch_set_digest, unit_set_digest, started_at, finished_at, exit_code, cleanup_state, error_code, capacity_code, status)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (operation_id, node_id) DO NOTHING`
+	selectPostgreSQLTerminalShards = `SELECT child_operation_id, node_id, node_id_digest, executor_kind, shard_digest, batch_set_digest, unit_set_digest, started_at, finished_at, exit_code, cleanup_state, error_code, capacity_code, status
+FROM heteroci_receipt.terminal_shards WHERE operation_id = $1 ORDER BY node_id ASC`
 )
 
 type postgresqlReceiptEventRow struct {
-	schemaVersion       string
-	operationID         string
-	manifestDigest      string
-	planDigest          string
-	nodeID              string
-	executorKind        string
-	authorityGeneration int64
-	seq                 int64
-	occurredAt          string
-	stage               string
-	state               string
-	nodeIDDigest        string
-	code                string
-	eventBytes          []byte
-	eventDigest         string
+	schemaVersion         string
+	operationID           string
+	manifestDigest        string
+	planDigest            string
+	executorBindingDigest string
+	nodeSetDigest         string
+	authorityGeneration   int64
+	seq                   int64
+	occurredAt            string
+	stage                 string
+	state                 string
+	code                  string
+	shardSetBytes         []byte
+	shardSetDigest        string
+	eventBytes            []byte
+	eventDigest           string
 }
 
 type postgresqlTerminalReceiptRow struct {
-	schemaVersion       string
-	operationID         string
-	requestDigest       string
-	manifestDigest      string
-	planDigest          string
-	nodeID              string
-	executorKind        string
-	authorityGeneration int64
-	startedAt           string
-	finishedAt          string
-	exitCode            int
-	cleanupState        string
-	errorCode           string
-	capacityCode        string
-	status              string
-	eventSeq            int64
-	eventDigest         string
-	receiptBytes        []byte
-	receiptDigest       string
+	schemaVersion         string
+	operationID           string
+	requestDigest         string
+	manifestDigest        string
+	planDigest            string
+	executorBindingDigest string
+	nodeSetDigest         string
+	authorityGeneration   int64
+	startedAt             string
+	finishedAt            string
+	exitCode              int
+	cleanupState          string
+	errorCode             string
+	capacityCode          string
+	status                string
+	shardSetBytes         []byte
+	shardSetDigest        string
+	eventSeq              int64
+	eventDigest           string
+	receiptBytes          []byte
+	receiptDigest         string
+}
+
+func encodePostgreSQLReceiptEventShards(shards []PostgreSQLReceiptEventShard) ([]byte, string, error) {
+	if _, err := postgreSQLReceiptEventNodeSetDigest(shards); err != nil {
+		return nil, "", err
+	}
+	encoded, err := json.Marshal(shards)
+	if err != nil {
+		return nil, "", ErrPostgreSQLReceiptStore
+	}
+	return encoded, digestPostgreSQLReceiptBytes(encoded), nil
+}
+
+func encodePostgreSQLTerminalShards(shards []PostgreSQLTerminalShard) ([]byte, string, error) {
+	if err := validatePostgreSQLTerminalShardBindings(shards); err != nil {
+		return nil, "", err
+	}
+	encoded, err := json.Marshal(shards)
+	if err != nil {
+		return nil, "", ErrPostgreSQLReceiptStore
+	}
+	return encoded, digestPostgreSQLReceiptBytes(encoded), nil
+}
+
+func persistPostgreSQLReceiptEventShards(ctx context.Context, tx *sql.Tx, event PostgreSQLReceiptEvent) error {
+	for _, shard := range event.Shards {
+		if _, err := tx.ExecContext(ctx, insertPostgreSQLReceiptEventShard, event.OperationID, event.Seq, shard.NodeID, shard.NodeIDDigest, shard.ExecutorKind, shard.ShardDigest, shard.BatchSetDigest, shard.UnitSetDigest, shard.State, shard.Code); err != nil {
+			return fmt.Errorf("%w: insert receipt event shard: %w", ErrPostgreSQLReceiptStore, err)
+		}
+	}
+	persisted, err := readPostgreSQLReceiptEventShards(ctx, tx, event.OperationID, event.Seq)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(persisted, event.Shards) {
+		return fmt.Errorf("%w: receipt event shard readback drifted", ErrPostgreSQLReceiptConflict)
+	}
+	return nil
+}
+
+func readPostgreSQLReceiptEventShards(ctx context.Context, tx *sql.Tx, operationID string, seq int64) ([]PostgreSQLReceiptEventShard, error) {
+	rows, err := tx.QueryContext(ctx, selectPostgreSQLReceiptEventShards, operationID, seq)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read receipt event shards: %w", ErrPostgreSQLReceiptStore, err)
+	}
+	defer rows.Close()
+	shards := make([]PostgreSQLReceiptEventShard, 0)
+	for rows.Next() {
+		var shard PostgreSQLReceiptEventShard
+		if err := rows.Scan(&shard.NodeID, &shard.NodeIDDigest, &shard.ExecutorKind, &shard.ShardDigest, &shard.BatchSetDigest, &shard.UnitSetDigest, &shard.State, &shard.Code); err != nil {
+			return nil, fmt.Errorf("%w: scan receipt event shard: %w", ErrPostgreSQLReceiptStore, err)
+		}
+		shards = append(shards, shard)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: iterate receipt event shards: %w", ErrPostgreSQLReceiptStore, err)
+	}
+	return shards, nil
+}
+
+func persistPostgreSQLTerminalShards(ctx context.Context, tx *sql.Tx, receipt PostgreSQLTerminalReceipt) error {
+	for _, shard := range receipt.Shards {
+		if _, err := tx.ExecContext(ctx, insertPostgreSQLTerminalShard, receipt.OperationID, shard.ChildOperationID, shard.NodeID, shard.NodeIDDigest, shard.ExecutorKind, shard.ShardDigest, shard.BatchSetDigest, shard.UnitSetDigest, shard.StartedAt.Format(time.RFC3339Nano), shard.FinishedAt.Format(time.RFC3339Nano), shard.ExitCode, shard.CleanupState, shard.ErrorCode, shard.CapacityCode, shard.Status); err != nil {
+			return fmt.Errorf("%w: insert terminal shard: %w", ErrPostgreSQLReceiptStore, err)
+		}
+	}
+	persisted, err := readPostgreSQLTerminalShards(ctx, tx, receipt.OperationID)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(persisted, receipt.Shards) {
+		return fmt.Errorf("%w: terminal shard readback drifted", ErrPostgreSQLReceiptConflict)
+	}
+	return nil
+}
+
+func readPostgreSQLTerminalShards(ctx context.Context, tx *sql.Tx, operationID string) ([]PostgreSQLTerminalShard, error) {
+	rows, err := tx.QueryContext(ctx, selectPostgreSQLTerminalShards, operationID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read terminal shards: %w", ErrPostgreSQLReceiptStore, err)
+	}
+	defer rows.Close()
+	shards := make([]PostgreSQLTerminalShard, 0)
+	for rows.Next() {
+		var shard PostgreSQLTerminalShard
+		var startedAt, finishedAt string
+		if err := rows.Scan(&shard.ChildOperationID, &shard.NodeID, &shard.NodeIDDigest, &shard.ExecutorKind, &shard.ShardDigest, &shard.BatchSetDigest, &shard.UnitSetDigest, &startedAt, &finishedAt, &shard.ExitCode, &shard.CleanupState, &shard.ErrorCode, &shard.CapacityCode, &shard.Status); err != nil {
+			return nil, fmt.Errorf("%w: scan terminal shard: %w", ErrPostgreSQLReceiptStore, err)
+		}
+		shard.StartedAt, err = parsePostgreSQLReceiptTime(startedAt)
+		if err != nil {
+			return nil, err
+		}
+		shard.FinishedAt, err = parsePostgreSQLReceiptTime(finishedAt)
+		if err != nil {
+			return nil, err
+		}
+		shards = append(shards, shard)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: iterate terminal shards: %w", ErrPostgreSQLReceiptStore, err)
+	}
+	return shards, nil
 }
 
 // AppendEvent 原子追加严格递增的 event sequence；相同 operation、seq、digest 重放成功。
@@ -142,12 +258,23 @@ func replayPostgreSQLReceiptEvent(ctx context.Context, tx *sql.Tx, event Postgre
 	if err := validatePostgreSQLReceiptEventReplay(existing, event, encoded, digest); err != nil {
 		return false, err
 	}
+	persistedShards, err := readPostgreSQLReceiptEventShards(ctx, tx, event.OperationID, event.Seq)
+	if err != nil || !reflect.DeepEqual(persistedShards, event.Shards) {
+		return false, fmt.Errorf("%w: receipt event shard replay differs", ErrPostgreSQLReceiptConflict)
+	}
 	return true, nil
 }
 
 func insertAndVerifyPostgreSQLReceiptEvent(ctx context.Context, tx *sql.Tx, event PostgreSQLReceiptEvent, encoded []byte, digest string) error {
-	if _, err := tx.ExecContext(ctx, insertPostgreSQLReceiptEvent, event.SchemaVersion, event.OperationID, event.ManifestDigest, event.PlanDigest, event.NodeID, event.ExecutorKind, event.AuthorityGeneration, event.Seq, event.OccurredAt.Format(time.RFC3339Nano), event.Stage, event.State, event.NodeIDDigest, event.Code, encoded, digest); err != nil {
+	shardSetBytes, shardSetDigest, err := encodePostgreSQLReceiptEventShards(event.Shards)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, insertPostgreSQLReceiptEvent, event.SchemaVersion, event.OperationID, event.ManifestDigest, event.PlanDigest, event.ExecutorBindingDigest, event.NodeSetDigest, event.AuthorityGeneration, event.Seq, event.OccurredAt.Format(time.RFC3339Nano), event.Stage, event.State, event.Code, shardSetBytes, shardSetDigest, encoded, digest); err != nil {
 		return fmt.Errorf("%w: insert receipt event: %w", ErrPostgreSQLReceiptStore, err)
+	}
+	if err := persistPostgreSQLReceiptEventShards(ctx, tx, event); err != nil {
+		return err
 	}
 	persisted, found, err := readPostgreSQLReceiptEvent(ctx, tx, event.OperationID, event.Seq)
 	if err != nil {
@@ -181,7 +308,7 @@ func validatePostgreSQLReceiptStateAndIdentity(head postgresqlReceiptEventRow, e
 	if event.Stage == PostgreSQLReceiptEventStage(head.stage) && !validPostgreSQLReceiptStateTransition(PostgreSQLReceiptEventState(head.state), event.State) {
 		return fmt.Errorf("%w: event state transition is invalid", ErrPostgreSQLReceiptConflict)
 	}
-	if event.OperationID != head.operationID || event.ManifestDigest != head.manifestDigest || event.PlanDigest != head.planDigest || event.NodeID != head.nodeID || event.ExecutorKind != head.executorKind || event.AuthorityGeneration != head.authorityGeneration {
+	if event.OperationID != head.operationID || event.ManifestDigest != head.manifestDigest || event.PlanDigest != head.planDigest || event.ExecutorBindingDigest != head.executorBindingDigest || event.AuthorityGeneration != head.authorityGeneration {
 		return fmt.Errorf("%w: event identity drifted", ErrPostgreSQLReceiptConflict)
 	}
 	return nil
@@ -221,6 +348,10 @@ func (store *PostgreSQLReceiptStore) reconcileEvent(ctx context.Context, event P
 	if err := validatePostgreSQLReceiptEventReplay(persisted, event, encoded, digest); err != nil {
 		return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(err))
 	}
+	persistedShards, shardErr := readPostgreSQLReceiptEventShards(ctx, tx, event.OperationID, event.Seq)
+	if shardErr != nil || !reflect.DeepEqual(persistedShards, event.Shards) {
+		return false, rollbackPostgreSQLReceiptTransaction(tx, postgreSQLReceiptDomainError(ErrPostgreSQLReceiptConflict))
+	}
 	if err := tx.Commit(); err != nil {
 		return false, errors.Join(ErrPostgreSQLReceiptCommitUncertain, err)
 	}
@@ -236,12 +367,7 @@ func (store *PostgreSQLReceiptStore) ReadReceiptEvents(ctx context.Context, oper
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, selectPostgreSQLReceiptEvents, operationID)
-	if err != nil {
-		return nil, rollbackPostgreSQLReceiptTransaction(tx, fmt.Errorf("%w: read receipt events: %w", ErrPostgreSQLReceiptStore, err))
-	}
-	defer rows.Close()
-	events, err := scanPostgreSQLReceiptEvents(rows)
+	events, err := readPostgreSQLReceiptEventChain(ctx, tx, operationID)
 	if err != nil {
 		return nil, rollbackPostgreSQLReceiptTransaction(tx, err)
 	}
@@ -280,15 +406,34 @@ func persistPostgreSQLTerminalReceipt(ctx context.Context, tx *sql.Tx, receipt P
 		return false, err
 	}
 	if found {
-		if err := validatePostgreSQLTerminalReceiptReplay(persisted, receipt, encoded, digest); err != nil {
-			return false, err
-		}
-		return true, nil
+		return validatePersistedPostgreSQLTerminalReceipt(ctx, tx, persisted, receipt, encoded, digest)
 	}
-	if _, err := tx.ExecContext(ctx, insertPostgreSQLTerminalReceipt, receipt.SchemaVersion, receipt.OperationID, receipt.RequestDigest, receipt.ManifestDigest, receipt.PlanDigest, receipt.NodeID, receipt.ExecutorKind, receipt.AuthorityGeneration, receipt.StartedAt.Format(time.RFC3339Nano), receipt.FinishedAt.Format(time.RFC3339Nano), receipt.ExitCode, receipt.CleanupState, receipt.ErrorCode, receipt.CapacityCode, receipt.Status, receipt.EventSeq, receipt.EventDigest, encoded, digest); err != nil {
+	return insertPostgreSQLTerminalReceiptAndVerify(ctx, tx, receipt, encoded, digest)
+}
+
+func validatePersistedPostgreSQLTerminalReceipt(ctx context.Context, tx *sql.Tx, persisted, receipt PostgreSQLTerminalReceipt, encoded []byte, digest string) (bool, error) {
+	if err := validatePostgreSQLTerminalReceiptReplay(persisted, receipt, encoded, digest); err != nil {
+		return false, err
+	}
+	persistedShards, err := readPostgreSQLTerminalShards(ctx, tx, receipt.OperationID)
+	if err != nil || !reflect.DeepEqual(persistedShards, receipt.Shards) {
+		return false, fmt.Errorf("%w: terminal shard replay differs", ErrPostgreSQLReceiptConflict)
+	}
+	return true, nil
+}
+
+func insertPostgreSQLTerminalReceiptAndVerify(ctx context.Context, tx *sql.Tx, receipt PostgreSQLTerminalReceipt, encoded []byte, digest string) (bool, error) {
+	shardSetBytes, shardSetDigest, err := encodePostgreSQLTerminalShards(receipt.Shards)
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, insertPostgreSQLTerminalReceipt, receipt.SchemaVersion, receipt.OperationID, receipt.RequestDigest, receipt.ManifestDigest, receipt.PlanDigest, receipt.ExecutorBindingDigest, receipt.NodeSetDigest, receipt.AuthorityGeneration, receipt.StartedAt.Format(time.RFC3339Nano), receipt.FinishedAt.Format(time.RFC3339Nano), receipt.ExitCode, receipt.CleanupState, receipt.ErrorCode, receipt.CapacityCode, receipt.Status, shardSetBytes, shardSetDigest, receipt.EventSeq, receipt.EventDigest, encoded, digest); err != nil {
 		return false, fmt.Errorf("%w: insert terminal receipt: %w", ErrPostgreSQLReceiptStore, err)
 	}
-	persisted, found, err = readPostgreSQLTerminalReceipt(ctx, tx, receipt.OperationID)
+	if err := persistPostgreSQLTerminalShards(ctx, tx, receipt); err != nil {
+		return false, err
+	}
+	persisted, found, err := readPostgreSQLTerminalReceipt(ctx, tx, receipt.OperationID)
 	if err != nil {
 		return false, err
 	}

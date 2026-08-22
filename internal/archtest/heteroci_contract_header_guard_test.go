@@ -28,6 +28,9 @@ func TestHeterociAcceptedContractDefinesFourNodePostgreSQLBoundary(t *testing.T)
 		"本地 SQLite、JSON 文件和内存状态都不能成为读写权威",
 		"不得双写、交叉提交或互相降级",
 		"一次请求只允许一次 fresh snapshot、一次 reservation 和一次 executor binding",
+		"request aggregate terminal result",
+		"executor_binding_digest、node_set_digest",
+		"按 node_id 排序的 shards",
 		"CapacityBlocker",
 		"不得等待空闲容量",
 		"不得自动重试",
@@ -143,6 +146,8 @@ func TestHeterociPostgreSQLOwnerCoreBoundary(t *testing.T) {
 	owner := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociowner", "postgresql_owner.go"))
 	plan := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociowner", "postgresql_owner_plan.go"))
 	receipt := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociexec", "postgresql_receipt_schema.go"))
+	terminalReceipt := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociexec", "postgresql_terminal_receipt.go"))
+	terminalSchema := readRemoteCIContractGuardFile(t, filepath.Join(root, "internal", "devtools", "heterociexec", "postgresql_terminal_receipt_schema.go"))
 	assertHeterociSourceMarkers(t, "PostgreSQL receipt authority", receipt, []string{
 		"PostgreSQLReceiptSchema",
 		"PostgreSQLReceiptWriterRole",
@@ -151,6 +156,20 @@ func TestHeterociPostgreSQLOwnerCoreBoundary(t *testing.T) {
 		"PostgreSQLReceiptStore",
 		"sql.LevelSerializable",
 		"remote_apply",
+	})
+	assertHeterociSourceMarkers(t, "PostgreSQL aggregate receipt", terminalReceipt, []string{
+		"type PostgreSQLTerminalShard struct",
+		"ExecutorBindingDigest",
+		"NodeSetDigest",
+		"PostgreSQLTerminalNodeSetDigest",
+	})
+	assertHeterociSourceMarkers(t, "PostgreSQL aggregate receipt schema", terminalSchema, []string{
+		"CREATE TABLE heteroci_receipt.terminal_shards",
+		"CREATE TABLE heteroci_receipt.receipt_event_shards",
+		"executor_binding_digest",
+		"node_set_digest",
+		"GRANT SELECT, INSERT ON TABLE heteroci_receipt.terminal_shards",
+		"GRANT SELECT, INSERT ON TABLE heteroci_receipt.receipt_event_shards",
 	})
 	assertHeterociSourceMarkers(t, "PostgreSQL owner schema", schema, []string{
 		"PostgreSQLOwnerRuntimeSchemaVersion",
@@ -176,9 +195,11 @@ func TestHeterociPostgreSQLOwnerCoreBoundary(t *testing.T) {
 		"persistPostgreSQLPlan",
 	})
 	assertHeterociNoLocalPostgreSQLAuthority(t, map[string]string{
-		"postgresql_owner.go":          owner,
-		"postgresql_owner_plan.go":     plan,
-		"postgresql_receipt_schema.go": receipt,
+		"postgresql_owner.go":                   owner,
+		"postgresql_owner_plan.go":              plan,
+		"postgresql_receipt_schema.go":          receipt,
+		"postgresql_terminal_receipt.go":        terminalReceipt,
+		"postgresql_terminal_receipt_schema.go": terminalSchema,
 	})
 }
 

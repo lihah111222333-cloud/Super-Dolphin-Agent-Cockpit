@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -37,12 +39,22 @@ func readPostgreSQLReceiptEventChain(ctx context.Context, queryer *sql.Tx, opera
 	if err != nil {
 		return nil, fmt.Errorf("%w: read receipt event chain: %w", ErrPostgreSQLReceiptStore, err)
 	}
-	defer rows.Close()
-	return scanPostgreSQLReceiptEvents(rows)
+	events, scanErr := scanPostgreSQLReceiptEvents(rows)
+	closeErr := rows.Close()
+	if scanErr != nil || closeErr != nil {
+		return nil, errors.Join(scanErr, closeErr)
+	}
+	for _, event := range events {
+		shards, err := readPostgreSQLReceiptEventShards(ctx, queryer, operationID, event.Seq)
+		if err != nil || !reflect.DeepEqual(shards, event.Shards) {
+			return nil, fmt.Errorf("%w: receipt event shard projection drifted", ErrPostgreSQLReceiptStore)
+		}
+	}
+	return events, nil
 }
 
 func scanPostgreSQLReceiptEvent(scanner interface{ Scan(...any) error }, row *postgresqlReceiptEventRow) error {
-	return scanner.Scan(&row.schemaVersion, &row.operationID, &row.manifestDigest, &row.planDigest, &row.nodeID, &row.executorKind, &row.authorityGeneration, &row.seq, &row.occurredAt, &row.stage, &row.state, &row.nodeIDDigest, &row.code, &row.eventBytes, &row.eventDigest)
+	return scanner.Scan(&row.schemaVersion, &row.operationID, &row.manifestDigest, &row.planDigest, &row.executorBindingDigest, &row.nodeSetDigest, &row.authorityGeneration, &row.seq, &row.occurredAt, &row.stage, &row.state, &row.code, &row.shardSetBytes, &row.shardSetDigest, &row.eventBytes, &row.eventDigest)
 }
 
 func scanPostgreSQLReceiptEvents(rows *sql.Rows) ([]PostgreSQLReceiptEvent, error) {
@@ -72,7 +84,7 @@ func scanPostgreSQLReceiptEvents(rows *sql.Rows) ([]PostgreSQLReceiptEvent, erro
 
 func readPostgreSQLTerminalReceipt(ctx context.Context, queryer *sql.Tx, operationID string) (PostgreSQLTerminalReceipt, bool, error) {
 	var row postgresqlTerminalReceiptRow
-	err := queryer.QueryRowContext(ctx, selectPostgreSQLTerminalReceipt, operationID).Scan(&row.schemaVersion, &row.operationID, &row.requestDigest, &row.manifestDigest, &row.planDigest, &row.nodeID, &row.executorKind, &row.authorityGeneration, &row.startedAt, &row.finishedAt, &row.exitCode, &row.cleanupState, &row.errorCode, &row.capacityCode, &row.status, &row.eventSeq, &row.eventDigest, &row.receiptBytes, &row.receiptDigest)
+	err := queryer.QueryRowContext(ctx, selectPostgreSQLTerminalReceipt, operationID).Scan(&row.schemaVersion, &row.operationID, &row.requestDigest, &row.manifestDigest, &row.planDigest, &row.executorBindingDigest, &row.nodeSetDigest, &row.authorityGeneration, &row.startedAt, &row.finishedAt, &row.exitCode, &row.cleanupState, &row.errorCode, &row.capacityCode, &row.status, &row.shardSetBytes, &row.shardSetDigest, &row.eventSeq, &row.eventDigest, &row.receiptBytes, &row.receiptDigest)
 	if err == sql.ErrNoRows {
 		return PostgreSQLTerminalReceipt{}, false, nil
 	}
@@ -86,6 +98,10 @@ func readPostgreSQLTerminalReceipt(ctx context.Context, queryer *sql.Tx, operati
 	if err := validatePostgreSQLTerminalReceiptRow(row, receipt); err != nil {
 		return PostgreSQLTerminalReceipt{}, false, err
 	}
+	shards, err := readPostgreSQLTerminalShards(ctx, queryer, operationID)
+	if err != nil || !reflect.DeepEqual(shards, receipt.Shards) {
+		return PostgreSQLTerminalReceipt{}, false, fmt.Errorf("%w: terminal shard projection drifted", ErrPostgreSQLReceiptStore)
+	}
 	return receipt, true, nil
 }
 
@@ -95,17 +111,15 @@ func PostgreSQLReceiptLifecycleStages() []PostgreSQLReceiptEventStage {
 }
 
 func validatePostgreSQLReceiptEventChain(events []PostgreSQLReceiptEvent, receipt PostgreSQLTerminalReceipt) error {
+	if err := receipt.Validate(); err != nil {
+		return fmt.Errorf("%w: terminal receipt is invalid", ErrPostgreSQLReceiptConflict)
+	}
 	stages := PostgreSQLReceiptLifecycleStages()
 	if len(events) != len(stages) || receipt.EventSeq != int64(len(stages)) {
 		return fmt.Errorf("%w: terminal receipt requires complete lifecycle event chain", ErrPostgreSQLReceiptConflict)
 	}
-	for index, event := range events {
-		if err := validatePostgreSQLReceiptEventPosition(event, index, stages[index]); err != nil {
-			return err
-		}
-		if err := validatePostgreSQLReceiptChainIdentity(event, receipt); err != nil {
-			return err
-		}
+	if err := validatePostgreSQLReceiptEventPositions(events, receipt, stages); err != nil {
+		return err
 	}
 	last := events[len(events)-1]
 	if last.EventDigest != receipt.EventDigest || !validPostgreSQLReceiptTerminalState(string(last.State), receipt.Status) {
@@ -118,6 +132,24 @@ func validatePostgreSQLReceiptEventChain(events []PostgreSQLReceiptEvent, receip
 		return validatePostgreSQLBlockedLifecycle(events)
 	}
 	return validatePostgreSQLCompletedLifecycle(events, receipt.Status)
+}
+
+func validatePostgreSQLReceiptEventPositions(events []PostgreSQLReceiptEvent, receipt PostgreSQLTerminalReceipt, stages []PostgreSQLReceiptEventStage) error {
+	for index, event := range events {
+		if err := event.Validate(); err != nil {
+			return fmt.Errorf("%w: lifecycle event is invalid", ErrPostgreSQLReceiptConflict)
+		}
+		if err := validatePostgreSQLReceiptEventPosition(event, index, stages[index]); err != nil {
+			return err
+		}
+		if err := validatePostgreSQLReceiptChainIdentity(event, receipt); err != nil {
+			return err
+		}
+		if err := validatePostgreSQLReceiptEventShardCoverage(event, index, receipt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validatePostgreSQLTerminalEventCode(event PostgreSQLReceiptEvent, receipt PostgreSQLTerminalReceipt) error {
@@ -223,8 +255,21 @@ func validatePostgreSQLReceiptEventPosition(event PostgreSQLReceiptEvent, index 
 }
 
 func validatePostgreSQLReceiptChainIdentity(event PostgreSQLReceiptEvent, receipt PostgreSQLTerminalReceipt) error {
-	if event.OperationID != receipt.OperationID || event.ManifestDigest != receipt.ManifestDigest || event.PlanDigest != receipt.PlanDigest || event.NodeID != receipt.NodeID || event.ExecutorKind != receipt.ExecutorKind || event.AuthorityGeneration != receipt.AuthorityGeneration {
+	if event.OperationID != receipt.OperationID || event.ManifestDigest != receipt.ManifestDigest || event.PlanDigest != receipt.PlanDigest || event.ExecutorBindingDigest != receipt.ExecutorBindingDigest || event.AuthorityGeneration != receipt.AuthorityGeneration {
 		return fmt.Errorf("%w: lifecycle event identity is not exact", ErrPostgreSQLReceiptConflict)
+	}
+	return nil
+}
+
+func validatePostgreSQLReceiptEventShardCoverage(event PostgreSQLReceiptEvent, index int, receipt PostgreSQLTerminalReceipt) error {
+	if receipt.Status == PostgreSQLReceiptStatusBlocked || index < 3 {
+		if len(event.Shards) != 0 {
+			return fmt.Errorf("%w: lifecycle event exposes shards before reservation", ErrPostgreSQLReceiptConflict)
+		}
+		return nil
+	}
+	if event.NodeSetDigest != receipt.NodeSetDigest || len(event.Shards) != len(receipt.Shards) {
+		return fmt.Errorf("%w: lifecycle shard set is not exact", ErrPostgreSQLReceiptConflict)
 	}
 	return nil
 }
@@ -234,14 +279,14 @@ func validatePostgreSQLReceiptEventReplay(row postgresqlReceiptEventRow, want Po
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(row.eventBytes, wantBytes) || row.eventDigest != wantDigest || got != want {
+	if !bytes.Equal(row.eventBytes, wantBytes) || row.eventDigest != wantDigest || !reflect.DeepEqual(got, want) {
 		return fmt.Errorf("%w: event replay differs", ErrPostgreSQLReceiptConflict)
 	}
 	return validatePostgreSQLReceiptEventRow(row, got)
 }
 
 func validatePostgreSQLReceiptEventCore(row postgresqlReceiptEventRow, event PostgreSQLReceiptEvent) bool {
-	return row.schemaVersion == event.SchemaVersion && row.operationID == event.OperationID && row.manifestDigest == event.ManifestDigest && row.planDigest == event.PlanDigest && row.nodeID == event.NodeID && row.executorKind == event.ExecutorKind
+	return row.schemaVersion == event.SchemaVersion && row.operationID == event.OperationID && row.manifestDigest == event.ManifestDigest && row.planDigest == event.PlanDigest && row.executorBindingDigest == event.ExecutorBindingDigest && row.nodeSetDigest == event.NodeSetDigest
 }
 
 func validatePostgreSQLReceiptEventNumbers(row postgresqlReceiptEventRow, event PostgreSQLReceiptEvent) bool {
@@ -249,7 +294,8 @@ func validatePostgreSQLReceiptEventNumbers(row postgresqlReceiptEventRow, event 
 }
 
 func validatePostgreSQLReceiptEventDetails(row postgresqlReceiptEventRow, event PostgreSQLReceiptEvent) bool {
-	return row.occurredAt == event.OccurredAt.Format(time.RFC3339Nano) && row.stage == string(event.Stage) && row.state == string(event.State) && row.nodeIDDigest == event.NodeIDDigest && row.code == event.Code
+	shardSetBytes, shardSetDigest, err := encodePostgreSQLReceiptEventShards(event.Shards)
+	return err == nil && row.occurredAt == event.OccurredAt.Format(time.RFC3339Nano) && row.stage == string(event.Stage) && row.state == string(event.State) && row.code == event.Code && bytes.Equal(row.shardSetBytes, shardSetBytes) && row.shardSetDigest == shardSetDigest
 }
 
 func validatePostgreSQLReceiptEventRow(row postgresqlReceiptEventRow, event PostgreSQLReceiptEvent) error {
@@ -264,7 +310,7 @@ func validatePostgreSQLTerminalReceiptReplay(persisted, want PostgreSQLTerminalR
 	if err != nil {
 		return err
 	}
-	if persisted != want || !bytes.Equal(wantBytes, persistedBytes) || persistedDigest != wantDigest {
+	if !reflect.DeepEqual(persisted, want) || !bytes.Equal(wantBytes, persistedBytes) || persistedDigest != wantDigest {
 		return fmt.Errorf("%w: terminal receipt replay differs", ErrPostgreSQLReceiptConflict)
 	}
 	return nil
@@ -286,7 +332,8 @@ func validatePostgreSQLTerminalReceiptHeaderRow(row postgresqlTerminalReceiptRow
 }
 
 func validatePostgreSQLTerminalReceiptBindingRow(row postgresqlTerminalReceiptRow, receipt PostgreSQLTerminalReceipt) bool {
-	return row.nodeID == receipt.NodeID && row.executorKind == receipt.ExecutorKind && row.authorityGeneration == receipt.AuthorityGeneration
+	shardSetBytes, shardSetDigest, err := encodePostgreSQLTerminalShards(receipt.Shards)
+	return err == nil && row.executorBindingDigest == receipt.ExecutorBindingDigest && row.nodeSetDigest == receipt.NodeSetDigest && row.authorityGeneration == receipt.AuthorityGeneration && bytes.Equal(row.shardSetBytes, shardSetBytes) && row.shardSetDigest == shardSetDigest
 }
 
 func validatePostgreSQLTerminalReceiptTimeRow(row postgresqlTerminalReceiptRow, receipt PostgreSQLTerminalReceipt) bool {

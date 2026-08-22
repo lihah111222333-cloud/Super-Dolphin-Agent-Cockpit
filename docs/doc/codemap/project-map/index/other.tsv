@@ -222,7 +222,7 @@ internal/archtest/guard_freeze.go	internal	other	go-source	10906	架构守卫、
 internal/archtest/guard_freeze_acceptance_test.go	internal	other	go-test	4536	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,acceptance,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guard_freeze_ssot_test.go	internal	other	go-test	3693	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guard,freeze,ssot,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/guardlib.go	internal	other	go-source	19453	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/heteroci_contract_header_guard_test.go	internal	other	go-test	11749	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,contract,header,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/heteroci_contract_header_guard_test.go	internal	other	go-test	12935	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,contract,header,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_four_node_capacity_contract_guard_test.go	internal	other	go-test	12736	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,four,node,capacity,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_aggregate_ssa_guard_test.go	internal	other	go-test	22477	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,aggregate,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/heteroci_manifest_boundary_ssa_guard_test.go	internal	other	go-test	9184	架构守卫、baseline ratchet 与冻结规则	internal,archtest,heteroci,manifest,boundary,ssa,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -926,12 +926,12 @@ internal/devtools/heterociexec/command_executor_test.go	internal	other	go-test	3
 internal/devtools/heterociexec/postgresql_receipt_schema.go	internal	other	go-source	7118	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_store.go	internal	other	go-source	13253	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_store_test.go	internal	other	go-test	16926	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,test,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt.go	internal	other	go-source	15807	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt_fake_test.go	internal	other	go-test	15586	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,fake,test,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt_rows.go	internal	other	go-source	15459	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,rows,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt_schema.go	internal	other	go-source	6230	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,schema,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt_store.go	internal	other	go-source	19457	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,store,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt_test.go	internal	other	go-test	21750	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt.go	internal	other	go-source	24203	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt_fake_test.go	internal	other	go-test	21482	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,fake,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt_rows.go	internal	other	go-source	17890	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,rows,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt_schema.go	internal	other	go-source	10220	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,schema,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt_store.go	internal	other	go-source	27469	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,store,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt_test.go	internal	other	go-test	27694	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/receipt_common.go	internal	other	go-source	10755	开发工具与生成器辅助包	internal,devtools,heterociexec,receipt,common,开发工具与生成器辅助包
 internal/devtools/heterociexec/registry.go	internal	other	go-source	14971	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,开发工具与生成器辅助包
 internal/devtools/heterociexec/registry_test.go	internal	other	go-test	14391	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,test,开发工具与生成器辅助包

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,10 +16,14 @@ func TestPostgreSQLTerminalReceiptContract(t *testing.T) {
 		"operation_id TEXT NOT NULL",
 		"manifest_digest TEXT NOT NULL",
 		"plan_digest TEXT NOT NULL",
+		"executor_binding_digest TEXT NOT NULL",
+		"node_set_digest TEXT NOT NULL",
 		"authority_generation BIGINT NOT NULL",
 		"started_at TEXT NOT NULL",
 		"finished_at TEXT NOT NULL",
 		"cleanup_state TEXT NOT NULL CHECK (cleanup_state = 'verified')",
+		"shard_set_bytes BYTEA NOT NULL",
+		"shard_set_digest TEXT NOT NULL",
 		"event_seq BIGINT NOT NULL",
 		"event_digest TEXT NOT NULL",
 		"CREATE TABLE heteroci_receipt.receipt_events",
@@ -63,7 +68,7 @@ func TestPostgreSQLTerminalReceiptEventsAndTerminal(t *testing.T) {
 		t.Fatalf("replayed WriteTerminalReceipt() error = %v", err)
 	}
 	got, found, err := store.ReadTerminalReceipt(context.Background(), receipt.OperationID)
-	if err != nil || !found || got != receipt {
+	if err != nil || !found || !reflect.DeepEqual(got, receipt) {
 		t.Fatalf("ReadTerminalReceipt() = %#v, %t, %v", got, found, err)
 	}
 	assertPostgreSQLStructuredCanonicalBytes(t, state, receipt, lifecycle)
@@ -109,9 +114,9 @@ func TestPostgreSQLTerminalReceiptRejectsSequenceAndIdentityConflicts(t *testing
 	store, database := openPostgreSQLStructuredTestStore(t, state)
 	t.Cleanup(func() { closePostgreSQLStructuredTestDatabase(t, database) })
 
-	first := validPostgreSQLReceiptEvent(t, 1, PostgreSQLReceiptEventStageRequestValidation, PostgreSQLReceiptEventStateCompleted)
-	assertPostgreSQLEventConflictScenarios(t, store, first)
 	lifecycle := validPostgreSQLLifecycleEvents(t, false)
+	first := lifecycle[0]
+	assertPostgreSQLEventConflictScenarios(t, store, first)
 	for _, event := range lifecycle[1:] {
 		if err := store.AppendEvent(context.Background(), event); err != nil {
 			t.Fatalf("AppendEvent(%d) error = %v", event.Seq, err)
@@ -246,6 +251,12 @@ func validPostgreSQLFailedLifecycle(t *testing.T, failureIndex int) ([]PostgreSQ
 	events[7].State = PostgreSQLReceiptEventStateFailed
 	events[7].Code = "workload_failed"
 	for index := range events {
+		if index < 3 {
+			events[index].Shards = []PostgreSQLReceiptEventShard{}
+		} else {
+			events[index].Shards = validPostgreSQLEventShards(events[index].State, events[index].Code)
+		}
+		setPostgreSQLReceiptEventNodeSetDigest(t, &events[index])
 		events[index].EventDigest = ""
 		_, digest, err := EncodePostgreSQLReceiptEvent(events[index])
 		if err != nil {
@@ -406,28 +417,87 @@ func TestPostgreSQLReceiptStageAndStateMatrix(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLTerminalReceiptTwoNodeShardOrdering(t *testing.T) {
+	event := validPostgreSQLReceiptEvent(t, 8, PostgreSQLReceiptEventStageTerminal, PostgreSQLReceiptEventStateCompleted)
+	receipt := validPostgreSQLTerminalReceipt(t, event)
+	if len(receipt.Shards) != 2 || receipt.Shards[0].NodeID >= receipt.Shards[1].NodeID {
+		t.Fatalf("terminal shards are not sorted: %#v", receipt.Shards)
+	}
+	unsortedReceipt := receipt
+	unsortedReceipt.Shards = append([]PostgreSQLTerminalShard{}, receipt.Shards...)
+	unsortedReceipt.Shards[0], unsortedReceipt.Shards[1] = unsortedReceipt.Shards[1], unsortedReceipt.Shards[0]
+	if _, _, err := EncodePostgreSQLTerminalReceipt(unsortedReceipt); !errors.Is(err, ErrPostgreSQLReceiptStore) {
+		t.Fatalf("unsorted terminal shards error = %v", err)
+	}
+	unsortedEvent := event
+	unsortedEvent.Shards = append([]PostgreSQLReceiptEventShard{}, event.Shards...)
+	unsortedEvent.Shards[0], unsortedEvent.Shards[1] = unsortedEvent.Shards[1], unsortedEvent.Shards[0]
+	unsortedEvent.EventDigest = ""
+	if _, _, err := EncodePostgreSQLReceiptEvent(unsortedEvent); !errors.Is(err, ErrPostgreSQLReceiptStore) {
+		t.Fatalf("unsorted event shards error = %v", err)
+	}
+}
+
+func TestPostgreSQLReceiptRejectsShardBindingDrift(t *testing.T) {
+	events := validPostgreSQLLifecycleEvents(t, false)
+	receipt := validPostgreSQLTerminalReceipt(t, events[len(events)-1])
+	events[3].Shards[0].ShardDigest = testReceiptDigest("drifted-event-shard")
+	if err := validatePostgreSQLReceiptEventChain(events, receipt); !errors.Is(err, ErrPostgreSQLReceiptConflict) {
+		t.Fatalf("event shard drift error = %v", err)
+	}
+
+	events = validPostgreSQLLifecycleEvents(t, false)
+	receipt = validPostgreSQLTerminalReceipt(t, events[len(events)-1])
+	receipt.Shards[1].ShardDigest = testReceiptDigest("drifted-terminal-shard")
+	if err := validatePostgreSQLReceiptEventChain(events, receipt); !errors.Is(err, ErrPostgreSQLReceiptConflict) {
+		t.Fatalf("terminal shard drift error = %v", err)
+	}
+}
+
 func validPostgreSQLReceiptEvent(t *testing.T, seq int64, stage PostgreSQLReceiptEventStage, state PostgreSQLReceiptEventState) PostgreSQLReceiptEvent {
 	event := PostgreSQLReceiptEvent{
-		SchemaVersion:       PostgreSQLReceiptEventSchema,
-		OperationID:         strings.Repeat("a", 64),
-		ManifestDigest:      testReceiptDigest("manifest"),
-		PlanDigest:          testReceiptDigest("plan"),
-		NodeID:              "Ubuntu-01",
-		NodeIDDigest:        testReceiptDigest("Ubuntu-01"),
-		ExecutorKind:        "remote_node",
-		AuthorityGeneration: 7,
-		Seq:                 seq,
-		OccurredAt:          time.Date(2026, 8, 22, 1, 2, int(seq), 0, time.UTC),
-		Stage:               stage,
-		State:               state,
-		Code:                "ok",
+		SchemaVersion:         PostgreSQLReceiptEventSchema,
+		OperationID:           strings.Repeat("a", 64),
+		ManifestDigest:        testReceiptDigest("manifest"),
+		PlanDigest:            testReceiptDigest("plan"),
+		ExecutorBindingDigest: testReceiptDigest("executor-binding"),
+		AuthorityGeneration:   7,
+		Seq:                   seq,
+		OccurredAt:            time.Date(2026, 8, 22, 1, 2, int(seq), 0, time.UTC),
+		Stage:                 stage,
+		State:                 state,
+		Code:                  "ok",
+		Shards:                validPostgreSQLEventShards(state, "ok"),
 	}
+	setPostgreSQLReceiptEventNodeSetDigest(t, &event)
 	_, digest, err := EncodePostgreSQLReceiptEvent(event)
 	if err != nil {
 		t.Fatalf("encode receipt event fixture: %v", err)
 	}
 	event.EventDigest = digest
 	return event
+}
+
+func validPostgreSQLEventShards(state PostgreSQLReceiptEventState, code string) []PostgreSQLReceiptEventShard {
+	return []PostgreSQLReceiptEventShard{
+		{
+			NodeID: "Ubuntu-01", NodeIDDigest: testReceiptDigest("Ubuntu-01"), ExecutorKind: "remote_node",
+			ShardDigest: testReceiptDigest("shard-Ubuntu-01"), BatchSetDigest: testReceiptDigest("batch-Ubuntu-01"), UnitSetDigest: testReceiptDigest("unit-Ubuntu-01"), State: state, Code: code,
+		},
+		{
+			NodeID: "Ubuntu-02", NodeIDDigest: testReceiptDigest("Ubuntu-02"), ExecutorKind: "remote_node",
+			ShardDigest: testReceiptDigest("shard-Ubuntu-02"), BatchSetDigest: testReceiptDigest("batch-Ubuntu-02"), UnitSetDigest: testReceiptDigest("unit-Ubuntu-02"), State: state, Code: code,
+		},
+	}
+}
+
+func setPostgreSQLReceiptEventNodeSetDigest(t *testing.T, event *PostgreSQLReceiptEvent) {
+	t.Helper()
+	digest, err := postgreSQLReceiptEventNodeSetDigest(event.Shards)
+	if err != nil {
+		t.Fatalf("compute event node set digest: %v", err)
+	}
+	event.NodeSetDigest = digest
 }
 
 func validPostgreSQLLifecycleEvents(t *testing.T, blocked bool) []PostgreSQLReceiptEvent {
@@ -437,6 +507,12 @@ func validPostgreSQLLifecycleEvents(t *testing.T, blocked bool) []PostgreSQLRece
 		state, code := postgreSQLLifecycleFixtureState(blocked, index)
 		event := validPostgreSQLReceiptEvent(t, int64(index+1), stage, state)
 		event.Code = code
+		if blocked || index < 3 {
+			event.Shards = []PostgreSQLReceiptEventShard{}
+		} else {
+			event.Shards = validPostgreSQLEventShards(state, code)
+		}
+		setPostgreSQLReceiptEventNodeSetDigest(t, &event)
 		event.EventDigest = ""
 		_, digest, err := EncodePostgreSQLReceiptEvent(event)
 		if err != nil {
@@ -467,25 +543,89 @@ func postgreSQLLifecycleFixtureState(blocked bool, index int) (PostgreSQLReceipt
 	}
 }
 
+func validPostgreSQLTerminalShards(event PostgreSQLReceiptEvent, status, errorCode string) []PostgreSQLTerminalShard {
+	if status == PostgreSQLReceiptStatusBlocked {
+		return []PostgreSQLTerminalShard{}
+	}
+	startedAt := event.OccurredAt.Add(-time.Minute)
+	finishedAt := event.OccurredAt
+	first := PostgreSQLTerminalShard{
+		ChildOperationID: strings.Repeat("b", 64),
+		NodeID:           "Ubuntu-01",
+		NodeIDDigest:     testReceiptDigest("Ubuntu-01"),
+		ExecutorKind:     "remote_node",
+		ShardDigest:      testReceiptDigest("shard-Ubuntu-01"),
+		BatchSetDigest:   testReceiptDigest("batch-Ubuntu-01"),
+		UnitSetDigest:    testReceiptDigest("unit-Ubuntu-01"),
+		StartedAt:        startedAt,
+		FinishedAt:       finishedAt,
+		ExitCode:         0,
+		CleanupState:     PostgreSQLReceiptCleanupVerified,
+		ErrorCode:        "",
+		Status:           PostgreSQLReceiptStatusSucceeded,
+	}
+	second := PostgreSQLTerminalShard{
+		ChildOperationID: strings.Repeat("c", 64),
+		NodeID:           "Ubuntu-02",
+		NodeIDDigest:     testReceiptDigest("Ubuntu-02"),
+		ExecutorKind:     "remote_node",
+		ShardDigest:      testReceiptDigest("shard-Ubuntu-02"),
+		BatchSetDigest:   testReceiptDigest("batch-Ubuntu-02"),
+		UnitSetDigest:    testReceiptDigest("unit-Ubuntu-02"),
+		StartedAt:        startedAt,
+		FinishedAt:       finishedAt,
+		ExitCode:         0,
+		CleanupState:     PostgreSQLReceiptCleanupVerified,
+		ErrorCode:        "",
+		Status:           PostgreSQLReceiptStatusSucceeded,
+	}
+	if status == PostgreSQLReceiptStatusFailed {
+		first.ExitCode = 1
+		first.ErrorCode = errorCode
+		first.Status = PostgreSQLReceiptStatusFailed
+	}
+	return []PostgreSQLTerminalShard{first, second}
+}
+
 func validPostgreSQLTerminalReceipt(t *testing.T, event PostgreSQLReceiptEvent) PostgreSQLTerminalReceipt {
+	status := PostgreSQLReceiptStatusSucceeded
+	exitCode := 0
+	errorCode := ""
+	capacityCode := ""
+	if event.State == PostgreSQLReceiptEventStateFailed {
+		status = PostgreSQLReceiptStatusFailed
+		exitCode = 1
+		errorCode = event.Code
+	}
+	if event.State == PostgreSQLReceiptEventStateBlocked {
+		status = PostgreSQLReceiptStatusBlocked
+		exitCode = -1
+		capacityCode = event.Code
+	}
+	shards := validPostgreSQLTerminalShards(event, status, errorCode)
+	nodeSetDigest, err := PostgreSQLTerminalNodeSetDigest(shards)
+	if err != nil {
+		t.Fatalf("compute terminal node set digest: %v", err)
+	}
 	receipt := PostgreSQLTerminalReceipt{
-		SchemaVersion:       PostgreSQLTerminalReceiptSchema,
-		OperationID:         event.OperationID,
-		RequestDigest:       testReceiptDigest("request"),
-		ManifestDigest:      event.ManifestDigest,
-		PlanDigest:          event.PlanDigest,
-		NodeID:              event.NodeID,
-		ExecutorKind:        event.ExecutorKind,
-		AuthorityGeneration: event.AuthorityGeneration,
-		StartedAt:           event.OccurredAt.Add(-time.Minute),
-		FinishedAt:          event.OccurredAt,
-		ExitCode:            0,
-		CleanupState:        PostgreSQLReceiptCleanupVerified,
-		ErrorCode:           "",
-		CapacityCode:        "",
-		Status:              PostgreSQLReceiptStatusSucceeded,
-		EventSeq:            event.Seq,
-		EventDigest:         event.EventDigest,
+		SchemaVersion:         PostgreSQLTerminalReceiptSchema,
+		OperationID:           event.OperationID,
+		RequestDigest:         testReceiptDigest("request"),
+		ManifestDigest:        event.ManifestDigest,
+		PlanDigest:            event.PlanDigest,
+		ExecutorBindingDigest: testReceiptDigest("executor-binding"),
+		NodeSetDigest:         nodeSetDigest,
+		AuthorityGeneration:   event.AuthorityGeneration,
+		StartedAt:             event.OccurredAt.Add(-time.Minute),
+		FinishedAt:            event.OccurredAt,
+		ExitCode:              exitCode,
+		CleanupState:          PostgreSQLReceiptCleanupVerified,
+		ErrorCode:             errorCode,
+		CapacityCode:          capacityCode,
+		Status:                status,
+		Shards:                shards,
+		EventSeq:              event.Seq,
+		EventDigest:           event.EventDigest,
 	}
 	_, digest, err := EncodePostgreSQLTerminalReceipt(receipt)
 	if err != nil {

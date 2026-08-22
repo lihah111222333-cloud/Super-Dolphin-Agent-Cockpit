@@ -60,42 +60,73 @@ const (
 
 // PostgreSQLReceiptEvent 是一条可重放、不可变的 remote-ci event。
 type PostgreSQLReceiptEvent struct {
-	SchemaVersion       string                      `json:"schema_version"`
-	OperationID         string                      `json:"operation_id"`
-	ManifestDigest      string                      `json:"manifest_digest"`
-	PlanDigest          string                      `json:"plan_digest"`
-	NodeID              string                      `json:"node_id"`
-	NodeIDDigest        string                      `json:"node_id_digest"`
-	ExecutorKind        string                      `json:"executor_kind"`
-	AuthorityGeneration int64                       `json:"authority_generation"`
-	Seq                 int64                       `json:"seq"`
-	OccurredAt          time.Time                   `json:"occurred_at"`
-	Stage               PostgreSQLReceiptEventStage `json:"stage"`
-	State               PostgreSQLReceiptEventState `json:"state"`
-	Code                string                      `json:"code"`
-	EventDigest         string                      `json:"-"`
+	SchemaVersion         string                        `json:"schema_version"`
+	OperationID           string                        `json:"operation_id"`
+	ManifestDigest        string                        `json:"manifest_digest"`
+	PlanDigest            string                        `json:"plan_digest"`
+	ExecutorBindingDigest string                        `json:"executor_binding_digest"`
+	NodeSetDigest         string                        `json:"node_set_digest"`
+	AuthorityGeneration   int64                         `json:"authority_generation"`
+	Seq                   int64                         `json:"seq"`
+	OccurredAt            time.Time                     `json:"occurred_at"`
+	Stage                 PostgreSQLReceiptEventStage   `json:"stage"`
+	State                 PostgreSQLReceiptEventState   `json:"state"`
+	Code                  string                        `json:"code"`
+	Shards                []PostgreSQLReceiptEventShard `json:"shards"`
+	EventDigest           string                        `json:"-"`
 }
 
-// PostgreSQLTerminalReceipt 是一个 operation 与其唯一 bound executor/node 的 terminal receipt；多节点运行必须由上层派生不同 operation_id 后在外部聚合，receipt 本身不承载 aggregate。
+// PostgreSQLReceiptEventShard 是一条 lifecycle event 对实际节点分片的排序投影。
+type PostgreSQLReceiptEventShard struct {
+	NodeID         string                      `json:"node_id"`
+	NodeIDDigest   string                      `json:"node_id_digest"`
+	ExecutorKind   string                      `json:"executor_kind"`
+	ShardDigest    string                      `json:"shard_digest"`
+	BatchSetDigest string                      `json:"batch_set_digest"`
+	UnitSetDigest  string                      `json:"unit_set_digest"`
+	State          PostgreSQLReceiptEventState `json:"state"`
+	Code           string                      `json:"code"`
+}
+
+// PostgreSQLTerminalShard 是 request terminal receipt 中一个实际节点的不可变终态。
+type PostgreSQLTerminalShard struct {
+	ChildOperationID string    `json:"child_operation_id"`
+	NodeID           string    `json:"node_id"`
+	NodeIDDigest     string    `json:"node_id_digest"`
+	ExecutorKind     string    `json:"executor_kind"`
+	ShardDigest      string    `json:"shard_digest"`
+	BatchSetDigest   string    `json:"batch_set_digest"`
+	UnitSetDigest    string    `json:"unit_set_digest"`
+	StartedAt        time.Time `json:"started_at"`
+	FinishedAt       time.Time `json:"finished_at"`
+	ExitCode         int       `json:"exit_code"`
+	CleanupState     string    `json:"cleanup_state"`
+	ErrorCode        string    `json:"error_code"`
+	CapacityCode     string    `json:"capacity_code"`
+	Status           string    `json:"status"`
+}
+
+// PostgreSQLTerminalReceipt 是一个 request operation 的唯一多节点 aggregate terminal receipt。
 type PostgreSQLTerminalReceipt struct {
-	SchemaVersion       string    `json:"schema_version"`
-	OperationID         string    `json:"operation_id"`
-	RequestDigest       string    `json:"request_digest"`
-	ManifestDigest      string    `json:"manifest_digest"`
-	PlanDigest          string    `json:"plan_digest"`
-	NodeID              string    `json:"node_id"`
-	ExecutorKind        string    `json:"executor_kind"`
-	AuthorityGeneration int64     `json:"authority_generation"`
-	StartedAt           time.Time `json:"started_at"`
-	FinishedAt          time.Time `json:"finished_at"`
-	ExitCode            int       `json:"exit_code"`
-	CleanupState        string    `json:"cleanup_state"`
-	ErrorCode           string    `json:"error_code"`
-	CapacityCode        string    `json:"capacity_code"`
-	Status              string    `json:"status"`
-	EventSeq            int64     `json:"event_seq"`
-	EventDigest         string    `json:"event_digest"`
-	ReceiptDigest       string    `json:"-"`
+	SchemaVersion         string                    `json:"schema_version"`
+	OperationID           string                    `json:"operation_id"`
+	RequestDigest         string                    `json:"request_digest"`
+	ManifestDigest        string                    `json:"manifest_digest"`
+	PlanDigest            string                    `json:"plan_digest"`
+	ExecutorBindingDigest string                    `json:"executor_binding_digest"`
+	NodeSetDigest         string                    `json:"node_set_digest"`
+	AuthorityGeneration   int64                     `json:"authority_generation"`
+	StartedAt             time.Time                 `json:"started_at"`
+	FinishedAt            time.Time                 `json:"finished_at"`
+	ExitCode              int                       `json:"exit_code"`
+	CleanupState          string                    `json:"cleanup_state"`
+	ErrorCode             string                    `json:"error_code"`
+	CapacityCode          string                    `json:"capacity_code"`
+	Status                string                    `json:"status"`
+	Shards                []PostgreSQLTerminalShard `json:"shards"`
+	EventSeq              int64                     `json:"event_seq"`
+	EventDigest           string                    `json:"event_digest"`
+	ReceiptDigest         string                    `json:"-"`
 }
 
 // Validate 校验 event 的身份、固定 stage/state、时间和 bounded code。
@@ -127,17 +158,18 @@ func (receipt PostgreSQLTerminalReceipt) Validate() error {
 }
 
 func validatePostgreSQLReceiptEventIdentity(event PostgreSQLReceiptEvent) error {
-	if event.SchemaVersion != PostgreSQLReceiptEventSchema || !validTerminalOperationID(event.OperationID) || !validTerminalDigest(event.ManifestDigest) || !validTerminalDigest(event.PlanDigest) {
+	if event.SchemaVersion != PostgreSQLReceiptEventSchema || !validTerminalOperationID(event.OperationID) || !validTerminalDigest(event.ManifestDigest) || !validTerminalDigest(event.PlanDigest) || !validTerminalDigest(event.ExecutorBindingDigest) || !validTerminalDigest(event.NodeSetDigest) {
 		return ErrPostgreSQLReceiptStore
 	}
 	return nil
 }
 
 func validatePostgreSQLReceiptEventBinding(event PostgreSQLReceiptEvent) error {
-	if !validTerminalIdentity(event.NodeID) || !validTerminalIdentity(event.ExecutorKind) || event.AuthorityGeneration <= 0 || event.Seq <= 0 || !validPostgreSQLReceiptTime(event.OccurredAt) {
+	if event.AuthorityGeneration <= 0 || event.Seq <= 0 || !validPostgreSQLReceiptTime(event.OccurredAt) {
 		return ErrPostgreSQLReceiptStore
 	}
-	if event.NodeIDDigest != digestPostgreSQLReceiptBytes([]byte(event.NodeID)) || !validTerminalDigest(event.NodeIDDigest) {
+	want, err := postgreSQLReceiptEventNodeSetDigest(event.Shards)
+	if err != nil || event.NodeSetDigest != want {
 		return ErrPostgreSQLReceiptStore
 	}
 	return nil
@@ -151,11 +183,15 @@ func validatePostgreSQLTerminalReceiptIdentity(receipt PostgreSQLTerminalReceipt
 }
 
 func validPostgreSQLTerminalReceiptHeader(receipt PostgreSQLTerminalReceipt) bool {
-	return receipt.SchemaVersion == PostgreSQLTerminalReceiptSchema && validTerminalOperationID(receipt.OperationID) && validTerminalDigest(receipt.RequestDigest) && validTerminalDigest(receipt.ManifestDigest) && validTerminalDigest(receipt.PlanDigest)
+	return receipt.SchemaVersion == PostgreSQLTerminalReceiptSchema && validTerminalOperationID(receipt.OperationID) && validTerminalDigest(receipt.RequestDigest) && validTerminalDigest(receipt.ManifestDigest) && validTerminalDigest(receipt.PlanDigest) && validTerminalDigest(receipt.ExecutorBindingDigest) && validTerminalDigest(receipt.NodeSetDigest)
 }
 
 func validPostgreSQLTerminalReceiptBinding(receipt PostgreSQLTerminalReceipt) bool {
-	return validTerminalIdentity(receipt.NodeID) && validTerminalIdentity(receipt.ExecutorKind) && receipt.AuthorityGeneration > 0 && receipt.EventSeq > 0 && validTerminalDigest(receipt.EventDigest)
+	if receipt.AuthorityGeneration <= 0 || receipt.EventSeq <= 0 || receipt.EventSeq > 8 || !validTerminalDigest(receipt.EventDigest) {
+		return false
+	}
+	want, err := PostgreSQLTerminalNodeSetDigest(receipt.Shards)
+	return err == nil && receipt.NodeSetDigest == want
 }
 
 func validatePostgreSQLTerminalReceiptTiming(receipt PostgreSQLTerminalReceipt) error {
@@ -168,6 +204,9 @@ func validatePostgreSQLTerminalReceiptTiming(receipt PostgreSQLTerminalReceipt) 
 func validatePostgreSQLTerminalReceiptOutcome(receipt PostgreSQLTerminalReceipt) error {
 	if receipt.ExitCode < -1 || receipt.ExitCode > 255 || !validTerminalCode(receipt.ErrorCode) || !validTerminalCode(receipt.CapacityCode) {
 		return ErrPostgreSQLReceiptStore
+	}
+	if err := validatePostgreSQLTerminalShards(receipt.Shards); err != nil {
+		return err
 	}
 	switch receipt.Status {
 	case PostgreSQLReceiptStatusSucceeded:
@@ -182,21 +221,194 @@ func validatePostgreSQLTerminalReceiptOutcome(receipt PostgreSQLTerminalReceipt)
 }
 
 func validatePostgreSQLSuccessReceipt(receipt PostgreSQLTerminalReceipt) error {
-	if receipt.ExitCode != 0 || receipt.ErrorCode != "" || receipt.CapacityCode != "" {
+	if receipt.ExitCode != 0 || receipt.ErrorCode != "" || receipt.CapacityCode != "" || len(receipt.Shards) == 0 {
 		return ErrPostgreSQLReceiptStore
+	}
+	for _, shard := range receipt.Shards {
+		if shard.Status != PostgreSQLReceiptStatusSucceeded {
+			return ErrPostgreSQLReceiptStore
+		}
 	}
 	return nil
 }
 
 func validatePostgreSQLFailedReceipt(receipt PostgreSQLTerminalReceipt) error {
-	if receipt.ExitCode == 0 || receipt.ErrorCode == "" || receipt.CapacityCode != "" {
+	if receipt.ExitCode <= 0 || receipt.ErrorCode == "" || receipt.CapacityCode != "" || len(receipt.Shards) == 0 {
+		return ErrPostgreSQLReceiptStore
+	}
+	found := false
+	for _, shard := range receipt.Shards {
+		found = found || shard.Status == PostgreSQLReceiptStatusFailed
+	}
+	if !found {
 		return ErrPostgreSQLReceiptStore
 	}
 	return nil
 }
 
 func validatePostgreSQLBlockedReceipt(receipt PostgreSQLTerminalReceipt) error {
-	if receipt.ExitCode != -1 || receipt.CapacityCode == "" || receipt.ErrorCode != "" {
+	if receipt.ExitCode != -1 || receipt.CapacityCode == "" || receipt.ErrorCode != "" || len(receipt.Shards) != 0 {
+		return ErrPostgreSQLReceiptStore
+	}
+	return nil
+}
+
+func validatePostgreSQLTerminalShards(shards []PostgreSQLTerminalShard) error {
+	if shards == nil {
+		return ErrPostgreSQLReceiptStore
+	}
+	for index, shard := range shards {
+		if index > 0 && shards[index-1].NodeID >= shard.NodeID {
+			return ErrPostgreSQLReceiptStore
+		}
+		if err := shard.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (shard PostgreSQLTerminalShard) validate() error {
+	for _, validate := range []func(PostgreSQLTerminalShard) error{
+		validatePostgreSQLTerminalShardIdentity,
+		validatePostgreSQLTerminalShardDigests,
+		validatePostgreSQLTerminalShardTiming,
+		validatePostgreSQLTerminalShardOutcome,
+	} {
+		if err := validate(shard); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePostgreSQLTerminalShardIdentity(shard PostgreSQLTerminalShard) error {
+	if !validTerminalOperationID(shard.ChildOperationID) || !validTerminalIdentity(shard.NodeID) || !validTerminalIdentity(shard.ExecutorKind) {
+		return ErrPostgreSQLReceiptStore
+	}
+	return nil
+}
+
+func validatePostgreSQLTerminalShardDigests(shard PostgreSQLTerminalShard) error {
+	if shard.NodeIDDigest != digestPostgreSQLReceiptBytes([]byte(shard.NodeID)) || !validTerminalDigest(shard.ShardDigest) || !validTerminalDigest(shard.BatchSetDigest) || !validTerminalDigest(shard.UnitSetDigest) {
+		return ErrPostgreSQLReceiptStore
+	}
+	return nil
+}
+
+func validatePostgreSQLTerminalShardTiming(shard PostgreSQLTerminalShard) error {
+	if !validPostgreSQLReceiptTime(shard.StartedAt) || !validPostgreSQLReceiptTime(shard.FinishedAt) || shard.FinishedAt.Before(shard.StartedAt) || shard.CleanupState != PostgreSQLReceiptCleanupVerified {
+		return ErrPostgreSQLReceiptStore
+	}
+	return nil
+}
+
+func validatePostgreSQLTerminalShardOutcome(shard PostgreSQLTerminalShard) error {
+	if err := validatePostgreSQLTerminalShardExitFields(shard); err != nil {
+		return err
+	}
+	switch shard.Status {
+	case PostgreSQLReceiptStatusSucceeded:
+		if shard.ExitCode != 0 || shard.ErrorCode != "" {
+			return ErrPostgreSQLReceiptStore
+		}
+	case PostgreSQLReceiptStatusFailed:
+		if shard.ExitCode <= 0 || shard.ErrorCode == "" {
+			return ErrPostgreSQLReceiptStore
+		}
+	default:
+		return ErrPostgreSQLReceiptStore
+	}
+	return nil
+}
+
+func validatePostgreSQLTerminalShardExitFields(shard PostgreSQLTerminalShard) error {
+	if shard.ExitCode < 0 || shard.ExitCode > 255 || !validTerminalCode(shard.ErrorCode) || shard.CapacityCode != "" {
+		return ErrPostgreSQLReceiptStore
+	}
+	return nil
+}
+
+// PostgreSQLTerminalNodeSetDigest 计算按 node_id 排序的 terminal shard binding 摘要。
+func PostgreSQLTerminalNodeSetDigest(shards []PostgreSQLTerminalShard) (string, error) {
+	if err := validatePostgreSQLTerminalShardBindings(shards); err != nil {
+		return "", err
+	}
+	projection := make([]PostgreSQLReceiptEventShard, len(shards))
+	for index, shard := range shards {
+		projection[index] = PostgreSQLReceiptEventShard{NodeID: shard.NodeID, NodeIDDigest: shard.NodeIDDigest, ExecutorKind: shard.ExecutorKind, ShardDigest: shard.ShardDigest, BatchSetDigest: shard.BatchSetDigest, UnitSetDigest: shard.UnitSetDigest, State: PostgreSQLReceiptEventStateCompleted}
+	}
+	return postgreSQLReceiptEventNodeSetDigest(projection)
+}
+
+func validatePostgreSQLTerminalShardBindings(shards []PostgreSQLTerminalShard) error {
+	if shards == nil {
+		return ErrPostgreSQLReceiptStore
+	}
+	for index := range shards {
+		if err := validatePostgreSQLTerminalShardBinding(index, shards); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePostgreSQLTerminalShardBinding(index int, shards []PostgreSQLTerminalShard) error {
+	if index > 0 && shards[index-1].NodeID >= shards[index].NodeID {
+		return ErrPostgreSQLReceiptStore
+	}
+	if err := validatePostgreSQLTerminalShardIdentity(shards[index]); err != nil {
+		return err
+	}
+	return validatePostgreSQLTerminalShardDigests(shards[index])
+}
+
+func postgreSQLReceiptEventNodeSetDigest(shards []PostgreSQLReceiptEventShard) (string, error) {
+	if shards == nil {
+		return "", ErrPostgreSQLReceiptStore
+	}
+	type binding struct {
+		NodeID         string `json:"node_id"`
+		NodeIDDigest   string `json:"node_id_digest"`
+		ExecutorKind   string `json:"executor_kind"`
+		ShardDigest    string `json:"shard_digest"`
+		BatchSetDigest string `json:"batch_set_digest"`
+		UnitSetDigest  string `json:"unit_set_digest"`
+	}
+	bindings := make([]binding, len(shards))
+	for index, shard := range shards {
+		if err := validatePostgreSQLReceiptEventShard(index, shards); err != nil {
+			return "", err
+		}
+		bindings[index] = binding{shard.NodeID, shard.NodeIDDigest, shard.ExecutorKind, shard.ShardDigest, shard.BatchSetDigest, shard.UnitSetDigest}
+	}
+	encoded, err := json.Marshal(bindings)
+	if err != nil {
+		return "", ErrPostgreSQLReceiptStore
+	}
+	return digestPostgreSQLReceiptBytes(append([]byte("remote-ci-node-set/v1\x00"), encoded...)), nil
+}
+
+func validatePostgreSQLReceiptEventShard(index int, shards []PostgreSQLReceiptEventShard) error {
+	shard := shards[index]
+	if index > 0 && shards[index-1].NodeID >= shard.NodeID {
+		return ErrPostgreSQLReceiptStore
+	}
+	if err := validatePostgreSQLReceiptEventShardIdentity(shard); err != nil {
+		return err
+	}
+	return validatePostgreSQLReceiptEventShardDigests(shard)
+}
+
+func validatePostgreSQLReceiptEventShardIdentity(shard PostgreSQLReceiptEventShard) error {
+	if !validTerminalIdentity(shard.NodeID) || !validTerminalIdentity(shard.ExecutorKind) || !validPostgreSQLReceiptState(shard.State) || !validTerminalCode(shard.Code) {
+		return ErrPostgreSQLReceiptStore
+	}
+	return nil
+}
+
+func validatePostgreSQLReceiptEventShardDigests(shard PostgreSQLReceiptEventShard) error {
+	if shard.NodeIDDigest != digestPostgreSQLReceiptBytes([]byte(shard.NodeID)) || !validTerminalDigest(shard.ShardDigest) || !validTerminalDigest(shard.BatchSetDigest) || !validTerminalDigest(shard.UnitSetDigest) {
 		return ErrPostgreSQLReceiptStore
 	}
 	return nil

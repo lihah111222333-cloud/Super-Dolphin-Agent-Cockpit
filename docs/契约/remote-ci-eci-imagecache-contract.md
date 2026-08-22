@@ -52,7 +52,7 @@ repository-owned manifest 不携带自身 raw blob SHA-256、operation_id、actu
 
 所有 mutation 只能进入已验证的 read-write primary，使用 SERIALIZABLE transaction、canonical owner scope 的 transaction advisory lock 和 operation_id + request_digest 的不可变 journal。synchronous_commit=remote_apply；standby、只读副本、本地副本、本地 SQLite、JSON 文件和内存状态都不能成为读写权威。连接失败、commit 结果不确定、journal 缺失或 digest 冲突必须返回稳定错误并阻断，不得以内存 plan 继续执行。
 
-PG 记录必须逐字段 exact readback。reservation、lease、terminal result 和 event sequence 都必须带 manifest_digest、plan_digest、node_id、operation_id 与 authority generation；过期 owner、旧 epoch、重复 operation 或 stale digest 必须拒绝。事务提交后才发布对外状态；失败路径仍写 bounded error code 和清理事实，不写 raw credential、宿主绝对路径或底层错误树。
+PG 记录必须逐字段 exact readback。reservation、lease、request aggregate terminal result 和 event sequence 都必须带 manifest_digest、plan_digest、operation_id、executor_binding_digest、node_set_digest 与 authority generation；实际 node_id、executor_kind、shard/batch/unit digest 和逐节点终态只出现在按 node_id 排序的 shards 中。过期 owner、旧 epoch、重复 operation 或 stale digest 必须拒绝。事务提交后才发布对外状态；失败路径仍写 bounded error code 和清理事实，不写 raw credential、宿主绝对路径或底层错误树。
 
 ## 4. 固定四节点执行池
 
@@ -81,9 +81,9 @@ Windows 节点不共享 object store、repository、worktree、cache、manifest 
 
 ## 6. Observable logs
 
-stdout 对每个可解析调用只能输出一个 bounded canonical JSON object。validate 只输出 remote-ci-validation-result/v1（status=validated、contract_id、authority=LOCAL_NON_AUTHORITATIVE、execution_pool_contract、operation_id、manifest_digest 和 binding facts），不得冒充 terminal result或声称已选择节点；只有 execute terminal 才输出 remote-ci-result/v1。terminal result 至少包含 status、operation_id、manifest_digest、plan_digest、node_id、executor_kind、started_at、finished_at、exit_code、cleanup_state，以及 CapacityBlocker 或执行错误的稳定 code。
+stdout 对每个可解析调用只能输出一个 bounded canonical JSON object。validate 只输出 remote-ci-validation-result/v1（status=validated、contract_id、authority=LOCAL_NON_AUTHORITATIVE、execution_pool_contract、operation_id、manifest_digest 和 binding facts），不得冒充 terminal result或声称已选择节点；只有 execute terminal 才输出 remote-ci-result/v1。terminal result 是一次 request 的唯一 aggregate，至少包含 status、operation_id、request_digest、manifest_digest、plan_digest、executor_binding_digest、node_set_digest、started_at、finished_at、exit_code、cleanup_state，以及按 node_id 排序且携带实际 node/executor/digest/终态/清理事实的 shards；CapacityBlocker 在未产生 plan 时 shards 必须为空并携带稳定 code。
 
-stderr 只允许 JSONL remote-ci-event/v1。每行必须包含 operation_id、manifest_digest、严格递增 seq、RFC3339 时间、固定 stage、state、node_id_digest 和稳定 code；允许阶段固定为 request_validation、manifest_binding、capacity_snapshot、reservation、materialize、execute、cleanup、terminal。禁止自由文本、凭据、token、绝对路径、raw command、raw provider response 和底层 error string。日志 channel 写失败必须阻断并在 PG 中保留 bounded failure code。
+stderr 只允许 JSONL remote-ci-event/v1。每行必须包含 operation_id、manifest_digest、plan_digest、executor_binding_digest、node_set_digest、严格递增 seq、RFC3339 时间、固定 stage、state、稳定 code 和按 node_id 排序的 shard 投影；request_validation、manifest_binding、capacity_snapshot 在 reservation 前使用空 shards，reservation 及后续阶段必须与 terminal aggregate 的实际 shard set exact 一致，CapacityBlocker 全链保持空 shards。允许阶段固定为 request_validation、manifest_binding、capacity_snapshot、reservation、materialize、execute、cleanup、terminal。禁止自由文本、凭据、token、绝对路径、raw command、raw provider response 和底层 error string。日志 channel 写失败必须阻断并在 PG 中保留 bounded failure code。
 
 PG 只保存可重放的 result/event digest、结构化字段和有限 error code；人类日志可以脱离 PG 展示，但不得反向成为 authority。terminal result 只有在 reservation release、private overlay 清理、worktree 状态和 event sequence 全部得到证明后才能发布。
 
