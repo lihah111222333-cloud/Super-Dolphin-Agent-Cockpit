@@ -3,6 +3,8 @@ package heterocinode
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,7 +22,7 @@ import (
 
 const (
 	// BatchRequestSchemaVersion 是本地非权威 batch request 的唯一 wire schema。
-	BatchRequestSchemaVersion = "heteroci-node-batch-request/v2"
+	BatchRequestSchemaVersion = "heteroci-node-batch-request/v3"
 	// BatchResultSchemaVersion 是本地非权威 batch result 的唯一 wire schema。
 	BatchResultSchemaVersion = "heteroci-node-batch-result/v1"
 	// BatchAuthorityLocalNonAuthoritative 标记结果不能升级为远程权威证据。
@@ -57,6 +59,10 @@ type BatchWorkload struct {
 	Package         string               `json:"package"`
 	Name            string               `json:"name"`
 	ExecutionPolicy BatchExecutionPolicy `json:"execution_policy"`
+	// CommandDigest 是 caller 绑定的 exact workload command identity。
+	CommandDigest string `json:"command_digest"`
+	// ExecutionDigest 是 caller 绑定的 exact workload execution identity。
+	ExecutionDigest string `json:"execution_digest"`
 }
 
 // BatchOutcome 是一个 workload 的稳定、非权威终态观察。
@@ -220,6 +226,9 @@ func (workload BatchWorkload) Validate() error {
 	if err := validateBatchUnitID(workload.UnitID); err != nil {
 		return err
 	}
+	if err := validateBatchWorkloadDigests(workload); err != nil {
+		return err
+	}
 	if err := validateBatchModuleRoot(workload.ModuleRoot); err != nil {
 		return err
 	}
@@ -244,6 +253,22 @@ func (workload BatchWorkload) Validate() error {
 	default:
 		return errors.New("workload execution_policy is unsupported")
 	}
+}
+
+func validateBatchWorkloadDigests(workload BatchWorkload) error {
+	if !validBatchDigest(workload.CommandDigest) || !validBatchDigest(workload.ExecutionDigest) {
+		return errors.New("workload command_digest and execution_digest must be canonical sha256 digests")
+	}
+	return nil
+}
+
+func validBatchDigest(value string) bool {
+	encoded, found := strings.CutPrefix(value, "sha256:")
+	if !found || len(encoded) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(encoded)
+	return err == nil && encoded == strings.ToLower(encoded) && value == "sha256:"+encoded
 }
 
 // RunBatch 在当前工作目录内并发执行每个 exact go test，并写出一行 canonical result。

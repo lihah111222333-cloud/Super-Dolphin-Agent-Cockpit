@@ -19,7 +19,7 @@ cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	7201	未
 cmd/mcp-schema-compiler-helper/main.go	cmd	other	go-source	2147	未细分职责：请结合路径、文件名和相邻代码判断	cmd,mcp,schema,compiler,helper,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main.go	cmd	other	go-source	15872	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	24984	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-heteroci-node/batch_cli_test.go	cmd	other	go-test	1327	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,batch,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-heteroci-node/batch_cli_test.go	cmd	other	go-test	1509	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,batch,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/cli.go	cmd	other	go-source	10112	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/cli_test.go	cmd	other	go-test	4390	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,cli,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-heteroci-node/main.go	cmd	other	go-source	197	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,heteroci,node,main,未细分职责：请结合路径,文件名和相邻代码判断
@@ -941,10 +941,10 @@ internal/devtools/heterociexec/registry_test.go	internal	other	go-test	14425	开
 internal/devtools/heterociexec/sqlite_receipt_schema.go	internal	other	go-source	10601	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store.go	internal	other	go-source	19426	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,开发工具与生成器辅助包
 internal/devtools/heterociexec/sqlite_receipt_store_test.go	internal	other	go-test	10708	开发工具与生成器辅助包	internal,devtools,heterociexec,sqlite,receipt,store,test,开发工具与生成器辅助包
-internal/devtools/heterocinode/batch.go	internal	other	go-source	20869	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch.go	internal	other	go-source	21800	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,开发工具与生成器辅助包
 internal/devtools/heterocinode/batch_process_unix.go	internal	other	go-source	1062	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,process,unix,开发工具与生成器辅助包
 internal/devtools/heterocinode/batch_process_windows.go	internal	other	go-source	4867	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,process,windows,开发工具与生成器辅助包
-internal/devtools/heterocinode/batch_test.go	internal	other	go-test	7844	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,test,开发工具与生成器辅助包
+internal/devtools/heterocinode/batch_test.go	internal	other	go-test	9145	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/linux_facts.go	internal	other	go-source	10452	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,开发工具与生成器辅助包
 internal/devtools/heterocinode/linux_facts_test.go	internal	other	go-test	4419	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/probe.go	internal	other	go-source	5337	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,开发工具与生成器辅助包
@@ -1033,6 +1033,8 @@ internal/devtools/remotecicli/repository_detect_test.go	internal	other	go-test	1
 internal/devtools/remotecicli/repository_identity_test.go	internal	other	go-test	2400	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,identity,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_module_identity.go	internal	other	go-source	2800	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,开发工具与生成器辅助包
 internal/devtools/remotecicli/repository_module_identity_test.go	internal	other	go-test	1911	开发工具与生成器辅助包	internal,devtools,remotecicli,repository,module,identity,test,开发工具与生成器辅助包
+internal/devtools/remotecicli/runtime_adapters.go	internal	other	go-source	25866	开发工具与生成器辅助包	internal,devtools,remotecicli,runtime,adapters,开发工具与生成器辅助包
+internal/devtools/remotecicli/runtime_adapters_test.go	internal	other	go-test	20227	开发工具与生成器辅助包	internal,devtools,remotecicli,runtime,adapters,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/validation_event.go	internal	other	go-source	1352	开发工具与生成器辅助包	internal,devtools,remotecicli,validation,event,开发工具与生成器辅助包
 internal/devtools/remoteciruntime/config.go	internal	other	go-source	4419	开发工具与生成器辅助包	internal,devtools,remoteciruntime,config,开发工具与生成器辅助包
 internal/devtools/remoteciruntime/config_test.go	internal	other	go-test	1092	开发工具与生成器辅助包	internal,devtools,remoteciruntime,config,test,开发工具与生成器辅助包
@@ -1043,7 +1045,7 @@ internal/devtools/remoteportable/binding_abi.go	internal	other	go-source	1326	�
 internal/devtools/remoteportable/codec_helpers.go	internal	other	go-source	2357	开发工具与生成器辅助包	internal,devtools,remoteportable,codec,helpers,开发工具与生成器辅助包
 internal/devtools/remoteportable/core_types.go	internal	other	go-source	1106	开发工具与生成器辅助包	internal,devtools,remoteportable,core,types,开发工具与生成器辅助包
 internal/devtools/remoteportable/inventory.go	internal	other	go-source	14599	开发工具与生成器辅助包	internal,devtools,remoteportable,inventory,开发工具与生成器辅助包
-internal/devtools/remoteportable/manifest_top.go	internal	other	go-source	24124	开发工具与生成器辅助包	internal,devtools,remoteportable,manifest,top,开发工具与生成器辅助包
+internal/devtools/remoteportable/manifest_top.go	internal	other	go-source	24491	开发工具与生成器辅助包	internal,devtools,remoteportable,manifest,top,开发工具与生成器辅助包
 internal/devtools/remoteportable/portable_descriptor.go	internal	other	go-source	2661	开发工具与生成器辅助包	internal,devtools,remoteportable,portable,descriptor,开发工具与生成器辅助包
 internal/devtools/remoteportable/portable_descriptor_codec.go	internal	other	go-source	9134	开发工具与生成器辅助包	internal,devtools,remoteportable,portable,descriptor,codec,开发工具与生成器辅助包
 internal/devtools/remoteportable/portable_descriptor_test.go	internal	other	go-test	9467	开发工具与生成器辅助包	internal,devtools,remoteportable,portable,descriptor,test,开发工具与生成器辅助包

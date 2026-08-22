@@ -257,6 +257,14 @@ func (manifest PortableManifest) Validate() error {
 	return manifest.validateTopLevel()
 }
 
+// ValidatePortableManifestWorkloads 校验 composition 展开的完整 workload slice，不修改或重算 raw manifest identity。
+func ValidatePortableManifestWorkloads(workloads []PortableManifestWorkload) error {
+	if len(workloads) == 0 {
+		return errors.New("portable expanded workloads are required")
+	}
+	return validatePortableManifestWorkloads(workloads)
+}
+
 func (manifest PortableManifest) validateTopLevel() error {
 	if manifest.SchemaVersion != PortableManifestSchemaVersion || manifest.ContractID != PortableManifestContractID {
 		return errors.New("portable manifest schema or contract identity is invalid")

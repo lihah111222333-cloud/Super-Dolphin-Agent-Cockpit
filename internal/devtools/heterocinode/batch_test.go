@@ -20,13 +20,15 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+const testBatchDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func TestBatchRequestCodecIsStrictAndCanonical(t *testing.T) {
 	request := BatchRequest{
 		SchemaVersion: BatchRequestSchemaVersion,
 		GoExecutable:  os.Args[0],
 		Workloads: []BatchWorkload{
-			{UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal},
-			{UnitID: "unit-b", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace},
+			{UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest},
+			{UnitID: "unit-b", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest},
 		},
 	}
 	encoded, err := EncodeBatchRequest(request)
@@ -95,7 +97,7 @@ func TestBatchRequestRejectsShellArgvCwdDefaultsAndUnsortedWorkloads(t *testing.
 		SchemaVersion: BatchRequestSchemaVersion,
 		GoExecutable:  os.Args[0],
 		Workloads: []BatchWorkload{{
-			UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal,
+			UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest,
 		}},
 	}
 	tests := map[string]BatchRequest{
@@ -122,7 +124,7 @@ func TestBatchRequestRejectsShellArgvCwdDefaultsAndUnsortedWorkloads(t *testing.
 	}
 	unsorted := base
 	unsorted.Workloads = append(unsorted.Workloads, BatchWorkload{
-		UnitID: "unit-0", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal,
+		UnitID: "unit-0", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest,
 	})
 	if _, err := EncodeBatchRequest(unsorted); err == nil {
 		t.Fatal("EncodeBatchRequest() unexpectedly accepted unsorted workloads")
@@ -140,8 +142,8 @@ func TestRunBatchRunsEveryExactWorkloadAndEmitsPerUnitResult(t *testing.T) {
 		SchemaVersion: BatchRequestSchemaVersion,
 		GoExecutable:  os.Args[0],
 		Workloads: []BatchWorkload{
-			{UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal},
-			{UnitID: "unit-b", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace},
+			{UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest},
+			{UnitID: "unit-b", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyRace, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest},
 		},
 	}
 	t.Setenv("SUPER_DOLPHIN_HETEROCI_BATCH_HELPER", "1")
@@ -153,10 +155,23 @@ func TestRunBatchRunsEveryExactWorkloadAndEmitsPerUnitResult(t *testing.T) {
 	assertBatchResult(t, result, stdout.String(), stderr.String())
 }
 
+func TestBatchWorkloadRequiresCommandAndExecutionDigests(t *testing.T) {
+	base := BatchWorkload{UnitID: "unit-a", Kind: "go_test", ModuleRoot: ".", Package: "./internal/devtools/heterocinode", Name: "TestBatchHelperProcess", ExecutionPolicy: BatchExecutionPolicyNormal, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest}
+	for name, mutate := range map[string]func(*BatchWorkload){"command": func(value *BatchWorkload) { value.CommandDigest = "" }, "execution": func(value *BatchWorkload) { value.ExecutionDigest = "" }} {
+		t.Run(name, func(t *testing.T) {
+			workload := base
+			mutate(&workload)
+			if err := workload.Validate(); err == nil {
+				t.Fatal("BatchWorkload.Validate() accepted missing digest")
+			}
+		})
+	}
+}
+
 func TestBatchGoPackageRunsWholePackageWithoutRunFilter(t *testing.T) {
 	workload := BatchWorkload{
 		UnitID: "unit-package", Kind: "go_package", ModuleRoot: ".", Package: ".",
-		ExecutionPolicy: BatchExecutionPolicyRace,
+		ExecutionPolicy: BatchExecutionPolicyRace, CommandDigest: testBatchDigest, ExecutionDigest: testBatchDigest,
 	}
 	if err := workload.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
