@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-// TestLocalGateExecutorRemainsSingleEntry locks the retained local Gate
-// executor as the only production execution owner after remote dispatch removal.
-func TestLocalGateExecutorRemainsSingleEntry(t *testing.T) {
+// TestLocalGateWorkerRetainsOnlyCatalogGuard locks the trusted local Gate
+// worker surface to the one hook-consumed catalog guard after executor retirement.
+func TestLocalGateWorkerRetainsOnlyCatalogGuard(t *testing.T) {
 	root := findRepoRoot(t)
-	path := filepath.Join(root, "internal", "devtools", "gate", "executor.go")
+	path := filepath.Join(root, "cmd", "super-dolphin-gate", "main.go")
 	file := parseRemoteCIContractGuardFile(t, path)
-	if remoteCIFunctionByName(file, "ExecuteExecutor") == nil {
-		t.Fatal("local Gate executor entry is missing")
+	if remoteCIFunctionByName(file, "runWorkerExecutor") != nil {
+		t.Fatal("retired ordinary worker executor remains reachable")
 	}
-	if count := localGateDeclarationCount(file, "ExecuteExecutor"); count != 1 {
-		t.Fatalf("local Gate executor declaration count = %d, want 1", count)
+	if remoteCIFunctionByName(file, "runMcpLSPCatalogGuardWorker") == nil {
+		t.Fatal("mcp-lsp catalog guard worker entry is missing")
 	}
 }
 
