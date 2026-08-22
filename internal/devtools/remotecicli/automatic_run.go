@@ -1,7 +1,6 @@
 package remotecicli
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -13,11 +12,9 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heteroci"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterocinode"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociowner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterocitransport"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/heterociworkflow"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
-	platformsqlite "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 )
 
 const (
@@ -72,21 +69,11 @@ func (binder automaticExecutorBinder) Bind(plan heterociworkflow.ExecutorBinding
 	return bound, nil
 }
 
-// dispatchAutomaticRun 执行同一 automatic config 生成的 durable local-first workflow。
-func dispatchAutomaticRun(args []string, stdout, stderr io.Writer) error {
-	configPath, repositoryPath, runID, err := parseAutomaticRunArgs(args)
-	if err != nil {
-		return err
-	}
-	result, err := runAutomaticExecution(context.Background(), configPath, repositoryPath, runID, stderr)
-	if err != nil {
-		return err
-	}
-	if err := writeAutomaticRunResult(stdout, result); err != nil {
-		return err
-	}
-	return nil
-}
+// ErrAutomaticRunRetired 标记旧 local-first/SQLite automatic authority 已从独立 binary 退役。
+var ErrAutomaticRunRetired = errors.New("automatic local authority is retired")
+
+// dispatchAutomaticRun 永久拒绝旧 automatic 入口；execute 是唯一生产 composition。
+func dispatchAutomaticRun([]string, io.Writer, io.Writer) error { return ErrAutomaticRunRetired }
 
 // automatic scheduler composition seam 尚未开放；后续 scheduler wiring 必须替换此签名断言而非公开手动 dispatch。
 var _ func([]string, io.Writer, io.Writer) error = dispatchAutomaticRun
@@ -139,58 +126,6 @@ func parseAutomaticRunArgs(args []string) (string, string, string, error) {
 		return "", "", "", newCLIFailure("automatic run identity is invalid", nil)
 	}
 	return args[1], args[3], args[5], nil
-}
-
-// runAutomaticExecution 组装 durable owner、receipt、probe、binder 并执行一次 workflow。
-func runAutomaticExecution(ctx context.Context, configPath, repositoryPath, runID string, stderr io.Writer) (result AutomaticRunResult, returnErr error) {
-	inputs, err := prepareAutomaticRouteInputs(ctx, configPath, repositoryPath)
-	if err != nil {
-		return result, err
-	}
-	defer inputs.cancel()
-	clock := func() time.Time { return time.Now().UTC() }
-	ownerDB, err := platformsqlite.Open(inputs.ctx, platformsqlite.OpenOptions{Path: inputs.config.OwnerDBPath})
-	if err != nil {
-		return result, newCLIFailure("open automatic owner DB", err)
-	}
-	defer func() { returnErr = errors.Join(returnErr, ownerDB.Close()) }()
-	owner, err := heterociowner.NewOwnerWithClock(inputs.ctx, ownerDB, inputs.ownerScope, clock)
-	if err != nil {
-		return result, newCLIFailure("initialize automatic owner", err)
-	}
-	receipts, err := heterociexec.OpenSQLiteReceiptStore(inputs.ctx, inputs.config.ReceiptDBPath)
-	if err != nil {
-		return result, newCLIFailure("open automatic receipt store", err)
-	}
-	defer func() { returnErr = errors.Join(returnErr, receipts.Close()) }()
-	binder, err := buildAutomaticExecutorBinder(inputs, receipts, stderr)
-	if err != nil {
-		return result, err
-	}
-	transport, err := buildAutomaticProbeTransport(inputs)
-	if err != nil {
-		return result, err
-	}
-	units, err := remoteportable.ProjectPortableWorkloadBootstrapExecutionUnits(inputs.repository.Workloads)
-	if err != nil {
-		return result, newCLIFailure("project automatic workloads", err)
-	}
-	runResult, err := heterociworkflow.Execute(inputs.ctx, heterociworkflow.Dependencies{
-		Owner: owner, ProbeTransport: transport, Executors: binder,
-		LoadManifest: heteroci.LoadManifestFile, AcquireSnapshot: heteroci.AcquireSnapshot,
-		Now: clock, CleanupTimeout: time.Duration(inputs.config.CleanupTimeoutMS) * time.Millisecond,
-	}, heterociworkflow.RunRequest{
-		ManifestPath:  inputs.config.TopologyManifestPath,
-		RepositoryID:  inputs.repository.RepositoryID,
-		SourceTreeSHA: inputs.repository.TreeSHA,
-		RunID:         runID,
-		Units:         units,
-		HeartbeatTTL:  time.Duration(inputs.config.HeartbeatTTLMS) * time.Millisecond,
-	})
-	if err != nil {
-		return result, newCLIFailure("execute automatic local workflow", err)
-	}
-	return projectAutomaticRunResult(inputs.repository, runID, runResult), nil
 }
 
 func buildAutomaticProbeTransport(inputs automaticRouteInputs) (heteroci.ProbeTransport, error) {

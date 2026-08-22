@@ -1,16 +1,18 @@
 package remotecicli
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 const (
@@ -57,7 +59,23 @@ func DecodePostgreSQLAuthorityConfig(data []byte) (PostgreSQLAuthorityConfig, er
 		return PostgreSQLAuthorityConfig{}, newPostgreSQLAuthorityError(PostgreSQLAuthorityRoleConfig, "invalid_size")
 	}
 	var config PostgreSQLAuthorityConfig
-	if err := gate.DecodeCanonicalStrictJSON(data, &config); err != nil {
+	if err := rejectStrictJSONDuplicates(data); err != nil {
+		return PostgreSQLAuthorityConfig{}, newPostgreSQLAuthorityError(PostgreSQLAuthorityRoleConfig, "invalid_json")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil {
+		return PostgreSQLAuthorityConfig{}, newPostgreSQLAuthorityError(PostgreSQLAuthorityRoleConfig, "invalid_json")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return PostgreSQLAuthorityConfig{}, newPostgreSQLAuthorityError(PostgreSQLAuthorityRoleConfig, "invalid_json")
+	}
+	if err := config.Validate(); err != nil {
+		return PostgreSQLAuthorityConfig{}, err
+	}
+	canonical, err := json.Marshal(config)
+	if err != nil || !bytes.Equal(canonical, data) {
 		return PostgreSQLAuthorityConfig{}, newPostgreSQLAuthorityError(PostgreSQLAuthorityRoleConfig, "invalid_json")
 	}
 	return config, nil
@@ -260,4 +278,71 @@ func validPostgreSQLAuthorityEnvName(value string) bool {
 // validPostgreSQLAuthorityEnvChar 判断后续字符是否属于大写 env 字符集。
 func validPostgreSQLAuthorityEnvChar(char rune) bool {
 	return char == '_' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9'
+}
+
+// rejectStrictJSONDuplicates 拒绝 null、重复键和异常 JSON 容器。
+func rejectStrictJSONDuplicates(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	return walkStrictJSONValue(decoder)
+}
+
+func walkStrictJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if token == nil {
+		return errors.New("JSON null is not allowed")
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		return walkStrictJSONObject(decoder)
+	case '[':
+		return walkStrictJSONArray(decoder)
+	default:
+		return errors.New("JSON delimiter is invalid")
+	}
+}
+
+func walkStrictJSONObject(decoder *json.Decoder) error {
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		name, ok := key.(string)
+		if !ok {
+			return errors.New("JSON object key is invalid")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return errors.New("JSON object key is duplicated")
+		}
+		seen[name] = struct{}{}
+		if err := walkStrictJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') {
+		return errors.New("JSON object is unterminated")
+	}
+	return nil
+}
+
+func walkStrictJSONArray(decoder *json.Decoder) error {
+	for decoder.More() {
+		if err := walkStrictJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim(']') {
+		return errors.New("JSON array is unterminated")
+	}
+	return nil
 }

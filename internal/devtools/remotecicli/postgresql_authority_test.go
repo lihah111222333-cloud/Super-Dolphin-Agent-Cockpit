@@ -33,9 +33,11 @@ func testPostgreSQLAuthorityStrictConfigAndFieldGuard(t *testing.T) {
 		t.Fatalf("DecodePostgreSQLAuthorityConfig() = %#v, %v", decoded, err)
 	}
 	for name, payload := range map[string][]byte{
-		"unknown":  append(data[:len(data)-1], []byte(`,"dsn":"secret"}`)...),
-		"trailing": append(append([]byte(nil), data...), []byte("\n{}")...),
-		"null":     []byte("null"),
+		"unknown":      append(data[:len(data)-1], []byte(`,"dsn":"secret"}`)...),
+		"trailing":     append(append([]byte(nil), data...), []byte("\n{}")...),
+		"null":         []byte("null"),
+		"duplicate":    []byte(`{"schema_version":"remote-ci-postgresql-authority-config/v1","owner_dsn_env":"OWNER_DSN","owner_dsn_env":"OWNER_DSN","receipt_dsn_env":"RECEIPT_DSN"}`),
+		"noncanonical": []byte(`{ "schema_version":"remote-ci-postgresql-authority-config/v1","owner_dsn_env":"OWNER_DSN","receipt_dsn_env":"RECEIPT_DSN"}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := DecodePostgreSQLAuthorityConfig(payload); err == nil {
