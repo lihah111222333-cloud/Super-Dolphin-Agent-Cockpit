@@ -1,45 +1,42 @@
-# 14 远程 CI / ECI / ImageCache 单路径
+# 14 远程 CI / 单 Ubuntu Host + Wine Runtime 单路径
 
 ## 阅读边界
 
 当前事实以 `docs/契约/remote-ci-eci-imagecache-contract.md`、源码和同包测试为准。历史计划、迁移报告和归档材料只用于来源追溯，不得覆盖 Accepted 契约。
 
-## 入口与唯一执行路径
+## 入口与验证边界
 
-- `cmd/super-dolphin-gate/main.go`：Gate CLI 总入口；远程命令进入 run、hook、materializer、manifest installer 与 worker。
-- `cmd/super-dolphin-gate/remote_run.go`：读取 strict 配置和 SQLite accepted baseline，构造 normal/calibration 运行并输出权威账本。
-- `cmd/super-dolphin-gate/remote_provision_generation_one.go`：仅由 normal run/hook 在空 singleton 时消费外部 generation-one strict receipt；不是独立 provision command。
+- `cmd/super-dolphin-gate/main.go`：trusted local Gate CLI 总入口；仅保留 project-map、closure、launcher 与 worker 命令。
+- `cmd/super-dolphin-remote-ci/main.go`：独立 portable descriptor validation 与唯一 production execute 组合根。
 - `.githooks/pre-commit`：绑定 exact staged tree 的本地代码守卫入口，不启动 remote CI。
-- `.githooks/pre-push`：绑定 exact pushed ref update 的唯一 Git remote ECI 门禁入口。
+- `.githooks/pre-push`：绑定 exact pushed ref update 的唯一 Git remote CI 门禁入口；不启动 ECI、ImageCache 或 physical-Windows executor。
 
 ## Coordinator、传输与 worker
 
-- `internal/devtools/remoteci/coordinator.go`：PASS lookup 后只规划 MISS，并无仓库并发上限地创建阿里云 ECI shards。
-- `internal/devtools/remoteci/coordinator_request.go`：把 accepted snapshot、strict bootstrap/current request、source/work/temp 卷与 worker argv 投影到 ECI request。
-- `internal/devtools/remoteci/source_materializer.go`：生成唯一 v2 thin Git bundle、synthetic base/transport commit 与 strict source manifest。
-- `internal/devtools/remoteci/worker_supervisor.go`：ECI shard PID1 supervisor；实际 gate 执行仍由 `internal/devtools/gate/executor.go` 唯一拥有。
-- `internal/devtools/remoteci/human_timing_ledger.go`：只从 SQLite authority 渲染人类可读 timing ledger。
+- `internal/devtools/remoteportable/`：portable manifest、external locator binding 与 exact target identity。
+- `internal/devtools/remoteportable/core_types.go`：portable request/manifest/binding core types 与 target identity carrier。
+- `internal/devtools/remoteportable/workload_catalog.go`：provider-neutral canonical workload catalog digest、平台计数和 result proof 校验；manifest-owned catalog limits 进入 exact-tree resolver。
+- `internal/devtools/heteroci/`：单 Ubuntu physical host（NodeID）的 probe、一次容量快照、ubuntu_container/ubuntu_wine_container 路由与 CapacityBlocker。
+- `internal/devtools/heteroci/manifest.go`：single-Ubuntu/Wine topology manifest、NodeID/runtime binding 与 PostgreSQL remote-CI topology contract。
+- `internal/devtools/heterociworkflow/`：单 executor binding 的通用工作流生命周期。
+- `internal/devtools/remotecicli/portable_validate.go`：validate 只输出 strict validation result、不得执行 workload；同包 `execute.go`/`postgresql_authority.go` 承担唯一 production execute 与 PostgreSQL lifecycle，validate 从 bound exact tree 派生 catalog digest 与 Linux/Wine target proof。
+- `internal/devtools/remotecicli/postgresql_authority.go` 的 `executeLifecycleCoordinator` 是唯一 outer `remote-ci-event/v1` owner；Linux runner/helper stderr 使用 `remote-ci-helper-log/v1`，由 `internal/devtools/remoteruntime` bounded consume 为内部摘要，不发布到外部 event/result channel。
 
-## 契约、SQLite 与阿里云边界
+## 契约、PostgreSQL 与单 Ubuntu runtime 边界
 
-- `internal/devtools/cicontract/contract.go`：远程 CI provider、并发、资源、timing、retention 与 forbidden legacy capability 的代码 owner。
-- `internal/devtools/gate/ledger_store_sqlite.go`：duration ledger SQLite authority 的打开、读取与 CAS 边界。
-- `internal/devtools/gate/remote_baseline_generation_one.go`：accepted baseline singleton 的唯一生产 INSERT 路径。
-- `internal/devtools/alicloud/eci/client.go`：阿里云 ECI container group 生命周期；正常 shard 必须绑定 accepted ImageCache snapshot。
-- `internal/devtools/alicloud/eci/image_cache.go`：ImageCache 只读 Describe/验证，不提供仓库内 writer。
-- `internal/devtools/alicloud/oss/client.go`：source/request/report 的内容寻址 OSS 传输，不是状态权威。
+- `internal/devtools/heterociowner/` 与 `internal/devtools/heterociexec/`：PostgreSQL owner/receipt 适配；NodeID 是 physical host identity，runtime/target 必须沿 ExecutionUnit→BatchWorkload→material/unit/batch digest chain exact readback。
+- `internal/devtools/gateprivate/`：本地 Gate CLI 仍需的最小 exit/process/trusted-Git 边界；不包含 SQLite、旧 planner/executor 或 remote authority。
 
 ## 配置、启动器与架构守卫
 
-- `config/remote-ci/aliyun.json`：strict remote run 配置样例；原始 registry/agent 凭据不得持久化其中。
-- `scripts/git_with_remote_ci_credentials.sh`：从受信凭据存储取得短期 GHCR 凭据并以环境继承执行 Git。
-- `scripts/init_remote_ci_local.sh`：安装本地配置、SQLite 路径与 credential-aware Git alias，不创建 ImageCache。
-- `internal/archtest/remote_ci_eci_imagecache_contract_guard_test.go`：静态拒绝本地/第二 executor、旧 cache authority、并发上限和仓库内 refresh writer。
-- `internal/archtest/remote_ci_retired_legacy_artifacts_guard_test.go`：拒绝已退役 JSON/cache/bundle artifact 复活。
+- `.githooks/pre-push`：验证 pushed tree 的 trusted project-map 与 closure，不读取远程 config/ledger/token。
+- `.githooks/trusted-gate-launcher.sh`：trusted local Gate receipt 验证入口。
+- `internal/archtest/heteroci_contract_header_guard_test.go`：锁定 Accepted 单 Ubuntu/Wine/PG-only 边界与 no physical-Windows/no ECI 约束。
+- `internal/archtest/heteroci_single_ubuntu_wine_capacity_contract_guard_test.go`：锁定单 physical host、共享一次 snapshot/capacity/reservation 与 logical runtime binding。
 
 ## 定位顺序
 
-1. 先读 Accepted 契约与 `internal/devtools/cicontract/contract.go`。
-2. 从 `cmd/super-dolphin-gate/remote_run.go` 跳到 `internal/devtools/remoteci/coordinator.go`。
-3. 按问题选择 request/source transport、worker/executor、SQLite authority 或 ECI/OSS client。
-4. 使用 LSP definitions、references、call hierarchy 与 diagnostics 核对生产调用链，再读同包测试和架构守卫。
+1. 先读 Accepted 契约与 `internal/devtools/remoteportable/`、`internal/devtools/heteroci/`。
+2. 从 `cmd/super-dolphin-remote-ci/main.go` 跳到 `internal/devtools/remotecicli/portable_validate.go`。
+3. 按问题选择 portable binding、heteroci single-host routing/workflow、PostgreSQL owner/receipt 或 trusted local Gate closure。
+4. 定义或影响面不明时使用 LSP `structure` / `xref`，修改后用 diagnostics 核对，再读同包测试和架构守卫。

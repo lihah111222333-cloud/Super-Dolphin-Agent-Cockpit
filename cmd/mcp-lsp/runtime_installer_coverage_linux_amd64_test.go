@@ -237,7 +237,6 @@ func validateLinuxAMD64InstallerConfig(languageID, group string, cfg installer.I
 	default:
 		return fmt.Errorf("language %q has unknown installer group %q", languageID, group)
 	}
-	return nil
 }
 
 func validateLinuxNativeManagedInstaller(languageID string, cfg installer.InstallerConfig) error {

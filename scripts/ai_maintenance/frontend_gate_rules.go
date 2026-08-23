@@ -2,10 +2,7 @@ package main
 
 import (
 	"path/filepath"
-	"slices"
 	"strings"
-
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 // frontendLintRelevant 覆盖 ESLint 实际扫描文件和决定命令、依赖的执行种子。
@@ -71,18 +68,11 @@ func frontendStaticScannedExtension(file string, includeCSS bool) bool {
 	}
 }
 
-// frontendPerformanceRelevant 覆盖远端性能 owner、契约测试、受管 subject 与其执行入口，防止证据或预算变化绕过 verifier。
-func frontendPerformanceRelevant(file string) bool {
-	if slices.Contains(gatecontract.FrontendPerformanceInputPaths(), file) {
-		return true
-	}
+func frontendOptInTimingDiagnostic(file string) bool {
 	switch file {
-	case "frontend-app/scripts/chat-history-benchmark.test.mjs",
-		"frontend-app/scripts/evidence-provenance.test.mjs",
-		"frontend-app/scripts/performance-baseline-provenance.test.mjs",
-		"frontend-app/scripts/performance-budget-model.test.mjs",
-		"frontend-app/scripts/performance-budget-runner.test.mjs",
-		"frontend-app/scripts/resource-budget.test.mjs",
+	case "frontend-app/scripts/chat-history-benchmark.mjs",
+		"frontend-app/scripts/chat-history-benchmark.test.mjs",
+		"frontend-app/scripts/stop-feedback-benchmark.mjs",
 		"frontend-app/scripts/stop-feedback-benchmark.test.mjs":
 		return true
 	default:
@@ -95,7 +85,7 @@ func frontendChangedTestRelevant(file string) bool {
 	if frontendPreCommitSmokeOrE2EFile(file) {
 		return false
 	}
-	if frontendChangedTestDeferredToPerformance(file) {
+	if frontendOptInTimingDiagnostic(file) {
 		return false
 	}
 	if strings.HasPrefix(file, "frontend-app/src/") {
@@ -107,27 +97,13 @@ func frontendChangedTestRelevant(file string) bool {
 	return false
 }
 
-// frontendChangedTestDeferredToPerformance 识别被默认 Vitest 配置排除、由远端性能 owner 独占的测试闭包。
-func frontendChangedTestDeferredToPerformance(file string) bool {
-	if !frontendPerformanceRelevant(file) || !frontendScriptOrSourceFile(file) {
-		return false
-	}
-	if file == "frontend-app/scripts/runtime/git-environment.mjs" {
-		return true
-	}
-	rel := strings.TrimPrefix(file, "frontend-app/")
-	if isFrontendTestFile(rel) {
-		return frontendVitestDefaultExcludedTestFile(rel)
-	}
-	candidate := pairedFrontendTestFile(rel)
-	return candidate != "" && frontendVitestDefaultExcludedTestFile(candidate)
-}
-
-// frontendPreCommitSmokeOrE2EFile 排除会启动桌面 smoke/E2E 进程的前端测试入口。
+// frontendPreCommitSmokeOrE2EFile 排除由远端 full suite 覆盖的交付 smoke 及其共享执行闭包。
 func frontendPreCommitSmokeOrE2EFile(file string) bool {
 	switch file {
 	case "frontend-app/scripts/delivery-smoke-runner.mjs",
-		"frontend-app/scripts/delivery-smoke-runner.test.mjs":
+		"frontend-app/scripts/delivery-smoke-runner.test.mjs",
+		"frontend-app/scripts/evidence-provenance.mjs",
+		"frontend-app/scripts/runtime/git-environment.mjs":
 		return true
 	default:
 		return false

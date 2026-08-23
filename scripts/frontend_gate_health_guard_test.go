@@ -206,7 +206,6 @@ func frontendAddAIRunnerEdges(t *testing.T, graph map[string][]string) {
 		"ai:frontend:lint":                "npm:lint",
 		"ai:frontend:typecheck-contracts": "npm:typecheck:contracts",
 		"ai:frontend:embed-verify":        "npm:verify:embed:isolated",
-		"ai:frontend:performance-verify":  "npm:performance:verify",
 	}
 	for from, to := range edges {
 		graph[from] = graph[from]

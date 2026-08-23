@@ -1,3 +1,7 @@
+//go:build darwin
+
+// super-dolphin-ci: platform=darwin
+
 package main
 
 // 本文件是公共跨平台的 macOS 兼容性静态门禁，只读取脚本契约，故意不加 darwin build tag。

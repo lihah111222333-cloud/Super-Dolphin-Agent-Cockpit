@@ -99,17 +99,21 @@ test_real_go_bin_rejects_wrong_repo_version() {
   assert_contains "$stderr" "go1.26.5"
 }
 
-test_remote_worker_uses_manifest_verified_goroot_binary() {
-  local tmpdir worker_go resolved
+test_local_authority_does_not_bypass_version_probe() {
+  local tmpdir worker_go stderr status
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' RETURN
   mkdir -p "$tmpdir/go-root/bin"
   worker_go="$tmpdir/go-root/bin/go"
-  printf '#!/usr/bin/env bash\nexit 99\n' > "$worker_go"
-  chmod +x "$worker_go"
+  stderr="$tmpdir/stderr"
+  write_fake_go "$worker_go" "1.26.4"
 
-  resolved="$(GOROOT="$tmpdir/go-root" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go')"
-  [[ "$resolved" -ef "$worker_go" ]] || fail "remote worker returned $resolved, want manifest-verified GOROOT binary"
+  set +e
+  GOROOT="$tmpdir/go-root" SUPER_DOLPHIN_TEST_BACKEND=local-authority "$BASH" -c 'source scripts/real_go_resolver.sh; resolve_real_go' 2>"$stderr" >/dev/null
+  status=$?
+  set -e
+  [[ "$status" -ne 0 ]] || fail "local-authority caller environment bypassed the Go version probe"
+  assert_contains "$stderr" "go1.26.5"
 }
 
 test_repo_wrapper_is_not_real_go() {
@@ -118,7 +122,7 @@ test_repo_wrapper_is_not_real_go() {
   trap 'rm -f "$stderr"' RETURN
 
   set +e
-  GOROOT='' PATH="$ROOT_DIR/scripts" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
+  GOROOT='' PATH="$ROOT_DIR/scripts" SUPER_DOLPHIN_TEST_BACKEND=local-authority "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
   status=$?
   set -e
 
@@ -189,22 +193,6 @@ test_global_go_wrapper_missing_fails_fast() {
   assert_contains "$stderr" "GLOBAL_GO_WRAPPER"
 }
 
-test_go_wrapper_allow_raw_uses_shared_resolver() {
-  local tmpdir stderr status
-  tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' RETURN
-  stderr="$tmpdir/stderr"
-
-  set +e
-  GOROOT='' PATH="$ROOT_DIR/scripts" GO_GUARD_ALLOW_RAW=1 "$BASH" "$ROOT_DIR/scripts/go" env 2>"$stderr" >/dev/null
-  status=$?
-  set -e
-
-  [[ "$status" -ne 0 ]] || fail "go wrapper allow raw unexpectedly succeeded without real go"
-  assert_contains "$stderr" "REAL_GO_BIN"
-  assert_not_contains "$stderr" "command not found"
-}
-
 test_missing_go_fails_fast() {
   local tmpdir stderr status
   tmpdir="$(mktemp -d)"
@@ -214,7 +202,7 @@ test_missing_go_fails_fast() {
   stderr="$tmpdir/stderr"
 
   set +e
-  GOROOT='' PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" SUPER_DOLPHIN_TEST_BACKEND=remote-worker "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
+  GOROOT='' PATH="$tmpdir" GLOBAL_GO_WRAPPER="$tmpdir/go" SUPER_DOLPHIN_TEST_BACKEND=local-authority "$BASH" "$ROOT_DIR/scripts/test_with_guard.sh" --guard-only 2>"$stderr"
   status=$?
   set -e
 
@@ -249,13 +237,12 @@ test_macos_distribution_selects_each_locked_architecture
 test_macos_distribution_rejects_unlocked_architecture
 test_resolve_real_go_prefers_matching_goroot_over_newer_path
 test_real_go_bin_rejects_wrong_repo_version
-test_remote_worker_uses_manifest_verified_goroot_binary
+test_local_authority_does_not_bypass_version_probe
 test_repo_wrapper_is_not_real_go
 test_real_go_bin_rejects_wrapper
 test_real_go_bin_rejects_normalized_wrapper
 test_real_go_bin_rejects_symlink_wrapper
 test_global_go_wrapper_missing_fails_fast
-test_go_wrapper_allow_raw_uses_shared_resolver
 test_missing_go_fails_fast
 test_activate_guard_env_missing_go_returns
 echo "guard_env_test: ok"

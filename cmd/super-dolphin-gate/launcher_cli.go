@@ -47,6 +47,10 @@ func parseLauncherCommand(args []string) (launcherCommand, error) {
 
 // parseLauncherFlags 解析 launcher 参数并拒绝位置参数。
 func parseLauncherFlags(action string, args []string) (launcherCommand, error) {
+	args, err := canonicalizeUniqueAuthorityArgs(args, "repository", "tree", "receipt")
+	if err != nil {
+		return launcherCommand{}, protocolError("launcher verification arguments are invalid: %v", err)
+	}
 	flags := flag.NewFlagSet("launcher "+action, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	repository := flags.String("repository", "", "exact-tree repository root")

@@ -1,8 +1,6 @@
 package archtest_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -179,13 +177,13 @@ func TestBackendBoundaryMatrixRejectsGenericStatefulSidecarAllowlist(t *testing.
 }
 
 func TestProviderExternalImportSurfaceAllowsRegisteredModuleSubpackages(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "runtime.go")
-	if err := os.WriteFile(path, []byte(`package fixture
+	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
+	path := writeBackendBoundaryFixtureAt(t, root, "internal/provider/future/runtime.go", `package fixture
 import _ "golang.org/x/sync/errgroup"
-`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	violations, err := archtest.EvaluateBackendBoundaryFile(
+		root,
 		path,
 		"internal/provider/future/runtime.go",
 		archtest.DefaultBackendBoundaryRegistry(),
@@ -203,11 +201,10 @@ func TestBackendBoundaryMatrixFixturesRejectKnownViolations(t *testing.T) {
 	registry := archtest.DefaultBackendBoundaryRegistry()
 	for _, tc := range backendBoundaryKnownViolationFixtures {
 		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "fixture.go")
-			if err := os.WriteFile(path, []byte(tc.source), 0o600); err != nil {
-				t.Fatalf("write fixture: %v", err)
-			}
-			violations, err := archtest.EvaluateBackendBoundaryFile(path, tc.relPath, registry, tc.ruleID)
+			root := t.TempDir()
+			writeCanonicalSQLCGuardFixture(t, root)
+			path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, tc.source)
+			violations, err := archtest.EvaluateBackendBoundaryFile(root, path, tc.relPath, registry, tc.ruleID)
 			if err != nil {
 				t.Fatalf("EvaluateBackendBoundaryFile(): %v", err)
 			}
@@ -224,16 +221,16 @@ func TestBackendBoundaryMatrixFixturesRejectKnownViolations(t *testing.T) {
 func TestBackendBoundaryViolationUsesPhysicalImportPosition(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "fixture.go")
+	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
 	source := `package fixture
 
 //line generated.go:900
 import _ "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
 `
-	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
+	path := writeBackendBoundaryFixtureAt(t, root, "internal/contract/leak.go", source)
 	violations, err := archtest.EvaluateBackendBoundaryFile(
+		root,
 		path,
 		"internal/contract/leak.go",
 		archtest.DefaultBackendBoundaryRegistry(),

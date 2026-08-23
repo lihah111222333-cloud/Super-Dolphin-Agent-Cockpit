@@ -106,10 +106,9 @@ func TestAIIndexRemoteCICoverage(t *testing.T) {
 	requireRemoteCICodemap(t, index.Codemaps)
 	for _, source := range []string{
 		"cmd/super-dolphin-gate/main.go",
-		"internal/devtools/remoteci/coordinator.go",
-		"internal/devtools/cicontract/contract.go",
-		"internal/devtools/alicloud/eci/client.go",
-		"internal/devtools/alicloud/oss/client.go",
+		"cmd/super-dolphin-remote-ci/main.go",
+		"internal/devtools/heteroci/manifest.go",
+		"internal/devtools/remoteportable/core_types.go",
 	} {
 		requireRemoteCISource(t, index.Files, source)
 	}

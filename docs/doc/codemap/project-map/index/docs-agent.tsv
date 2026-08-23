@@ -1,11 +1,11 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-AGENTS.md	(root)	docs-agent	doc	9394	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
-CLAUDE.md	(root)	docs-agent	doc	6987	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	10408	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+CLAUDE.md	(root)	docs-agent	doc	8461	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 README.de.md	(root)	docs-agent	doc	32897	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
 README.es.md	(root)	docs-agent	doc	33398	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
 README.ja.md	(root)	docs-agent	doc	34179	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
 README.ko.md	(root)	docs-agent	doc	32747	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	30580	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	29948	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
 README.zh-CN.md	(root)	docs-agent	doc	26382	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
 docs/README.md	docs	docs-agent	doc	4580	项目文档体系	docs,README,项目文档体系
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
@@ -14,7 +14,7 @@ docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11828	架�
 docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16954	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
 docs/adr/README.md	docs	docs-agent	doc	964	架构决策记录	docs,adr,README,架构决策记录
 docs/automation/代码仓库腐化守卫巡检协议.md	docs	docs-agent	doc	27410	当前自动化协议、门禁巡检与问题接管流程	docs,automation,代码仓库腐化守卫巡检协议,当前自动化协议,门禁巡检与问题接管流程
-docs/automation/全仓夜间门禁健康巡检协议.md	docs	docs-agent	doc	20235	当前自动化协议、门禁巡检与问题接管流程	docs,automation,全仓夜间门禁健康巡检协议,当前自动化协议,门禁巡检与问题接管流程
+docs/automation/全仓夜间门禁健康巡检协议.md	docs	docs-agent	doc	19872	当前自动化协议、门禁巡检与问题接管流程	docs,automation,全仓夜间门禁健康巡检协议,当前自动化协议,门禁巡检与问题接管流程
 docs/automation/授权问题修复与验证协议.md	docs	docs-agent	doc	8402	当前自动化协议、门禁巡检与问题接管流程	docs,automation,授权问题修复与验证协议,当前自动化协议,门禁巡检与问题接管流程
 docs/automation/门禁问题台账接管协议.md	docs	docs-agent	doc	9032	当前自动化协议、门禁巡检与问题接管流程	docs,automation,门禁问题台账接管协议,当前自动化协议,门禁巡检与问题接管流程
 docs/dev-agentic-e2e-harness.md	docs	docs-agent	doc	3050	项目文档体系	docs,dev,agentic,e2e,harness,项目文档体系
@@ -37,19 +37,17 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3192	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	28349	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59478	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11793	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	22096	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
-docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	3717	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
+docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	22919	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
+docs/doc/codemap/14-remote-ci.md	docs	docs-agent	doc	3909	手写代码地图卷与自动 ai-index	docs,doc,codemap,14,remote,ci,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3379	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
-docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	459600	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
+docs/doc/codemap/anchor-identities.json	docs	docs-agent	json	459514	手写代码地图卷与自动 ai-index	docs,doc,codemap,anchor,identities,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	3521590	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
 docs/guards/code-size-freeze-v3-fail-first.txt	docs	docs-agent	txt	466	项目文档体系	docs,guards,code,size,freeze,v3,fail,first,项目文档体系
 docs/guards/frontend-code-size-replay-helper-freeze-fail-first.txt	docs	docs-agent	txt	514	项目文档体系	docs,guards,frontend,code,size,replay,helper,freeze,fail,first,项目文档体系
 docs/guards/global-var-metric-v2-baseline-migration.txt	docs	docs-agent	txt	654	项目文档体系	docs,guards,global,var,metric,v2,baseline,migration,项目文档体系
-docs/guards/local-pass-contract-field-matrix.md	docs	docs-agent	doc	8834	项目文档体系	docs,guards,local,pass,contract,field,matrix,项目文档体系
 docs/guards/orchestration-service-boundary-candidate-freeze-fail-first.txt	docs	docs-agent	txt	511	项目文档体系	docs,guards,orchestration,service,boundary,candidate,freeze,fail,first,项目文档体系
-docs/guards/remote-ci-plan-contract-field-matrix.md	docs	docs-agent	doc	7200	项目文档体系	docs,guards,remote,ci,plan,contract,field,matrix,项目文档体系
 docs/guards/remote-ci-production-freeze-fail-first.txt	docs	docs-agent	txt	510	项目文档体系	docs,guards,remote,ci,production,freeze,fail,first,项目文档体系
 docs/guards/remote-ci-resource-plan-field-fail-first.txt	docs	docs-agent	txt	490	项目文档体系	docs,guards,remote,ci,resource,plan,field,fail,first,项目文档体系
 docs/guards/remote-ci-test-metrics-fail-first.txt	docs	docs-agent	txt	511	项目文档体系	docs,guards,remote,ci,test,metrics,fail,first,项目文档体系
@@ -72,7 +70,7 @@ docs/work/README.md	docs	docs-agent	doc	698	项目文档体系	docs,work,README,
 docs/work/plans/README.md	docs	docs-agent	doc	388	项目文档体系	docs,work,plans,README,项目文档体系
 docs/work/plans/mcp-lsp空闲与幽灵进程自动回收修复方案.md	docs	docs-agent	doc	86850	项目文档体系	docs,work,plans,mcp,lsp空闲与幽灵进程自动回收修复方案,项目文档体系
 docs/work/proposals/README.md	docs	docs-agent	doc	367	项目文档体系	docs,work,proposals,README,项目文档体系
-docs/契约/README.md	docs	docs-agent	doc	2017	项目文档体系	docs,契约,README,项目文档体系
+docs/契约/README.md	docs	docs-agent	doc	2027	项目文档体系	docs,契约,README,项目文档体系
 docs/契约/atomic-commit-convention.md	docs	docs-agent	doc	8075	项目文档体系	docs,契约,atomic,commit,convention,项目文档体系
 docs/契约/fail-fast-convention.md	docs	docs-agent	doc	9470	项目文档体系	docs,契约,fail,fast,convention,项目文档体系
 docs/契约/fix-workflow-convention.md	docs	docs-agent	doc	25081	项目文档体系	docs,契约,fix,workflow,convention,项目文档体系
@@ -89,7 +87,7 @@ docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
 docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,README,项目文档体系
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
-docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	12641	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
+docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	14311	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
 docs/架构/skeleton-fx.md	docs	docs-agent	doc	14120	项目文档体系	docs,架构,skeleton,fx,项目文档体系
 docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系

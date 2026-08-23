@@ -10,6 +10,7 @@ import (
 	"go/printer"
 	"go/token"
 	"go/types"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -335,37 +336,13 @@ func discoverProviderRecoveryCandidateSet(root string, overlay map[string][]byte
 	}
 	candidates := providerRecoveryCandidateSet{}
 	for _, pkg := range loaded {
-		if pkg == nil || !providerRecoveryProductionPackagePath(pkg.PkgPath) || len(pkg.GoFiles) == 0 {
-			continue
+		candidate, ok, err := discoverProviderRecoveryPackageCandidate(root, overlay, pkg)
+		if err != nil {
+			return providerRecoveryCandidateSet{}, err
 		}
-		sourceFiles := append([]string(nil), pkg.GoFiles...)
-		sort.Strings(sourceFiles)
-		imported := false
-		for _, path := range sourceFiles {
-			source, err := providerRecoverySourceBytes(path, overlay)
-			if err != nil {
-				return providerRecoveryCandidateSet{}, fmt.Errorf("read provider recovery candidate source %s: %w", path, err)
-			}
-			file, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
-			if err != nil {
-				return providerRecoveryCandidateSet{}, fmt.Errorf("parse provider recovery candidate source %s: %w", path, err)
-			}
-			_, hasImport, err := providerRecoveryImportAlias(file)
-			if err != nil {
-				return providerRecoveryCandidateSet{}, fmt.Errorf("inspect provider recovery candidate source %s: %w", path, err)
-			}
-			imported = imported || hasImport
-		}
-		if !imported {
-			continue
-		}
-		candidates.packagePaths = append(candidates.packagePaths, pkg.PkgPath)
-		for _, path := range sourceFiles {
-			relative, err := filepath.Rel(root, path)
-			if err != nil {
-				return providerRecoveryCandidateSet{}, fmt.Errorf("rel provider recovery candidate source %s: %w", path, err)
-			}
-			candidates.filePaths = append(candidates.filePaths, filepath.ToSlash(relative))
+		if ok {
+			candidates.packagePaths = append(candidates.packagePaths, candidate.packagePaths...)
+			candidates.filePaths = append(candidates.filePaths, candidate.filePaths...)
 		}
 	}
 	sort.Strings(candidates.packagePaths)
@@ -374,6 +351,65 @@ func discoverProviderRecoveryCandidateSet(root string, overlay map[string][]byte
 		return providerRecoveryCandidateSet{}, errors.New("provider recovery candidate discovery found no production packages or files")
 	}
 	return candidates, nil
+}
+
+// discoverProviderRecoveryPackageCandidate 返回单个 production 包的候选文件。
+func discoverProviderRecoveryPackageCandidate(
+	root string,
+	overlay map[string][]byte,
+	pkg *packages.Package,
+) (providerRecoveryCandidateSet, bool, error) {
+	if pkg == nil || !providerRecoveryProductionPackagePath(pkg.PkgPath) || len(pkg.GoFiles) == 0 {
+		return providerRecoveryCandidateSet{}, false, nil
+	}
+	sourceFiles := append([]string(nil), pkg.GoFiles...)
+	sort.Strings(sourceFiles)
+	imported, err := providerRecoveryFilesImportRecovery(sourceFiles, overlay)
+	if err != nil {
+		return providerRecoveryCandidateSet{}, false, err
+	}
+	if !imported {
+		return providerRecoveryCandidateSet{}, false, nil
+	}
+	filePaths, err := providerRecoveryRelativeFilePaths(root, sourceFiles)
+	if err != nil {
+		return providerRecoveryCandidateSet{}, false, err
+	}
+	return providerRecoveryCandidateSet{packagePaths: []string{pkg.PkgPath}, filePaths: filePaths}, true, nil
+}
+
+// providerRecoveryFilesImportRecovery 检查包内所有源码并保留逐文件解析错误。
+func providerRecoveryFilesImportRecovery(paths []string, overlay map[string][]byte) (bool, error) {
+	imported := false
+	for _, path := range paths {
+		source, err := providerRecoverySourceBytes(path, overlay)
+		if err != nil {
+			return false, fmt.Errorf("read provider recovery candidate source %s: %w", path, err)
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, source, parser.ImportsOnly)
+		if err != nil {
+			return false, fmt.Errorf("parse provider recovery candidate source %s: %w", path, err)
+		}
+		_, hasImport, err := providerRecoveryImportAlias(file)
+		if err != nil {
+			return false, fmt.Errorf("inspect provider recovery candidate source %s: %w", path, err)
+		}
+		imported = imported || hasImport
+	}
+	return imported, nil
+}
+
+// providerRecoveryRelativeFilePaths 将候选文件稳定转换为仓库相对路径。
+func providerRecoveryRelativeFilePaths(root string, paths []string) ([]string, error) {
+	relativePaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil, fmt.Errorf("rel provider recovery candidate source %s: %w", path, err)
+		}
+		relativePaths = append(relativePaths, filepath.ToSlash(relative))
+	}
+	return relativePaths, nil
 }
 
 // providerRecoveryProductionPackagePath 只接受当前模块内的非 archtest 生产包。
@@ -418,98 +454,177 @@ func discoverTypedProviderRecoveryConstructionsWithOverlay(
 	}
 	inventory := map[string]providerRecoveryConstruction{}
 	for _, pkg := range loaded {
-		if len(pkg.Errors) > 0 {
-			return nil, fmt.Errorf("type-check provider recovery guard package %s: %s", pkg.PkgPath, pkg.Errors[0])
-		}
-		for index, file := range pkg.Syntax {
-			path := pkg.CompiledGoFiles[index]
-			relative, err := filepath.Rel(root, path)
-			if err != nil {
-				return nil, fmt.Errorf("rel provider recovery source %s: %w", path, err)
-			}
-			for _, declaration := range file.Decls {
-				function, ok := declaration.(*ast.FuncDecl)
-				if !ok || function.Body == nil {
-					continue
-				}
-				fields := map[string]string{}
-				owned := map[string]bool{}
-				found := false
-				var discoveryErr error
-				ast.Inspect(function.Body, func(node ast.Node) bool {
-					switch typed := node.(type) {
-					case *ast.CompositeLit:
-						if !isProviderRecoveryRequestType(pkg.TypesInfo.TypeOf(typed)) {
-							return true
-						}
-						found = true
-						literalFields, err := providerRecoveryLiteralFields(pkg.Fset, typed)
-						if err != nil {
-							discoveryErr = err
-							return false
-						}
-						for field, expression := range literalFields {
-							if _, duplicate := fields[field]; duplicate {
-								discoveryErr = fmt.Errorf("duplicate providerrecovery.Request field %q", field)
-								return false
-							}
-							fields[field] = expression
-						}
-					case *ast.ValueSpec:
-						if isProviderRecoveryRequestType(pkg.TypesInfo.TypeOf(typed.Type)) {
-							found = true
-							for _, name := range typed.Names {
-								owned[name.Name] = true
-							}
-						}
-					case *ast.AssignStmt:
-						for i, right := range typed.Rhs {
-							if _, ok := right.(*ast.CompositeLit); !ok || !isProviderRecoveryRequestType(pkg.TypesInfo.TypeOf(right)) || i >= len(typed.Lhs) {
-								continue
-							}
-							if name, ok := typed.Lhs[i].(*ast.Ident); ok {
-								owned[name.Name] = true
-							}
-						}
-						for i, left := range typed.Lhs {
-							selector, ok := left.(*ast.SelectorExpr)
-							if !ok || !isProviderRecoveryRequestType(pkg.TypesInfo.TypeOf(selector.X)) {
-								continue
-							}
-							name, ok := selector.X.(*ast.Ident)
-							if !ok || !owned[name.Name] {
-								continue
-							}
-							found = true
-							if i >= len(typed.Rhs) {
-								discoveryErr = errors.New("providerrecovery.Request field assignment has no matching value")
-								return false
-							}
-							var expression bytes.Buffer
-							if err := printer.Fprint(&expression, pkg.Fset, typed.Rhs[i]); err != nil {
-								discoveryErr = fmt.Errorf("print providerrecovery.Request field %q: %w", selector.Sel.Name, err)
-								return false
-							}
-							fields[selector.Sel.Name] = expression.String()
-						}
-					}
-					return discoveryErr == nil
-				})
-				if discoveryErr != nil {
-					return nil, fmt.Errorf("%s:%s: %w", filepath.ToSlash(relative), function.Name.Name, discoveryErr)
-				}
-				if !found {
-					continue
-				}
-				id := filepath.ToSlash(relative) + ":" + function.Name.Name
-				if _, exists := inventory[id]; exists {
-					return nil, fmt.Errorf("duplicate provider recovery construction id %s", id)
-				}
-				inventory[id] = providerRecoveryConstruction{fields: fields}
-			}
+		if err := discoverProviderRecoveryPackageConstructions(root, pkg, inventory); err != nil {
+			return nil, err
 		}
 	}
 	return inventory, nil
+}
+
+type providerRecoveryFunctionDiscovery struct {
+	typesInfo *types.Info
+	fileSet   *token.FileSet
+	fields    map[string]string
+	owned     map[string]bool
+	found     bool
+	err       error
+}
+
+// discoverProviderRecoveryPackageConstructions 收集一个 typed production 包中的构造。
+func discoverProviderRecoveryPackageConstructions(
+	root string,
+	pkg *packages.Package,
+	inventory map[string]providerRecoveryConstruction,
+) error {
+	if len(pkg.Errors) > 0 {
+		return fmt.Errorf("type-check provider recovery guard package %s: %s", pkg.PkgPath, pkg.Errors[0])
+	}
+	for index, file := range pkg.Syntax {
+		path := pkg.CompiledGoFiles[index]
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return fmt.Errorf("rel provider recovery source %s: %w", path, err)
+		}
+		if err := discoverProviderRecoveryFileConstructions(
+			filepath.ToSlash(relative), pkg, file, inventory,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// discoverProviderRecoveryFileConstructions 收集一个编译文件中的函数级构造。
+func discoverProviderRecoveryFileConstructions(
+	relative string,
+	pkg *packages.Package,
+	file *ast.File,
+	inventory map[string]providerRecoveryConstruction,
+) error {
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil {
+			continue
+		}
+		discovery := providerRecoveryFunctionDiscovery{
+			typesInfo: pkg.TypesInfo,
+			fileSet:   pkg.Fset,
+			fields:    map[string]string{},
+			owned:     map[string]bool{},
+		}
+		ast.Inspect(function.Body, discovery.inspect)
+		if discovery.err != nil {
+			return fmt.Errorf("%s:%s: %w", relative, function.Name.Name, discovery.err)
+		}
+		if !discovery.found {
+			continue
+		}
+		id := relative + ":" + function.Name.Name
+		if _, exists := inventory[id]; exists {
+			return fmt.Errorf("duplicate provider recovery construction id %s", id)
+		}
+		inventory[id] = providerRecoveryConstruction{fields: discovery.fields}
+	}
+	return nil
+}
+
+// inspect 将函数体中的构造、owner 和逐字段赋值分派给独立检查器。
+func (discovery *providerRecoveryFunctionDiscovery) inspect(node ast.Node) bool {
+	switch typed := node.(type) {
+	case *ast.CompositeLit:
+		discovery.inspectCompositeLiteral(typed)
+	case *ast.ValueSpec:
+		discovery.inspectValueSpec(typed)
+	case *ast.AssignStmt:
+		discovery.inspectAssignment(typed)
+	}
+	return discovery.err == nil
+}
+
+// inspectCompositeLiteral 合并一个 typed Request literal 的 keyed fields。
+func (discovery *providerRecoveryFunctionDiscovery) inspectCompositeLiteral(literal *ast.CompositeLit) {
+	if !isProviderRecoveryRequestType(discovery.typesInfo.TypeOf(literal)) {
+		return
+	}
+	discovery.found = true
+	literalFields, err := providerRecoveryLiteralFields(discovery.fileSet, literal)
+	if err != nil {
+		discovery.err = err
+		return
+	}
+	for field, expression := range literalFields {
+		if _, duplicate := discovery.fields[field]; duplicate {
+			discovery.err = fmt.Errorf("duplicate providerrecovery.Request field %q", field)
+			return
+		}
+		discovery.fields[field] = expression
+	}
+}
+
+// inspectValueSpec 记录显式声明为 Request 的局部 owner。
+func (discovery *providerRecoveryFunctionDiscovery) inspectValueSpec(spec *ast.ValueSpec) {
+	if !isProviderRecoveryRequestType(discovery.typesInfo.TypeOf(spec.Type)) {
+		return
+	}
+	discovery.found = true
+	for _, name := range spec.Names {
+		discovery.owned[name.Name] = true
+	}
+}
+
+// inspectAssignment 先识别 Request owner，再收集 owner 的逐字段赋值。
+func (discovery *providerRecoveryFunctionDiscovery) inspectAssignment(assignment *ast.AssignStmt) {
+	discovery.inspectAssignmentOwners(assignment)
+	discovery.inspectAssignmentFields(assignment)
+}
+
+// inspectAssignmentOwners 记录由 typed Request literal 初始化的局部 owner。
+func (discovery *providerRecoveryFunctionDiscovery) inspectAssignmentOwners(assignment *ast.AssignStmt) {
+	for i, right := range assignment.Rhs {
+		if _, ok := right.(*ast.CompositeLit); !ok ||
+			!isProviderRecoveryRequestType(discovery.typesInfo.TypeOf(right)) || i >= len(assignment.Lhs) {
+			continue
+		}
+		if name, ok := assignment.Lhs[i].(*ast.Ident); ok {
+			discovery.owned[name.Name] = true
+		}
+	}
+}
+
+// inspectAssignmentFields 收集已识别 Request owner 的逐字段表达式。
+func (discovery *providerRecoveryFunctionDiscovery) inspectAssignmentFields(assignment *ast.AssignStmt) {
+	for i, left := range assignment.Lhs {
+		selector, ok := discovery.ownedRequestSelector(left)
+		if !ok {
+			continue
+		}
+		discovery.found = true
+		if i >= len(assignment.Rhs) {
+			discovery.err = errors.New("providerrecovery.Request field assignment has no matching value")
+			return
+		}
+		var expression bytes.Buffer
+		if err := printer.Fprint(&expression, discovery.fileSet, assignment.Rhs[i]); err != nil {
+			discovery.err = fmt.Errorf("print providerrecovery.Request field %q: %w", selector.Sel.Name, err)
+			return
+		}
+		discovery.fields[selector.Sel.Name] = expression.String()
+	}
+}
+
+// ownedRequestSelector 判断赋值左侧是否属于已识别的 Request owner。
+func (discovery *providerRecoveryFunctionDiscovery) ownedRequestSelector(
+	left ast.Expr,
+) (*ast.SelectorExpr, bool) {
+	selector, ok := left.(*ast.SelectorExpr)
+	if !ok || !isProviderRecoveryRequestType(discovery.typesInfo.TypeOf(selector.X)) {
+		return nil, false
+	}
+	name, ok := selector.X.(*ast.Ident)
+	if !ok || !discovery.owned[name.Name] {
+		return nil, false
+	}
+	return selector, true
 }
 
 func isProviderRecoveryRequestType(typ types.Type) bool {
@@ -578,6 +693,28 @@ func validateProviderRecoveryConstructions(
 	if err := validateProviderRecoveryExemptions(requestFields, exemptions); err != nil {
 		return err
 	}
+	if err := validateProviderRecoveryConstructionCoverage(registry, inventory); err != nil {
+		return err
+	}
+	expectedFields := cloneBoolMap(requestFields)
+	for field := range exemptions {
+		delete(expectedFields, field)
+	}
+	for id, registered := range registry {
+		if err := validateProviderRecoveryConstruction(
+			id, expectedFields, registered, inventory[id],
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateProviderRecoveryConstructionCoverage 拒绝未知构造与过期 registry 项。
+func validateProviderRecoveryConstructionCoverage(
+	registry map[string]providerRecoveryConstructionGuard,
+	inventory map[string]providerRecoveryConstruction,
+) error {
 	unknown := stringSetDifference(mapKeys(inventory), mapKeys(registry))
 	if len(unknown) > 0 {
 		return fmt.Errorf("unregistered production constructions: %v", unknown)
@@ -586,37 +723,61 @@ func validateProviderRecoveryConstructions(
 	if len(stale) > 0 {
 		return fmt.Errorf("stale registry constructions: %v", stale)
 	}
-	expectedFields := cloneBoolMap(requestFields)
-	for field := range exemptions {
-		delete(expectedFields, field)
+	return nil
+}
+
+// validateProviderRecoveryConstruction 验证单个构造的字段集合、producer 与表达式。
+func validateProviderRecoveryConstruction(
+	id string,
+	expectedFields map[string]bool,
+	registered providerRecoveryConstructionGuard,
+	implementation providerRecoveryConstruction,
+) error {
+	if !slices.Equal(mapKeys(registered.fields), mapKeys(expectedFields)) {
+		return fmt.Errorf("%s registry field set = %v, want %v", id, mapKeys(registered.fields), mapKeys(expectedFields))
 	}
-	for id, registered := range registry {
-		if !slices.Equal(mapKeys(registered.fields), mapKeys(expectedFields)) {
-			return fmt.Errorf("%s registry field set = %v, want %v", id, mapKeys(registered.fields), mapKeys(expectedFields))
+	if !slices.Equal(mapKeys(implementation.fields), mapKeys(expectedFields)) {
+		return fmt.Errorf("%s implementation field set = %v, want %v", id, mapKeys(implementation.fields), mapKeys(expectedFields))
+	}
+	if err := validateProviderRecoveryProducerSelectors(id, registered); err != nil {
+		return err
+	}
+	return validateProviderRecoveryFieldExpressions(id, registered.fields, implementation.fields)
+}
+
+// validateProviderRecoveryProducerSelectors 验证 binding selector 存在于 producer。
+func validateProviderRecoveryProducerSelectors(
+	id string,
+	registered providerRecoveryConstructionGuard,
+) error {
+	if registered.producer == nil {
+		return nil
+	}
+	producerFields := structFieldSet(registered.producer)
+	for _, expression := range registered.fields {
+		selector := strings.TrimPrefix(expression, "binding.")
+		if selector == expression {
+			continue
 		}
-		implementation := inventory[id]
-		if !slices.Equal(mapKeys(implementation.fields), mapKeys(expectedFields)) {
-			return fmt.Errorf("%s implementation field set = %v, want %v", id, mapKeys(implementation.fields), mapKeys(expectedFields))
+		if !producerFields[selector] {
+			return fmt.Errorf("%s producer %s missing selector %q", id, registered.producer, expression)
 		}
-		if registered.producer != nil {
-			producerFields := structFieldSet(registered.producer)
-			for _, expression := range registered.fields {
-				selector := strings.TrimPrefix(expression, "binding.")
-				if selector == expression {
-					continue
-				}
-				if !producerFields[selector] {
-					return fmt.Errorf("%s producer %s missing selector %q", id, registered.producer, expression)
-				}
-			}
+	}
+	return nil
+}
+
+// validateProviderRecoveryFieldExpressions 验证非豁免字段的表达式保持精确映射。
+func validateProviderRecoveryFieldExpressions(
+	id string,
+	wantFields map[string]string,
+	gotFields map[string]string,
+) error {
+	for field, wantExpression := range wantFields {
+		if gotFields[field] == `""` {
+			return fmt.Errorf("%s field %s uses unexempted empty constant", id, field)
 		}
-		for field, wantExpression := range registered.fields {
-			if implementation.fields[field] == `""` {
-				return fmt.Errorf("%s field %s uses unexempted empty constant", id, field)
-			}
-			if gotExpression := implementation.fields[field]; gotExpression != wantExpression {
-				return fmt.Errorf("%s field %s expression = %q, want %q", id, field, gotExpression, wantExpression)
-			}
+		if gotExpression := gotFields[field]; gotExpression != wantExpression {
+			return fmt.Errorf("%s field %s expression = %q, want %q", id, field, gotExpression, wantExpression)
 		}
 	}
 	return nil
@@ -643,9 +804,9 @@ func validateProviderRecoveryExemptions(
 // providerRecoveryRequestFields 从 port 类型动态派生生产字段集合。
 func providerRecoveryRequestFields() map[string]bool {
 	typ := reflect.TypeFor[providerrecovery.Request]()
-	fields := make(map[string]bool, typ.NumField())
-	for i := range typ.NumField() {
-		fields[typ.Field(i).Name] = true
+	fields := make(map[string]bool)
+	for field := range typ.Fields() {
+		fields[field.Name] = true
 	}
 	return fields
 }
@@ -686,18 +847,14 @@ func cloneProviderRecoveryRegistry(input map[string]providerRecoveryConstruction
 // cloneStringMap 深拷贝字符串 map。
 func cloneStringMap(input map[string]string) map[string]string {
 	cloned := make(map[string]string, len(input))
-	for key, value := range input {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, input)
 	return cloned
 }
 
 // cloneBoolMap 深拷贝布尔 map。
 func cloneBoolMap(input map[string]bool) map[string]bool {
 	cloned := make(map[string]bool, len(input))
-	for key, value := range input {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, input)
 	return cloned
 }
 

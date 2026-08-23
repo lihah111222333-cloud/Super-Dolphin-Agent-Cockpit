@@ -41,6 +41,19 @@ func TestValidateRejectsCatalogMutations(t *testing.T) {
 	}
 }
 
+func TestConsumerDiscoveryRejectsIndirectShellCatalogCommands(t *testing.T) {
+	for _, source := range []string{
+		"runner=./scripts/run_mcp_lsp_workload.sh; exec \"$runner\" --tree deadbeef\n",
+		"runners=(./scripts/run_mcp_lsp_workload.sh); exec \"${runners[0]}\"\n",
+		"output=$(./scripts/check_mcp_lsp_workload_catalog.sh --tree deadbeef)\n",
+		"eval './scripts/run_mcp_lsp_workload.sh --tree deadbeef'\n",
+	} {
+		if _, err := IsWorkloadConsumerSource("scripts/indirect.sh", []byte(source), nil); err == nil {
+			t.Fatalf("IsWorkloadConsumerSource accepted indirect shell command %q", source)
+		}
+	}
+}
+
 func TestValidateRejectsUnavailableProducerWorkflow(t *testing.T) {
 	document, raw, root := validFixture(t)
 	document.Workloads[0].ProducerWorkflowPath = "missing.yml"
@@ -155,12 +168,12 @@ func TestValidateRejectsMissingProducerWithoutReleaseBlocking(t *testing.T) {
 }
 
 func TestValidateReceiptMissingProducerCannotClaimCIReleaseAuthority(t *testing.T) {
-	document, _, _ := validFixture(t)
+	document, _, root := validFixture(t)
 	document.Workloads[0].ProducerImplementationStatus = "missing"
 	receipt := canonicalReceipt(document)
 	receipt.ExecutionOrigin = "ci"
 	path := writeReceiptFixture(t, receipt)
-	if err := ValidateReceipt(document, "quick", path); err == nil || !strings.Contains(err.Error(), "cannot be trusted as CI/release") {
+	if err := ValidateReceiptAt(document, root, "quick", path); err == nil || !strings.Contains(err.Error(), "cannot be trusted as CI/release") {
 		t.Fatalf("ValidateReceipt() error = %v, want CI/release authority rejection", err)
 	}
 }
@@ -175,10 +188,47 @@ func TestValidateRejectsTimeoutDurationOverflow(t *testing.T) {
 }
 
 func TestValidateReceiptAcceptsCanonicalReceipt(t *testing.T) {
-	document, _, _ := validFixture(t)
+	document, _, root := validFixture(t)
 	path := writeReceiptFixture(t, canonicalReceipt(document))
-	if err := ValidateReceipt(document, "quick", path); err != nil {
-		t.Fatalf("ValidateReceipt() error = %v", err)
+	if err := ValidateReceiptAt(document, root, "quick", path); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateReceipt() error = %v, want local receipt authority rejection", err)
+	}
+}
+
+func TestValidateReceiptAtCandidateRejectsRequestedTreeDrift(t *testing.T) {
+	document, _, root := validFixture(t)
+	runCatalogGit(t, root, "init", "--quiet")
+	runCatalogGit(t, root, "config", "user.name", "catalog-test")
+	runCatalogGit(t, root, "config", "user.email", "catalog-test@example.invalid")
+	runCatalogGit(t, root, "add", ".")
+	runCatalogGit(t, root, "commit", "--quiet", "-m", "候选")
+	gitHead, tree, err := currentGitIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := canonicalReceipt(document)
+	receipt.SourceTreeDigest = tree
+	receipt.GitHead = gitHead
+	path := writeReceiptFixture(t, receipt)
+	if err := os.WriteFile(filepath.Join(root, "head-drift.txt"), []byte("new head\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runCatalogGit(t, root, "add", "head-drift.txt")
+	runCatalogGit(t, root, "commit", "--quiet", "-m", "HEAD 漂移")
+	newHead, _, err := currentGitIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateReceiptAtCandidate(document, root, strings.Repeat("b", 40), "quick", path); err == nil || !strings.Contains(err.Error(), "source tree") {
+		t.Fatalf("ValidateReceiptAtCandidate() error = %v, want requested tree mismatch", err)
+	}
+	if err := ValidateReceiptAtCandidate(document, root, tree, "quick", path); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateReceiptAtCandidate() error = %v, want identity-valid but non-authoritative receipt", err)
+	}
+	receipt.GitHead = newHead
+	path = writeReceiptFixture(t, receipt)
+	if err := ValidateReceiptAtCandidate(document, root, tree, "quick", path); err == nil || !strings.Contains(err.Error(), "not bound to candidate tree") {
+		t.Fatalf("ValidateReceiptAtCandidate() error = %v, want git_head/tree binding rejection", err)
 	}
 }
 
@@ -216,7 +266,7 @@ func TestValidateReceiptRejectsReceiptMutations(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			document, _, _ := validFixture(t)
+			document, _, root := validFixture(t)
 			raw, err := json.Marshal(canonicalReceipt(document))
 			if err != nil {
 				t.Fatal(err)
@@ -234,7 +284,7 @@ func TestValidateReceiptRejectsReceiptMutations(t *testing.T) {
 			if err := os.WriteFile(path, mutated, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := ValidateReceipt(document, "quick", path); err == nil || !strings.Contains(err.Error(), test.want) {
+			if err := ValidateReceiptAt(document, root, "quick", path); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("ValidateReceipt() error = %v, want substring %q", err, test.want)
 			}
 		})
@@ -242,7 +292,7 @@ func TestValidateReceiptRejectsReceiptMutations(t *testing.T) {
 }
 
 func TestValidateReceiptRejectsTrailingJSON(t *testing.T) {
-	document, _, _ := validFixture(t)
+	document, _, root := validFixture(t)
 	raw, err := json.Marshal(canonicalReceipt(document))
 	if err != nil {
 		t.Fatal(err)
@@ -251,76 +301,189 @@ func TestValidateReceiptRejectsTrailingJSON(t *testing.T) {
 	if err := os.WriteFile(path, append(raw, []byte("{}")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateReceipt(document, "quick", path); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
+	if err := ValidateReceiptAt(document, root, "quick", path); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
 		t.Fatalf("ValidateReceipt() error = %v, want trailing JSON rejection", err)
 	}
 }
 
 func TestValidateReceiptRejectsMissingImplementation(t *testing.T) {
-	document, _, _ := validFixture(t)
+	document, _, root := validFixture(t)
 	document.Workloads[0].ImplementationStatus = "missing"
 	path := writeReceiptFixture(t, canonicalReceipt(document))
-	if err := ValidateReceipt(document, "quick", path); err == nil || !strings.Contains(err.Error(), "implementation_status=missing") {
+	if err := ValidateReceiptAt(document, root, "quick", path); err == nil || !strings.Contains(err.Error(), "implementation_status=missing") {
 		t.Fatalf("ValidateReceipt() error = %v, want missing implementation rejection", err)
 	}
 }
 
-func TestRemoteTestSelectorsProjectsCatalogGoTestCommand(t *testing.T) {
-	selectors, err := RemoteTestSelectors([]string{
-		"go", "test", "./cmd/mcp-lsp", "-tags=e2e",
-		"-run", "^Test(Alpha|Beta)$", "-count=1",
-	})
+func TestProjectRemoteTestCommandFromRawReusesCanonicalDigestAndParser(t *testing.T) {
+	document := Catalog{
+		Schema:        Schema,
+		CatalogDigest: "sha256:" + strings.Repeat("0", 64),
+		Workloads: []Workload{{
+			ID:                   "mcp-lsp-idle-quick",
+			ImplementationStatus: "implemented",
+			Command:              []string{"go", "test", "./cmd/mcp-lsp/a", "-run", "^TestA$"},
+		}},
+	}
+	raw := encodeWithDigest(t, &document)
+	workloads, err := ParseImplementedRemoteTestsFromRaw(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"./cmd/mcp-lsp#TestAlpha", "./cmd/mcp-lsp#TestBeta"}
-	if !slices.Equal(selectors, want) {
-		t.Fatalf("RemoteTestSelectors() = %v, want %v", selectors, want)
+	if len(workloads) != 1 || !slices.Equal(workloads[0].Command.Packages, []string{"./cmd/mcp-lsp/a"}) || !slices.Equal(workloads[0].Command.TestNames, []string{"TestA"}) {
+		t.Fatalf("ParseImplementedRemoteTestsFromRaw() = %#v", workloads)
+	}
+	var tampered map[string]any
+	if err := json.Unmarshal(raw, &tampered); err != nil {
+		t.Fatal(err)
+	}
+	tampered["workloads"].([]any)[0].(map[string]any)["timeout_seconds"] = float64(241)
+	raw, err = json.Marshal(tampered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseImplementedRemoteTestsFromRaw(raw); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("ParseImplementedRemoteTestsFromRaw() error = %v, want digest mismatch", err)
 	}
 }
 
-func TestRemoteTestSelectorsRejectsShellOrRegexCommand(t *testing.T) {
-	for _, command := range [][]string{
-		{"sh", "-c", "go test ./cmd/mcp-lsp"},
-		{"go", "test", "./cmd/mcp-lsp", "-run", "Test.*"},
+func TestProjectRemoteTestCommandRejectsUnknownDuplicateAndNonCanonicalFlags(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		command []string
+		want    string
+	}{
+		{name: "unknown", command: []string{"go", "test", "./pkg", "-shuffle=on"}, want: "unsupported flag"},
+		{name: "unsupported count", command: []string{"go", "test", "./pkg", "-count=1"}, want: "not carried"},
+		{name: "unsupported timeout", command: []string{"go", "test", "./pkg", "-timeout=-1s"}, want: "not carried"},
+		{name: "duplicate run", command: []string{"go", "test", "./pkg", "-run=^TestAlpha$", "-run", "^TestBeta$"}, want: "repeats flag"},
+		{name: "empty run", command: []string{"go", "test", "./pkg", "-run="}, want: "selector is empty"},
+		{name: "non canonical test", command: []string{"go", "test", "./pkg", "-run=^Testalpha$"}, want: "canonical Test name"},
+		{name: "duplicate test", command: []string{"go", "test", "./pkg", "-run=^Test(?:Alpha|Alpha)$"}, want: "repeats test"},
 	} {
-		if _, err := RemoteTestSelectors(command); err == nil {
-			t.Fatalf("RemoteTestSelectors(%v) unexpectedly succeeded", command)
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := ParseRemoteTestCommand(test.command); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ParseRemoteTestCommand(%v) error = %v, want %q", test.command, err, test.want)
+			}
+		})
+	}
+
+	if _, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-run=^TestAlpha$", "-tags", "linux"}); err == nil || !strings.Contains(err.Error(), "not carried") {
+		t.Fatalf("ParseRemoteTestCommand() error = %v, want unsupported tags rejection", err)
+	}
+}
+
+func TestProjectRemoteTestCommandRejectsHostDerivedEnvironment(t *testing.T) {
+	command, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-run", "^TestAlpha$"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ProjectRemoteTestCommand(command, RemoteTestEnvironment{GOOS: "darwin", GOARCH: "amd64"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "linux/amd64") {
+		t.Fatalf("ProjectRemoteTestCommand() error = %v, want fixed remote platform rejection", err)
+	}
+}
+
+func TestParseRemoteTestCommandRejectsUngroupedAlternation(t *testing.T) {
+	if _, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-run", "^TestAlpha|Beta$"}); err == nil || !strings.Contains(err.Error(), "exact Test selector") {
+		t.Fatalf("ParseRemoteTestCommand() error = %v, want ungrouped alternation rejection", err)
+	}
+	command, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-run", "^Test(?:Alpha|Beta)$"})
+	if err != nil || !slices.Equal(command.TestNames, []string{"TestAlpha", "TestBeta"}) {
+		t.Fatalf("ParseRemoteTestCommand(non-capturing alternation) = %#v, %v", command, err)
+	}
+}
+
+func TestParseRemoteTestCommandRejectsGoIdentifierMetacharactersAndEmptyTags(t *testing.T) {
+	for _, selector := range []string{"^Test.Alpha$", "^Test*Alpha$", "^Test[Alpha]$", `^Test\u0041$`} {
+		if _, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-run", selector}); err == nil {
+			t.Fatalf("ParseRemoteTestCommand accepted Go identifier metacharacter selector %q", selector)
+		}
+	}
+	if _, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-run", "^Test(Alpha|Beta)$"}); err == nil {
+		t.Fatal("ParseRemoteTestCommand accepted capturing-group alternation")
+	}
+	for _, tags := range []string{"foo,,bar", ",foo", "foo,", "foo,\tbar", "foo/bar"} {
+		if _, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-tags", tags}); err == nil {
+			t.Fatalf("ParseRemoteTestCommand accepted invalid raw tag list %q", tags)
 		}
 	}
 }
 
-func TestDefault15mReceiptRemainsNVWithoutRemoteAuthority(t *testing.T) {
-	document, root, receipt, completionPath := default15mReceiptFixture(t)
-	if err := AttachCompletionProvenance(&receipt, root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
-		t.Fatalf("AttachCompletionProvenance() error = %v, want remote authority N/V", err)
+func TestProjectRemoteTestCommandRejectsInvalidTopLevelTestSignature(t *testing.T) {
+	command, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg", "-run", "^TestAlpha$"})
+	if err != nil {
+		t.Fatal(err)
 	}
+	_, err = ProjectRemoteTestCommand(command, RemoteTestEnvironment{GOOS: "linux", GOARCH: "amd64"}, []RemoteTestPackageFiles{{
+		Package: "./pkg",
+		Files:   []RemoteTestFile{{Path: "pkg/pkg_test.go", Name: "pkg_test.go", Source: []byte("package pkg\nimport \"testing\"\nfunc TestAlpha() {}\n")}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "invalid signature") {
+		t.Fatalf("ProjectRemoteTestCommand() error = %v, want invalid Go test signature", err)
+	}
+}
+
+func TestProjectRemoteTestCommandProducesExactPairsWithoutCartesianExpansion(t *testing.T) {
+	command, err := ParseRemoteTestCommand([]string{"go", "test", "./pkg/a", "./pkg/b", "-run", "^Test(?:Alpha|Beta)$"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packages := []RemoteTestPackageFiles{
+		{Package: "./pkg/a", Files: []RemoteTestFile{{Path: "pkg/a/a_test.go", Name: "a_test.go", Source: []byte("package a\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\n")}}},
+		{Package: "./pkg/b", Files: []RemoteTestFile{{Path: "pkg/b/b_test.go", Name: "b_test.go", Source: []byte("package b\nimport \"testing\"\nfunc TestBeta(t *testing.T) {}\n")}}},
+	}
+	projection, err := ProjectRemoteTestCommand(command, RemoteTestEnvironment{GOOS: "linux", GOARCH: "amd64"}, packages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"./pkg/a#TestAlpha", "./pkg/b#TestBeta"}
+	if !slices.Equal(projection.SelectorStrings(), want) {
+		t.Fatalf("ProjectRemoteTestCommand() = %v, want %v", projection.SelectorStrings(), want)
+	}
+}
+
+func TestParseRemoteTestCommandRejectsShellOrRegexCommand(t *testing.T) {
+	for _, command := range [][]string{
+		{"sh", "-c", "go test ./cmd/mcp-lsp"},
+		{"go", "test", "./cmd/mcp-lsp", "-run", "Test.*"},
+	} {
+		if _, err := ParseRemoteTestCommand(command); err == nil {
+			t.Fatalf("ParseRemoteTestCommand(%v) unexpectedly succeeded", command)
+		}
+	}
+}
+
+func TestProjectRemoteTestCommandRejectsNonCanonicalPackagePaths(t *testing.T) {
+	for _, packagePath := range []string{
+		"./cmd/mcp-lsp/fake/",
+		"./cmd/mcp-lsp/fake/.",
+		"./cmd//mcp-lsp/fake",
+	} {
+		t.Run(packagePath, func(t *testing.T) {
+			command := []string{"go", "test", packagePath, "-run", "^Test(Fake)$"}
+			if _, err := ParseRemoteTestCommand(command); err == nil {
+				t.Fatalf("ParseRemoteTestCommand accepted non-canonical package path %q", packagePath)
+			}
+		})
+	}
+}
+
+func TestDefault15mReceiptRemainsNVWithoutRemoteAuthority(t *testing.T) {
+	document, root, receipt := default15mReceiptFixture(t)
 	receiptPath := filepath.Join(root, "receipt.json")
 	writeReceiptJSON(t, receiptPath, receipt)
 	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
 		t.Fatalf("ValidateReceiptAt() error = %v, want remote authority N/V", err)
-	}
-	if err := ValidateCompletionReceipt(root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
-		t.Fatalf("ValidateCompletionReceipt() error = %v, want remote authority N/V", err)
 	}
 }
 
 func TestDefault15mReceiptRejectsCompletionChainAndGitDrift(t *testing.T) {
-	document, root, receipt, completionPath := default15mReceiptFixture(t)
-	if err := AttachCompletionProvenance(&receipt, root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
-		t.Fatalf("AttachCompletionProvenance() error = %v, want remote authority N/V", err)
-	}
+	document, root, receipt := default15mReceiptFixture(t)
 	receiptPath := filepath.Join(root, "receipt.json")
 	writeReceiptJSON(t, receiptPath, receipt)
 	if err := ValidateReceiptAt(document, root, document.Workloads[0].ID, receiptPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
 		t.Fatalf("ValidateReceiptAt() error = %v, want remote authority N/V", err)
-	}
-	badCompletion := filepath.Join(root, "completion-bad.json")
-	proof := defaultCompletionProof(t, root)
-	proof["action_order"] = []string{"mark_draining", "completed"}
-	writeJSON(t, badCompletion, proof)
-	if err := AttachCompletionProvenance(&receipt, root, badCompletion); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
-		t.Fatalf("AttachCompletionProvenance() error = %v, want remote authority N/V", err)
 	}
 }
 
@@ -347,9 +510,64 @@ func TestRequireRemoteCompletionAuthorityFailsBeforeExecution(t *testing.T) {
 				t.Fatalf("RequireRemoteCompletionAuthority() error = %v, want authority N/V", err)
 			}
 			if !test.want && err != nil {
-				t.Fatalf("RequireRemoteCompletionAuthority() error = %v, want nil", err)
+				t.Fatalf("RequireRemoteCompletionAuthority() error = %v, want local host execution allowed", err)
 			}
 		})
+	}
+}
+
+func TestRequireIdleQuickReleaseRoleFreezesEveryAuthorityField(t *testing.T) {
+	document, err := Load(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := document.Find(idleQuickWorkloadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RequireIdleQuickReleaseRole(canonical); err != nil {
+		t.Fatalf("canonical idle-quick role: %v", err)
+	}
+	for _, mutate := range []func(*Workload){
+		func(value *Workload) { value.TriggerClass = "other" },
+		func(value *Workload) { value.TimeoutSeconds++ },
+		func(value *Workload) { value.Platforms = []string{"linux"} },
+		func(value *Workload) { value.Command = append(slices.Clone(value.Command), "-v") },
+		func(value *Workload) { value.ProducerWorkflowPath = ".github/workflows/release.yml" },
+		func(value *Workload) { value.ProducerArtifactName = "other" },
+	} {
+		mutated := canonical
+		mutate(&mutated)
+		if err := RequireIdleQuickReleaseRole(mutated); err == nil {
+			t.Fatal("idle-quick release role accepted an authority-field mutation")
+		}
+	}
+}
+
+func TestConsumerDiscoveryFindsIndirectOwnerCallsWithoutCatalogImport(t *testing.T) {
+	raw := []byte("package main\nfunc indirect(options *remoteRunOptions) error { return bindMcpLSPWorkloadSelectors(options) }\n")
+	found, err := IsWorkloadConsumerSource("cmd/super-dolphin-gate/new_indirect.go", raw, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("consumer discovery omitted an indirect call into the canonical selector owner")
+	}
+}
+
+func TestWorkloadGateInputPathsUseCandidateProducerAndModuleClosure(t *testing.T) {
+	paths := WorkloadGateInputPaths(Catalog{Workloads: []Workload{
+		{ImplementationStatus: "implemented", ProducerImplementationStatus: "implemented", ProducerWorkflowPath: ".github/workflows/candidate.yml"},
+		{ImplementationStatus: "implemented", ProducerImplementationStatus: "missing", ProducerWorkflowPath: ".github/workflows/missing.yml"},
+		{ImplementationStatus: "missing", ProducerImplementationStatus: "implemented", ProducerWorkflowPath: ".github/workflows/stale.yml"},
+	}})
+	for _, want := range []string{"go.mod", "go.sum", ".github/workflows/candidate.yml"} {
+		if !slices.Contains(paths, want) {
+			t.Fatalf("WorkloadGateInputPaths() omitted %q", want)
+		}
+	}
+	if slices.Contains(paths, ".github/workflows/missing.yml") || slices.Contains(paths, ".github/workflows/stale.yml") || slices.Contains(paths, ".github/workflows/release.yml") {
+		t.Fatalf("WorkloadGateInputPaths() contains non-candidate workflow: %v", paths)
 	}
 }
 
@@ -372,76 +590,16 @@ func TestIsLocalRunnerWorkloadOnlyMatchesLocalTargets(t *testing.T) {
 	}
 }
 
-func TestAttachCompletionProvenanceMapsAndComparesRemoteAuthority(t *testing.T) {
-	_, root, receipt, completionPath := default15mReceiptFixture(t)
-	receipt.WorkloadID = "mcp-lsp-idle-quick"
-	proof := mustDecodeCompletionProof(t, completionPath)
-	if err := AttachCompletionProvenance(&receipt, root, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
-		t.Fatalf("AttachCompletionProvenance() error = %v, want final authority N/V", err)
-	}
-	assertRemoteAuthorityMapping(t, receipt, proof)
-	assertRemoteAuthorityMismatches(t, receipt, proof)
-}
-
-func mustDecodeCompletionProof(t *testing.T, path string) completionProof {
-	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proof, err := decodeCompletionProof(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return proof
-}
-
-func assertRemoteAuthorityMapping(t *testing.T, receipt Receipt, proof completionProof) {
-	t.Helper()
-	if receipt.RemoteRunID != proof.RemoteRunID || receipt.RemoteJobID != proof.RemoteJobID ||
-		receipt.RemoteArtifactName != proof.RemoteArtifactName || receipt.RemoteArtifactDigest != proof.RemoteArtifactDigest {
-		t.Fatalf("AttachCompletionProvenance() remote fields = (%q, %q, %q, %q), want proof values", receipt.RemoteRunID, receipt.RemoteJobID, receipt.RemoteArtifactName, receipt.RemoteArtifactDigest)
-	}
-}
-
-func assertRemoteAuthorityMismatches(t *testing.T, receipt Receipt, proof completionProof) {
-	t.Helper()
-	mutations := []struct {
-		name   string
-		mutate func(*Receipt)
-	}{
-		{name: "run", mutate: func(value *Receipt) { value.RemoteRunID = "other-run" }},
-		{name: "job", mutate: func(value *Receipt) { value.RemoteJobID = "other-job" }},
-		{name: "artifact name", mutate: func(value *Receipt) { value.RemoteArtifactName = "other-artifact" }},
-		{name: "artifact digest", mutate: func(value *Receipt) { value.RemoteArtifactDigest = "sha256:" + strings.Repeat("9", 64) }},
-	}
-	for _, test := range mutations {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := receipt
-			test.mutate(&candidate)
-			if err := validateCompletionProof(proof, candidate, candidate.WorkloadID); err == nil || !strings.Contains(err.Error(), "provenance chain mismatch") {
-				t.Fatalf("validateCompletionProof() error = %v, want remote field mismatch", err)
-			}
-		})
-	}
-}
-
-func TestAttachCompletionProvenanceRejectsMissingRemoteAuthorityFields(t *testing.T) {
-	_, root, receipt, _ := default15mReceiptFixture(t)
-	receipt.WorkloadID = "mcp-lsp-idle-quick"
-	for _, field := range []string{"remote_run_id", "remote_job_id", "remote_artifact_name", "remote_artifact_digest"} {
-		t.Run(field, func(t *testing.T) {
-			proof := defaultCompletionProof(t, root)
-			delete(proof, field)
-			path := filepath.Join(t.TempDir(), field+".json")
-			writeJSON(t, path, proof)
-			candidate := receipt
-			err := AttachCompletionProvenance(&candidate, root, path)
-			want := fmt.Sprintf("completion receipt field %q is required", field)
-			if err == nil || !strings.Contains(err.Error(), want) {
-				t.Fatalf("AttachCompletionProvenance() error = %v, want missing-field error %q", err, want)
-			}
-		})
+func TestLocalCompletionFieldsCannotCreateRemoteAuthority(t *testing.T) {
+	document, _, root := validFixture(t)
+	receipt := canonicalReceipt(document)
+	receipt.RemoteRunID = "local-run"
+	receipt.RemoteJobID = "local-job"
+	receipt.RemoteArtifactName = "local-artifact"
+	receipt.RemoteArtifactDigest = "sha256:" + strings.Repeat("9", 64)
+	path := writeReceiptFixture(t, receipt)
+	if err := ValidateReceiptAt(document, root, "quick", path); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateReceiptAt() error = %v, want untrusted local authority rejection", err)
 	}
 }
 
@@ -490,21 +648,53 @@ func TestLoadAtBindsResolvedGitTreeDespiteWorkingTreeDrift(t *testing.T) {
 	}
 }
 
-func TestValidateCompletionReceiptForCandidateRejectsWorkingTreeIdentity(t *testing.T) {
-	_, root, _, completionPath := default15mReceiptFixture(t)
+func TestRemoteTestSelectorsAtReadsResolvedTreeNotWorkingTree(t *testing.T) {
+	root := t.TempDir()
+	packageRoot := filepath.Join(root, "cmd", "mcp-lsp", "fake")
+	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	treeSource := "package fake\n\nimport \"testing\"\nfunc TestTree(t *testing.T) {}\n"
+	path := filepath.Join(packageRoot, "fake_test.go")
+	if err := os.WriteFile(path, []byte(treeSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCatalogGit(t, root, "init", "--quiet")
+	runCatalogGit(t, root, "config", "user.name", "catalog-test")
+	runCatalogGit(t, root, "config", "user.email", "catalog-test@example.invalid")
+	runCatalogGit(t, root, "add", ".")
+	runCatalogGit(t, root, "commit", "--quiet", "-m", "tree selector")
+	_, tree, err := currentGitIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package fake\n\nimport \"testing\"\nfunc TestWorktree(t *testing.T) {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	selectors, err := RemoteTestSelectorsAt(root, tree, []string{"go", "test", "./cmd/mcp-lsp/fake", "-run", "^TestTree$"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(selectors, []string{"./cmd/mcp-lsp/fake#TestTree"}) {
+		t.Fatalf("RemoteTestSelectorsAt() = %v, want tree-bound selector", selectors)
+	}
+}
+
+func TestValidateReceiptAtCandidateRejectsUnboundLocalAuthority(t *testing.T) {
+	document, root, receipt := default15mReceiptFixture(t)
 	gitHead, tree, err := currentGitIdentity(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateCompletionReceiptForCandidate(gitHead, tree, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
-		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v, want remote authority N/V", err)
-	}
-	if err := ValidateCompletionReceiptForCandidate(strings.Repeat("0", 40), tree, completionPath); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
-		t.Fatalf("ValidateCompletionReceiptForCandidate() error = %v, want remote authority N/V", err)
+	receipt.GitHead = gitHead
+	receipt.SourceTreeDigest = tree
+	path := writeReceiptFixture(t, receipt)
+	if err := ValidateReceiptAtCandidate(document, root, tree, receipt.WorkloadID, path); err == nil || !strings.Contains(err.Error(), "remote run/job/artifact authority") {
+		t.Fatalf("ValidateReceiptAtCandidate() error = %v, want remote authority N/V", err)
 	}
 }
 
-func default15mReceiptFixture(t *testing.T) (Catalog, string, Receipt, string) {
+func default15mReceiptFixture(t *testing.T) (Catalog, string, Receipt) {
 	t.Helper()
 	root := t.TempDir()
 	runCatalogGit(t, root, "init", "--quiet")
@@ -521,20 +711,7 @@ func default15mReceiptFixture(t *testing.T) (Catalog, string, Receipt, string) {
 	raw := encodeWithDigest(t, &document)
 	_ = raw
 	receipt := Receipt{Schema: ReceiptSchema, WorkloadID: workload.ID, CatalogDigest: document.CatalogDigest, RunnerTarget: workload.RunnerTarget, ProducerWorkflowPath: workload.ProducerWorkflowPath, ProducerArtifactName: workload.ProducerArtifactName, ProducerImplementationStatus: workload.ProducerImplementationStatus, ExecutionOrigin: "local-runner", Platform: runtime.GOOS, TimeoutSeconds: workload.TimeoutSeconds, Command: workload.Command, StartedAt: "2026-08-07T00:00:00.000000000Z", FinishedAt: "2026-08-07T00:00:01.000000000Z", WorkloadStartedAt: "2026-08-07T00:00:00.000000000Z", WorkloadFinishedAt: "2026-08-07T00:00:01.000000000Z", Status: "pass", ExitCode: 0}
-	completionPath := filepath.Join(root, "completion.json")
-	writeJSON(t, completionPath, defaultCompletionProof(t, root))
-	return document, root, receipt, completionPath
-}
-
-func defaultCompletionProof(t *testing.T, root string) map[string]any {
-	t.Helper()
-	gitHead, tree, err := currentGitIdentity(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return map[string]any{
-		"git_head": gitHead, "source_tree_digest": tree, "cohort_id": "sha256:" + strings.Repeat("1", 64), "repository_instance_proof_hash": "sha256:" + strings.Repeat("2", 64), "epoch": uint64(3), "daemon_owner_receipt_hash": "sha256:" + strings.Repeat("3", 64), "remote_run_id": "run-1", "remote_job_id": "job-1", "remote_artifact_name": "mcp-lsp-default-15m-receipt", "remote_artifact_digest": "sha256:" + strings.Repeat("4", 64), "action_order": completionActionOrder(), "forwarder_count_after": 0, "daemon_observed_after": false, "telemetry_identities_gone": true, "endpoint_unreachable": true, "native_owner_released": true, "quiet_window_verified": true, "next_epoch": uint64(4), "status": "completed",
-	}
+	return document, root, receipt
 }
 
 func runCatalogGit(t *testing.T, root string, args ...string) {

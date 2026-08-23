@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"path"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -111,7 +110,7 @@ func pathDisplayClass(value any, raw []byte) string {
 		return "path_list"
 	}
 	text := string(raw)
-	if filepath.IsAbs(text) || path.IsAbs(text) {
+	if filepath.IsAbs(text) || strings.HasPrefix(text, "/") {
 		return "absolute_path"
 	}
 	if strings.HasPrefix(text, "~/") {

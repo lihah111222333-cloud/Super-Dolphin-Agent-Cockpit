@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,9 +25,10 @@ func TestInstallHooksMakeTargetUsesWorktreeSafeRelativePath(t *testing.T) {
 	if got := installHooksGitOutput(t, root, "config", "--get", "core.hooksPath"); got != ".githooks" {
 		t.Fatalf("core.hooksPath = %q, want .githooks\nmake output:\n%s", got, output)
 	}
-	if got := installHooksGitOutput(t, root, "config", "--local", "--get", "superdolphin.gateLauncher"); got != launcher {
-		t.Fatalf("superdolphin.gateLauncher = %q, want %q", got, launcher)
+	if _, err := os.Stat(launcher); err != nil {
+		t.Fatalf("exact-tree launcher was not installed: %v", err)
 	}
+	assertInstallHooksLauncherConfigAbsent(t, root, output)
 
 	linkedRoot := filepath.Join(t.TempDir(), "linked")
 	runInstallHooksGit(t, root, "worktree", "add", "-q", "--detach", linkedRoot, "HEAD")
@@ -46,9 +48,10 @@ func TestInstallHooksMakeTargetBuildsExactTreeLauncherByDefault(t *testing.T) {
 		t.Fatalf("make install-hooks failed: %v\n%s", err, output)
 	}
 
-	if got := installHooksGitOutput(t, root, "config", "--local", "--get", "superdolphin.gateLauncher"); got != launcher {
-		t.Fatalf("superdolphin.gateLauncher = %q, want exact-tree builder output %q", got, launcher)
+	if _, err := os.Stat(launcher); err != nil {
+		t.Fatalf("exact-tree builder output is unavailable: %v", err)
 	}
+	assertInstallHooksLauncherConfigAbsent(t, root, output)
 }
 
 func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T) {
@@ -56,10 +59,54 @@ func TestTrustedLauncherBuilderReadsExactTreeBlobsWithExplicitType(t *testing.T)
 	assertScriptContains(t, guard, `git -C "$repo_root" cat-file blob "${tree}:${file_path}"`)
 	assertScriptContains(t, guard, `git -C "$repo_root" archive --format=tar -o "$archive_path" "$tree"`)
 	assertScriptContains(t, guard, `tar -xf "$archive_path" -C "$temp_root"`)
+	assertScriptContains(t, guard, `GOCACHE="$temp_root/go-build-cache"`)
 	assertScriptDoesNotContain(t, guard, `git -C "$repo_root" cat-file "${tree}:${file_path}"`)
 	assertScriptDoesNotContain(t, guard, `archive --format=tar "$tree" | tar`)
 	assertScriptDoesNotContain(t, guard, "--install-root")
 	assertScriptDoesNotContain(t, guard, "super-dolphin-gate-launchers")
+}
+
+func TestTrustedGateLauncherShellContract(t *testing.T) {
+	installTrustedLauncherContractOSHome(t)
+	command := exec.Command("bash", "tests/test_trusted_gate_launcher_contract.sh")
+	command.Env = append(os.Environ(), "SUPER_DOLPHIN_TRUSTED_LAUNCHER_CONTRACT_SHELLS="+strings.Join(trustedLauncherContractShells(), " "))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("trusted launcher shell contract failed: %v\n%s", err, output)
+	}
+	helper := readRequiredFile(t, filepath.Join(scriptRepoRoot(t), ".githooks", "trusted-gate-launcher.sh"))
+	assertScriptContains(t, helper, `git -C "$repo_root" cat-file blob "${tree}:scripts/build-trusted-gate-launcher.sh"`)
+}
+
+// installTrustedLauncherContractOSHome 为无登录账户的 Linux worker 提供独立的系统 home 解析夹具。
+func installTrustedLauncherContractOSHome(t *testing.T) {
+	t.Helper()
+	cacheRoot := strings.TrimSpace(os.Getenv("GOCACHE"))
+	homeParent, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		homeParent = ""
+	}
+	if info, err := os.Stat(homeParent); err != nil || !info.IsDir() {
+		if cacheRoot == "" {
+			t.Fatalf("trusted launcher test requires an existing OS home or explicit GOCACHE")
+		}
+		homeParent = filepath.Dir(cacheRoot)
+	}
+	home, err := os.MkdirTemp(homeParent, ".trusted-launcher-home-")
+	if err != nil {
+		t.Fatalf("create trusted launcher test home: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	fakeBin := t.TempDir()
+	resolver, body := "getent", "#!/bin/sh\nprintf 'fixture:x:0:0::"+home+":/bin/sh\\n'\n"
+	if runtime.GOOS == "darwin" {
+		resolver = "dscl"
+		body = "#!/bin/sh\nprintf 'NFSHomeDirectory: " + home + "\\n'\n"
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, resolver), []byte(body), 0o700); err != nil {
+		t.Fatalf("write trusted launcher home resolver: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func TestInstallHooksMakeTargetRefusesConflictingHooksPath(t *testing.T) {
@@ -98,14 +145,13 @@ func TestInstallHooksMakeTargetRejectsMissingExactTreeBuilder(t *testing.T) {
 func writeInstallHooksBuilder(t *testing.T, root string, launcherMode os.FileMode) string {
 	t.Helper()
 	installRoot := secureTrustedLauncherTestRoot(t)
-	runInstallHooksGit(t, root, "config", "--local", "superdolphin.testLauncherRoot", installRoot)
 	path := filepath.Join(root, "scripts", "build-trusted-gate-launcher.sh")
 	body := `#!/usr/bin/env bash
 set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 repo_root=$(cd "$repo_root" && pwd -P)
 tree=${1:?tree is required}
-install_root=$(git config --local --get superdolphin.testLauncherRoot)
+install_root=` + fmt.Sprintf("%q", installRoot) + `
 # Keep each fixture tree distinct from any user-installed launcher.
 # fixture-root: ` + root + `
 launcher="$install_root/v2/$tree/` + installHooksStubDigest() + `/super-dolphin-gate"
@@ -205,4 +251,19 @@ func installHooksGitOutput(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s failed in %s: %v\n%s", strings.Join(args, " "), dir, err, output)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func assertInstallHooksLauncherConfigAbsent(t *testing.T, root string, installOutput []byte) {
+	t.Helper()
+	for _, key := range []string{"superdolphin.gateLauncher", "superdolphin.gateLauncherRoot"} {
+		cmd := exec.Command("git", "config", "--local", "--get", key)
+		cmd.Dir = root
+		output, err := cmd.CombinedOutput()
+		if err == nil || strings.TrimSpace(string(output)) != "" {
+			t.Fatalf("install-hooks retained repo-local %s=%q", key, output)
+		}
+		if strings.Contains(string(installOutput), key) {
+			t.Fatalf("install-hooks output exposed retired config key %s: %s", key, installOutput)
+		}
+	}
 }

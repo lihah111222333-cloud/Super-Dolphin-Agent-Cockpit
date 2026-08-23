@@ -183,6 +183,7 @@ func broken(err error) (string, error) {
 
 func writeSilentFallbackFixture(t *testing.T, root, rel, body string) {
 	t.Helper()
+	writeCanonicalSQLCGuardFixture(t, root)
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/lihah111222333-cloud/super-dolphin-agent\n"), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}

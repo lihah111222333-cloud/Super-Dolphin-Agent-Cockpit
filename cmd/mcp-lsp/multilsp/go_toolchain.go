@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,7 +175,7 @@ func traceLSPTiming(format string, args ...any) {
 	if os.Getenv("MCP_LSP_TRACE_TIMING") != "1" {
 		return
 	}
-	_, _ = fmt.Fprintf(os.Stderr, "mcp-lsp timing: "+format+"\n", args...)
+	slog.Debug("mcp-lsp timing", "detail", fmt.Sprintf(format, args...))
 }
 
 // goToolchainSelectionKey 绑定工作区和完整环境，允许在扫描 PATH 前命中缓存。

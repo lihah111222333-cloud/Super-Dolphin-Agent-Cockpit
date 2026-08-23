@@ -1,26 +1,150 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
+)
+
+func TestOwnedGateCommandCancellationKillsInheritedPipeProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix process-group inherited-pipe regression")
+	}
+	script := filepath.Join(t.TempDir(), "fork")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n/bin/sleep 2 &\nwait\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := runCommandWithEnvironmentContext(ctx, t.TempDir(), script, []string{"PATH=/usr/bin:/bin"})
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 500*time.Millisecond {
+		t.Fatalf("bounded owned command error=%v elapsed=%v", err, time.Since(started))
+	}
+}
+
+func TestTrustedOwnedGateToolsIgnoreAmbientPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX owned gate tool authority")
+	}
+	fakeRoot := t.TempDir()
+	for _, name := range []string{"go", "git", "make"} {
+		if err := os.WriteFile(filepath.Join(fakeRoot, name), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", fakeRoot)
+	plan := gatePlan{executionRoot: t.TempDir()}
+	for _, test := range []struct {
+		tool      string
+		arguments []string
+	}{
+		{tool: "go", arguments: []string{"version"}},
+		{tool: "git", arguments: []string{"--version"}},
+		{tool: "make", arguments: []string{"--version"}},
+	} {
+		if err := runTrustedOwnedGateCommand(plan, test.tool, test.arguments...); err != nil {
+			t.Fatalf("trusted %s: %v", test.tool, err)
+		}
+	}
+}
+
+func TestCatalogGuardHostSupportRejectsWindows(t *testing.T) {
+	if catalogGuardHostSupported("windows") || !catalogGuardHostSupported("linux") {
+		t.Fatal("catalog guard host support must fail closed on Windows and allow the trusted POSIX host")
+	}
+}
 
 func TestMcpLSPWorkloadFilesRequireCatalogAndQuickRoundTrip(t *testing.T) {
+	document, err := catalog.Load(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := newGatePlanPolicy()
+	policy.mcpLSPWorkloadExactFiles = workloadGateInputFileSet(document)
 	for _, file := range []string{
 		"scripts/mcp_lsp_workload_catalog/catalog.go",
 		"scripts/mcp_lsp_workload_catalog.json",
 		"scripts/mcp_lsp_workload_runner/main.go",
-		"scripts/mcp_lsp_workload_guard/main.go",
+		"internal/devtools/mcplspguardcore/guard.go",
 		"scripts/mcp_lsp_workload_catalog_guard_test.go",
-		".github/workflows/ci.yml",
-		".github/workflows/release.yml",
 		"scripts/ai_maintenance/main.go",
 		"scripts/ai_maintenance/owned_gate_execution.go",
-		"scripts/ai_maintenance/evidence.go",
 		".githooks/README.md",
 		"Makefile",
 	} {
 		gates := map[string]bool{}
-		newGatePlanPolicy().applyOwnedGateRules(file, gates)
+		policy.applyOwnedGateRules(file, gates)
 		if !gates["mcp-lsp:catalog"] || !gates["mcp-lsp:idle-quick"] {
 			t.Fatalf("%q gates = %#v, want catalog and idle-quick roundtrip", file, gates)
 		}
 	}
+}
+
+func TestMcpLSPWorkloadRoutingCoversCanonicalConsumerRegistry(t *testing.T) {
+	policy := newGatePlanPolicy()
+	for _, file := range catalog.WorkloadConsumerPaths() {
+		gates := map[string]bool{}
+		policy.applyOwnedGateRules(file, gates)
+		if !gates["mcp-lsp:catalog"] || !gates["mcp-lsp:idle-quick"] {
+			t.Fatalf("canonical consumer %q gates = %#v, want both MCP-LSP roles", file, gates)
+		}
+	}
+}
+
+func TestCandidateProducerWorkflowChangeRoutesBothMcpLSPGates(t *testing.T) {
+	const producer = ".github/workflows/new-mcp-lsp.yml"
+	current, err := catalog.Load(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(current.Workloads) == 0 {
+		t.Fatal("candidate catalog has no workload fixture")
+	}
+	current.Workloads[0].ProducerImplementationStatus = "implemented"
+	current.Workloads[0].ProducerWorkflowPath = producer
+	policy := newGatePlanPolicy()
+	policy.mcpLSPWorkloadExactFiles = workloadGateInputFileSet(current)
+	gates := map[string]bool{}
+	policy.applyOwnedGateRules(producer, gates)
+	if !gates["mcp-lsp:catalog"] || !gates["mcp-lsp:idle-quick"] {
+		t.Fatalf("candidate producer workflow gates = %#v, want both MCP-LSP roles", gates)
+	}
+}
+
+func TestMcpLSPQuickReleaseAuthorityCannotUseLocalReceipt(t *testing.T) {
+	workload := canonicalIdleQuickWorkload(t)
+	err := requireMcpLSPQuickReleaseAuthority(workload)
+	if err == nil || !strings.Contains(err.Error(), "N/V") {
+		t.Fatalf("quick release authority error = %v, want remote authority N/V", err)
+	}
+}
+
+func TestMcpLSPQuickReleaseAuthorityRejectsLocalRoleMutation(t *testing.T) {
+	workload := canonicalIdleQuickWorkload(t)
+	workload.RunnerTarget = "local-go-test"
+	err := requireMcpLSPQuickReleaseAuthority(workload)
+	if err == nil || !strings.Contains(err.Error(), "release role") {
+		t.Fatalf("quick local role error = %v, want release role rejection", err)
+	}
+}
+
+func canonicalIdleQuickWorkload(t *testing.T) catalog.Workload {
+	t.Helper()
+	document, err := catalog.Load(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workload, err := document.Find("mcp-lsp-idle-quick")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workload
 }

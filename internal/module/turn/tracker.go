@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -311,11 +312,15 @@ func (t *turnTracker) BindProviderID(localID, providerID string) string {
 		turn.providerID = strings.TrimSpace(providerID)
 		if turn.interruptClaimed && turn.interruptAcceptedRequestID == "" {
 			requestID := turn.interruptClaimRequestID
+			if err := turn.sm.Fire(string(TriggerInterrupt)); err != nil {
+				turn.lastError = fmt.Sprintf("bind provider interrupt transition: %v", err)
+				turn.updatedAt = t.store.Tick()
+				return
+			}
 			turn.interruptClaimed = false
 			turn.interruptClaimRequestID = ""
 			turn.interruptAcceptedRequestID = requestID
 			turn.interruptRequested = true
-			turn.sm.Fire(string(TriggerInterrupt))
 		}
 		if turn.interruptRequested && !turn.interruptDeliveryClaimed && !turn.interruptDeliverySent {
 			turn.interruptDeliveryClaimed = true

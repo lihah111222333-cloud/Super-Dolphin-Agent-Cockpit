@@ -2,6 +2,9 @@ package archtest
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,11 +40,91 @@ func TestBackendBoundaryGuardsFailClosed(t *testing.T) {
 	malformedRoot := t.TempDir()
 	malformedRel := "internal/contract/broken.go"
 	malformedPath := writeBackendBoundaryFixture(t, malformedRoot, malformedRel, "package contract\nfunc (\n")
-	if _, err := EvaluateBackendBoundaryFile(malformedPath, malformedRel, registry, "contract_reverse_pollution"); err == nil {
+	if _, err := EvaluateBackendBoundaryFile(malformedRoot, malformedPath, malformedRel, registry, "contract_reverse_pollution"); err == nil {
 		t.Fatal("malformed Go source must return an error")
 	}
 	if _, err := EvaluateBackendBoundary(t.TempDir(), registry, "unknown_backend_boundary_rule"); err == nil {
 		t.Fatal("unknown backend boundary rule must return an error")
+	}
+}
+
+// TestTemporaryBackendBoundaryFixturesDeclareSQLCOwner enumerates every test
+// function that combines a temporary root with the evaluator and requires the
+// shared canonical SQLC fixture helper in that same fixture entry.
+func TestTemporaryBackendBoundaryFixturesDeclareSQLCOwner(t *testing.T) {
+	t.Parallel()
+
+	root := repoRootForGuardTests(t)
+	paths, err := filepath.Glob(filepath.Join(root, "internal", "archtest", "*_test.go"))
+	if err != nil {
+		t.Fatalf("enumerate backend boundary test files: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("backend boundary test enumeration found no Go tests")
+	}
+	for _, path := range paths {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read backend boundary test %s: %v", path, err)
+		}
+		missing, err := temporaryEvaluatorFixtureEntries(path, source)
+		if err != nil {
+			t.Fatalf("parse backend boundary test %s: %v", path, err)
+		}
+		for _, functionName := range missing {
+			t.Errorf("%s: temporary evaluator fixture %s must call shared canonical SQLC fixture helper", filepath.ToSlash(filepath.Join("internal", "archtest", filepath.Base(path))), functionName)
+		}
+	}
+}
+
+func temporaryEvaluatorFixtureEntries(path string, source []byte) ([]string, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+	if err != nil {
+		return nil, err
+	}
+	var missing []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		fn, ok := node.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			return true
+		}
+		if temporaryEvaluatorNeedsOwner(fn) {
+			missing = append(missing, fn.Name.Name)
+		}
+		return false
+	})
+	return missing, nil
+}
+
+func temporaryEvaluatorNeedsOwner(fn *ast.FuncDecl) bool {
+	var hasTempRoot, hasEvaluator, hasSQLCOwner bool
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name := backendBoundaryFixtureCallName(call)
+		switch name {
+		case "TempDir":
+			hasTempRoot = true
+		case "EvaluateBackendBoundary", "EvaluateBackendBoundaryFile":
+			hasEvaluator = true
+		case "writeCanonicalSQLCGuardFixture", "WriteCanonicalSQLCGuardFixture", "writeBackendBoundaryFixture":
+			hasSQLCOwner = true
+		}
+		return true
+	})
+	return hasTempRoot && hasEvaluator && !hasSQLCOwner
+}
+
+func backendBoundaryFixtureCallName(call *ast.CallExpr) string {
+	switch function := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		return function.Sel.Name
+	case *ast.Ident:
+		return function.Name
+	default:
+		return ""
 	}
 }
 
@@ -250,7 +333,7 @@ func TestBackendBoundaryGuardFixturesRejectKnownViolations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			path := writeBackendBoundaryFixture(t, root, tc.relPath, tc.source)
-			violations, err := EvaluateBackendBoundaryFile(path, tc.relPath, registry, tc.ruleID)
+			violations, err := EvaluateBackendBoundaryFile(root, path, tc.relPath, registry, tc.ruleID)
 			if err != nil {
 				t.Fatalf("evaluate fixture: %v", err)
 			}
@@ -278,8 +361,9 @@ func TestAppAdapterBoundaryFixturesRejectCrossDomainPollution(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			source := "package " + tc.packageID + "\n\nimport _ \"github.com/lihah111222333-cloud/super-dolphin-agent/" + tc.importPath + "\"\n"
-			path := writeBackendBoundaryFixture(t, t.TempDir(), tc.relPath, source)
-			violations, err := EvaluateBackendBoundaryFile(path, tc.relPath, registry, ruleID)
+			root := t.TempDir()
+			path := writeBackendBoundaryFixture(t, root, tc.relPath, source)
+			violations, err := EvaluateBackendBoundaryFile(root, path, tc.relPath, registry, ruleID)
 			if err != nil {
 				t.Fatalf("evaluate fixture: %v", err)
 			}
@@ -315,8 +399,9 @@ func TestEvaluateBackendBoundaryFileReportsImportPosition(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			relPath := "internal/contract/leak.go"
-			path := writeBackendBoundaryFixture(t, t.TempDir(), relPath, tc.source)
-			violations, err := EvaluateBackendBoundaryFile(path, relPath, registry, "contract_reverse_pollution")
+			root := t.TempDir()
+			path := writeBackendBoundaryFixture(t, root, relPath, tc.source)
+			violations, err := EvaluateBackendBoundaryFile(root, path, relPath, registry, "contract_reverse_pollution")
 			if err != nil {
 				t.Fatalf("evaluate fixture: %v", err)
 			}
@@ -330,13 +415,69 @@ func TestEvaluateBackendBoundaryFileReportsImportPosition(t *testing.T) {
 	}
 }
 
+func TestEvaluateBackendBoundaryFileBindsCanonicalRootPathAndRelativePath(t *testing.T) {
+	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
+	path := writeBackendBoundaryFixtureFile(t, root, "internal/module/sample.go", "package module\n")
+	registry := DefaultBackendBoundaryRegistry()
+	assertBackendBoundaryFileError(t, root, path, "internal/module/other.go", registry, "does not match canonical")
+	outsideRoot := t.TempDir()
+	outside := writeBackendBoundaryFixtureFile(t, outsideRoot, "outside.go", "package outside\n")
+	assertBackendBoundaryFileError(t, root, outside, "outside.go", registry, "outside repository root")
+	symlink := filepath.Join(root, "internal", "module", "link.go")
+	if err := os.Symlink(path, symlink); err != nil {
+		t.Fatal(err)
+	}
+	assertBackendBoundaryFileError(t, root, symlink, "internal/module/link.go", registry, "symbolic link")
+}
+
+func writeBackendBoundaryFixtureFile(t *testing.T, root, relative, content string) string {
+	t.Helper()
+	file := filepath.Join(root, filepath.FromSlash(relative))
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func assertBackendBoundaryFileError(t *testing.T, root, file, relative string, registry BackendBoundaryRegistry, fragment string) {
+	t.Helper()
+	_, err := EvaluateBackendBoundaryFile(root, file, relative, registry)
+	if err == nil || !strings.Contains(err.Error(), fragment) {
+		t.Fatalf("boundary file error = %v, want fragment %q", err, fragment)
+	}
+}
+
+func TestEvaluateBackendBoundaryRejectsSymlinkedProductionEntry(t *testing.T) {
+	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
+	target := filepath.Join(t.TempDir(), "outside.go")
+	if err := os.WriteFile(target, []byte("package outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "internal", "module", "linked.go")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EvaluateBackendBoundary(root, DefaultBackendBoundaryRegistry(), "contract_reverse_pollution"); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("EvaluateBackendBoundary() error = %v, want symlink rejection", err)
+	}
+}
+
 func TestPkgNoInternalImportsRuleRejectsRepositoryInternals(t *testing.T) {
 	t.Parallel()
 
 	relPath := "pkg/logger/leak.go"
 	source := "package logger\n\nimport (\n    _ \"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config\"\n    _ \"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/agent-runtime\"\n    _ \"log/slog\"\n)\n"
-	path := writeBackendBoundaryFixture(t, t.TempDir(), relPath, source)
-	violations, err := EvaluateBackendBoundaryFile(path, relPath, DefaultBackendBoundaryRegistry(), "pkg_no_internal_imports")
+	root := t.TempDir()
+	path := writeBackendBoundaryFixture(t, root, relPath, source)
+	violations, err := EvaluateBackendBoundaryFile(root, path, relPath, DefaultBackendBoundaryRegistry(), "pkg_no_internal_imports")
 	if err != nil {
 		t.Fatalf("evaluate pkg boundary fixture: %v", err)
 	}
@@ -359,6 +500,7 @@ func TestPkgNoInternalImportsRuleRejectsRepositoryInternals(t *testing.T) {
 
 func writeBackendBoundaryFixture(t *testing.T, root, relPath, source string) string {
 	t.Helper()
+	writeCanonicalSQLCGuardFixture(t, root)
 	path := filepath.Join(root, filepath.FromSlash(relPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("create backend boundary fixture directory: %v", err)

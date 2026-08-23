@@ -4,9 +4,9 @@
   "cache_scope": "node",
   "inputs": {
     "toolchain_lock_sha256": "sha256:1ed9f3c1c170378cf30805a2dd1dfb9ae508a5cfe6347fddfa16f6c5b79e143b",
-    "go_mod_sha256": "sha256:d670fbf81d59def00aabc51af6184768090a5f9d1b823398f17e572b0671e0fd",
-    "go_sum_sha256": "sha256:33a78fe766d1ae22d76bd07ca0ec120028139af5202cfbe65c5008538c61a54c",
-    "go_distribution_lock_sha256": "sha256:e5c78dfb226562952f8b2a7a9c29074e1fe58371ee63359086f04a31a025a9a6",
+    "go_mod_sha256": "sha256:6f8b27ebca16ec1ad3f9c839b9e948c9c99b7fec9cef6817bdaacfeb50a587f0",
+    "go_sum_sha256": "sha256:1e6293b6aed84c147e180c7cca8ca6cca6b2bcac02d60b686d5551ae1ce0f7f9",
+    "go_distribution_lock_sha256": "sha256:48716d3847d2f40ed86f923ea84aefbd5969e7779cd9eea2f4e883dbb5a31a78",
     "nilness_runner_sha256": "sha256:95dc872b202a527293eb57887ddb8fb4caf0a9f6ec5169fd17cbff99f74e8b9d",
     "nilness_guard_sha256": "sha256:b85f7ca92e06a6783898751dd969328ba9fcdf234f6727680b5e0d60536acd46",
     "frontend_package_lock_sha256": "sha256:a558027d0cc2ca66844a6ac3e77079b94ff1a2f19c89ff0b2609af82f478b882",
@@ -17,11 +17,9 @@
     "tools_go_sum_sha256": "sha256:4fb6b0daaafccfaa0024c3eebd193929957f4e49c62ed551a6289c59632f104f"
   },
   "recipe_inputs": {
-    "dockerfile_sha256": "sha256:c8a16f8d1c2a88e3069d24b573fd328dbec97a3f47342a98bcc3b48abac19fb5",
-    "runtime_seed_worker_sha256": "sha256:88acfbb2cda63a0496de5422d3b458a5fefe93fd30ceb06b577a4b18beeb4e0a"
+    "dockerfile_sha256": "sha256:d77423926ce737324ef3e8d896f90e9f8b42ab2d032d284e86b75a6fc5d93661"
   },
   "paths": {
-    "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",
     "go_module_proxy": "/opt/super-dolphin-gate/runtime/go-proxy",
     "frontend_node_modules": "/opt/super-dolphin-gate/runtime/frontend/node_modules",
     "playwright_browsers": "/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",

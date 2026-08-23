@@ -4,9 +4,10 @@ import "testing"
 
 func TestLockedAssetsMatchOfficialGo1265Archives(t *testing.T) {
 	want := map[string]Asset{
-		"darwin/arm64": {Version: Version, GOOS: "darwin", GOARCH: "arm64", URL: "https://go.dev/dl/go1.26.5.darwin-arm64.tar.gz", SHA256: "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a", Size: 64738542},
-		"darwin/amd64": {Version: Version, GOOS: "darwin", GOARCH: "amd64", URL: "https://go.dev/dl/go1.26.5.darwin-amd64.tar.gz", SHA256: "6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725", Size: 67836304},
-		"linux/amd64":  {Version: Version, GOOS: "linux", GOARCH: "amd64", URL: "https://go.dev/dl/go1.26.5.linux-amd64.tar.gz", SHA256: "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053", Size: 66879095},
+		"darwin/arm64":  {Version: Version, GOOS: "darwin", GOARCH: "arm64", URL: "https://go.dev/dl/go1.26.5.darwin-arm64.tar.gz", SHA256: "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a", Size: 64738542},
+		"darwin/amd64":  {Version: Version, GOOS: "darwin", GOARCH: "amd64", URL: "https://go.dev/dl/go1.26.5.darwin-amd64.tar.gz", SHA256: "6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725", Size: 67836304},
+		"linux/amd64":   {Version: Version, GOOS: "linux", GOARCH: "amd64", URL: "https://go.dev/dl/go1.26.5.linux-amd64.tar.gz", SHA256: "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053", Size: 66879095},
+		"windows/amd64": {Version: Version, GOOS: "windows", GOARCH: "amd64", URL: "https://go.dev/dl/go1.26.5.windows-amd64.zip", SHA256: "97e6b2a833b6d89f9ff17d25419ac0a7e3b482a044e9ab18cdef834bd834fd38", Size: 74927386},
 	}
 	for platform, expected := range want {
 		got, err := Lookup(expected.GOOS, expected.GOARCH)
@@ -39,6 +40,13 @@ func TestRemoteCIOnlyAcceptsLinuxAMD64Asset(t *testing.T) {
 	}
 	if err := ValidateRemoteCIAsset(darwin); err == nil {
 		t.Fatal("ValidateRemoteCIAsset(darwin) unexpectedly succeeded")
+	}
+	windows, err := Lookup("windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRemoteCIAsset(windows); err == nil {
+		t.Fatal("ValidateRemoteCIAsset(windows) unexpectedly succeeded")
 	}
 }
 

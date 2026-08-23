@@ -1,7 +1,6 @@
 package gateclosure_test
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"os"
@@ -21,54 +20,17 @@ const (
 	runtimeDepsBuildPath = "build/gate/runtime-deps.Dockerfile"
 )
 
-func TestWorkerRecipeCommandsAreRegisteredBuiltinAndNotRejected(t *testing.T) {
+func TestWorkerRecipeCommandsAreNotRequiredByCurrentGate(t *testing.T) {
 	root := repositoryRoot(t)
 	mainSource := readTestFile(t, filepath.Join(root, "cmd/super-dolphin-gate/main.go"))
-	workerTestSource := readTestFile(t, filepath.Join(root, "cmd/super-dolphin-gate/worker_cli_test.go"))
-	tests := []struct {
-		name          string
-		registryCase  string
-		canonicalCall string
-		recipeLines   map[string]string
-		rejectVector  string
-	}{
-		{
-			name:          "validate-go-distribution",
-			registryCase:  `case "validate-go-distribution":`,
-			canonicalCall: "gatecontract.ValidateRemoteGoDistributionPlatform",
-			recipeLines: map[string]string{
-				runtimeDepsBuildPath: "/tmp/super-dolphin-gate worker validate-go-distribution; " + "\\",
-			},
-			rejectVector: "\t\t{\"validate-go-distribution\"},",
-		},
-		{
-			name:          "race-package-patterns",
-			registryCase:  `case "race-package-patterns":`,
-			canonicalCall: "gatecontract.RaceSensitivePackagePatterns()",
-			recipeLines: map[string]string{
-				"build/gate/closure/closure.go": "set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; " + "\\",
-				dockerfilePath:                  "set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; " + "\\",
-			},
-			rejectVector: "\t\t{\"race-package-patterns\"},",
-		},
+	runtimeDeps := readTestFile(t, filepath.Join(root, runtimeDepsBuildPath))
+	if !strings.Contains(mainSource, `args[0] == "mcp-lsp-catalog-guard"`) {
+		t.Fatal("current Gate worker registry is missing the catalog guard builtin")
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if count := strings.Count(mainSource, test.registryCase); count != 1 {
-				t.Fatalf("builtin registry marker %q count = %d, want exactly one", test.registryCase, count)
-			}
-			if count := strings.Count(mainSource, test.canonicalCall); count != 1 {
-				t.Fatalf("canonical owner call %q count = %d, want exactly one", test.canonicalCall, count)
-			}
-			if strings.Contains(workerTestSource, test.rejectVector) {
-				t.Fatalf("obsolete rejection vector still contains %s", test.name)
-			}
-			for recipePath, recipeLine := range test.recipeLines {
-				if count := countTrimmedLine(t, filepath.Join(root, recipePath), recipeLine); count != 1 {
-					t.Fatalf("recipe %s line %q count = %d, want exactly one", recipePath, recipeLine, count)
-				}
-			}
-		})
+	for _, retired := range []string{"validate-go-distribution", "runtime-seed", "runtime_seed", "manifest.json", "/tmp/super-dolphin-gate"} {
+		if strings.Contains(runtimeDeps, retired) {
+			t.Fatalf("runtime dependency recipe retains retired worker marker %q", retired)
+		}
 	}
 }
 
@@ -81,19 +43,18 @@ type manifest struct {
 	SourceSnapshotPathsSHA256 string   `json:"source_snapshot_paths_sha256"`
 }
 
-func TestTruthImageClosureUsesImmutableStandaloneRuntime(t *testing.T) {
+func TestTrustedGateClosureUsesExactSourceManifest(t *testing.T) {
 	root := repositoryRoot(t)
 	tracked := readManifest(t, root)
-	if tracked.SchemaVersion != "3" || tracked.Dockerfile != dockerfilePath ||
+	if tracked.SchemaVersion != "4" || tracked.Dockerfile != dockerfilePath ||
 		!sort.StringsAreSorted(tracked.Inputs) || !sort.StringsAreSorted(tracked.GateCompileInputs) ||
 		tracked.SourceSnapshotInputCount <= 0 || !strings.HasPrefix(tracked.SourceSnapshotPathsSHA256, "sha256:") {
 		t.Fatalf("invalid truth image manifest identity: %+v", tracked)
 	}
 	for _, required := range []string{
 		"cmd/super-dolphin-gate/main.go",
-		"internal/devtools/gate/executor.go",
-		"internal/devtools/gate/executor_frontend_vite_cache.go",
-		"internal/devtools/gate/executor_mapping.go",
+		"internal/devtools/gateprivate/trusted_executable.go",
+		"internal/devtools/mcplspguardcore/guard.go",
 		toolchainPath, runtimeDepsLockPath, runtimeDepsBuildPath,
 	} {
 		if !slices.Contains(tracked.Inputs, required) {
@@ -119,7 +80,7 @@ func TestTruthImageClosureUsesImmutableStandaloneRuntime(t *testing.T) {
 	}
 }
 
-func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
+func TestTrustedGateDockerfileIsSourceClosureOnly(t *testing.T) {
 	root := repositoryRoot(t)
 	data, err := os.ReadFile(filepath.Join(root, dockerfilePath))
 	if err != nil {
@@ -127,64 +88,36 @@ func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
 	}
 	text := string(data)
 	for _, required := range []string{
-		"ARG RUNTIME_DEPS_IMAGE\n",
-		"ARG BASELINE_CACHE_IMAGE\n",
-		"ARG COMPILED_SEED_IMAGE\n",
-		"ARG MAIN_COMMIT\n",
+		"FROM scratch AS source-closure",
+		"FROM source-closure AS final",
+		"ARG BUILD_SOURCE_TREE\n",
 		"ARG GATE_SOURCE_DIGEST\n",
 		"ARG RUNTIME_DEPENDENCY_DIGEST\n",
-		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
-		"--mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
-		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /out/go-build-cache",
-		"env GOCACHEPROG=\"$go_cache_proxy --metrics",
-		"FROM ${RUNTIME_DEPS_IMAGE} AS compiled-seed\nUSER root",
-		"FROM ${COMPILED_SEED_IMAGE} AS compiled-seed-source",
-		"FROM ${RUNTIME_DEPS_IMAGE} AS postprocess",
-		"remote-ci-cache-material/v1",
-		`"authority":"non_authoritative_material"`,
-		`"seed_steps"`,
-		"compiled seed material manifest fields mismatch",
-		"compiled seed material identity mismatch",
-		"org.super-dolphin.gate-source-digest=\"${GATE_SOURCE_DIGEST}\"",
-		"org.super-dolphin.main-commit-sha=\"${MAIN_COMMIT}\"",
-		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
-		"seed_compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...",
-		"seed_compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
-		"seed_compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
-		"seed compile complete phase=%s authority=non_authoritative_material",
-		"compiled-seed complete go_cache_entries=%s",
-		"COPY --from=postprocess /out/super-dolphin-gate /super-dolphin-gate",
-		"ENTRYPOINT [\"/super-dolphin-gate\"]",
-		"ENV GOCACHE=/out/go-build-cache",
-		"COPY --from=postprocess /out/go-build-cache /opt/super-dolphin/cache/go-build",
-		"chmod -R a-w /opt/super-dolphin/cache/go-build",
+		"ARG TOOLCHAIN_DIGEST\n",
+		"org.super-dolphin.closure-schema=\"trusted-gate-closure/v1\"",
 		"org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\"",
-		"org.super-dolphin.image-input-digest=\"${IMAGE_INPUT_DIGEST}\"",
-		"org.super-dolphin.policy-sha=\"${POLICY_DIGEST}\"",
+		"org.super-dolphin.runtime-dependency-digest=\"${RUNTIME_DEPENDENCY_DIGEST}\"",
 		"org.super-dolphin.toolchain-digest=\"${TOOLCHAIN_DIGEST}\"",
-		"org.super-dolphin.platform=\"${TARGET_PLATFORM}\"",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("truth Dockerfile is missing %q", required)
+			t.Fatalf("trusted Gate Dockerfile is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "go mod download", "super-dolphin-gate-executor", "/opt/super-dolphin-gate/cache-seed/go-build", "COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build", "cp -a /baseline-cache", "record_provision_check", "generation-one-build-receipt", "generation-one-receipts", "provision_checks", "accepted_snapshot_id"} {
+	for _, forbidden := range []string{
+		"remote-ci-" + "cache-material/v1",
+		"non_" + "authoritative_material",
+		"runtime_" + "image",
+		"RUNTIME_DEPS_" + "IMAGE",
+		"BASELINE_" + "CACHE_IMAGE",
+		"COMPILED_" + "SEED_IMAGE",
+		"compiled-" + "seed",
+		"Image" + "Cache",
+		"/opt/super-dolphin/cache/go-build",
+		"/out/compiled-seed-manifest.json",
+	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("truth Dockerfile contains forbidden fallback %q", forbidden)
+			t.Fatalf("trusted Gate Dockerfile contains retired cloud material %q", forbidden)
 		}
-	}
-	if strings.Contains(text, "127.0.0.1:5000") || strings.Contains(text, "localhost:") {
-		t.Fatal("truth Dockerfile must receive its runtime dependency image from the platform-bound build request")
-	}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "RUN ") && !strings.HasPrefix(line, "RUN --network=none ") {
-			t.Fatalf("truth Dockerfile has network-capable RUN: %s", line)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -234,7 +167,6 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		t.Fatal("runtime dependency identity labels must follow all expensive dependency layers")
 	}
 	for _, required := range []string{
-		`/tmp/super-dolphin-gate worker validate-go-distribution`,
 		`test "$(/usr/local/go/bin/go version)" = "go version go1.26.5 linux/amd64"`,
 		`test "$(node --version)" = "v24.18.0"`,
 		`test "$(npm --version)" = "11.16.0"`,
@@ -278,7 +210,7 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 	}
 }
 
-func TestRuntimeDependencyRefreshSeedsViteCacheBeforeManifest(t *testing.T) {
+func TestRuntimeDependencyRefreshSeedsViteCache(t *testing.T) {
 	root := repositoryRoot(t)
 	data, err := os.ReadFile(filepath.Join(root, runtimeDepsBuildPath))
 	if err != nil {
@@ -286,11 +218,12 @@ func TestRuntimeDependencyRefreshSeedsViteCacheBeforeManifest(t *testing.T) {
 	}
 	text := string(data)
 	viteCacheSeed := "mkdir -p /opt/super-dolphin-gate/runtime/frontend/vite-cache"
-	manifestWrite := "/tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime"
 	viteCacheSeedIndex := strings.Index(text, viteCacheSeed)
-	manifestWriteIndex := strings.Index(text, manifestWrite)
-	if viteCacheSeedIndex < 0 || manifestWriteIndex < 0 || viteCacheSeedIndex >= manifestWriteIndex {
-		t.Fatalf("runtime dependency Dockerfile must explicitly seed Vite cache before writing its manifest")
+	if viteCacheSeedIndex < 0 {
+		t.Fatalf("runtime dependency Dockerfile must explicitly create the Vite cache directory")
+	}
+	if strings.Contains(text, "runtime-seed") || strings.Contains(text, "manifest.json") {
+		t.Fatal("runtime dependency Dockerfile must not invoke the retired runtime-seed manifest worker")
 	}
 }
 
@@ -320,7 +253,7 @@ func countTrimmedLine(t *testing.T, path, want string) int {
 	t.Helper()
 	data := readTestFile(t, path)
 	count := 0
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		if strings.TrimSpace(line) == want {
 			count++
 		}

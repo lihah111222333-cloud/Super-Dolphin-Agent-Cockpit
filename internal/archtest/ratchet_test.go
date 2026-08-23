@@ -172,8 +172,9 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-push",
 		`trusted_gate_launcher "$repo_root"`,
-		`remote hook pre-push`,
-		`exec "$gate_bin" "${remote_args[@]}" "$1" "$2"`,
+		`project-map check --tree "$selected_push_tree"`,
+		`closure check --tree "$selected_push_tree"`,
+		`current_tree=$(git -C "$repo_root" write-tree)`,
 	)
 	assertGuardModeFileExcludes(t, root, ".githooks/pre-push",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",

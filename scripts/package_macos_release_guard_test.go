@@ -1,3 +1,7 @@
+//go:build darwin
+
+// super-dolphin-ci: platform=darwin
+
 package main
 
 // 本文件是公共跨平台的 macOS 发布静态门禁，只读取脚本契约，故意不加 darwin build tag。
@@ -96,6 +100,7 @@ func TestPackageMacOSScriptRunsBundleVerifierAfterCodesignBeforeDmg(t *testing.T
 	assertScriptOrder(t, script, "\"$root/scripts/verify_packaged_app_macos.sh\" \"$app\"", "hdiutil create -volname \"$app_name\"")
 }
 
+// super-dolphin-ci: platform=darwin
 func TestVerifyPackagedAppMacOSChecksBundledAstGrep(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_macos.sh")
 

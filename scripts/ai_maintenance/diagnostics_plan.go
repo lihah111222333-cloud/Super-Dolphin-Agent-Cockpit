@@ -21,13 +21,3 @@ func lspDiagnosticsRelevant(file string) bool {
 		strings.HasPrefix(file, "pkg/") ||
 		(strings.HasPrefix(file, "scripts/") && strings.HasSuffix(file, ".go"))
 }
-
-// sourceLike 判断路径是否属于现有源码门禁覆盖的语言后缀。
-func sourceLike(file string) bool {
-	for _, suffix := range []string{".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".sql"} {
-		if strings.HasSuffix(file, suffix) {
-			return true
-		}
-	}
-	return false
-}

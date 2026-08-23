@@ -164,7 +164,6 @@ const EXCLUDES = [
   '**/.npm-cache/**',
   'docs/doc/codemap/project-map/**',
   'docs/doc/codemap/ai-index.json',
-  'config/remote-ci/aliyun.baseline-state.sqlite',
   'go.sum',
   'test_output.txt',
   'naked_go.txt',
@@ -178,7 +177,7 @@ const DOMAIN_DESCRIPTIONS = {
   modules: '业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等',
   'platform-provider': '基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider',
   'store-sql': '持久化层：store、sqlc、SQL queries、migrations',
-  'remote-ci': '远程 CI：Git hooks、strict SQLite authority、阿里云 ECI/OSS、ImageCache 与 shard worker',
+  'remote-ci': '独立 remote-ci validation、portable manifest 与异构节点契约',
   'docs-agent': '代码地图、ADR、契约与 docs 项目知识',
   other: '公共库、脚本、测试、配置与其他根级资源',
 };
@@ -200,21 +199,15 @@ const MODULE_DESCRIPTIONS = {
 };
 
 const PURPOSE_RULES = [
-  ['cmd/super-dolphin-gate/', '远程 CI/Git gate CLI、trusted launcher、materializer 与 worker 入口'],
-  ['internal/devtools/remoteci/', '远程 CI coordinator、source transport、workload identity、ECI shard 与 timing ledger'],
-  ['internal/devtools/cicontract/', '远程 CI ECI/ImageCache/SQLite 单路径代码契约 owner'],
-  ['internal/devtools/alicloud/eci/', '阿里云 ECI container group 与 ImageCache 只读客户端'],
-  ['internal/devtools/alicloud/oss/', '远程 CI OSS 内容寻址传输客户端'],
-  ['config/remote-ci/', '远程 CI strict 配置与 generation-one receipt 输入'],
+  ['cmd/super-dolphin-gate/', 'trusted local Gate、project-map、closure 与 worker 入口'],
+  ['cmd/super-dolphin-remote-ci/', '独立 remote-ci portable descriptor validation 入口'],
+  ['internal/devtools/heteroci/', '通用异构节点、容量规划与本地非权威路由契约'],
+  ['internal/devtools/remoteportable/', 'portable manifest、binding 与跨仓 target identity'],
+  ['internal/devtools/remotecicli/', '独立 remote-ci validation composition root'],
   ['.githooks/pre-commit', '精确 staged tree 的本地代码守卫入口'],
-  ['.githooks/pre-push', '精确 ref update 的远程 CI pre-push 门禁入口'],
-  ['.githooks/trusted-gate-launcher.sh', '远程 CI trusted gate launcher 验证入口'],
-  ['scripts/ci_truth_image_gate.sh', '远程 CI release/full gate 启动脚本'],
-  ['scripts/git_with_remote_ci_credentials.sh', '远程 CI 短期凭据与 agent token Git 启动器'],
-  ['scripts/init_remote_ci_local.sh', '远程 CI 本地配置、SQLite 与 Git alias 初始化脚本'],
-  ['scripts/remote_ci_', '远程 CI 脚本守卫与凭据回归测试'],
-  ['scripts/tests/test_gate_hook_', '远程 CI Git hook 入口与生产 E2E shell 回归'],
-  ['docs/契约/remote-ci-eci-imagecache-contract.md', '远程 CI ECI/ImageCache/SQLite 唯一路径 Accepted 契约'],
+  ['.githooks/pre-push', '精确 ref update 的 trusted local Gate 门禁入口'],
+  ['.githooks/trusted-gate-launcher.sh', 'trusted local Gate launcher 验证入口'],
+  ['docs/契约/remote-ci-eci-imagecache-contract.md', '独立 portable remote-ci 四节点/PG/observable validation Accepted 契约'],
 
   ['frontend-app/src/pages/', 'React 页面与路由级 UI'],
   ['frontend-app/src/entities/', 'React 客户端状态、thread/composer/store 模型'],
@@ -311,7 +304,7 @@ const QUICK_ROUTES = [
   ['修改控制面/bootstrap', 'internal/platform/mcpcontrol/', 'internal/mcpserver/common/bootstrap/', 'peer register bootstrap hooks'],
   ['修改持久化/SQL', 'internal/store/', 'internal/platform/db/sqlite/migrations/', 'store sqlc migration queries'],
   ['修改 SQLite migrations', 'internal/platform/db/sqlite/migrations/', 'internal/platform/db/', 'sqlite migration schema version'],
-  ['修改远程 CI/ECI/ImageCache', 'internal/devtools/remoteci/', 'cmd/super-dolphin-gate/', 'remote ci eci imagecache sqlite workload shard receipt'],
+  ['修改 portable/heteroci validation', 'internal/devtools/remoteportable/', 'internal/devtools/heteroci/', 'portable manifest binding heteroci capacity local non-authoritative validation'],
   ['修改代码地图', 'docs/doc/codemap/', 'scripts/codemap_index.go', 'codemap ai-index make codemap-refresh'],
   ['修改架构守卫', 'internal/archtest/', 'internal/archtest/freeze_baseline.json', 'guard baseline ratchet freeze'],
 ];
@@ -332,7 +325,8 @@ const RUNTIME_ENTRY_ROWS = [
   ['Desktop host', 'cmd/agent-terminal/main.go', 'local desktop host', 'Wails desktop host, HTTP/RPC bridge, frontend embed host'],
   ['MCP orchestration peer', 'cmd/mcp-orch/main.go', 'stdio / managed peer', 'Agent lifecycle, DAG, wakeup, workspace and shared file tools'],
   ['MCP LSP peer', 'cmd/mcp-lsp/main.go', 'stdio / managed peer', 'Generic multi-language LSP peer and code intelligence tools'],
-  ['Remote CI gate', 'cmd/super-dolphin-gate/main.go', 'Git hooks / manual gate', 'Exact-tree SQLite authority to unbounded Alibaba Cloud ECI shards'],
+  ['Trusted local Gate', 'cmd/super-dolphin-gate/main.go', 'Git hooks / local validation', 'Exact-tree project-map, closure, and local code-guard checks'],
+  ['Portable validation peer', 'cmd/super-dolphin-remote-ci/main.go', 'standalone validation binary', 'Strict portable manifest binding; execute remains fail-fast retired'],
   ['React UI', 'frontend-app/src/main.jsx', '5175 dev server', 'Current React/Vite frontend entry'],
   ['macOS dev runner', 'run-new-ui-desktop.sh', '5175 dev UI + local desktop host', 'Desktop host plus Vite dev flow'],
   ['Windows dev runner', 'run-new-ui-desktop.ps1', '5175 dev UI + local desktop host', 'PowerShell desktop host plus Vite dev flow'],
@@ -385,11 +379,11 @@ const SUBSYSTEM_PREFIX_GROUPS = [
     ['cmd/mcp-lsp/multilsp', '多语言 LSP manager、transport 与缓存'],
   ]],
   ['remote CI', [
-    ['cmd/super-dolphin-gate', 'remote run/hook/materializer/manifest installer/worker CLI'],
-    ['internal/devtools/remoteci', 'coordinator、source transport、workload identity 与 timing'],
-    ['internal/devtools/cicontract', 'ECI/ImageCache/SQLite canonical contract owner'],
-    ['internal/devtools/alicloud/eci', '阿里云 ECI 生命周期与 ImageCache 只读验证'],
-    ['internal/devtools/alicloud/oss', 'OSS 内容寻址传输'],
+    ['cmd/super-dolphin-gate', 'trusted local Gate、project-map 与 closure worker CLI'],
+    ['cmd/super-dolphin-remote-ci', '独立 portable descriptor validation CLI'],
+    ['internal/devtools/heteroci', '通用异构节点、容量规划与本地非权威路由'],
+    ['internal/devtools/remoteportable', 'portable manifest 与 cross-repository target binding'],
+    ['internal/devtools/remotecicli', '独立 remote-ci validation composition root'],
   ]],
 ];
 
@@ -759,7 +753,6 @@ function shouldSkipFile(rel) {
     'test_output.txt',
     'naked_go.txt',
     'docs/doc/codemap/ai-index.json',
-    'config/remote-ci/aliyun.baseline-state.sqlite',
   ].includes(rel);
 }
 
@@ -795,19 +788,18 @@ function classifyDomain(file) {
 
 function isRemoteCIPath(file) {
   return file.startsWith('cmd/super-dolphin-gate/') ||
-    file.startsWith('internal/devtools/remoteci/') ||
-    file.startsWith('internal/devtools/cicontract/') ||
-    file.startsWith('internal/devtools/alicloud/eci/') ||
-    file.startsWith('internal/devtools/alicloud/oss/') ||
-    file.startsWith('config/remote-ci/') ||
+    file.startsWith('cmd/super-dolphin-remote-ci/') ||
+    file.startsWith('internal/devtools/heteroci/') ||
+    file.startsWith('internal/devtools/heterociowner/') ||
+    file.startsWith('internal/devtools/heterociexec/') ||
+    file.startsWith('internal/devtools/heterocinode/') ||
+    file.startsWith('internal/devtools/heterocitransport/') ||
+    file.startsWith('internal/devtools/heterociworkflow/') ||
+    file.startsWith('internal/devtools/remoteportable/') ||
+    file.startsWith('internal/devtools/remotecicli/') ||
     file === '.githooks/pre-commit' ||
     file === '.githooks/pre-push' ||
     file === '.githooks/trusted-gate-launcher.sh' ||
-    file === 'scripts/ci_truth_image_gate.sh' ||
-    file === 'scripts/git_with_remote_ci_credentials.sh' ||
-    file === 'scripts/init_remote_ci_local.sh' ||
-    file.startsWith('scripts/remote_ci_') ||
-    file.startsWith('scripts/tests/test_gate_hook_') ||
     file === 'docs/契约/remote-ci-eci-imagecache-contract.md';
 }
 

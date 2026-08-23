@@ -2,10 +2,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -440,28 +442,93 @@ func compileToolManifestSchema(manifest ToolManifest) (*jsonschema.Schema, error
 	return compiled, nil
 }
 
+// manifestActionSchemaDocument 是 action 守卫读取的 JSON Schema 顶层结构。
+// 非 action 字段保留为 RawMessage，避免把动态工具属性错误地当成业务 DTO。
+type manifestActionSchemaDocument struct {
+	AdditionalProperties json.RawMessage `json:"additionalProperties"`
+	AllOf                json.RawMessage `json:"allOf"`
+	OneOf                json.RawMessage `json:"oneOf"`
+	Properties           json.RawMessage `json:"properties"`
+	Required             json.RawMessage `json:"required"`
+	Type                 json.RawMessage `json:"type"`
+}
+
+// manifestActionPropertiesDocument 保留 properties 的动态字段名，只对 action 做强类型解码。
+type manifestActionPropertiesDocument struct {
+	Action    json.RawMessage
+	HasAction bool
+}
+
+// manifestActionPropertyDocument 描述 action 属性 schema 的固定字段。
+type manifestActionPropertyDocument struct {
+	Description json.RawMessage `json:"description"`
+	Enum        json.RawMessage `json:"enum"`
+	Type        json.RawMessage `json:"type"`
+}
+
+// manifestActionConditionDocument 描述单个 action 条件的固定字段。
+type manifestActionConditionDocument struct {
+	If   json.RawMessage `json:"if"`
+	Then json.RawMessage `json:"then"`
+}
+
+// manifestActionIfDocument 描述条件 if 块的固定字段。
+type manifestActionIfDocument struct {
+	Properties json.RawMessage `json:"properties"`
+	Required   json.RawMessage `json:"required"`
+}
+
+// manifestActionConstDocument 描述条件 action const 的固定字段。
+type manifestActionConstDocument struct {
+	Const json.RawMessage `json:"const"`
+}
+
+// manifestActionObjectTypeError 记录对象解码期发现的 JSON 值类型。
+type manifestActionObjectTypeError struct {
+	value any
+}
+
+// Error 返回 JSON 对象类型校验失败的描述。
+func (e *manifestActionObjectTypeError) Error() string {
+	return fmt.Sprintf("JSON value has type %T, want object", e.value)
+}
+
 // validateManifestActions dynamically checks every action enum exposed by every manifest.
 // This prevents a missing or stale action declaration from reaching the runtime validator.
 func validateManifestActions(manifest ToolManifest) error {
-	properties, ok := manifest.Schema["properties"].(map[string]any)
-	if !ok {
-		if _, hasConditions := manifest.Schema["allOf"]; hasConditions {
+	document, err := decodeManifestActionSchema(manifest)
+	if err != nil {
+		return err
+	}
+	hasConditions := manifestActionRawPresent(document.AllOf)
+	if !manifestActionRawPresent(document.Properties) {
+		if hasConditions {
 			return fmt.Errorf("LSP tool %q has action conditions but no properties", manifest.Name)
 		}
 		return nil
 	}
-	property, exists := properties["action"]
-	if !exists {
-		if _, hasConditions := manifest.Schema["allOf"]; hasConditions {
+	properties, err := decodeManifestActionProperties(document.Properties)
+	if err != nil {
+		if hasConditions {
+			return fmt.Errorf("LSP tool %q has action conditions but no properties", manifest.Name)
+		}
+		return nil
+	}
+	if !properties.HasAction || !manifestActionRawPresent(properties.Action) {
+		if hasConditions {
 			return fmt.Errorf("LSP tool %q has action conditions but no action property", manifest.Name)
 		}
 		return nil
 	}
-	actionSchema, ok := property.(map[string]any)
-	if !ok {
-		return fmt.Errorf("LSP tool %q action schema has invalid type %T", manifest.Name, property)
+	actionSchema, err := decodeManifestActionProperty(properties.Action)
+	if err != nil {
+		var typeErr *manifestActionObjectTypeError
+		if errors.As(err, &typeErr) {
+			return fmt.Errorf("LSP tool %q action schema has invalid type %T", manifest.Name, typeErr.value)
+		}
+		return fmt.Errorf("LSP tool %q action schema: %w", manifest.Name, err)
 	}
-	actions, err := schemaEnumStrings(actionSchema["enum"])
+	actions, err := decodeManifestActionEnum(actionSchema.Enum)
 	if err != nil {
 		return fmt.Errorf("LSP tool %q action enum: %w", manifest.Name, err)
 	}
@@ -476,28 +543,46 @@ func validateManifestActions(manifest ToolManifest) error {
 		}
 		seen[action] = struct{}{}
 	}
-	if conditions, ok := manifest.Schema["allOf"].([]any); ok {
+	if hasConditions {
+		conditions, err := decodeManifestActionConditions(document.AllOf)
+		if err != nil {
+			return fmt.Errorf("LSP tool %q action conditions: %w", manifest.Name, err)
+		}
 		conditionActions := make(map[string]struct{}, len(conditions))
-		for _, rawCondition := range conditions {
-			condition, ok := rawCondition.(map[string]any)
-			if !ok {
-				return fmt.Errorf("LSP tool %q action condition has invalid type %T", manifest.Name, rawCondition)
-			}
-			ifBlock, ok := condition["if"].(map[string]any)
-			if !ok {
+		for _, condition := range conditions {
+			if !manifestActionRawPresent(condition.If) {
 				return fmt.Errorf("LSP tool %q action condition is missing if block", manifest.Name)
 			}
-			conditionProperties, ok := ifBlock["properties"].(map[string]any)
-			if !ok {
+			var ifBlock manifestActionIfDocument
+			if err := decodeManifestActionObject(condition.If, &ifBlock); err != nil {
+				var typeErr *manifestActionObjectTypeError
+				if errors.As(err, &typeErr) {
+					return fmt.Errorf("LSP tool %q action condition is missing if block", manifest.Name)
+				}
+				return fmt.Errorf("LSP tool %q action condition if block: %w", manifest.Name, err)
+			}
+			if !manifestActionRawPresent(ifBlock.Properties) {
 				return fmt.Errorf("LSP tool %q action condition has invalid properties", manifest.Name)
 			}
-			conditionAction, ok := conditionProperties["action"].(map[string]any)
-			if !ok {
+			conditionProperties, err := decodeManifestActionProperties(ifBlock.Properties)
+			if err != nil {
+				return fmt.Errorf("LSP tool %q action condition has invalid properties: %w", manifest.Name, err)
+			}
+			if !conditionProperties.HasAction || !manifestActionRawPresent(conditionProperties.Action) {
 				return fmt.Errorf("LSP tool %q action condition is missing action const", manifest.Name)
 			}
-			name, ok := conditionAction["const"].(string)
+			var conditionAction manifestActionConstDocument
+			if err := decodeManifestActionObject(conditionProperties.Action, &conditionAction); err != nil {
+				var typeErr *manifestActionObjectTypeError
+				if errors.As(err, &typeErr) {
+					return fmt.Errorf("LSP tool %q action condition is missing action const", manifest.Name)
+				}
+				return fmt.Errorf("LSP tool %q action condition const: %w", manifest.Name, err)
+			}
+			nameValue := manifestActionJSONValue(conditionAction.Const)
+			name, ok := nameValue.(string)
 			if !ok || strings.TrimSpace(name) == "" {
-				return fmt.Errorf("LSP tool %q action condition has invalid const %v", manifest.Name, conditionAction["const"])
+				return fmt.Errorf("LSP tool %q action condition has invalid const %v", manifest.Name, nameValue)
 			}
 			if _, exists := seen[name]; !exists {
 				return fmt.Errorf("LSP tool %q action condition %q is missing from action enum", manifest.Name, name)
@@ -514,6 +599,111 @@ func validateManifestActions(manifest ToolManifest) error {
 		}
 	}
 	return nil
+}
+
+// decodeManifestActionSchema 使用严格 JSON 解码器读取 manifest 顶层 schema。
+// 顶层未知关键字直接失败，避免守卫只验证了部分动态 map。
+func decodeManifestActionSchema(manifest ToolManifest) (manifestActionSchemaDocument, error) {
+	raw, err := json.Marshal(manifest.Schema)
+	if err != nil {
+		return manifestActionSchemaDocument{}, fmt.Errorf("LSP tool %q action schema: %w", manifest.Name, err)
+	}
+	var document manifestActionSchemaDocument
+	if err := decodeManifestActionJSON(raw, &document); err != nil {
+		return manifestActionSchemaDocument{}, fmt.Errorf("LSP tool %q action schema: %w", manifest.Name, err)
+	}
+	return document, nil
+}
+
+// decodeManifestActionProperties 解码动态 properties，并保留 action 字段的存在性。
+func decodeManifestActionProperties(raw json.RawMessage) (manifestActionPropertiesDocument, error) {
+	var properties map[string]json.RawMessage
+	if err := decodeManifestActionObject(raw, &properties); err != nil {
+		return manifestActionPropertiesDocument{}, err
+	}
+	action, exists := properties["action"]
+	return manifestActionPropertiesDocument{Action: action, HasAction: exists}, nil
+}
+
+// decodeManifestActionProperty 严格解码 action 属性 schema，拒绝未知字段。
+func decodeManifestActionProperty(raw json.RawMessage) (manifestActionPropertyDocument, error) {
+	var property manifestActionPropertyDocument
+	if err := decodeManifestActionObject(raw, &property); err != nil {
+		return manifestActionPropertyDocument{}, err
+	}
+	return property, nil
+}
+
+// decodeManifestActionConditions 严格解码 allOf 条件数组及其固定字段。
+func decodeManifestActionConditions(raw json.RawMessage) ([]manifestActionConditionDocument, error) {
+	var conditions []manifestActionConditionDocument
+	if err := decodeManifestActionJSON(raw, &conditions); err != nil {
+		return nil, err
+	}
+	return conditions, nil
+}
+
+// decodeManifestActionEnum 先解码 JSON 值，再复用既有 enum 类型和空值检查。
+func decodeManifestActionEnum(raw json.RawMessage) ([]string, error) {
+	if !manifestActionRawPresent(raw) {
+		return schemaEnumStrings(nil)
+	}
+	var value any
+	if err := decodeManifestActionJSON(raw, &value); err != nil {
+		return nil, err
+	}
+	return schemaEnumStrings(value)
+}
+
+// decodeManifestActionObject 要求 JSON 对象后再进入 DisallowUnknownFields 结构解码。
+func decodeManifestActionObject(raw json.RawMessage, target any) error {
+	if !manifestActionRawPresent(raw) || manifestActionRawNull(raw) {
+		return &manifestActionObjectTypeError{value: nil}
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
+		return &manifestActionObjectTypeError{value: manifestActionJSONValue(raw)}
+	}
+	return decodeManifestActionJSON(raw, target)
+}
+
+// decodeManifestActionJSON 执行单值严格解码，并拒绝有效值之后的尾随 JSON。
+func decodeManifestActionJSON(raw []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("JSON contains multiple values")
+		}
+		return err
+	}
+	return nil
+}
+
+// manifestActionRawPresent 区分 JSON 字段缺失与显式 null。
+func manifestActionRawPresent(raw json.RawMessage) bool {
+	return len(bytes.TrimSpace(raw)) > 0
+}
+
+// manifestActionRawNull 判断 JSON 字段是否为显式 null。
+func manifestActionRawNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+// manifestActionJSONValue 将原始 JSON 转为错误消息所需的动态值。
+func manifestActionJSONValue(raw json.RawMessage) any {
+	if !manifestActionRawPresent(raw) || manifestActionRawNull(raw) {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
 }
 
 func schemaEnumStrings(value any) ([]string, error) {

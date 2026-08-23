@@ -28,7 +28,7 @@ func TestHandleScopedToolsCallRoutesTrustedScopeToManagerPool(t *testing.T) {
 			assertTrustedManagerPoolScope(t, resolved, trustedRoot, evilRoot)
 			_, err = scoped.Manager.Diagnostics(ctx, nil)
 			require.NoError(t, err)
-			return "OK\tmanager_key=" + resolved.ManagerKey, nil
+			return "OK manager_key=" + resolved.ManagerKey, nil
 		},
 	}}
 	params, err := json.Marshal(map[string]any{
@@ -65,7 +65,7 @@ func TestDirectStdioServerMcpLSPFamilyRoutesTrustedScopeToManagerPool(t *testing
 			require.NotContains(t, resolved.ManagerKey, "mcp-lsp")
 			_, err = scoped.Manager.Diagnostics(ctx, nil)
 			require.NoError(t, err)
-			return map[string]any{"ok": true}, nil
+			return "OK", nil
 		},
 	}}
 	request, err := json.Marshal(map[string]any{
@@ -112,7 +112,7 @@ func TestDirectStdioServerMcpLSPFamilyUsesRuntimeWorkspaceRootsWhenMetadataMissi
 			payload := decodeScopedToolCallPayload(t, args)
 			require.Equal(t, "agent-forged", payload.AgentID)
 			require.Equal(t, evilRoot, payload.CWD)
-			return map[string]any{"ok": true}, nil
+			return "OK", nil
 		},
 	}}
 	request, err := json.Marshal(map[string]any{
@@ -216,10 +216,7 @@ func assertTrustedManagerPoolScope(t *testing.T, resolved lspmanager.ResolvedToo
 
 func assertDirectToolOutputOK(t *testing.T, raw []byte) {
 	t.Helper()
-	if bytes.Contains(raw, []byte(`"ok":true`)) {
-		return
-	}
-	if bytes.Contains(raw, []byte(`"ok\":true`)) {
+	if bytes.Contains(raw, []byte(`"text":"OK"`)) {
 		return
 	}
 	t.Fatalf("Run() output = %s", string(raw))

@@ -24,23 +24,21 @@ func TestGuardWrappersRefuseGeneratedBaselineDrift(t *testing.T) {
 	}
 }
 
-func TestRemoteECITestGuidanceUsesExplicitAuthorityTarget(t *testing.T) {
-	for file, required := range map[string]string{
-		"test_with_guard.sh":    `test --target=remote --config`,
-		"go":                    `super-dolphin-gate test --target=remote`,
-		"real_go_resolver.sh":   `super-dolphin-gate test --target=remote`,
-		"forbid_raw_go_test.sh": `super-dolphin-gate test --target=remote`,
-		"activate_guard_env.sh": `super-dolphin-gate test --target=remote`,
-	} {
-		assertScriptContains(t, readScript(t, file), required)
+func TestGuardScriptsUseLocalGateAndOfflineHeavyGuidance(t *testing.T) {
+	for _, file := range []string{"test_with_guard.sh", "real_go_resolver.sh", "forbid_raw_go_test.sh", "activate_guard_env.sh", "test_with_guard.ps1"} {
+		script := readScript(t, file)
+		if strings.Contains(script, "--target=remote") || strings.Contains(script, "ECI coordinator") || strings.Contains(script, "remote-worker") {
+			t.Fatalf("%s retains a remote/ECI execution branch", file)
+		}
 	}
+	assertScriptContains(t, readScript(t, "test_with_guard.sh"), "trusted four-node offline Gate")
 }
 
-func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
+func TestHostTestWrappersRequireLocalGateAdmission(t *testing.T) {
 	for _, command := range [][]string{
-		{"scripts/test_with_guard.sh", "--ci-package-test", "./internal/devtools/gate", "TestBoundary"},
-		{"scripts/test_with_guard.sh", "--ci-compile-package", "./internal/devtools/gate"},
-		{"scripts/go_with_guard.sh", "test", "./internal/devtools/gate", "-run", "^TestBoundary$"},
+		{"scripts/test_with_guard.sh", "--ci-package-test", "./internal/devtools/remoteportable", "TestBoundary"},
+		{"scripts/test_with_guard.sh", "--ci-compile-package", "./internal/devtools/remoteportable"},
+		{"scripts/go_with_guard.sh", "test", "./internal/devtools/remoteportable", "-run", "^TestBoundary$"},
 	} {
 		cmd := exec.Command("bash", command...)
 		cmd.Dir = ".."
@@ -50,9 +48,63 @@ func TestHostTestWrappersRequireRemoteAdmission(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s unexpectedly admitted an unfiltered host test", command[0])
 		}
-		if !strings.Contains(string(output), "super-dolphin-gate test") {
-			t.Fatalf("%s rejection omitted the trusted test entrypoint:\n%s", command[0], output)
+		if !strings.Contains(string(output), "受信四节点离线 Gate") {
+			t.Fatalf("%s rejection omitted the local heavy-workload boundary:\n%s", command[0], output)
 		}
+		if strings.Contains(string(output), "--target=remote") || strings.Contains(string(output), "ECI coordinator") {
+			t.Fatalf("%s rejection retained a remote execution suggestion:\n%s", command[0], output)
+		}
+	}
+}
+
+func TestCallerEnvironmentCannotBypassRawGoOrToolchainProbe(t *testing.T) {
+	assertScriptDoesNotContain(t, readScript(t, "go"), "GO_GUARD_ALLOW_RAW")
+	resolver := readScript(t, "real_go_resolver.sh")
+	assertScriptContains(t, resolver, `real_go_resolver_probe "$candidate_abs" "$required_version"`)
+	assertScriptContains(t, resolver, "require_local_gate_execution")
+
+	goRoot := t.TempDir()
+	fakeGo := filepath.Join(goRoot, "bin", "go")
+	if err := os.MkdirAll(filepath.Dir(fakeGo), 0o755); err != nil {
+		t.Fatalf("create fake GOROOT: %v", err)
+	}
+	if err := os.WriteFile(fakeGo, []byte("#!/usr/bin/env bash\nprintf 'go version go1.26.4 linux/amd64\\n'\n"), 0o700); err != nil {
+		t.Fatalf("write fake GOROOT Go: %v", err)
+	}
+	cmd := exec.Command("bash", "-c", "source scripts/real_go_resolver.sh; resolve_real_go")
+	cmd.Dir = ".."
+	environment := upsertEnv(os.Environ(), "GOROOT", bashAbsolutePath(goRoot))
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "local-authority")
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "GOROOT", "SUPER_DOLPHIN_TEST_BACKEND")
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "GOROOT 未提供仓库要求的 go1.26.5 工具链") {
+		t.Fatalf("local-authority caller environment bypassed toolchain probe: err=%v output=%q", err, output)
+	}
+}
+
+func TestRawGoCallerEnvironmentDoesNotBypassWrapper(t *testing.T) {
+	fakeGo := filepath.Join(t.TempDir(), "fake-go")
+	invocations := filepath.Join(t.TempDir(), "go-invocations.log")
+	fakeScript := "#!/usr/bin/env bash\n" +
+		"if [[ \"$1\" == version ]]; then printf 'go version go1.26.5 linux/amd64\\n'; exit 0; fi\n" +
+		"printf '%s\\n' \"$*\" >> \"$FAKE_GO_LOG\"\n"
+	if err := os.WriteFile(fakeGo, []byte(fakeScript), 0o700); err != nil {
+		t.Fatalf("write fake go: %v", err)
+	}
+	cmd := exec.Command("bash", "scripts/go", "test", "./scripts", "-run", "^TestBoundary$")
+	cmd.Dir = ".."
+	environment := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(fakeGo))
+	environment = upsertEnv(environment, "GO_GUARD_ALLOW_RAW", "1")
+	environment = upsertEnv(environment, "FAKE_GO_LOG", bashAbsolutePath(invocations))
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "REAL_GO_BIN", "GO_GUARD_ALLOW_RAW", "FAKE_GO_LOG")
+	output, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "禁止裸跑 go test") || strings.Contains(string(output), "--target=remote") || strings.Contains(string(output), "ECI coordinator") {
+		t.Fatalf("caller raw-Go environment changed authority: err=%v output=%q", err, output)
+	}
+	if data, readErr := os.ReadFile(invocations); readErr == nil && len(data) != 0 {
+		t.Fatalf("caller raw-Go environment reached real go: %s", data)
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("read fake Go invocation log: %v", readErr)
 	}
 }
 
@@ -70,7 +122,7 @@ func TestHostTestModeRunsOneBoundedExactTest(t *testing.T) {
 	if !strings.Contains(result.invocations, "test -p=2 -tags=e2e ./scripts -run ^TestHostBoundary$ -timeout=600s -count=1") {
 		t.Fatalf("medium host test omitted bounded execution flags:\n%s", result.invocations)
 	}
-	if !strings.Contains(result.output, "LOCAL_NON_AUTHORITATIVE PASS class=medium") {
+	if !strings.Contains(result.output, "LOCAL_NON_AUTHORITATIVE NOT_VERIFIED class=medium") {
 		t.Fatalf("medium host test omitted non-authoritative result marker:\n%s", result.output)
 	}
 	if !strings.Contains(result.output, "host_tier=medium") {
@@ -151,7 +203,7 @@ func TestHostTestModeRejectsEmptySelectionAndHeavyFlag(t *testing.T) {
 			t, "--host-test", "light", "./scripts",
 			"-run", "^TestBoundary$", "-timeout=120s", "-count=1",
 		)
-		assertTestWithGuardRemoteRejection(t, result, "host_tier=high")
+		assertTestWithGuardLocalGateRejection(t, result, "host_tier=high")
 	})
 	t.Run("unavailable host load", func(t *testing.T) {
 		t.Setenv("FAKE_HOST_IDLE", "not-a-number")
@@ -159,7 +211,7 @@ func TestHostTestModeRejectsEmptySelectionAndHeavyFlag(t *testing.T) {
 			t, "--host-test", "light", "./scripts",
 			"-run=^TestBoundary$", "-timeout=120s", "-count=1",
 		)
-		assertTestWithGuardRemoteRejection(t, result, "host resource evidence is unavailable")
+		assertTestWithGuardLocalGateRejection(t, result, "host resource evidence is unavailable")
 	})
 }
 
@@ -253,7 +305,7 @@ func TestCIPackageModeAcceptsAnyCanonicalPackageResolvedByGoList(t *testing.T) {
 }
 
 func TestGuardRaceOnlyModeRunsGuardsAndOneRaceInvocation(t *testing.T) {
-	result := runTestWithGuardFakeGo(t, "--race-only", "./internal/devtools/gate")
+	result := runTestWithGuardFakeGo(t, "--race-only", "./internal/devtools/remoteportable")
 	if result.err != nil {
 		t.Fatalf("race-only guard failed: %v: %s", result.err, result.output)
 	}
@@ -266,8 +318,8 @@ func TestGuardRaceOnlyModeRunsGuardsAndOneRaceInvocation(t *testing.T) {
 			t.Errorf("race-only mode omitted guard invocation %q:\n%s", required, result.invocations)
 		}
 	}
-	target := "test ./internal/devtools/gate -race -short -count=1"
-	if strings.Count(result.invocations, "test ./internal/devtools/gate") != 1 || !strings.Contains(result.invocations, target) {
+	target := "test ./internal/devtools/remoteportable -race -short -count=1"
+	if strings.Count(result.invocations, "test ./internal/devtools/remoteportable") != 1 || !strings.Contains(result.invocations, target) {
 		t.Fatalf("race-only target invocation is not unique or canonical:\n%s", result.invocations)
 	}
 }
@@ -276,7 +328,7 @@ func TestGuardCombinedRaceModeRunsGuardsOnceAndBothTestLanes(t *testing.T) {
 	result := runTestWithGuardFakeGo(
 		t,
 		"--with-race", "./internal/provider/codexapp",
-		"--", "./internal/devtools/gate", "-count=1",
+		"--", "./internal/devtools/remoteportable", "-count=1",
 	)
 	if result.err != nil {
 		t.Fatalf("combined race guard failed: %v: %s", result.err, result.output)
@@ -284,7 +336,7 @@ func TestGuardCombinedRaceModeRunsGuardsOnceAndBothTestLanes(t *testing.T) {
 	for _, invocation := range []string{
 		"test ./internal/archtest -count=1",
 		"vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...",
-		"test ./internal/devtools/gate -count=1",
+		"test ./internal/devtools/remoteportable -count=1",
 		"test ./internal/provider/codexapp -race -short -count=1 -timeout=180s",
 	} {
 		if strings.Count(result.invocations, invocation) != 1 {
@@ -522,7 +574,7 @@ func bad_identifier_with_too_many_underscores() {}
 	cmd := exec.Command("bash", "scripts/test_with_guard.sh", filepath.ToSlash(path))
 	cmd.Dir = ".."
 	environment := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(fakeGo))
-	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "local-authority")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, environment, "REAL_GO_BIN", "SUPER_DOLPHIN_TEST_BACKEND")
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -553,8 +605,8 @@ func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
 		"$ErrorActionPreference = 'Stop'",
 		"Set-StrictMode -Version Latest",
 		"function Resolve-RealGo",
-		"function Assert-RemoteTestExecution",
-		"$env:SUPER_DOLPHIN_TEST_BACKEND -eq 'remote-worker'",
+		"function Assert-LocalGateExecution",
+		"$env:SUPER_DOLPHIN_TEST_BACKEND -eq 'local-authority'",
 		"$env:REAL_GO_BIN",
 		"Get-Command go -All",
 		"function Invoke-RawGoTestGuard",
@@ -664,20 +716,14 @@ func assertTestWithGuardRejected(t *testing.T, result testWithGuardFakeGoResult,
 	}
 }
 
-func assertTestWithGuardRemoteRejection(t *testing.T, result testWithGuardFakeGoResult, reason string) {
+func assertTestWithGuardLocalGateRejection(t *testing.T, result testWithGuardFakeGoResult, reason string) {
 	t.Helper()
 	assertTestWithGuardRejected(t, result,
 		reason,
-		"remote CI exact test: source .githooks/trusted-gate-launcher.sh",
-		`"$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test`,
-		"--target=remote",
-		`--config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}"`,
-		`--ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}"`,
-		"--test ./scripts#TestBoundary",
-		"remote CI setup: make remote-ci-init",
+		"受信四节点离线 Gate",
 	)
-	if strings.Contains(result.invocations, "super-dolphin-gate") {
-		t.Fatalf("host admission rejection launched ECI instead of only printing guidance:\n%s", result.invocations)
+	if strings.Contains(result.output, "--target=remote") || strings.Contains(result.output, "ECI coordinator") || strings.Contains(result.invocations, "super-dolphin-gate") {
+		t.Fatalf("host admission rejection retained a remote execution suggestion:\noutput=%s\ninvocations=%s", result.output, result.invocations)
 	}
 }
 
@@ -692,6 +738,7 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	fakeGo := filepath.Join(root, "fake-go")
 	fakeToolDir := filepath.Join(root, "go-tools")
 	logPath := filepath.Join(root, "go-invocations.log")
+	candidateIndex := prepareTestWithGuardCandidateIndex(t, root)
 	script := "#!/usr/bin/env bash\n" +
 		"if [[ \"$1\" == version ]]; then printf 'go version go1.26.5 linux/amd64\\n'; exit 0; fi\n" +
 		"printf '%s ' \"$@\" >> \"$FAKE_GO_LOG\"\n" +
@@ -731,11 +778,12 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment = upsertEnv(environment, "FAKE_GO_TEST_OUTPUT", os.Getenv("FAKE_GO_TEST_OUTPUT"))
 	environment = upsertEnv(environment, "FAKE_GO_TOOL_DIR", bashAbsolutePath(fakeToolDir))
 	environment = upsertEnv(environment, "FAKE_HOST_IDLE", os.Getenv("FAKE_HOST_IDLE"))
+	environment = upsertEnv(environment, "GIT_INDEX_FILE", bashAbsolutePath(candidateIndex))
 	environment = upsertEnv(environment, "GOFLAGS", "")
-	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "remote-worker")
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_TEST_BACKEND", "local-authority")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
 		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "FAKE_GO_TEST_OUTPUT", "FAKE_GO_TOOL_DIR", "FAKE_HOST_IDLE",
-		"SUPER_DOLPHIN_TEST_BACKEND",
+		"GIT_INDEX_FILE", "SUPER_DOLPHIN_TEST_BACKEND",
 	)
 	output, runErr := cmd.CombinedOutput()
 	data, err := os.ReadFile(logPath)
@@ -749,6 +797,25 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 		output:      strings.TrimSpace(string(output)),
 		err:         runErr,
 	}
+}
+
+func prepareTestWithGuardCandidateIndex(t *testing.T, fixtureRoot string) string {
+	t.Helper()
+	repositoryRoot := gitRevParseRequired(t, "--show-toplevel")
+	indexPath := filepath.Join(fixtureRoot, "candidate.index")
+	environment := upsertEnv(os.Environ(), "GIT_INDEX_FILE", indexPath)
+	for _, arguments := range [][]string{
+		{"read-tree", "HEAD"},
+		{"add", "--", "scripts/test_with_guard.sh", "scripts/code_size_guard_cli_test.go", "scripts/test_with_guard_remote_guidance_test.go"},
+		{"update-index", "--refresh"},
+	} {
+		command := exec.Command("git", append([]string{"-C", repositoryRoot}, arguments...)...)
+		command.Env = environment
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("prepare host-test candidate index with git %s: %v\n%s", strings.Join(arguments, " "), err, output)
+		}
+	}
+	return indexPath
 }
 
 func writeGuardFixture(t *testing.T, content string) string {

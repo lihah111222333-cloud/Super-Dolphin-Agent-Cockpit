@@ -123,21 +123,6 @@
         "file-length\u0000文件有效代码 1266 行，超过上限 800 行"
       ]
     },
-    "scripts/performance-budget-runner.test.mjs": {
-      "lines": 1138,
-      "maxFuncLen": 136,
-      "maxNesting": 6,
-      "maxParams": 3,
-      "exportCount": 0,
-      "consoleLogs": 0,
-      "anyCount": 0,
-      "emptyFuncs": 0,
-      "todoCount": 0,
-      "longLineCount": 0,
-      "frozenViolations": [
-        "file-length\u0000文件有效代码 1138 行，超过上限 800 行"
-      ]
-    },
     "scripts/rpc-contract-audit.test.mjs": {
       "lines": 3043,
       "maxFuncLen": 86,

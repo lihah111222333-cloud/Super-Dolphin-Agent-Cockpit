@@ -254,7 +254,7 @@ func TestOpenDiagnosticDocumentRetriesColdBootstrapTimeoutOnce(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	manager := &languageOverrideManager{didOpenErrs: []error{
-		fmt.Errorf("initialize LSP client: %w", context.DeadlineExceeded),
+		fmt.Errorf("%w: %w", lspmanager.ErrLSPClientInitialization, context.DeadlineExceeded),
 		nil,
 	}}
 	registry := &languageOverrideRegistry{manager: manager}
@@ -266,6 +266,38 @@ func TestOpenDiagnosticDocumentRetriesColdBootstrapTimeoutOnce(t *testing.T) {
 	}
 	if manager.didOpenCalls != 2 {
 		t.Fatalf("DidOpen calls=%d, want success after exactly one retry", manager.didOpenCalls)
+	}
+}
+
+func TestShouldRetryDiagnosticBootstrapRequiresTypedInitializationError(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "typed initialization timeout",
+			err:  fmt.Errorf("%w: %w", lspmanager.ErrLSPClientInitialization, context.DeadlineExceeded),
+			want: true,
+		},
+		{
+			name: "same text without initialization sentinel",
+			err:  fmt.Errorf("initialize LSP client: %w", context.DeadlineExceeded),
+			want: false,
+		},
+		{
+			name: "typed initialization non-timeout",
+			err:  fmt.Errorf("%w: %w", lspmanager.ErrLSPClientInitialization, context.Canceled),
+			want: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldRetryDiagnosticBootstrap(ctx, test.err); got != test.want {
+				t.Fatalf("shouldRetryDiagnosticBootstrap() = %t, want %t for %v", got, test.want, test.err)
+			}
+		})
 	}
 }
 

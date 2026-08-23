@@ -1,3 +1,7 @@
+//go:build windows
+
+// super-dolphin-ci: platform=windows
+
 package main
 
 // 本文件是公共跨平台的 Windows 交付静态门禁：除显式环境预检外只读取脚本和清单，
@@ -435,6 +439,7 @@ func TestPackageWindowsScriptBundlesFFmpegForVideoTools(t *testing.T) {
 	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
 }
 
+// super-dolphin-ci: platform=windows
 func TestPackageWindowsLocalScriptChecksHostFFmpegDependency(t *testing.T) {
 	script := readScript(t, "package_windows_local.ps1")
 

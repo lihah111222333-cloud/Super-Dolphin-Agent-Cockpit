@@ -10,20 +10,37 @@ import (
 )
 
 // TestRemoteCIRetiredLegacyArtifactsDoNotReturn keeps removed JSON-manifest
-// migration and result-fingerprint artifacts from recreating a second remote-CI
-// cache/protocol path beside the accepted SQLite/ImageCache flow.
+// migration and result-fingerprint artifacts from recreating a second cache path.
 func TestRemoteCIRetiredLegacyArtifactsDoNotReturn(t *testing.T) {
 	root := findRepoRoot(t)
 	for _, relative := range []string{
-		"internal/devtools/remoteci/baseline_manifest.go",
-		"internal/devtools/remoteci/baseline_manifest_schema.go",
-		"internal/devtools/remoteci/baseline_manifest_test.go",
-		"internal/devtools/remoteci/workload_fingerprint_execution_test.go",
-		"internal/devtools/remoteci/workload_fingerprint_process_io_test.go",
-		"internal/devtools/remoteci/workload_fingerprint_sources_test.go",
+		"baseline_manifest.go",
+		"baseline_manifest_schema.go",
+		"baseline_manifest_test.go",
+		"workload_fingerprint_execution_test.go",
+		"workload_fingerprint_process_io_test.go",
+		"workload_fingerprint_sources_test.go",
 	} {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(root, "internal", "devtools", "remoteportable", relative)); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("remote CI must not retain retired manifest or result-fingerprint artifact %s", relative)
+		}
+	}
+}
+
+// TestRemoteCIRetiredLegacyPackagesStayAbsent keeps the former planner,
+// SQLite authority, hook adapter, and coordinator admission packages from
+// returning as compatibility shells.
+func TestRemoteCIRetiredLegacyPackagesStayAbsent(t *testing.T) {
+	root := findRepoRoot(t)
+	for _, relative := range []string{
+		"internal/devtools/gate",
+		"internal/devtools/cicontract",
+		"internal/devtools/gatehook",
+		"internal/devtools/coordinatoradmission",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(relative))
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("retired legacy package %s returned: %v", relative, err)
 		}
 	}
 }
@@ -56,7 +73,7 @@ func TestRemoteCIRejectsRetiredFullBuildContextSymbols(t *testing.T) {
 
 func hasSymbolInRemoteCIProductionSource(t *testing.T, root string, symbol string) {
 	t.Helper()
-	err := filepath.WalkDir(filepath.Join(root, "internal", "devtools", "remoteci"), func(filePath string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(filepath.Join(root, "internal", "devtools", "remoteportable"), func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

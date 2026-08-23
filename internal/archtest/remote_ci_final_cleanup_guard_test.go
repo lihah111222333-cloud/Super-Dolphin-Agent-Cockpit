@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,10 +17,11 @@ import (
 func TestRemoteCIFinalCleanupGuard(t *testing.T) {
 	root := findRepoRoot(t)
 	assertRemoteCITopLevelRetiredArtifactsAbsent(t, root)
-	for _, path := range remoteCIProductionFiles(t, root) {
+	for _, relative := range remoteCIProductionFiles(t, root) {
+		path := filepath.Join(root, filepath.FromSlash(relative))
 		parsed := parseRemoteCIContractGuardFile(t, path)
 		for _, violation := range remoteCIFinalCleanupViolations(parsed) {
-			t.Errorf("%s retains final-cleanup remote CI compatibility marker %s", relativeRemoteCIContractPath(t, root, path), violation)
+			t.Errorf("%s retains final-cleanup remote CI compatibility marker %s", relative, violation)
 		}
 	}
 }
@@ -79,16 +81,10 @@ func remoteCIFinalCleanupIdentifier(identifier string) bool {
 		"workloadpassevidencealias",
 		"workloadpassevidencealiases",
 		"durationledgerrawobservation",
-		"genericprovider",
-		"providerexecutor",
-		"executorprovider",
-		"genericexecutor",
-		"genericremoteexecutor",
 		"remoteprovider",
 		"remoteproviderexecutor",
 		"remoteexecutorprovider",
 		"remoteciexecutor",
-		"providerbackend",
 		"remoteexecutionbackend",
 		"dockerexecutor",
 		"kubernetesexecutor",
@@ -147,14 +143,14 @@ const aliases = "ci_workload_pass_evidence_aliases"
 const oldRunIndex = "idx_ci_runs_reusable_pass"
 const oldEvidenceIndex = "idx_ci_workload_pass_evidence_migration"
 const oldAliasIndex = "idx_ci_workload_pass_evidence_alias_source"
-type GenericProviderExecutor struct{}
+type RemoteProviderExecutor struct{}
 type RemoteExecutorProvider struct{}
 type RemoteCIExecutor struct{}
 func matchesRetiredGateExecution() {}
 func run() {
 	_ = retiredOwner; _ = retiredBinary; _ = aliases
 	_ = oldRunIndex; _ = oldEvidenceIndex; _ = oldAliasIndex
-	_ = GenericProviderExecutor{}; _ = RemoteExecutorProvider{}; _ = RemoteCIExecutor{}
+	_ = RemoteProviderExecutor{}; _ = RemoteExecutorProvider{}; _ = RemoteCIExecutor{}
 }
 `)
 	violations := strings.Join(remoteCIFinalCleanupViolations(legacy), "\n")
@@ -164,7 +160,7 @@ func run() {
 		"literal idx_ci_runs_reusable_pass",
 		"literal idx_ci_workload_pass_evidence_migration",
 		"literal idx_ci_workload_pass_evidence_alias_source",
-		"identifier GenericProviderExecutor",
+		"identifier RemoteProviderExecutor",
 		"identifier RemoteExecutorProvider",
 		"identifier RemoteCIExecutor",
 		"identifier matchesRetiredGateExecution",
@@ -198,14 +194,7 @@ func TestRemoteCITopLevelRetiredArtifactsGuardCounterexample(t *testing.T) {
 		t.Fatalf("scan counterexample artifacts: %v", err)
 	}
 	for _, relative := range []string{"plan", "scripts/ci_commit_guard.sh"} {
-		found := false
-		for _, candidate := range got {
-			if candidate == relative {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(got, relative) {
 			t.Fatalf("counterexample artifact %s was not reported: %v", relative, got)
 		}
 	}

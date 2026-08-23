@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 )
 
 func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
@@ -36,13 +38,13 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"native:read",
 		"native:search",
 	)
-	assertStringSetContains(t, plan.GeneratedFiles, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md")
 	if !plan.RequiresEvidenceDoc {
 		t.Fatal("source and generated changes must require evidence doc")
 	}
+	assertStringSetContains(t, plan.GeneratedFiles, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md")
 }
 
-func TestChangedFilesFromGitPreservesNulDelimitedUnicodePaths(t *testing.T) {
+func TestWorktreeReviewObjectPreservesNulDelimitedUnicodePaths(t *testing.T) {
 	root := t.TempDir()
 	runAIMaintenanceGit(t, root, "init", "--quiet")
 	runAIMaintenanceGit(t, root, "config", "user.name", "ai-maintenance-test")
@@ -67,14 +69,16 @@ func TestChangedFilesFromGitPreservesNulDelimitedUnicodePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	runAIMaintenanceGit(t, root, "add", "  前导目录/尾随文件  .txt")
-	runAIMaintenanceGit(t, root, "commit", "--quiet", "-m", "候选变更")
-	t.Chdir(root)
-	files, err := changedFilesFromGit("HEAD^")
+	object, err := resolveReviewObject(root, reviewObjectOptions{Worktree: true})
 	if err != nil {
-		t.Fatalf("changedFilesFromGit() error = %v", err)
+		t.Fatalf("resolveReviewObject() error = %v", err)
+	}
+	files, err := changedFilesFromReviewObject(root, object)
+	if err != nil {
+		t.Fatalf("changedFilesFromReviewObject() error = %v", err)
 	}
 	if !slices.Contains(files, "  前导目录/尾随文件  .txt") || !slices.Contains(files, "新增/  中文 名  .md") {
-		t.Fatalf("changedFilesFromGit() = %v, want exact Unicode/whitespace paths", files)
+		t.Fatalf("changedFilesFromReviewObject() = %v, want exact Unicode/whitespace paths", files)
 	}
 }
 
@@ -133,7 +137,7 @@ func TestExecuteGatePlanKeepsGeneratedDriftFailFast(t *testing.T) {
 		t.Fatalf("write fake make: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	plan := gatePlan{RequiredGates: []string{"codemap:check", "project-map:check"}}
+	plan := exactCurrentReviewPlan(t, "codemap:check", "project-map:check")
 
 	if err := executeGatePlan(plan); err == nil {
 		t.Fatal("generated drift gate unexpectedly succeeded")
@@ -146,7 +150,7 @@ func TestExecuteGatePlanKeepsGeneratedDriftFailFast(t *testing.T) {
 }
 
 func TestExecuteGatePlanRejectsRequiredGateWithoutRunner(t *testing.T) {
-	plan := gatePlan{RequiredGates: []string{"missing:runner"}}
+	plan := exactCurrentReviewPlan(t, "missing:runner")
 
 	err := executeGatePlan(plan)
 	if err == nil {
@@ -178,6 +182,108 @@ func TestExistingDiagnosticFilesRejectsNonRegularTarget(t *testing.T) {
 	}
 }
 
+func TestFrontendChangedTestFilesResolveControlledCrossExtensions(t *testing.T) {
+	repoRoot := t.TempDir()
+	for _, file := range []string{
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.test.jsx",
+		"frontend-app/src/shared/model/same.ts",
+		"frontend-app/src/shared/model/same.test.ts",
+		"frontend-app/src/shared/ui/FromTSX.tsx",
+		"frontend-app/src/shared/ui/FromTSX.test.js",
+		"frontend-app/src/shared/ui/Multi.jsx",
+		"frontend-app/src/shared/ui/Multi.test.js",
+		"frontend-app/src/shared/ui/Multi.test.jsx",
+		"frontend-app/src/shared/ui/Multi.test.ts",
+		"frontend-app/src/shared/ui/Multi.test.tsx",
+		"frontend-app/src/shared/ui/Unrelated.test.jsx",
+	} {
+		writeGateFixtureFile(t, repoRoot, file, "export {};\n")
+	}
+	got, err := frontendChangedTestFilesInRoot(repoRoot, []string{
+		"frontend-app/src/shared/ui/Multi.jsx",
+		"frontend-app/src/pages/chat/components/ChatActionFeedback.js",
+		"frontend-app/src/shared/model/same.ts",
+		"frontend-app/src/shared/ui/FromTSX.tsx",
+		"frontend-app/src/shared/ui/Multi.jsx",
+	})
+	if err != nil {
+		t.Fatalf("frontendChangedTestFilesInRoot() error = %v", err)
+	}
+	want := []string{
+		"src/pages/chat/components/ChatActionFeedback.test.jsx",
+		"src/shared/model/same.test.ts",
+		"src/shared/ui/FromTSX.test.js",
+		"src/shared/ui/Multi.test.js",
+		"src/shared/ui/Multi.test.jsx",
+		"src/shared/ui/Multi.test.ts",
+		"src/shared/ui/Multi.test.tsx",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("frontendChangedTestFilesInRoot() = %v, want %v", got, want)
+	}
+}
+
+func TestFrontendChangedTestFilesFailClosedWhenAnySourceHasNoTest(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeGateFixtureFile(t, repoRoot, "frontend-app/src/covered.js", "export {};\n")
+	writeGateFixtureFile(t, repoRoot, "frontend-app/src/covered.test.js", "export {};\n")
+	writeGateFixtureFile(t, repoRoot, "frontend-app/src/missing.js", "export {};\n")
+
+	_, err := frontendChangedTestFilesInRoot(repoRoot, []string{
+		"frontend-app/src/covered.js",
+		"frontend-app/src/missing.js",
+	})
+	if err == nil || !strings.Contains(err.Error(), `frontend changed source "frontend-app/src/missing.js" has no matching test files`) {
+		t.Fatalf("missing frontend test error = %v", err)
+	}
+}
+
+func TestFrontendChangedTestFilesRejectsNonRegularCandidates(t *testing.T) {
+	tests := []struct {
+		name   string
+		create func(t *testing.T, repoRoot, candidate string)
+	}{
+		{
+			name: "directory",
+			create: func(t *testing.T, repoRoot, candidate string) {
+				t.Helper()
+				writeGateFixtureFile(t, repoRoot, candidate+"/Unrelated.test.jsx", "export {};\n")
+			},
+		},
+		{
+			name: "symlink",
+			create: func(t *testing.T, repoRoot, candidate string) {
+				t.Helper()
+				target := "frontend-app/src/Symlink.actual.jsx"
+				writeGateFixtureFile(t, repoRoot, target, "export {};\n")
+				if err := os.Symlink("Symlink.actual.jsx", filepath.Join(repoRoot, filepath.FromSlash(candidate))); err != nil {
+					t.Fatalf("symlink frontend test candidate: %v", err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot := t.TempDir()
+			stem := strings.ToUpper(test.name[:1]) + test.name[1:]
+			source := "frontend-app/src/" + stem + ".js"
+			candidate := "frontend-app/src/" + stem + ".test.jsx"
+			writeGateFixtureFile(t, repoRoot, source, "export {};\n")
+			test.create(t, repoRoot, candidate)
+
+			got, err := frontendChangedTestFilesInRoot(repoRoot, []string{source})
+			wantError := `frontend test target "src/` + stem + `.test.jsx" is not a regular file`
+			if err == nil || !strings.Contains(err.Error(), wantError) {
+				t.Fatalf("non-regular frontend test error = %v, want %q", err, wantError)
+			}
+			if len(got) != 0 {
+				t.Fatalf("non-regular frontend test targets = %v, want empty", got)
+			}
+		})
+	}
+}
+
 func captureStderr(t *testing.T, run func() error) string {
 	t.Helper()
 	reader, writer, err := os.Pipe()
@@ -201,7 +307,17 @@ func captureStderr(t *testing.T, run func() error) string {
 	return string(data)
 }
 
-func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
+func exactCurrentReviewPlan(t *testing.T, gates ...string) gatePlan {
+	t.Helper()
+	repoRoot := aiMaintenanceRepoRoot(t)
+	object, err := resolveReviewObject(repoRoot, reviewObjectOptions{Base: "HEAD", Head: "HEAD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return gatePlan{ReviewObject: object, RequiredGates: gates}
+}
+
+func TestBuildGatePlanRequiresDiagnosticsGateForGoScripts(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"scripts/ai_maintenance/main.go"})
 
 	assertStringSetContains(t, plan.RequiredEvidence,
@@ -210,7 +326,8 @@ func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 		"native:read",
 		"native:search",
 	)
-	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
+	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard", "lsp:changed-diagnostics")
+	assertStringSetContains(t, plan.DiagnosticFiles, "scripts/ai_maintenance/main.go")
 	assertStringSetOmits(t, plan.RequiredGates, "ai-maintenance:self-test")
 	assertStringSetContains(t, plan.AffectedGoPackages, "./scripts/ai_maintenance")
 }
@@ -292,8 +409,29 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 		{"cmd/mcp-orch/sqlc.yaml", false},
 		{"sql/queries.sql", false},
 		{"cmd/mcp-orch/sql/queries.sql", false},
+		{"cmd/mcp-orch/store/sqlc/types_ext.go", true},
 		{"internal/platform/db/sqlite/migrations/001.sql", false},
 		{"internal/store/thread/store.go", true},
+		{"internal/devtools/sqlcconfig/config.go", true},
+		{"internal/devtools/sqlcconfig/config_test.go", true},
+		{"internal/devtools/gateprivate/trusted_git.go", true},
+		{"internal/devtools/trustedgitpolicy/policy.go", true},
+		{"internal/devtools/trustedgitpolicy/future_helper.go", true},
+		{"internal/devtools/gateprivate/trusted_git_future.go", true},
+		{"internal/archtest/backend_boundary_evaluator.go", true},
+		{"internal/archtest/backend_boundary_sqlc.go", true},
+		{"internal/archtest/backend_boundary_registry.go", true},
+		{"internal/archtest/guardlib.go", true},
+		{"internal/archtest/backend_boundary_sqlc_owner_test.go", true},
+		{"internal/archtest/sqlc_bypass_guard_test.go", true},
+		{"internal/archtest/migration_sqlc_guard_test.go", true},
+		{"internal/archtest/sqlc_guard_fixture_test.go", true},
+		{"internal/archtest/sqlc_guard_external_fixture_test.go", true},
+		{"scripts/sqlc_config_outputs/main.go", true},
+		{"scripts/sqlc_postprocess.sh", false},
+		{"scripts/sqlc_verify_worktree.sh", false},
+		{"scripts/sqlc_verify_worktree_guard_test.go", true},
+		{"Makefile", true},
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
@@ -305,6 +443,27 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 				assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
 			}
 		})
+	}
+}
+
+func TestSQLCRelevantFollowsCentralOutputOwnerParents(t *testing.T) {
+	for _, file := range []string{
+		sqlcconfig.RootOutputOwnerParent + "/future/store.go",
+		sqlcconfig.OrchestratorOutputOwnerParent + "/future/store.go",
+	} {
+		if !sqlcRelevant(file) {
+			t.Fatalf("central SQLC owner path %q did not route sqlc:verify", file)
+		}
+	}
+}
+
+func TestTrustedHostBashResolvesExecutableOnCurrentHost(t *testing.T) {
+	bash, err := trustedHostBash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(bash) {
+		t.Fatalf("trusted host Bash is not absolute: %q", bash)
 	}
 }
 
@@ -461,14 +620,13 @@ func collectRegistryLocatorPaths(value any, paths map[string]bool) {
 	}
 }
 
-func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
+func TestGatePlanProducerMatchesRunnerRegistry(t *testing.T) {
 	producerGates := map[string]bool{}
 	for _, files := range [][]string{
 		{"scripts/ai_maintenance/main.go"},
 		{".githooks/pre-commit"},
 		{"frontend-app/src/App.jsx"},
 		{"frontend-app/src/shared/ui/runUIAction.js"},
-		{"frontend-app/scripts/frontend-maintainability-baseline.json"},
 		{"internal/store/thread/store.go"},
 		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},
@@ -490,5 +648,4 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 
 	runners := gateRunners(mustBuildGatePlan(t, []string{"README.md"}))
 	assertRegistryMatchesProducer(t, producerGates, runners, "runner", "diff:whitespace")
-	assertRegistryMatchesProducer(t, producerGates, gateEvidenceCommandFragments(), "evidence", "diff:whitespace")
 }

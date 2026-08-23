@@ -143,7 +143,9 @@ func (h handlerBase) openDiagnosticDocument(ctx context.Context, rawPath, langua
 }
 
 func shouldRetryDiagnosticBootstrap(ctx context.Context, err error) bool {
-	return err != nil && ctx != nil && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) && strings.Contains(err.Error(), "initialize LSP client")
+	return err != nil && ctx != nil && ctx.Err() == nil &&
+		errors.Is(err, context.DeadlineExceeded) &&
+		errors.Is(err, lspmanager.ErrLSPClientInitialization)
 }
 
 func fetchDeletedLanguageOverrideDiagnostics(ctx context.Context, manager lspmanager.Manager, target diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {

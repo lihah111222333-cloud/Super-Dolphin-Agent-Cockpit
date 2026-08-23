@@ -437,7 +437,7 @@ func buildDebArtifact(t *testing.T, entries []tarArtifactEntry) []byte {
 	var archive bytes.Buffer
 	archive.WriteString("!<arch>\n")
 	writeArEntry := func(name string, payload []byte) {
-		header := []byte(fmt.Sprintf("%-16s%-12d%-6d%-6d%-8o%-10d`\n", name+"/", 0, 0, 0, 0o100644, len(payload)))
+		header := fmt.Appendf(nil, "%-16s%-12d%-6d%-6d%-8o%-10d`\n", name+"/", 0, 0, 0, 0o100644, len(payload))
 		if len(header) != 60 {
 			t.Fatalf("ar header length = %d, want 60", len(header))
 		}

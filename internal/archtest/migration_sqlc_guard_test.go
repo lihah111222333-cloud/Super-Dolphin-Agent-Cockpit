@@ -4,44 +4,37 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 )
-
-type sqlcDatabaseConfig struct {
-	SQL []struct {
-		Engine string   `yaml:"engine"`
-		Schema []string `yaml:"schema"`
-	} `yaml:"sql"`
-}
 
 func TestMCPOrchSQLCUsesSQLiteBaseline(t *testing.T) {
 	root := repoRoot(t)
-	configPath := filepath.Join(root, "cmd", "mcp-orch", "sqlc.yaml")
-	data, err := os.ReadFile(configPath)
+	units, err := sqlcconfig.LoadDefault(root)
 	if err != nil {
-		t.Fatalf("read cmd/mcp-orch/sqlc.yaml: %v", err)
+		t.Fatalf("load canonical SQLC configs: %v", err)
 	}
-	var config sqlcDatabaseConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		t.Fatalf("parse cmd/mcp-orch/sqlc.yaml: %v", err)
+	var entry *sqlcconfig.Unit
+	for index := range units {
+		if units[index].ConfigPath == "cmd/mcp-orch/sqlc.yaml" {
+			if entry != nil {
+				t.Fatal("cmd/mcp-orch/sqlc.yaml has multiple SQLC units; want one SQLite owner")
+			}
+			entry = &units[index]
+		}
 	}
-	if len(config.SQL) != 1 {
-		t.Fatalf("cmd/mcp-orch/sqlc.yaml sql entries = %d, want 1 SQLite owner", len(config.SQL))
+	if entry == nil {
+		t.Fatal("cmd/mcp-orch/sqlc.yaml has no SQLC unit")
 	}
-	entry := config.SQL[0]
-	if entry.Engine != "sqlite" {
-		t.Fatalf("cmd/mcp-orch/sqlc.yaml engine = %q, want sqlite", entry.Engine)
-	}
-	wantSchema := []string{"../../internal/platform/db/sqlite/migrations/001_baseline.sql"}
-	if !reflect.DeepEqual(entry.Schema, wantSchema) {
-		t.Fatalf("cmd/mcp-orch/sqlc.yaml schema = %#v, want SQLite baseline %#v", entry.Schema, wantSchema)
+	wantSchema := []string{"internal/platform/db/sqlite/migrations/001_baseline.sql"}
+	if !slices.Equal(entry.Schemas, wantSchema) {
+		t.Fatalf("cmd/mcp-orch/sqlc.yaml schema = %#v, want canonical SQLite baseline %#v", entry.Schemas, wantSchema)
 	}
 }
 
@@ -144,7 +137,8 @@ func collectHookstoreSQLCBypassViolations(t *testing.T, root string) []string {
 
 func missingHookSQLCMethodViolations(t *testing.T, root string) []string {
 	t.Helper()
-	generatedPath := filepath.Join(root, "internal", "store", "sqlc", "hook_pending_review.sql.go")
+	generatedDir := sqlcGeneratedDirForConfig(t, root, "sqlc.yaml")
+	generatedPath := filepath.Join(generatedDir, "hook_pending_review.sql.go")
 	generated, err := os.ReadFile(generatedPath)
 	if err != nil {
 		t.Fatalf("read generated hook sqlc file: %v", err)
@@ -167,6 +161,24 @@ func missingHookSQLCMethodViolations(t *testing.T, root string) []string {
 		}
 	}
 	return violations
+}
+
+func sqlcGeneratedDirForConfig(t *testing.T, root, configPath string) string {
+	t.Helper()
+	units, err := sqlcconfig.LoadDefault(root)
+	if err != nil {
+		t.Fatalf("load canonical SQLC output owner: %v", err)
+	}
+	var matches []sqlcconfig.Unit
+	for _, unit := range units {
+		if unit.ConfigPath == configPath {
+			matches = append(matches, unit)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("SQLC config %s units = %d, want exactly one", configPath, len(matches))
+	}
+	return filepath.Join(root, filepath.FromSlash(matches[0].Output))
 }
 
 func TestSQLiteRuntimeMigrationNumberUniqueness(t *testing.T) {

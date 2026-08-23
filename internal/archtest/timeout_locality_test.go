@@ -69,9 +69,28 @@ func contextWithTimeoutCall(n ast.Node) (*ast.CallExpr, bool) {
 }
 
 func allowedTimeoutFile(relPath string) bool {
-	return relPath == "internal/platform/config/timeouts.go" ||
-		relPath == "internal/devtools/gateprivate/timeouts.go" ||
-		relPath == "internal/platform/toolbridge/schema/client.go" ||
-		relPath == "internal/util/ctxutil/ctxutil.go" ||
-		strings.HasPrefix(relPath, "internal/transport/retry/")
+	if reason, ok := registeredTimeoutOwners[relPath]; ok {
+		return strings.TrimSpace(reason) != ""
+	}
+	return strings.HasPrefix(relPath, "internal/transport/retry/")
+}
+
+// registeredTimeoutOwners 记录每个允许直接创建 timeout context 的局部 owner 及其预算来源。
+// 每个条目都必须是精确文件路径；新增 timeout 不得通过目录级白名单绕过 owner 审查。
+var registeredTimeoutOwners = map[string]string{
+	"internal/platform/config/timeouts.go":                          "platform shared timeout wrappers own ctxutil budgets",
+	"internal/devtools/gateprivate/timeouts.go":                     "trusted Gate private timeout wrapper owns gate budgets",
+	"internal/platform/toolbridge/schema/client.go":                 "schema client owns operation and reap deadlines",
+	"internal/util/ctxutil/ctxutil.go":                              "shared backend timeout constants and wrappers own defaults",
+	"cmd/mcp-lsp/installer/windows_asset_cache_shared.go":           "WindowsAssetCache owns the caller-provided HTTP asset timeout",
+	"cmd/mcp-lsp/installer/windows_runtime_dependency_provision.go": "runtime dependency provision owns install timeout and cache lock deadline",
+	"cmd/mcp-lsp/multilsp/client.go":                                "multilsp client owns semantic workspace readiness timeout",
+	"cmd/mcp-lsp/runtime_windows_markdown_client.go":                "Windows Markdown client owns parser and watcher request deadlines",
+	"internal/devtools/heterocinode/batch.go":                       "Wine batch cleanup owns the bounded wineserver cleanup timeout",
+	"internal/devtools/heterocinode/linux_facts.go":                 "Linux facts provider owns the Docker command timeout",
+	"internal/devtools/heterocitransport/ssh_requester.go":          "SSH probe requester owns the per-probe transport timeout",
+	"internal/devtools/heterociworkflow/run.go":                     "workflow owns receipt-read and cleanup deadlines",
+	"internal/devtools/remotecicli/portable_validate.go":            "portable validation composition owns its bounded catalog and bind deadlines",
+	"internal/devtools/remotecicli/postgresql_authority.go":         "execute composition owns the caller-provided request timeout",
+	"internal/devtools/remoteruntime/transport.go":                  "runtime transport owns request and operation deadlines",
 }

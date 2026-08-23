@@ -54,17 +54,10 @@ type runtimeDepsInputs struct {
 }
 
 type runtimeDepsRecipeInputs struct {
-	Dockerfile        string `json:"dockerfile_sha256"`
-	RuntimeSeedWorker string `json:"runtime_seed_worker_sha256"`
+	Dockerfile string `json:"dockerfile_sha256"`
 }
 
-const (
-	runtimeSeedWorkerRecipePath   = "internal/devtools/gate/executor_seed.go"
-	runtimeSeedFrontendRecipePath = "internal/devtools/gate/executor_frontend_vite_cache.go"
-)
-
 type runtimeDepsPaths struct {
-	Manifest            string `json:"manifest"`
 	GoModuleProxy       string `json:"go_module_proxy"`
 	FrontendNodeModules string `json:"frontend_node_modules"`
 	PlaywrightBrowsers  string `json:"playwright_browsers"`
@@ -82,7 +75,6 @@ type runtimeDepsPaths struct {
 
 func canonicalRuntimeDepsPaths() runtimeDepsPaths {
 	return runtimeDepsPaths{
-		Manifest:      "/opt/super-dolphin-gate/runtime/manifest.json",
 		GoModuleProxy: "/opt/super-dolphin-gate/runtime/go-proxy", FrontendNodeModules: "/opt/super-dolphin-gate/runtime/frontend/node_modules",
 		PlaywrightBrowsers: "/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright", LSPNodeModules: "/opt/super-dolphin-gate/runtime/lsp/node_modules",
 		SQLC: "/opt/super-dolphin-gate/runtime/bin/sqlc", Ripgrep: "/opt/super-dolphin-gate/runtime/bin/rg", Sqruff: "/opt/super-dolphin-gate/runtime/bin/sqruff",
@@ -143,7 +135,6 @@ func runtimeDepsInputFields(inputs runtimeDepsInputs, recipeInputs runtimeDepsRe
 		{"nilness runner", inputs.NilnessRunner}, {"nilness guard", inputs.NilnessGuard}, {"frontend package lock", inputs.FrontendPackageLock},
 		{"LSP package lock", inputs.LSPPackageLock}, {"proxy go.mod", inputs.ProxyGoMod}, {"proxy go.sum", inputs.ProxyGoSum},
 		{"tools go.mod", inputs.ToolsGoMod}, {"tools go.sum", inputs.ToolsGoSum},
-		{"runtime seed worker", recipeInputs.RuntimeSeedWorker},
 	}
 }
 
@@ -240,7 +231,6 @@ func runtimeDepsDigestTargets(inputs *runtimeDepsInputs) []runtimeDepsDigestTarg
 func runtimeDepsRecipeDigestTargets(inputs *runtimeDepsRecipeInputs) []runtimeDepsRecipeDigestTarget {
 	return []runtimeDepsRecipeDigestTarget{
 		{paths: []string{gateRuntimeDepsDocker}, out: &inputs.Dockerfile},
-		{paths: []string{runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath}, out: &inputs.RuntimeSeedWorker},
 	}
 }
 

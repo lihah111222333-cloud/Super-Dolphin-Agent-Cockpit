@@ -112,7 +112,7 @@ run_staged_light_code_guard() {
 
 resolve_project_map_gate() {
   local source_tree=${1:?source tree is required}
-  local built_gate configured_gate install_root candidate
+  local built_gate install_root candidate
 
   if ! cleanup_project_map_launcher_files; then
     return 1
@@ -132,14 +132,7 @@ resolve_project_map_gate() {
     printf '%s\n' 'pre-commit blocked: cannot allocate the trusted launcher lookup log.' >&2
     return 1
   }
-  configured_gate=$(run_without_hook_env git -C "$repo_root" config --local --get superdolphin.gateLauncher 2>/dev/null || true)
-  if [[ -n "$configured_gate" ]] \
-    && run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$configured_gate" 2>"$active_launcher_lookup_log" \
-    && run_without_hook_env verify_trusted_gate_launcher_tree "$repo_root" "$configured_gate" "$source_tree" 2>>"$active_launcher_lookup_log"; then
-    project_map_gate_bin=$configured_gate
-    return 0
-  fi
-  install_root=$(run_without_hook_env trusted_launcher_root "$repo_root" 2>>"$active_launcher_lookup_log" || true)
+  install_root=$(run_without_hook_env trusted_launcher_root 2>>"$active_launcher_lookup_log" || true)
   for candidate in "$install_root/v2/$source_tree"/*/super-dolphin-gate; do
     [[ -e "$candidate" ]] || continue
     if run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$candidate" 2>>"$active_launcher_lookup_log" \
@@ -166,10 +159,6 @@ resolve_project_map_gate() {
   if ! run_without_hook_env validate_trusted_gate_launcher "$repo_root" "$built_gate" \
     || ! run_without_hook_env verify_trusted_gate_launcher_tree "$repo_root" "$built_gate" "$source_tree"; then
     printf '%s\n' 'pre-commit blocked: newly built Gate does not verify against the exact staged tree.' >&2
-    return 1
-  fi
-  if ! run_without_hook_env git -C "$repo_root" config --local superdolphin.gateLauncher "$built_gate"; then
-    printf '%s\n' 'pre-commit blocked: newly built Gate could not become the configured trusted launcher.' >&2
     return 1
   fi
   project_map_gate_bin=$built_gate

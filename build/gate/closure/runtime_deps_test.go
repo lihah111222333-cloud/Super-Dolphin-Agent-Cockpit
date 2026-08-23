@@ -48,7 +48,7 @@ func TestRuntimeDepsLockRejectsInputAndShapeDrift(t *testing.T) {
 	}
 }
 
-func TestRuntimeDepsLockRejectsRuntimeSeedWorkerRecipeClosureDrift(t *testing.T) {
+func TestRuntimeDepsLockRejectsDockerfileRecipeClosureDrift(t *testing.T) {
 	root := t.TempDir()
 	writeRuntimeDepsInputs(t, root)
 	inputs, err := digestRuntimeDepsInputs(root)
@@ -59,7 +59,7 @@ func TestRuntimeDepsLockRejectsRuntimeSeedWorkerRecipeClosureDrift(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath} {
+	for _, path := range []string{gateRuntimeDepsDocker} {
 		t.Run(path, func(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), []byte("drift\n"), 0o600); err != nil {
 				t.Fatal(err)
@@ -67,7 +67,7 @@ func TestRuntimeDepsLockRejectsRuntimeSeedWorkerRecipeClosureDrift(t *testing.T)
 			lock := validRuntimeDepsLock(inputs)
 			lock.RecipeInputs = recipeInputs
 			if err := lock.validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); !errors.Is(err, errRuntimeDepsInputsDrift) {
-				t.Fatalf("runtime seed worker recipe drift error = %v", err)
+				t.Fatalf("runtime dependency Dockerfile recipe drift error = %v", err)
 			}
 			if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), []byte(path+"\n"), 0o600); err != nil {
 				t.Fatal(err)
@@ -76,7 +76,7 @@ func TestRuntimeDepsLockRejectsRuntimeSeedWorkerRecipeClosureDrift(t *testing.T)
 	}
 }
 
-func TestRuntimeDepsLockRejectsMissingRuntimeSeedWorkerRecipeClosureFile(t *testing.T) {
+func TestRuntimeDepsLockRejectsMissingDockerfileRecipeClosureFile(t *testing.T) {
 	root := t.TempDir()
 	writeRuntimeDepsInputs(t, root)
 	inputs, err := digestRuntimeDepsInputs(root)
@@ -89,13 +89,13 @@ func TestRuntimeDepsLockRejectsMissingRuntimeSeedWorkerRecipeClosureFile(t *test
 	}
 	lock := validRuntimeDepsLock(inputs)
 	lock.RecipeInputs = recipeInputs
-	for _, path := range []string{runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath} {
+	for _, path := range []string{gateRuntimeDepsDocker} {
 		t.Run(path, func(t *testing.T) {
 			if err := os.Remove(filepath.Join(root, filepath.FromSlash(path))); err != nil {
 				t.Fatal(err)
 			}
 			if err := lock.validateAgainstSource(root, toolchainLock{NetworkPolicy: "none"}); err == nil {
-				t.Fatal("missing runtime seed worker recipe closure file unexpectedly passed")
+				t.Fatal("missing runtime dependency Dockerfile unexpectedly passed")
 			}
 			writeTestRuntimeDepsInput(t, root, path)
 		})
@@ -133,7 +133,7 @@ func TestRefreshDependencyClosureRejectsInvalidTree(t *testing.T) {
 
 func TestRuntimeDepsLockEncodingContainsOnlyNodeLocalContract(t *testing.T) {
 	inputs := runtimeDepsInputs{ToolchainLock: testDigest, GoMod: testDigest, GoSum: testDigest, GoDistributionLock: testDigest, NilnessRunner: testDigest, NilnessGuard: testDigest, FrontendPackageLock: testDigest, LSPPackageLock: testDigest, ProxyGoMod: testDigest, ProxyGoSum: testDigest, ToolsGoMod: testDigest, ToolsGoSum: testDigest}
-	recipeInputs := runtimeDepsRecipeInputs{Dockerfile: testDigest, RuntimeSeedWorker: testDigest}
+	recipeInputs := runtimeDepsRecipeInputs{Dockerfile: testDigest}
 	lock := validRuntimeDepsLock(inputs)
 	lock.RecipeInputs = recipeInputs
 	data, err := encodeRuntimeDepsLock(lock)
@@ -158,9 +158,7 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 		"COPY third_party/kelindar-event/ ./third_party/kelindar-event/",
 		"COPY build/gate/runtime-proxy/go.mod build/gate/runtime-proxy/go.sum ./build/gate/runtime-proxy/",
 		"go mod download all",
-		"GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off",
-		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
-		"/tmp/super-dolphin-gate worker runtime-seed write",
+		"test \"$(/usr/local/go/bin/go version)\" = \"go version go1.26.5 linux/amd64\"",
 	} {
 		if !strings.Contains(dockerfile, wanted) {
 			t.Fatalf("runtime dependencies Dockerfile is missing %q", wanted)
@@ -182,23 +180,20 @@ func TestRuntimeDepsDockerfileDoesNotVendorJobSource(t *testing.T) {
 			t.Fatalf("runtime dependencies Dockerfile still depends on job source %q", unwanted)
 		}
 	}
-	write := strings.Index(dockerfile, "/tmp/super-dolphin-gate worker runtime-seed write")
-	remove := strings.Index(dockerfile, "rm /opt/super-dolphin-gate/runtime/manifest.json")
-	absent := strings.Index(dockerfile, "test ! -e /opt/super-dolphin-gate/runtime/manifest.json")
-	if write < 0 || remove <= write || absent <= remove {
-		t.Fatal("runtime dependency image must validate then remove its temporary manifest before generation-one takes ownership")
+	if strings.Contains(dockerfile, "runtime-seed") || strings.Contains(dockerfile, "manifest.json") || strings.Contains(dockerfile, "/tmp/super-dolphin-gate") {
+		t.Fatal("runtime dependency image must not invoke retired Gate workers or manifest writers")
 	}
 }
 
 const testDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func validRuntimeDepsLock(inputs runtimeDepsInputs) runtimeDepsLock {
-	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{Dockerfile: testDigest, RuntimeSeedWorker: testDigest}, Paths: canonicalRuntimeDepsPaths()}
+	return runtimeDepsLock{SchemaVersion: runtimeDepsSchemaVersion, BuildMode: runtimeDepsBuildMode, CacheScope: runtimeDepsCacheScope, Inputs: inputs, RecipeInputs: runtimeDepsRecipeInputs{Dockerfile: testDigest}, Paths: canonicalRuntimeDepsPaths()}
 }
 
 func writeRuntimeDepsInputs(t *testing.T, root string) {
 	t.Helper()
-	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/godistribution/go-distribution.lock", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum, runtimeSeedWorkerRecipePath, runtimeSeedFrontendRecipePath} {
+	for _, name := range []string{gateRuntimeDepsDocker, gateToolchain, "go.mod", "go.sum", "internal/devtools/godistribution/go-distribution.lock", "internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go", "frontend-app/package-lock.json", gateRuntimeLSPLock, gateRuntimeProxyModule, gateRuntimeProxySum, gateRuntimeToolsModule, gateRuntimeToolsSum} {
 		writeTestRuntimeDepsInput(t, root, name)
 	}
 }

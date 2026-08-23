@@ -30,10 +30,12 @@ guard rule source
 | CLI 适配 | `scripts/code_size_guard.go` | `check` / `--strict` / `--freeze` / 单文件模式；调用 `archtest.CheckAll` 和 freeze 流程 | 直接跑业务包测试 |
 | 验证编排 | `scripts/test_with_guard.sh`、`scripts/test_with_guard.ps1`、`scripts/go_with_guard.sh` | 禁 raw `go test`、运行代码守卫、跑 `internal/archtest`、按需追加 copylocks 和目标包测试 | 自动修复违规 |
 | Make 入口 | `make guard`、`make code-size-guard` | 给人工和脚本提供稳定命令 | 替代 hooks |
-| Hook 准入 | `.githooks/pre-commit`、`.githooks/pre-push` | 提交前在 exact staged tree 运行代码守卫；推送前统一运行完整 remote ECI 门禁 | 让提交阶段启动完整 CI |
+| Hook 准入 | `.githooks/pre-commit`、`.githooks/pre-push` | 提交前在 exact staged tree 运行代码守卫；推送前统一运行完整 remote-CI single-Ubuntu/Wine 门禁 | 让提交阶段启动完整 CI |
 | 前端守卫 | `frontend-app/scripts/*guard*.mjs`、`frontend-app/package.json` | React/Vite 侧 critical skip、silent async failure、contract store、code-size、RPC contract 等校验 | Go 架构边界 |
 | 代码地图/能力索引 | `docs/doc/codemap/*`、`docs/doc/codemap/project-map/*`、`docs/doc/codemap/capability-contract/*` | 给人和 AI 提供模块边界、文件索引、能力契约和漂移报告 | 代替源码/LSP 判断 |
-| 生成物/AI gate | `scripts/refresh_generated_artifacts.sh`、`scripts/ai_maintenance_gates.sh`、`scripts/ai_maintenance/*` | codemap/project-map/capcontract 刷新与漂移检查、按变更路径推导 gate 和证据 | 代替源代码事实 |
+| 生成物/AI gate | `scripts/refresh_generated_artifacts.sh`、`scripts/ai_maintenance_gates.sh`、`scripts/ai_maintenance/*` | 冻结 exact review object，在隔离候选树中按变更路径执行 codemap/project-map/capcontract 等 gate | 代替源代码事实或采信 agent 自报证据 |
+
+AI-maintenance 的可执行 review object 只有三种互斥模式：`range` 先解析 requested base/candidate commit，再冻结二者的 merge-base 作为实际 comparison base（JSON 同时记录 requested base、merge-base 与 candidate commit OID；无共同祖先立即失败）、`staged` 比较已解析的 HEAD commit tree 与 effective index tree、`worktree` 用临时 index 一次捕获 staged/unstaged/deleted/untracked 后比较 HEAD tree。`--changed-file` 仅是 `--print-plan` 的 `paths-only` 演示输入，进入执行器会在任何 runner 启动前拒绝。计划规则、affected packages、whitespace 与所有 runner 都从同一 candidate tree 的仓库内 `.worktrees/` 隔离物化读取；物化时禁用本地 checkout hook、清除除 staged effective index 之外的 repository-redirect Git 环境并拒绝 dirty candidate。前端 runner 必须显式提供物理 `SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED`，再由 candidate 自带的 lock/integrity 契约验证 package lock、hidden lock、optional/bin closure 与必需工具摘要；缺 seed 或身份不匹配时 fail-fast，不得静默链接 ambient `node_modules`。macOS/Linux 会用 O(top-level) 规范化视图排除 `.vite`/`.vite-temp`；Windows 上含这些 reserved cache 的 seed 必须换成 canonical clean seed；远程执行统一遵循单 Ubuntu physical host + Wine logical runtime 合同。
 
 ---
 
@@ -47,7 +49,7 @@ scripts/forbid_raw_go_test.sh
   -> go test ./internal/archtest -count=1
 ```
 
-提交 hook 使用更轻的 `scripts/test_with_guard.sh --light-guard-only`。该入口只执行前两项中的入口守卫与 `scripts/code_size_guard.go`，不运行 `go test`、业务测试或其他完整门禁；它专用于 exact staged tree 的快速提交反馈。完整 `--guard-only` 仍属于重型验证，宿主机默认拒绝并要求进入 remote ECI。
+提交 hook 使用更轻的 `scripts/test_with_guard.sh --light-guard-only`。该入口只执行前两项中的入口守卫与 `scripts/code_size_guard.go`，不运行 `go test`、业务测试或其他完整门禁；它专用于 exact staged tree 的快速提交反馈。完整 `--guard-only` 仍属于重型验证，宿主机默认拒绝并要求进入独立 remote-CI single-Ubuntu/Wine 门禁。
 
 普通包测试路径默认使用 `--quick-guard`：代码守卫之后只跑三项规范架构事实测试，再追加直接变更包、一级生产/测试反向依赖和命中范围内的 copylocks：
 
@@ -131,7 +133,7 @@ npm run guard:critical-skip
 - 不读取 remote config、duration ledger 或 agent token，不调用 Gate CLI、生成器或 `remote hook pre-commit`，不运行 closure/map refresh、前后端完整测试、构建、race、SQL 或发布门禁。
 - 守卫结束后删除临时 worktree，并复核真实 index tree 未在执行期间改变。
 
-`pre-push` 统一接管完整 remote ECI 门禁，并按 push range 推导变更面：
+`pre-push` 统一接管完整 remote-CI single-Ubuntu/Wine 门禁，并按 push range 推导变更面：
 
 - Go 代码：`local-fast` 先完成同 tree 的前端 test/build/embed；`pre-push` 只重复轻量前端+LSP、独占内存的完整普通后端与架构契约三分片，高内存 nilness 和独立 race 检查只进入 30 分钟 release profile。
 - 前端代码：`local-fast` 运行 `npm run lint`、`npm run test:hook`、build 与 `make frontend-embed-verify`；`pre-push` 只重复 lint，完整测试证据继续由同 tree 回执约束。
@@ -140,7 +142,7 @@ npm run guard:critical-skip
 - skill/doc skill surface：`python3 scripts/validate_super_agent_skills.py`。
 - AI-maintenance 自身或相关路径：`scripts/ai_maintenance_gates.sh`。
 
-`scripts/ai_maintenance/*` 只提供开发期 changed-file 计划与显式本地执行，推导 `backend:test_with_guard`、`backend:archtest`、`sqlc:verify`、`codemap:check`、`project-map:check`、按 registry 收窄的 `frontend:*` 和 `diff:whitespace` 等现行 owner。它不再提供本地 push profile、staged gate cache、prevalidated gate 或 closure 旁路；pre-commit 不运行该计划，pre-push/release 的完整门禁、PASS 复用、race、nilness、性能与 E2E 均以 remote WorkloadCatalog 和权威 SQLite receipt 为唯一事实源。
+`scripts/ai_maintenance/*` 只提供开发期 changed-file 计划与显式本地执行，推导 `backend:test_with_guard`、`backend:archtest`、`sqlc:verify`、`codemap:check`、`project-map:check`、按 registry 收窄的 `frontend:*` 和 `diff:whitespace` 等现行 owner。它不再提供本地 push profile、staged gate cache、prevalidated gate 或 closure 旁路；pre-commit 不运行该计划，pre-push/release 的完整门禁、PASS 复用、race、nilness、性能与 E2E 均以 remote WorkloadCatalog 和 PostgreSQL authority/receipt 为唯一事实源。
 
 ---
 
@@ -167,7 +169,7 @@ source tree / generator
 1. 回答路径、影响面或架构边界问题时，先用 codemap/project-map 缩小范围，再用源码、测试和 LSP 确认。
 2. codemap/project-map/capcontract 看起来过期时，优先修生成器或运行统一刷新入口，不手改生成内容。
 3. pre-commit 在 exact staged tree 上检查 project-map；仅当输出区干净且发现漂移时，才由受信 Gate 刷新、暂存并对新 tree 复验。pre-push 的 codemap/capcontract 等完整检查由 remote WorkloadCatalog 唯一 owner 执行，任何 drift 都会阻断，不能以 warning 形成假绿。
-4. AI-maintenance gate 把 `codemap:check`、`project-map:check` 和 `generated:source` 当成证据要求，避免 stale map 继续指导修复。
+4. AI-maintenance plan 的 `GeneratedFiles` 只提供生成物路由元数据；正确性由同一 exact review object 上实际执行的 `codemap:check`、`project-map:check` 等命令判定，不解析 agent 自报的命令退出码、LSP PASS 或生成来源文本。
 
 ---
 
@@ -227,4 +229,4 @@ npm run build
 git diff --check
 ```
 
-本地 host-test 只用于单个具名测试的非权威红绿；完整包与交付结论仍由正常 `git remote-ci push` 的 ECI receipt 给出。
+本地 host-test 只用于单个具名测试的非权威红绿；完整包与交付结论仍由独立 remote-CI single-Ubuntu/Wine 流程产生的 PostgreSQL receipt 给出。

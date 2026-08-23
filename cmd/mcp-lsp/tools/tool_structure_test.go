@@ -416,7 +416,7 @@ func marshalStructureParams(t *testing.T, params structureParams) json.RawMessag
 	return input
 }
 
-func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestRegistry, filePath, wantLanguageID string) {
+func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestRegistry, filePath, languageID string) {
 	t.Helper()
 	if registry.gotFilePath != filePath {
 		t.Fatalf("GetManagerForFileWithLanguage called with %q", registry.gotFilePath)
@@ -427,8 +427,8 @@ func assertWorkspaceSymbolFilePathRouting(t *testing.T, registry *structureTestR
 	if registry.languageCalls != 0 {
 		t.Fatalf("GetManagerForLanguage calls = %d, want 0 for file_path routing", registry.languageCalls)
 	}
-	if registry.gotLanguageID != wantLanguageID {
-		t.Fatalf("GetManagerForFileWithLanguage language override = %q, want %q", registry.gotLanguageID, wantLanguageID)
+	if registry.gotLanguageID != languageID {
+		t.Fatalf("GetManagerForFileWithLanguage language override = %q, want detected %q", registry.gotLanguageID, languageID)
 	}
 }
 

@@ -713,6 +713,7 @@ func discoverRunnableGoTests(path string, additionalTags []string) ([]string, er
 	return parseRunnableGoTests(path)
 }
 
+// parseRunnableGoTests 直接解析源码文件，提取可由 testing 发现的顶层 Test 函数名。
 func parseRunnableGoTests(path string) ([]string, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, 0)

@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 func requireProjectMapCLICode(t *testing.T, want gatecontract.ExitCode, operation string, args ...string) {

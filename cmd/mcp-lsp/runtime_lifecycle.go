@@ -3,14 +3,17 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/multilsp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 type runtimeBinaryOverride struct {
@@ -173,13 +176,22 @@ func appendRuntimeUnique(dst []string, values ...string) []string {
 	return dst
 }
 
+const defaultStdioEOFHardExitTimeout = 30 * time.Second
+
 type stdioRunner struct {
-	server  interface{ Run(context.Context) error }
-	manager interface{ Close() error }
+	server       interface{ Run(context.Context) error }
+	manager      interface{ Close() error }
+	hardTimeout  time.Duration
+	hardExitFunc func(int)
 }
 
 func newStdioRunner(server *common.Server, manager *Manager) platformrunner.Runner {
-	return stdioRunner{server: server, manager: manager}
+	return stdioRunner{
+		server:       server,
+		manager:      manager,
+		hardTimeout:  defaultStdioEOFHardExitTimeout,
+		hardExitFunc: os.Exit,
+	}
 }
 
 // Run 启动LSP后台流程。
@@ -192,5 +204,19 @@ func (r stdioRunner) Run(ctx context.Context) (err error) {
 			err = errors.Join(err, r.manager.Close())
 		}
 	}()
-	return r.server.Run(ctx)
+
+	serverErr := r.server.Run(ctx)
+
+	// 在 stdio 管道断开后，如果配置了硬超时保底，启动计时器。
+	// 若 30 秒内 fx/RunGroup 仍未完成资源释放，直接强制退出，避免挂起 goroutine 无限自旋。
+	if r.hardTimeout > 0 && r.hardExitFunc != nil {
+		time.AfterFunc(r.hardTimeout, func() {
+			pkglogger.Warn("mcp-lsp: stdio closed and graceful shutdown timed out, executing hard exit",
+				"timeout", r.hardTimeout,
+			)
+			r.hardExitFunc(0)
+		})
+	}
+
+	return serverErr
 }

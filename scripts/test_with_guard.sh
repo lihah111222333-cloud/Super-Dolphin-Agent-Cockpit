@@ -138,7 +138,7 @@ validate_host_test_args() {
         continue
         ;;
       -*)
-        echo "host test rejects unclassified flag $arg; use ECI for heavy or unknown workloads" >&2
+        echo "host test rejects unclassified flag $arg; use the trusted four-node offline Gate for heavy or unknown workloads" >&2
         return 2
         ;;
       *)
@@ -196,8 +196,9 @@ validate_host_test_args() {
   fi
 }
 
-host_test_remote_guidance() {
+host_test_local_gate_guidance() {
   local package_name="" test_selector="" previous="" arg
+  local candidate_parent candidate_tree parent_tree worktree_status untracked_state
   for arg in "$@"; do
     if [[ "$previous" == "-run" ]]; then
       test_selector="$arg"
@@ -213,14 +214,49 @@ host_test_remote_guidance() {
   test_selector="${test_selector#^}"
   test_selector="${test_selector%$}"
   if [[ -z "$package_name" || ! "$test_selector" =~ ^Test[[:alnum:]_]+$ ]]; then
-    echo "host test could not derive the exact remote CI selector" >&2
+		echo "host test could not derive the exact local selector" >&2
     return 2
   fi
-  # 这里故意输出供调用方复制的字面命令，不在当前 shell 展开。
-  # shellcheck disable=SC2016
-  printf '%s' '[test-with-guard] remote CI exact test: source .githooks/trusted-gate-launcher.sh && "$(trusted_gate_launcher "$(git rev-parse --show-toplevel)")" test --target=remote --config "${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config)}" --ledger "${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger)}" --test ' >&2
-  printf '%q\n' "$package_name#$test_selector" >&2
-  echo '[test-with-guard] remote CI setup: make remote-ci-init; run through the verified trusted launcher installed by make install-hooks' >&2
+  if git diff-files --quiet --ignore-submodules=none --; then
+    worktree_status=0
+  else
+    worktree_status=$?
+  fi
+  if [[ "$worktree_status" -eq 1 ]]; then
+		echo "host test exact candidate has unstaged worktree changes; stage or clean the candidate before local Gate checks" >&2
+    return 2
+  elif [[ "$worktree_status" -ne 0 ]]; then
+    echo "host test could not prove that the worktree matches the staged candidate" >&2
+    return 2
+  fi
+  untracked_state="$(
+    git ls-files --others --exclude-standard --directory --no-empty-directory |
+      awk 'BEGIN { found = 0 } { found = 1 } END { print found }'
+  )" || {
+    echo "host test could not inspect untracked candidate files" >&2
+    return 2
+  }
+  if [[ "$untracked_state" == "1" ]]; then
+		echo "host test exact candidate has untracked files; stage or clean the candidate before local Gate checks" >&2
+    return 2
+  elif [[ "$untracked_state" != "0" ]]; then
+    echo "host test received invalid untracked candidate evidence" >&2
+    return 2
+  fi
+  candidate_parent="$(git rev-parse --verify 'HEAD^{commit}')" || {
+		echo "host test could not capture the exact parent commit" >&2
+    return 2
+  }
+  candidate_tree="$(git write-tree)" || {
+		echo "host test could not capture the exact staged tree" >&2
+    return 2
+  }
+  parent_tree="$(git rev-parse --verify "${candidate_parent}^{tree}")" || {
+		echo "host test could not resolve the parent tree" >&2
+    return 2
+  }
+	printf '[test-with-guard] local exact test: %q -run %q -count 1\n' "$package_name" "$test_selector" >&2
+	echo '[test-with-guard] trusted local Gate project-map and closure checks remain required' >&2
 }
 
 host_test_cpu_busy_percent() {
@@ -244,7 +280,7 @@ host_test_cpu_busy_percent() {
       return
     fi
   fi
-  echo "host CPU utilization evidence is unavailable; route this test to ECI" >&2
+  echo "host CPU utilization evidence is unavailable; use the trusted four-node offline Gate" >&2
   return 2
 }
 
@@ -309,7 +345,7 @@ host_test_resource_snapshot() {
   case "$platform" in
     windows|wsl)
       if ! windows_snapshot="$(host_test_windows_resource_snapshot)"; then
-        echo "host resource evidence is unavailable; route this test to ECI" >&2
+        echo "host resource evidence is unavailable; use the trusted four-node offline Gate" >&2
         return 2
       fi
       windows_snapshot="${windows_snapshot//$'\r'/}"
@@ -345,7 +381,7 @@ host_test_resource_snapshot() {
     [[ ! "$cpu_busy_percent" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
     ! awk -v cpu="$cpu_busy_percent" 'BEGIN {exit !(cpu >= 0 && cpu <= 100)}' ||
     [[ ! "$memory_free_percent" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    echo "host resource evidence is unavailable; route this test to ECI" >&2
+    echo "host resource evidence is unavailable; use the trusted four-node offline Gate" >&2
     return 2
   fi
   tier="$(host_test_resource_tier "$cpu_busy_percent" "$memory_free_percent")"
@@ -356,13 +392,13 @@ admit_host_test_load() {
   local load_class="$1" snapshot tier cpu_busy_percent logical_cpus memory_free_percent
   shift
   if ! snapshot="$(host_test_resource_snapshot)"; then
-    host_test_remote_guidance "$@"
+		host_test_local_gate_guidance "$@"
     return 2
   fi
   read -r tier cpu_busy_percent logical_cpus memory_free_percent <<<"$snapshot"
   if [[ "$tier" == "high" ]]; then
     echo "host test admission rejected: class=$load_class host_tier=$tier cpu_busy_percent=$cpu_busy_percent memory_free_percent=$memory_free_percent" >&2
-    host_test_remote_guidance "$@"
+		host_test_local_gate_guidance "$@"
     return 2
   fi
   printf '[test-with-guard] host admission class=%s host_tier=%s cpu_busy_percent=%s logical_cpus=%s memory_free_percent=%s\n' \
@@ -375,7 +411,7 @@ run_host_test() {
   shift 2
   validate_host_test_args "$load_class" "$@"
   admit_host_test_load "$load_class" "$@"
-  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE class=$load_class; authoritative PASS still requires ECI"
+  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE class=$load_class; trusted four-node Gate evidence remains required"
   run_guard "$real_go" quick
   admit_host_test_load "$load_class" "$@"
   run_copylocks_guard "$real_go" "$@"
@@ -419,7 +455,7 @@ run_host_test() {
     return 2
   fi
   rm -f -- "$output_file"
-  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE PASS class=$load_class"
+  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE NOT_VERIFIED class=$load_class"
 }
 
 collect_copylocks_packages() {
@@ -875,9 +911,9 @@ main() {
 
   if [ "$1" != "--help" ] && [ "$1" != "-h" ] && [ "$1" != "--light-guard-only" ] && ! all_args_are_go_files "$@"; then
     if [[ -n "$host_test_class" ]]; then
-      require_remote_test_execution "host-$host_test_class"
+      require_local_gate_execution "host-$host_test_class"
     else
-      require_remote_test_execution
+      require_local_gate_execution
     fi
   fi
 

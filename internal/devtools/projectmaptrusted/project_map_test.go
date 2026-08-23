@@ -3,7 +3,6 @@ package projectmaptrusted
 import (
 	"archive/tar"
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -11,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 func TestPreparedTreeRunsTrustedGeneratorWithoutGitMetadata(t *testing.T) {
@@ -78,7 +77,7 @@ func TestMaterializeExactGitTreeRejectsPATHGitHijack(t *testing.T) {
 	repository := newTrustedProjectMapRepository(t)
 	trustedProjectMapGit(t, repository, "commit", "-qm", "trusted-git-fixture")
 	tree := trustedProjectMapGit(t, repository, "rev-parse", "HEAD^{tree}")
-	trustedGit, err := gate.ResolveTrustedGitBinary(context.Background())
+	trustedGit, err := gateprivate.TrustedGitBinary()
 	if err != nil {
 		t.Fatalf("resolve trusted Git: %v", err)
 	}

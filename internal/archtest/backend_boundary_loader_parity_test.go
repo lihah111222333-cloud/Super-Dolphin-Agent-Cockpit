@@ -82,8 +82,8 @@ func assertBackendBoundaryExternalVariantSyntaxDigest(t *testing.T, root string,
 		paths = append(paths, filepath.ToSlash(rel))
 	}
 	sort.Strings(paths)
-	const wantSyntaxCount = 66
-	const wantSyntaxDigest = "cedfe0a24d65e8500f50be3d43cd061b5aafd4b42f75156fe81cdaa3d697029d"
+	const wantSyntaxCount = 65
+	const wantSyntaxDigest = "dc20d0ce2a6768afbba9b42d29a49b85d10db08922be69ede268e4a3fed209b3"
 	if len(paths) != wantSyntaxCount || stablePathDigest(paths) != wantSyntaxDigest {
 		t.Fatalf("external variant syntax candidate set changed: count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}
@@ -136,8 +136,8 @@ func assertWideOrchestrationLoaderCandidates(
 	paths := make([]string, len(pkgs))
 	copy(paths, pkgs)
 	sort.Strings(paths)
-	const wantCount = 260
-	const wantDigest = "8693ad04b40932ded14d3a27c9e6a5d6501a00a42ec1844eab84704082ed7f8a"
+	const wantCount = 266
+	const wantDigest = "b823b48785031161f92b4fa5318d0c520653bcf60e134eac732c344d2544c4bf"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}

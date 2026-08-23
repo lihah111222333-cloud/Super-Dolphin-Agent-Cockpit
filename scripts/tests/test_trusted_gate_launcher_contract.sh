@@ -43,13 +43,22 @@ chmod 500 "$candidate_source"
 digest=$(sha256_file "$candidate_source")
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 original_materializer=$(declare -f materialize_trusted_gate_launcher_for_tree)
+read -r -a contract_shells <<<"${SUPER_DOLPHIN_TRUSTED_LAUNCHER_CONTRACT_SHELLS:?platform contract shells are required}"
+for shell_name in "${contract_shells[@]}"; do
+  command -v "$shell_name" >/dev/null 2>&1 || fail "$shell_name is required for missing-launcher discovery"
+  shell_command=("$shell_name")
+  [[ "$shell_name" == zsh ]] && shell_command+=(-f)
+  "${shell_command[@]}" -c "
+set -euo pipefail
+source \"\$1\"
 materialize_trusted_gate_launcher_for_tree() {
-  printf '/fixture/auto/%s/super-dolphin-gate\n' "$2"
+  printf \"/fixture/auto/%s/super-dolphin-gate\\n\" \"\$2\"
 }
-git -C "$git_repo" config --local --unset-all superdolphin.gateLauncher 2>/dev/null || true
-auto_launcher=$(trusted_gate_launcher "$git_repo")
-[[ "$auto_launcher" == "/fixture/auto/$tree/super-dolphin-gate" ]] \
-  || fail 'missing launcher config did not trigger exact-tree automatic materialization'
+actual=\$(trusted_gate_launcher \"\$2\")
+[[ \"\$actual\" == \"/fixture/auto/\$3/super-dolphin-gate\" ]]
+" -- "$repo_root/.githooks/trusted-gate-launcher.sh" "$git_repo" "$tree" \
+    || fail "$shell_name missing exact-tree launcher did not trigger automatic materialization"
+done
 eval "$original_materializer"
 real_os_home=$(trusted_launcher_os_home) || fail 'operating-system home directory could not be resolved'
 test_home=$(mktemp -d "$real_os_home/.trusted-launcher-contract-home.XXXXXX")
@@ -94,9 +103,8 @@ chmod 400 "$(dirname "$legacy_launcher")/receipt.json"
 if validate_trusted_gate_launcher "$git_repo" "$legacy_launcher" >/dev/null 2>&1; then
   fail 'legacy v1 launcher passed the v2 path contract'
 fi
-git -C "$git_repo" config --local superdolphin.gateLauncher "$legacy_launcher"
 if trusted_gate_launcher "$git_repo" >/dev/null 2>&1; then
-  fail 'legacy v1 configured launcher passed verification'
+  fail 'legacy v1 launcher passed exact-tree discovery'
 fi
 if trusted_gate_launcher_for_tree "$git_repo" "$tree" >/dev/null 2>&1; then
   fail 'legacy v1 launcher was discovered as a v2 candidate'
@@ -108,9 +116,6 @@ cp "$candidate_source" "$launcher"
 chmod 500 "$launcher"
 printf '%s\n' '{"fixture":"valid"}' >"$(dirname "$launcher")/receipt.json"
 chmod 400 "$(dirname "$launcher")/receipt.json"
-
-git -C "$git_repo" config --local superdolphin.gateLauncher "$launcher"
-git -C "$git_repo" config --local superdolphin.gateLauncherRoot "$fixture_root/wrong-launcher-root"
 
 run_direct_source_tree_test() {
   local shell_name=$1
@@ -138,9 +143,10 @@ actual=$(trusted_gate_launcher_for_tree "$git_repo" "$tree")
 }
 
 validate_trusted_gate_launcher "$git_repo" "$launcher" || fail 'valid content-addressed launcher was rejected'
-[[ "$(trusted_gate_launcher "$git_repo")" == "$launcher" ]] || fail 'valid launcher receipt was rejected'
-run_direct_source_tree_test bash
-run_direct_source_tree_test zsh
+[[ "$(trusted_gate_launcher "$git_repo")" == "$launcher" ]] || fail 'valid exact-tree launcher receipt was rejected'
+for shell_name in "${contract_shells[@]}"; do
+  run_direct_source_tree_test "$shell_name"
+done
 chmod 600 "$(dirname "$launcher")/receipt.json"
 printf '%s\n' '{"fixture":"tampered"}' >"$(dirname "$launcher")/receipt.json"
 chmod 400 "$(dirname "$launcher")/receipt.json"
@@ -193,19 +199,20 @@ validate_trusted_gate_launcher "$git_repo" "$launcher" || {
 }
 chmod "$original_repo_mode" "$git_repo"
 
-git -C "$git_repo" config --local superdolphin.gateLauncherRoot "$fixture_root/wrong-launcher-root"
-validate_trusted_gate_launcher "$git_repo" "$launcher" || fail 'Git local launcher root override changed the OS-derived trust root'
 (
   cd "$git_repo"
   validate_trusted_gate_launcher "$launcher"
-) || fail 'single-argument launcher validation accepted a Git local root override'
-[[ "$(trusted_launcher_root "$git_repo")" == "$install_root" ]] || fail 'trusted launcher root did not remain OS-derived'
+) || fail 'single-argument launcher validation rejected the OS-derived trust root'
+[[ "$(trusted_launcher_root)" == "$install_root" ]] || fail 'trusted launcher root did not remain OS-derived'
 
-printf 'version-compatible candidate\n' >>"$git_repo/tracked.txt"
+printf 'different exact-tree candidate\n' >>"$git_repo/tracked.txt"
 git -C "$git_repo" add tracked.txt
 candidate_tree=$(git -C "$git_repo" write-tree)
-[[ "$candidate_tree" != "$tree" ]] || fail 'version compatibility fixture did not create a different candidate tree'
-[[ "$(trusted_gate_launcher_for_tree "$git_repo" "$candidate_tree")" == "$launcher" ]] \
-  || fail 'version-compatible launcher was incorrectly bound to its installation tree'
+[[ "$candidate_tree" != "$tree" ]] || fail 'exact-tree fixture did not create a different candidate tree'
+materialize_trusted_gate_launcher_for_tree() {
+  printf '/fixture/exact-tree/%s/super-dolphin-gate\n' "$2"
+}
+[[ "$(trusted_gate_launcher_for_tree "$git_repo" "$candidate_tree")" == "/fixture/exact-tree/$candidate_tree/super-dolphin-gate" ]] \
+  || fail 'launcher discovery escaped the exact-tree install directory'
 
 printf '%s\n' 'trusted launcher shell contract: PASS'

@@ -99,14 +99,6 @@ RUN set -eu; \
     CGO_ENABLED=0 GOWORK=off GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /out/sqlc github.com/sqlc-dev/sqlc/cmd/sqlc && \
     mkdir -p /out/ready && touch /out/ready/tool
 
-FROM go-target-base AS manifest-builder
-WORKDIR /src
-COPY --from=tool-seed /out/ready/tool /tmp/dependency-order/tool
-COPY . .
-COPY --from=repository-module-cache /go/pkg/mod /go/pkg/mod
-RUN GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
-    go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate
-
 FROM go-target-base
 USER root
 COPY --from=lsp-seed /usr/local/bin/node /usr/local/bin/node
@@ -116,7 +108,6 @@ COPY --from=repository-module-cache /go/pkg/mod /opt/super-dolphin-gate/runtime/
 COPY --from=frontend-seed /out/frontend/node_modules /opt/super-dolphin-gate/runtime/frontend/node_modules
 COPY --from=frontend-seed /out/frontend/npm-cache /opt/super-dolphin-gate/runtime/frontend/npm-cache
 COPY --from=lsp-seed /out/lsp/node_modules /opt/super-dolphin-gate/runtime/lsp/node_modules
-COPY --from=manifest-builder /out/super-dolphin-gate /tmp/super-dolphin-gate
 COPY --from=tool-seed /out/gopls /usr/local/bin/gopls
 COPY --from=tool-seed /out/actionlint /opt/super-dolphin-gate/runtime/bin/actionlint
 COPY --from=tool-seed /out/sqlc /opt/super-dolphin-gate/runtime/bin/sqlc
@@ -152,23 +143,14 @@ RUN set -eu; \
     test -f /etc/fonts/fonts.conf && test -d /usr/share/fonts && test -x /usr/local/go/bin/go && test -x /usr/local/bin/gopls && test -x /opt/super-dolphin-gate/runtime/bin/actionlint && test -x /opt/super-dolphin-gate/runtime/bin/sqlc && test -x /opt/super-dolphin-gate/runtime/bin/rg && test -x /opt/super-dolphin-gate/runtime/bin/sqruff; \
     test "$(rg --version | head -n 1)" = "ripgrep 13.0.0" && test "$(sqruff --version)" = "sqruff 0.38.0"
 RUN --network=none set -eu; \
-    /tmp/super-dolphin-gate worker validate-go-distribution; \
     test "$(/usr/local/go/bin/go version)" = "go version go1.26.5 linux/amd64"; \
     test "$(node --version)" = "v24.18.0"; \
     test "$(npm --version)" = "11.16.0"; \
     test "$(python3 --version)" = "Python 3.11.2"; \
     test "$(gopls version | tail -n 1)" = "golang.org/x/tools/gopls v0.22.0"; \
     test "$(/opt/super-dolphin-gate/runtime/bin/sqlc version)" = "v1.30.0"
-COPY go.sum /tmp/runtime-manifest-source/go.sum
-COPY build/gate/runtime-proxy/go.sum /tmp/runtime-manifest-source/build/gate/runtime-proxy/go.sum
-COPY frontend-app/package-lock.json /tmp/runtime-manifest-source/frontend-app/package-lock.json
 RUN --network=none mkdir -p /opt/super-dolphin-gate/runtime/frontend/vite-cache && \
-    /tmp/super-dolphin-gate worker runtime-seed write /tmp/runtime-manifest-source /opt/super-dolphin-gate/runtime && \
-    test -s /opt/super-dolphin-gate/runtime/manifest.json && \
-    rm /opt/super-dolphin-gate/runtime/manifest.json && \
-    rm /tmp/super-dolphin-gate && \
-    rm -rf /tmp/runtime-manifest-source && \
-    test ! -e /opt/super-dolphin-gate/runtime/manifest.json && \
+    test -d /opt/super-dolphin-gate/runtime/frontend/vite-cache && \
     /opt/super-dolphin-gate/runtime/bin/sqlc version >/dev/null
 RUN --network=none mkdir -p /opt/super-dolphin/cache/go-build && \
     chmod 0555 /opt/super-dolphin/cache /opt/super-dolphin/cache/go-build

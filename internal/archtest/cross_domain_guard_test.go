@@ -48,6 +48,6 @@ func failBackendBoundaryGuardViolations(t *testing.T, label string, violations [
 	}
 }
 
-func crossDomainFileViolations(path, rel string) ([]string, error) {
-	return EvaluateBackendBoundaryFile(path, rel, DefaultBackendBoundaryRegistry(), CrossDomainBoundaryRuleIDs()...)
+func crossDomainFileViolations(root, path, rel string) ([]string, error) {
+	return EvaluateBackendBoundaryFile(root, path, rel, DefaultBackendBoundaryRegistry(), CrossDomainBoundaryRuleIDs()...)
 }

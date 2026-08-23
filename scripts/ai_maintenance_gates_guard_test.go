@@ -13,8 +13,6 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 		`"$project_map_gate_bin" project-map check --tree "$source_tree"`,
 		`"$project_map_gate_bin" project-map refresh --tree "$source_tree"`,
 		`git -C "$repo_root" add -A -- "$project_map_path"`,
-		`config --local --get superdolphin.gateLauncher`,
-		`config --local superdolphin.gateLauncher "$built_gate"`,
 		`"$install_root/v2/$source_tree"/*/super-dolphin-gate`,
 		`./scripts/test_with_guard.sh --light-guard-only`,
 		`SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`,
@@ -24,17 +22,15 @@ func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) erro
 			return fmt.Errorf("pre-commit must retain lightweight code-guard contract %q", required)
 		}
 	}
-	for _, forbidden := range []string{"gate_output_file", "tee", `remote hook pre-commit`, `remote_config=`, `remote_ledger=`, `SUPER_DOLPHIN_CI_AGENT_TOKEN`, `closure check`, `codemap check`, `capability-contract check`} {
+	for _, forbidden := range []string{"gate_output_file", "tee", `remote hook pre-commit`, `remote_config=`, `remote_ledger=`, `SUPER_DOLPHIN_CI_AGENT_TOKEN`, `superdolphin.gateLauncher`, `superdolphin.gateLauncherRoot`, `closure check`, `codemap check`, `capability-contract check`} {
 		if strings.Contains(preCommit, forbidden) {
 			return fmt.Errorf("pre-commit must not contain complete gate operation %q", forbidden)
 		}
 	}
 	for _, required := range []string{
-		`remote hook pre-push`,
-		`--config "$remote_config"`,
-		`--ledger "$remote_ledger"`,
-		`--repository "$repo_root"`,
-		`"$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"`,
+		`project-map check --tree "$selected_push_tree"`,
+		`closure check --tree "$selected_push_tree"`,
+		`current_tree=$(git -C "$repo_root" write-tree)`,
 	} {
 		if !strings.Contains(prePush, required) {
 			return fmt.Errorf("pre-push must route through trusted gate CLI command %q", required)
@@ -51,6 +47,7 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	testWithGuard := readScript(t, "test_with_guard.sh")
 	preCommit := readRepoFile(t, "../.githooks/pre-commit")
 	prePush := readRepoFile(t, "../.githooks/pre-push")
+	trustedLauncher := readRepoFile(t, "../.githooks/trusted-gate-launcher.sh")
 
 	if err := validateAIMaintenanceHookRoutes(preCommit, prePush, script); err != nil {
 		t.Fatal(err)
@@ -63,6 +60,10 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, preCommit, `git -C "$repo_root" add -A -- "$project_map_path"`)
 	assertScriptContains(t, preCommit, `./scripts/test_with_guard.sh --light-guard-only`)
 	assertScriptContains(t, preCommit, `SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1`)
+	assertScriptContains(t, trustedLauncher, `"$install_root/v2/$tree"/*/super-dolphin-gate`)
+	assertScriptDoesNotContain(t, trustedLauncher, `"$install_root/v2"/*/*/super-dolphin-gate`)
+	assertScriptDoesNotContain(t, trustedLauncher, `superdolphin.gateLauncher`)
+	assertScriptDoesNotContain(t, trustedLauncher, `superdolphin.gateLauncherRoot`)
 	lightGuardStart := strings.Index(testWithGuard, "run_light_guard() {")
 	archtestStart := strings.Index(testWithGuard, "run_archtest_only() {")
 	if lightGuardStart < 0 || archtestStart <= lightGuardStart {
@@ -74,11 +75,9 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, testWithGuard, `[ "$1" != "--light-guard-only" ]`)
 	assertScriptDoesNotContain(t, preCommit, `remote hook pre-commit`)
 	assertScriptDoesNotContain(t, preCommit, `SUPER_DOLPHIN_CI_AGENT_TOKEN`)
-	assertScriptContains(t, prePush, `remote hook pre-push`)
-	assertScriptContains(t, prePush, `--config "$remote_config"`)
-	assertScriptContains(t, prePush, `--ledger "$remote_ledger"`)
-	assertScriptContains(t, prePush, `--repository "$repo_root"`)
-	assertScriptContains(t, prePush, `"$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"`)
+	assertScriptContains(t, prePush, `project-map check --tree "$selected_push_tree"`)
+	assertScriptContains(t, prePush, `closure check --tree "$selected_push_tree"`)
+	assertScriptContains(t, prePush, `current_tree=$(git -C "$repo_root" write-tree)`)
 	for name, hook := range map[string]string{"pre-push": prePush} {
 		for line := range strings.SplitSeq(hook, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "printf ") {
@@ -136,9 +135,9 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 			},
 		},
 		{
-			name: "pre-push remote hook command",
+			name: "pre-push local Gate commands",
 			mutate: func(_, prePush, _ *string) {
-				*prePush = strings.ReplaceAll(*prePush, `remote hook pre-push`, "")
+				*prePush = strings.ReplaceAll(*prePush, `closure check --tree "$selected_push_tree"`, "")
 			},
 		},
 		{
@@ -161,21 +160,46 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 
 func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 	source := readRepoFile(t, "../scripts/ai_maintenance/main.go")
-	evidenceSource := readRepoFile(t, "../scripts/ai_maintenance/evidence.go")
+	reviewSource := readRepoFile(t, "../scripts/ai_maintenance/review_object.go")
+	dependencySource := readRepoFile(t, "../scripts/ai_maintenance/review_dependencies.go")
+	executionSource := readRepoFile(t, "../scripts/ai_maintenance/gate_execution.go")
+	deferredSource := readRepoFile(t, "../scripts/ai_maintenance/deferred_e2e.go")
+	diagnosticsSource := readRepoFile(t, "../scripts/ai_maintenance/diagnostics_plan.go")
 	testSource := readRepoFile(t, "../scripts/ai_maintenance/main_test.go") +
-		readRepoFile(t, "../scripts/ai_maintenance/owner_evidence_test.go")
+		readRepoFile(t, "../scripts/ai_maintenance/review_object_test.go")
 
-	assertScriptContains(t, source, "validate-evidence")
 	assertScriptContains(t, source, "buildGatePlan")
 	assertScriptContains(t, source, "frontend:embed-verify")
 	assertScriptContains(t, source, "ai-maintenance:self-test")
-	assertScriptContains(t, evidenceSource, "AGENTID must be exact platform UUID")
-	assertScriptContains(t, evidenceSource, "DONE_WITH_EVIDENCE must not include BLOCKERS")
-	assertScriptContains(t, evidenceSource, "generated file lacks check-failed plus refresh evidence")
-	assertScriptContains(t, evidenceSource, "missing or non-pass LSP evidence")
-	assertScriptContains(t, evidenceSource, "OWNED_FILES_CHANGED does not match changed files")
+	assertScriptContains(t, reviewSource, "paths-only review object is not executable")
+	assertScriptContains(t, reviewSource, "changedFilesFromReviewObject")
+	assertScriptContains(t, reviewSource, "checkReviewObjectWhitespace")
+	assertScriptContains(t, reviewSource, `filepath.Join(repository, ".worktrees")`)
+	for _, required := range []string{"ComparisonBaseCommit", `"merge-base"`, `"--no-checkout"`, "core.hooksPath=", "gateprivate.TrustedGitEnvironment()", `"--untracked-files=all"`} {
+		assertScriptContains(t, reviewSource, required)
+	}
+	assertScriptContains(t, dependencySource, "assertHiddenPackageLockClosure")
+	assertScriptContains(t, dependencySource, "expected.requiredTools")
+	assertScriptContains(t, dependencySource, "expectedOptionalLockSha256")
+	assertScriptContains(t, dependencySource, "runtimeOnly: true")
+	assertScriptContains(t, dependencySource, "SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED is required")
+	assertScriptContains(t, dependencySource, "process.env.SUPER_DOLPHIN_FRONTEND_DEPENDENCY_SEED = seedRoot")
+	assertScriptContains(t, dependencySource, "candidate package-lock does not match its dependency integrity identity")
+	assertScriptContains(t, dependencySource, "validateReviewDependencyExecutionRoot")
+	assertScriptDoesNotContain(t, dependencySource, "filepath.WalkDir")
+	assertScriptDoesNotContain(t, dependencySource, "os.Link(")
+	assertScriptDoesNotContain(t, dependencySource, "copyReviewDependencyFile")
+	assertScriptDoesNotContain(t, dependencySource, `filepath.Join(repoRoot, "frontend-app", "node_modules")`)
+	assertScriptContains(t, executionSource, "exact candidate execution root is required before runner construction")
+	assertScriptContains(t, executionSource, "exact candidate execution root is required for whitespace check")
+	assertScriptDoesNotContain(t, deferredSource, `capcontract.FindRepoRoot(".")`)
+	assertScriptDoesNotContain(t, diagnosticsSource, "func sourceLike(")
+	for _, retired := range []string{"validate-evidence", `fs.String("evidence"`, "required_evidence", "controller-blocking"} {
+		assertScriptDoesNotContain(t, source, retired)
+	}
 	assertScriptContains(t, testSource, "TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles")
-	assertScriptContains(t, testSource, "TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands")
+	assertScriptContains(t, testSource, "TestReviewObjectBindsChangedFilesWhitespaceAndMaterialization")
+	assertScriptContains(t, testSource, "TestExternalEvidenceControllerSurfaceIsRetired")
 }
 
 func TestGeneratedArtifactRefreshOrdersProducersBeforeConsumers(t *testing.T) {

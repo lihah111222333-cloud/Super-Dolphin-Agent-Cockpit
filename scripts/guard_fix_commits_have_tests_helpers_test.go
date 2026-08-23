@@ -378,8 +378,6 @@ func installPreCommitFixtureLauncher(t *testing.T, root string) string {
 	if err := os.WriteFile(launcher, data, 0o500); err != nil {
 		t.Fatalf("write fixture launcher: %v", err)
 	}
-	runFixTestGuardGit(t, root, "config", "--local", "superdolphin.gateLauncher", launcher)
-	runFixTestGuardGit(t, root, "config", "--local", "superdolphin.gateLauncherRoot", installRoot)
 	return launcher
 }
 

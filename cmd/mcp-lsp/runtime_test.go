@@ -305,8 +305,8 @@ func TestRuntimeServerArgsSharesOnlyCompatibleGoplsEnvironments(t *testing.T) {
 		Executable: "gopls",
 		Args:       []string{"-remote=auto;sdmcp2", "-remote.listen.timeout=1m"},
 	}
-	first := mustRuntimeServerArgs(t, command, binary, []string{"GOOS=darwin", "GOARCH=arm64"})
-	reordered := mustRuntimeServerArgs(t, command, binary, []string{"GOARCH=arm64", "GOOS=darwin"})
+	first := mustRuntimeServerArgs(t, command, binary, []string{"GOOS=darwin", "GOARCH=arm64", "GOWORK=auto"})
+	reordered := mustRuntimeServerArgs(t, command, binary, []string{"GOWORK=auto", "GOARCH=arm64", "GOOS=darwin"})
 	incompatible := mustRuntimeServerArgs(t, command, binary, []string{"GOOS=darwin", "GOARCH=arm64", "GOWORK=off"})
 	if !slices.Equal(first, reordered) {
 		t.Fatalf("equivalent gopls environments produced different cohorts: first=%v reordered=%v", first, reordered)

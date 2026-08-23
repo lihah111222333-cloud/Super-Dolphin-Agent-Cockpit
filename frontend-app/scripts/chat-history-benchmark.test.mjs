@@ -4,18 +4,17 @@ import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
   ATTEMPTS_PER_SAMPLE,
-  DEFAULT_BASELINE_PATH,
   HISTORY_BLOCK_COUNT,
   HISTORY_BLOCK_ITERATIONS,
   MEASUREMENT_ITERATIONS,
   buildChatHistoryBenchmarkCases,
   measureChatHistoryCase,
+  measurementMedian,
+  median,
   runChatHistoryBenchmark,
   runChatHistoryBenchmarkSamples,
-  verifyChatHistoryEvidence,
 } from './chat-history-benchmark.mjs';
 import { buildChatHistoryFixture } from '../src/pages/chat/model/chatHistoryBenchmarkFixture.js';
-import { measurementMedian, median } from './performance-budget-model.mjs';
 
 const RESULT_KEYS = [
   'case',
@@ -50,7 +49,7 @@ describe('chat history benchmark', () => {
     ]);
   });
 
-  it('uses a requested subject P02 implementation rather than current static imports', () => {
+  it('measures a requested implementation when explicitly supplied', () => {
     const subjectSha = 'a'.repeat(40);
     const target = Object.freeze({
       buildChatHistoryFixture: () => ['subject-only'],
@@ -136,7 +135,7 @@ describe('chat history benchmark', () => {
     const evidence = runChatHistoryBenchmarkSamples({ commit: 'a'.repeat(40) });
 
     expect(evidence).toEqual(expect.objectContaining({
-      metricId: 'P02-history-budget',
+      metricId: 'history-timing-diagnostic',
       sampleCount: 5,
       warmupCount: 1,
       subjectSha: 'a'.repeat(40),
@@ -180,21 +179,4 @@ describe('chat history benchmark', () => {
     });
   }, 300_000);
 
-  it('keeps verify NOT_VERIFIED until an exact frozen five-sample baseline exists', () => {
-    expect(verifyChatHistoryEvidence({ cases: {} }, {
-      metrics: {
-        'P02-history-budget': {
-          status: 'NOT_VERIFIED',
-          reason: 'not frozen',
-        },
-      },
-    })).toEqual(expect.objectContaining({
-      metricId: 'P02-history-budget',
-      status: 'NOT_VERIFIED',
-    }));
-  });
-
-  it('uses the frozen default baseline path', () => {
-    expect(DEFAULT_BASELINE_PATH).toBe(join(cwd(), 'scripts/frontend-maintainability-baseline.json'));
-  });
 });

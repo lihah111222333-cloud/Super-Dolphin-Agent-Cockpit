@@ -1,5 +1,7 @@
 package archtest
 
+import "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
+
 // BoundaryOwnerID 标识后端边界规则拥有者。
 type BoundaryOwnerID string
 
@@ -33,9 +35,6 @@ const (
 	BoundaryRuleScopedImport BoundaryRuleKind = "scoped_import"
 	// BoundaryRuleStoreImports 限制 store 包只依赖同 owner 子包和显式注册的持久化端口。
 	BoundaryRuleStoreImports BoundaryRuleKind = "store_imports"
-)
-
-const (
 	// BoundaryScopeStore 允许持久化 store 包消费受限实现。
 	BoundaryScopeStore BoundaryScopeID = "store"
 	// BoundaryScopePlatformDB 允许平台数据库包消费受限实现。
@@ -261,9 +260,11 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/build-trusted-gate-launcher", "trusted gate launcher build command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
+		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "mcp_orch_sqlc_sidecar_only", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
 		backendBoundarySurface("cmd/mcp-schema-compiler-helper", "one-shot MCP schema compiler helper", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-gate", "standalone gate coordinator and worker command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/super-dolphin-heteroci-node", "repository-neutral heterogeneous CI node probe", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/super-dolphin-remote-ci", "repository-neutral standalone remote CI composition root", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-guard", "detached probation Guard command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-updater", "updater command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
@@ -297,37 +298,35 @@ func backendBoundarySurface(path, reason string, rules []BoundaryRuleID, guards 
 }
 
 type backendBoundaryPatterns struct {
-	contract        []string
-	module          []string
-	provider        []string
-	providerModules []string
-	providerUnified []string
-	platform        []string
-	sidecar         []string
-	agentRuntime    []string
-	agentTerminal   []string
-	codexWorktree   []string
-	trustedLauncher []string
-	gateCLI         []string
-	releaseManifest []string
-	guard           []string
-	updater         []string
-	devtools        []string
-	dto             []string
-	testutil        []string
-	util            []string
-	sqlc            []string
-	store           []string
-	storeMod        []string
-	storeRoot       []string
-	fx              []string
-	mcpOrch         []string
-	mcpIDA          []string
-	schemaHelper    []string
-	acpNode         []string
-	hooks           []string
-	mcpctrl         []string
-	pkg             []string
+	contract               []string
+	module                 []string
+	provider               []string
+	providerModules        []string
+	providerUnified        []string
+	platform               []string
+	sidecar                []string
+	agentRuntime           []string
+	agentTerminal          []string
+	codexWorktree          []string
+	trustedLauncher        []string
+	gateCLI, remoteCI      []string
+	releaseManifest, guard []string
+	updater                []string
+	devtools               []string
+	dto, util              []string
+	testutil               []string
+	sqlc                   []string
+	store                  []string
+	storeMod               []string
+	storeRoot              []string
+	fx                     []string
+	mcpOrch                []string
+	mcpIDA                 []string
+	schemaHelper           []string
+	acpNode                []string
+	hooks                  []string
+	mcpctrl                []string
+	pkg                    []string
 }
 
 // defaultBackendBoundaryPatterns 汇总架构边界扫描使用的规范路径模式。
@@ -344,7 +343,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		agentTerminal:   []string{"cmd/agent-terminal/**/*.go"},
 		codexWorktree:   []string{"cmd/codex-worktree-setup/**/*.go"},
 		trustedLauncher: []string{"cmd/build-trusted-gate-launcher/**/*.go"},
-		gateCLI:         []string{"cmd/super-dolphin-gate/**/*.go"},
+		gateCLI:         []string{"cmd/super-dolphin-gate/**/*.go"}, remoteCI: []string{"cmd/super-dolphin-remote-ci/**/*.go"},
 		releaseManifest: []string{"cmd/super-dolphin-release-manifest/**/*.go"},
 		guard:           []string{"cmd/super-dolphin-guard/**/*.go"},
 		updater:         []string{"cmd/super-dolphin-updater/**/*.go"},
@@ -405,6 +404,7 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultPlatformModuleRule(patterns),
 		defaultPlatformStoreRule(patterns),
 		defaultSQLCStoreRule(patterns),
+		defaultOrchestratorSQLCRule(patterns),
 		defaultStoreDependencyRule(patterns),
 		defaultAppAdapterRule(),
 		defaultFXAssemblyRule(patterns),
@@ -415,6 +415,12 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultHooksDatabaseRule(patterns),
 		defaultPublicPkgRule(patterns),
 	}
+}
+
+func defaultOrchestratorSQLCRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
+	return BackendBoundaryRule{ID: orchestratorSQLCBoundaryRuleID, Owner: "sqlc_boundary", Reason: "mcp-orch SQLC generated types remain private to the orchestrator sidecar",
+		Kind: BoundaryRuleScopedImport, FilePatterns: patterns.sqlc, Deny: boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{sqlcconfig.OrchestratorOutputOwnerParent}, "orchestrator SQLC imports stay inside mcp-orch"),
+		ScopeAllow: []BoundaryFilePolicy{boundaryFilePolicy("sqlc_boundary", BoundaryScopeFXMCPOrch, "mcp-orch owns its configured SQLC output")}, SkipTestFiles: true}
 }
 
 func defaultContractDTOFrameworkRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
@@ -626,7 +632,7 @@ func defaultSQLCStoreRule(patterns backendBoundaryPatterns) BackendBoundaryRule 
 		Reason:       "store/sqlc generated types must stay inside persistence implementation seams",
 		Kind:         BoundaryRuleScopedImport,
 		FilePatterns: patterns.sqlc,
-		Deny:         boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{"internal/store/sqlc"}, "sqlc imports are restricted to persistence seams"),
+		Deny:         boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{sqlcconfig.RootOutputOwnerParent}, "sqlc imports are restricted to persistence seams"),
 		ScopeAllow: []BoundaryFilePolicy{
 			boundaryFilePolicy("sqlc_boundary", BoundaryScopeStore, "store packages are the canonical anti-corruption wrappers around sqlc"),
 			boundaryFilePolicy("sqlc_boundary", BoundaryScopePlatformDB, "platform DB schema verification may inspect sqlc-backed persistence boundaries"),
@@ -644,7 +650,6 @@ func defaultStoreDependencyRule(patterns backendBoundaryPatterns) BackendBoundar
 		"internal/platform/sharedfilefs",
 		"internal/platform/sharedfilegitignore",
 		"internal/platform/sharedfilepath",
-		"internal/store/sqlc",
 		"internal/contract",
 		"internal/dto",
 	}, "store packages may consume only registered persistence contracts and shared path adapters")
@@ -804,7 +809,7 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 }
 
 func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.trustedLauncher, patterns.gateCLI, patterns.releaseManifest, patterns.guard, patterns.updater, patterns.schemaHelper, patterns.acpNode)
+	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.trustedLauncher, patterns.gateCLI, []string{"cmd/super-dolphin-heteroci-node/**/*.go"}, patterns.remoteCI, patterns.releaseManifest, patterns.guard, patterns.updater, patterns.schemaHelper, patterns.acpNode)
 }
 
 func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
@@ -837,22 +842,16 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/devtools/trustedlauncher",
 	}, "trusted gate launcher build primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
-		"internal/devtools/alicloud/eci",
-		"internal/devtools/alicloud/oss",
 		"internal/devtools/capcontract",
-		"internal/devtools/cicontract",
 		"internal/devtools/codemapindex",
-		"internal/devtools/coordinatoradmission",
 		"internal/devtools/frontendcodesizetrusted",
-		"internal/devtools/gate",
 		"internal/devtools/gateprivate",
-		"internal/devtools/gatehook",
+		"internal/devtools/mcplspguardcore",
 		"internal/devtools/projectmaptrusted",
-		"internal/devtools/remoteci",
-		"internal/devtools/shardresource",
-		"internal/devtools/sourceexport",
 		"internal/devtools/trustedlauncher",
-	}, "standalone gate coordinator, worker, hook, persistence, and remote CI runtime")...)
+	}, "standalone trusted local Gate coordinator, worker, and map runtime")...)
+	policies = append(policies, boundaryPolicies(owner, []string{"cmd/super-dolphin-heteroci-node/**/*.go"}, []string{"internal/devtools/heteroci", "internal/devtools/heterocinode"}, "repository-neutral heterogeneous CI node probe")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.remoteCI, []string{"internal/devtools/remotecicli"}, "repository-neutral remote CI composition root")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",
 	}, "release manifest update contract")...)

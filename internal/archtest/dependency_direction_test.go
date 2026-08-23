@@ -109,11 +109,11 @@ func TestProviderExternalWhitelistEnforcesFXAssemblyScope(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "fixture.go")
-			if err := os.WriteFile(path, []byte(tc.source), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			root := t.TempDir()
+			writeCanonicalSQLCGuardFixture(t, root)
+			path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, tc.source)
 			got, err := archtest.EvaluateBackendBoundaryFile(
+				root,
 				path,
 				tc.relPath,
 				archtest.DefaultBackendBoundaryRegistry(),
@@ -137,6 +137,7 @@ func TestProviderExternalWhitelistCoversNewProductionSubtree(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	writeCanonicalSQLCGuardFixture(t, root)
 	path := filepath.Join(root, "internal", "provider", "futureprovider", "runtime.go")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -201,7 +202,7 @@ func assertModuleDBIsolationRules(t *testing.T, evaluation archtest.BoundaryEval
 		if !dirExists(root, "internal/module") {
 			t.Skip("directory not yet created")
 		}
-		assertModuleNoDirectDBImports(t, parseImportFiles(t, root, "internal/module"), nil)
+		assertModuleNoDirectDBImports(t, root, parseImportFiles(t, root, "internal/module"), nil)
 	})
 
 	t.Run("rule17b_module_non_assembly_cannot_import_store", func(t *testing.T) {
@@ -210,12 +211,13 @@ func assertModuleDBIsolationRules(t *testing.T, evaluation archtest.BoundaryEval
 }
 
 // assertModuleNoDirectDBImports 通过 canonical registry 拦截 module 层新增数据库依赖。
-func assertModuleNoDirectDBImports(t *testing.T, files []parsedFile, _ []string) {
+func assertModuleNoDirectDBImports(t *testing.T, root string, files []parsedFile, _ []string) {
 	t.Helper()
 	registry := archtest.DefaultBackendBoundaryRegistry()
 	var violations []string
 	for _, file := range files {
 		fileViolations, err := archtest.EvaluateBackendBoundaryFile(
+			root,
 			file.AbsPath,
 			file.RelPath,
 			registry,
@@ -337,7 +339,11 @@ func parseImportFiles(t *testing.T, root string, relRoots ...string) []parsedFil
 		if err != nil {
 			t.Fatalf("read %s: %v", absPath, err)
 		}
-		if archtest.IsGeneratedSQLCFile(relPath, data) {
+		generated, err := archtest.IsGeneratedSQLCFile(archtest.CheckOptions{RepoRoot: root}, relPath, data)
+		if err != nil {
+			t.Fatalf("load configured SQLC output owner: %v", err)
+		}
+		if generated {
 			continue
 		}
 		out = append(out, parsedFile{AbsPath: absPath, RelPath: relPath, Imports: parseImports(t, absPath)})

@@ -1,4 +1,4 @@
-// Package gateclosure verifies the gate-image closure from an exact Git tree.
+// Package gateclosure verifies the trusted Gate closure from an exact Git tree.
 package gateclosure
 
 import (
@@ -118,7 +118,7 @@ func generateFromRepository(root string, tree string, check bool) error {
 	if err := writeClosureOutputs(root, outputs); err != nil {
 		return err
 	}
-	fmt.Printf("generated gate image closure from Git tree %s (%d source files)\n", treeSHA, sourceCount)
+	fmt.Printf("generated trusted Gate closure from Git tree %s (%d source files)\n", treeSHA, sourceCount)
 	return nil
 }
 
@@ -226,9 +226,9 @@ func collectSourceSnapshotFiles(sourceRoot string) ([]string, error) {
 	return sortedUniqueStrings(files), nil
 }
 
-// collectEnvironmentImageFiles 收集受信 CI runtime 和预编译门禁缓存所需的闭包输入。
+// collectEnvironmentImageFiles 收集 Gate 执行环境和预编译门禁所需的闭包输入。
 func collectEnvironmentImageFiles(sourceRoot string, gateCompileFiles []string) ([]string, error) {
-	files, err := collectNamedRegularInputs(sourceRoot, "environment image", []string{
+	files, err := collectNamedRegularInputs(sourceRoot, "Gate environment", []string{
 		gateDockerfile,
 		gateInputs,
 		gateToolchain,
@@ -572,7 +572,7 @@ func verifyClosureOutputs(sourceRoot, treeSHA string, outputs map[string][]byte,
 			return fmt.Errorf("generated file %s drifted from Git tree %s; run go run ./cmd/super-dolphin-gate closure refresh --tree <tree>", name, treeSHA)
 		}
 	}
-	fmt.Printf("verified gate image closure in Git tree %s (%d source files)\n", treeSHA, sourceCount)
+	fmt.Printf("verified trusted Gate closure in Git tree %s (%d source files)\n", treeSHA, sourceCount)
 	return nil
 }
 
@@ -766,35 +766,6 @@ func collectNamedRegularTree(sourceRoot, inputKind, absolute string, set map[str
 	})
 }
 
-// immutableBaseImage 查找并校验指定的不可变远程基础镜像引用。
-func immutableBaseImage(lock toolchainLock, name string) (string, error) {
-	for _, image := range lock.BaseImages {
-		if image.Name != name {
-			continue
-		}
-		if !strings.Contains(image.Reference, "@sha256:") {
-			return "", fmt.Errorf("toolchain image %s is not immutable", name)
-		}
-		if err := validateRemoteImageReference(image.Reference); err != nil {
-			return "", fmt.Errorf("toolchain image %s: %w", name, err)
-		}
-		return image.Reference, nil
-	}
-	return "", fmt.Errorf("toolchain image %s is missing", name)
-}
-
-// validateRemoteImageReference 拒绝可解析为本机回环地址的镜像仓库。
-func validateRemoteImageReference(reference string) error {
-	registry, _, found := strings.Cut(reference, "/")
-	if !found || registry == "" {
-		return nil // Docker Hub's canonical repository reference is remotely resolved.
-	}
-	if strings.HasPrefix(registry, "127.") || registry == "localhost" || strings.HasPrefix(registry, "localhost:") || registry == "::1" || strings.HasPrefix(registry, "[::1]") {
-		return errors.New("loopback image registries are forbidden for cross-platform truth images")
-	}
-	return nil
-}
-
 // readToolchainLock 严格读取并校验工具链锁文件。
 func readToolchainLock(path string) (toolchainLock, error) {
 	lock, err := decodeToolchainLock(path)
@@ -833,170 +804,37 @@ func validateToolchainLock(lock toolchainLock) error {
 	if !slices.Equal(lock.TargetPlatforms, runtimeDepsPlatforms) {
 		return errors.New("toolchain target platforms must be exactly linux/amd64 and linux/arm64")
 	}
-	if err := validateToolchainBaseImages(lock); err != nil {
-		return err
-	}
 	if lock.RuntimeTools.GoVersion != "go1.26.5" || lock.RuntimeTools.NodeVersion != "v24.18.0" || lock.RuntimeTools.NPMVersion != "11.16.0" || lock.RuntimeTools.PythonVersion != "3.11.2" || lock.RuntimeTools.Ripgrep != "/opt/super-dolphin-gate/runtime/bin/rg@13.0.0-4+b2" || lock.RuntimeTools.Sqruff != "/opt/super-dolphin-gate/runtime/bin/sqruff@0.38.0" || lock.RuntimeTools.Gopls != "golang.org/x/tools/gopls@v0.22.0" || lock.RuntimeTools.SQLC != "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0" {
 		return errors.New("toolchain runtime tool versions are not the accepted exact set")
 	}
 	return validateSqruffArtifacts(lock.RuntimeTools.SqruffArtifacts)
 }
 
-// validateToolchainBaseImages 确认锁文件只包含必需且不可变的两份基础镜像。
-func validateToolchainBaseImages(lock toolchainLock) error {
-	if len(lock.BaseImages) != 2 {
-		return errors.New("toolchain lock must contain exactly GO_IMAGE and NODE_IMAGE")
-	}
-	if _, err := immutableBaseImage(lock, "GO_IMAGE"); err != nil {
-		return err
-	}
-	if _, err := immutableBaseImage(lock, "NODE_IMAGE"); err != nil {
-		return err
-	}
-	return nil
-}
-
-// renderDockerfile 生成可缓存的编译种子和严格的首代运行时镜像。
-func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, buildFiles, sourceSnapshotFiles []string) ([]byte, error) {
+// renderDockerfile 生成仅包含精确源树闭包和摘要绑定的 provider-neutral wire。
+func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, _ []string, sourceSnapshotFiles []string) ([]byte, error) {
 	if err := validateDockerfileInputs(lock, runtimeDeps); err != nil {
 		return nil, err
 	}
+	if len(sourceSnapshotFiles) == 0 {
+		return nil, errors.New("source snapshot inputs are required")
+	}
+	if !sort.StringsAreSorted(sourceSnapshotFiles) || len(sortedUniqueStrings(sourceSnapshotFiles)) != len(sourceSnapshotFiles) {
+		return nil, errors.New("source snapshot inputs must be sorted and unique")
+	}
 	var output strings.Builder
-	fmt.Fprintf(&output, "ARG RUNTIME_DEPS_IMAGE\nARG BASELINE_CACHE_IMAGE\nARG COMPILED_SEED_IMAGE\nARG SOURCE_DATE_EPOCH=%s\n", lock.SourceDateEpoch)
-	output.WriteString("ARG MAIN_COMMIT\nARG BUILD_SOURCE_TREE\nARG GATE_SOURCE_DIGEST\nARG RUNTIME_DEPENDENCY_DIGEST\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n")
-	output.WriteString("FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache\n")
-	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE} AS compiled-seed\nUSER root\n")
-	output.WriteString("ARG RUNTIME_DEPS_IMAGE\nARG BASELINE_CACHE_IMAGE\nARG SOURCE_DATE_EPOCH\nARG MAIN_COMMIT\nARG BUILD_SOURCE_TREE\nARG GATE_SOURCE_DIGEST\nARG RUNTIME_DEPENDENCY_DIGEST\nARG IMAGE_INPUT_DIGEST\nARG POLICY_DIGEST\nARG TOOLCHAIN_DIGEST\nARG TARGET_PLATFORM\n\n")
-	output.WriteString("WORKDIR /src\nENV GOCACHE=/out/go-build-cache GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off\n")
-	if err := writeDockerCopyInstructions(&output, buildFiles, "/src/", "compiled seed build COPY"); err != nil {
+	fmt.Fprintf(&output, "ARG SOURCE_DATE_EPOCH=%s\n", lock.SourceDateEpoch)
+	output.WriteString("ARG BUILD_SOURCE_TREE\nARG GATE_SOURCE_DIGEST\nARG RUNTIME_DEPENDENCY_DIGEST\nARG TOOLCHAIN_DIGEST\n\n")
+	output.WriteString("FROM scratch AS source-closure\n")
+	output.WriteString("ARG BUILD_SOURCE_TREE\nARG GATE_SOURCE_DIGEST\nARG RUNTIME_DEPENDENCY_DIGEST\nARG TOOLCHAIN_DIGEST\n")
+	output.WriteString("LABEL org.super-dolphin.closure-schema=\"trusted-gate-closure/v1\" \\\n")
+	output.WriteString("      org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\" \\\n")
+	output.WriteString("      org.super-dolphin.gate-source-digest=\"${GATE_SOURCE_DIGEST}\" \\\n")
+	output.WriteString("      org.super-dolphin.runtime-dependency-digest=\"${RUNTIME_DEPENDENCY_DIGEST}\" \\\n")
+	output.WriteString("      org.super-dolphin.toolchain-digest=\"${TOOLCHAIN_DIGEST}\"\n")
+	if err := writeDockerCopyInstructions(&output, sourceSnapshotFiles, "/root/", "exact source closure COPY"); err != nil {
 		return nil, err
 	}
-	output.WriteString(`RUN --network=none --mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro set -eu; \
-    test -n "$MAIN_COMMIT" && test -n "$BUILD_SOURCE_TREE" && test -n "$GATE_SOURCE_DIGEST" && test -n "$RUNTIME_DEPENDENCY_DIGEST" && test -n "$IMAGE_INPUT_DIGEST" && test -n "$POLICY_DIGEST" && test -n "$TOOLCHAIN_DIGEST" && test -n "$TARGET_PLATFORM"; \
-    for object_id in "$MAIN_COMMIT" "$BUILD_SOURCE_TREE"; do test "${#object_id}" -eq 40; case "$object_id" in *[!0123456789abcdef]*) exit 1;; esac; done; \
-    for digest in "$GATE_SOURCE_DIGEST" "$RUNTIME_DEPENDENCY_DIGEST" "$IMAGE_INPUT_DIGEST" "$POLICY_DIGEST" "$TOOLCHAIN_DIGEST"; do case "$digest" in sha256:*) digest=${digest#sha256:};; *) exit 1;; esac; test "${#digest}" -eq 64; case "$digest" in *[!0123456789abcdef]*) exit 1;; esac; done; \
-    test "$TARGET_PLATFORM" = linux/amd64; case "$RUNTIME_DEPS_IMAGE" in *@sha256:*) ;; *) exit 1;; esac; \
-    rm -rf /out/go-build-cache /out/go-cache-metrics; \
-    mkdir -p /out/go-build-cache /out/go-cache-metrics; \
-    go_cache_proxy=""; if test "$BASELINE_CACHE_IMAGE" != runtime-deps; then \
-      test -x /baseline-cache/super-dolphin-gate && test -d /baseline-cache/opt/super-dolphin/cache/go-build; \
-      go_cache_proxy="/baseline-cache/super-dolphin-gate worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /out/go-build-cache"; \
-    fi; \
-    compile_go() { phase=$1; shift; if test -n "$go_cache_proxy"; then env GOCACHEPROG="$go_cache_proxy --metrics /out/go-cache-metrics/.super-dolphin-go-cache-metrics-$phase.json" "$@"; else "$@"; fi; }; \
-    log_go_cache() { phase=$1; metrics=/out/go-cache-metrics/.super-dolphin-go-cache-metrics-$phase.json; if test -f "$metrics"; then python3 -c "import json,sys;m=json.load(open(sys.argv[2]));print(\"[gate-image] cache phase={} private_hits={} baseline_hits={} misses={} puts={}\".format(sys.argv[1],m[\"private_hit_count\"],m[\"baseline_hit_count\"],m[\"miss_count\"],m[\"put_count\"]))" "$phase" "$metrics"; else printf "[gate-image] cache phase=%s not_applicable=runtime-deps\n" "$phase"; fi; }; \
-    seed_compile_phase() { phase=$1; shift; printf "[gate-image] seed compile begin phase=%s authority=non_authoritative_material\n" "$phase"; compile_go "$phase" "$@"; log_go_cache "$phase"; printf "[gate-image] seed compile complete phase=%s authority=non_authoritative_material\n" "$phase"; }; \
-    seed_compile_phase gate_build env CGO_ENABLED=0 go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate; \
-    printf "[gate-image] dependency seed begin authority=non_authoritative_material\n"; rm -rf frontend-app/node_modules frontend-app/dist; env npm_config_cache=/opt/super-dolphin-gate/runtime/frontend/npm-cache npm_config_offline=true npm --prefix frontend-app ci --ignore-scripts --no-audit --no-fund; test -d frontend-app/node_modules; printf "[gate-image] dependency seed complete authority=non_authoritative_material\n"; \
-    printf "[gate-image] frontend seed begin authority=non_authoritative_material\n"; vite_cache_seed=/out/vite-cache-stage/.vite-temp; rm -rf /out/vite-cache-stage /out/vite-cache; mkdir -p "$vite_cache_seed" /out/vite-cache; (cd frontend-app && env SUPER_DOLPHIN_VITE_CACHE_DIR="$vite_cache_seed" ./node_modules/.bin/vite optimize --force); test -s "$vite_cache_seed/deps/_metadata.json"; env SUPER_DOLPHIN_VITE_CACHE_DIR="$vite_cache_seed" npm_config_cache=/opt/super-dolphin-gate/runtime/frontend/npm-cache npm_config_offline=true npm --prefix frontend-app run build; test -s "$vite_cache_seed/deps/_metadata.json"; test ! -e frontend-app/node_modules/.vite-temp && test ! -L frontend-app/node_modules/.vite-temp; test -s frontend-app/dist/index.html; test -s cmd/agent-terminal/web-dist/index.html; printf "[gate-image] frontend seed complete authority=non_authoritative_material\n"; \
-    mkdir -p /out/frontend-node-modules /out/frontend-embed; cp -a frontend-app/node_modules/. /out/frontend-node-modules/; cp -a "$vite_cache_seed"/. /out/vite-cache/; rm -rf /out/frontend-node-modules/.vite /out/frontend-node-modules/.vite-temp /out/vite-cache-stage; cp -a cmd/agent-terminal/web-dist/. /out/frontend-embed; \
-    seed_compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run "^$" ./...; \
-    seed_compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run "^$" ./...; \
-    set -- $(/out/super-dolphin-gate worker race-package-patterns); test $# -gt 0; \
-    seed_compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run "^$" "$@"; \
-	python3 -c 'import json,sys;commit,tree,gate,runtime_digest,runtime_image,image_input,policy,toolchain,platform=sys.argv[1:];seed_steps=["gate_build","dependency","frontend_build","normal_compile","e2e_compile","race_compile"];manifest={"schema_version":"remote-ci-cache-material/v1","authority":"non_authoritative_material","main_commit":commit,"source_tree":tree,"gate_source_digest":gate,"runtime_dependency_digest":runtime_digest,"runtime_image":runtime_image,"image_input_digest":image_input,"policy_digest":policy,"toolchain_digest":toolchain,"platform":platform,"seed_steps":seed_steps};open("/out/compiled-seed-manifest.json","w",encoding="utf-8").write(json.dumps(manifest,separators=(",",":"),sort_keys=True))' "$MAIN_COMMIT" "$BUILD_SOURCE_TREE" "$GATE_SOURCE_DIGEST" "$RUNTIME_DEPENDENCY_DIGEST" "$RUNTIME_DEPS_IMAGE" "$IMAGE_INPUT_DIGEST" "$POLICY_DIGEST" "$TOOLCHAIN_DIGEST" "$TARGET_PLATFORM"; \
-    printf "[gate-image] compiled-seed complete go_cache_entries=%s\n" "$(find /out/go-build-cache -type f | wc -l)"; \
-    test -x /out/super-dolphin-gate; test -s /out/compiled-seed-manifest.json; test -d /out/frontend-node-modules; test -d /out/vite-cache; test -d /out/frontend-embed; \
-    touch -d "@${SOURCE_DATE_EPOCH}" /out/super-dolphin-gate
-`)
-	output.WriteString("\n")
-	output.WriteString("FROM scratch AS source-snapshot\n")
-	if err := writeDockerCopyInstructions(&output, sourceSnapshotFiles, "/root/", "source snapshot COPY"); err != nil {
-		return nil, err
-	}
-	output.WriteString(`FROM ${COMPILED_SEED_IMAGE} AS compiled-seed-source
-FROM ${RUNTIME_DEPS_IMAGE} AS postprocess
-USER root
-ARG BUILD_SOURCE_TREE
-ARG RUNTIME_DEPS_IMAGE
-ARG MAIN_COMMIT
-ARG GATE_SOURCE_DIGEST
-ARG RUNTIME_DEPENDENCY_DIGEST
-ARG IMAGE_INPUT_DIGEST
-ARG POLICY_DIGEST
-ARG TOOLCHAIN_DIGEST
-ARG TARGET_PLATFORM
-WORKDIR /src
-COPY --from=compiled-seed-source /src/ /src/
-COPY --from=compiled-seed-source /out/ /out/
-COPY --from=source-snapshot /root/ /out/source-snapshot/root/
-RUN --network=none set -eu; \
-    postprocess_step() { step=$1; shift; test -n "$step"; printf "[gate-image] postprocess begin step=%s\n" "$step"; if "$@"; then printf "[gate-image] postprocess complete step=%s\n" "$step"; else status=$?; printf "[gate-image] postprocess failed step=%s exit_code=%s action=fail_fast\n" "$step" "$status"; return "$status"; fi; }; \
-    verify_compiled_seed() { \
-	  python3 -c 'import json,sys;path,commit,tree,gate,runtime_digest,runtime_image,image_input,policy,toolchain,platform=sys.argv[1:];m=json.load(open(path,encoding="utf-8"));keys={"schema_version","authority","main_commit","source_tree","gate_source_digest","runtime_dependency_digest","runtime_image","image_input_digest","policy_digest","toolchain_digest","platform","seed_steps"};set(m)==keys or (_ for _ in ()).throw(SystemExit("compiled seed material manifest fields mismatch"));expected=("remote-ci-cache-material/v1","non_authoritative_material",commit,tree,gate,runtime_digest,runtime_image,image_input,policy,toolchain,platform);actual=tuple(m[name] for name in ("schema_version","authority","main_commit","source_tree","gate_source_digest","runtime_dependency_digest","runtime_image","image_input_digest","policy_digest","toolchain_digest","platform"));actual==expected or (_ for _ in ()).throw(SystemExit("compiled seed material identity mismatch"));m["seed_steps"]==["gate_build","dependency","frontend_build","normal_compile","e2e_compile","race_compile"] or (_ for _ in ()).throw(SystemExit("compiled seed material plan mismatch"))' /out/compiled-seed-manifest.json "$MAIN_COMMIT" "$BUILD_SOURCE_TREE" "$GATE_SOURCE_DIGEST" "$RUNTIME_DEPENDENCY_DIGEST" "$RUNTIME_DEPS_IMAGE" "$IMAGE_INPUT_DIGEST" "$POLICY_DIGEST" "$TOOLCHAIN_DIGEST" "$TARGET_PLATFORM"; \
-    }; \
-    write_source_manifest() { \
-      python3 -c 'import hashlib,json,os,stat,sys;root,tree,input_digest,policy_digest,toolchain_digest,platform=sys.argv[1:];forbidden={"node_modules","dist",".git",".build-cache",".cache","__pycache__"};records=[];[(_ for _ in ()).throw(SystemExit("forbidden snapshot component: "+component)) for path,dirs,files in os.walk(root) for component in path.split(os.sep) if component in forbidden];[(records.append((lambda path,entry,data:{"path":path,"mode":format(stat.S_IMODE(entry.st_mode)|stat.S_IFREG,"o"),"blob_oid":hashlib.sha1(b"blob "+str(len(data)).encode()+b"\\0"+data).hexdigest(),"size":len(data),"blob_digest":"sha256:"+hashlib.sha256(data).hexdigest()})(os.path.relpath(os.path.join(path,name),root),os.lstat(os.path.join(path,name)),open(os.path.join(path,name),"rb").read()))) for path,dirs,files in os.walk(root) for name in sorted(files) if (lambda entry: True if stat.S_ISREG(entry.st_mode) and stat.S_IMODE(entry.st_mode) in (0o644,0o755) else (_ for _ in ()).throw(SystemExit("invalid snapshot entry: "+os.path.join(root,name))))(os.lstat(os.path.join(path,name)))];records.sort(key=lambda record:record["path"]);test=len(records)>0 or (_ for _ in ()).throw(SystemExit("source snapshot manifest is empty"));closure="sha256:"+hashlib.sha256(json.dumps(records,separators=(",",":")).encode()).hexdigest();manifest={"schema_version":1,"source_tree":tree,"closure_digest":closure,"image_input_digest":input_digest,"policy_digest":policy_digest,"toolchain_digest":toolchain_digest,"platform":platform,"object_format":"sha1","files":records};open("/out/source-snapshot/manifest.json","w",encoding="utf-8").write(json.dumps(manifest,separators=(",",":")));print("[gate-image] source manifest files={}".format(len(records)))' /out/source-snapshot/root "$BUILD_SOURCE_TREE" "$IMAGE_INPUT_DIGEST" "$POLICY_DIGEST" "$TOOLCHAIN_DIGEST" "$TARGET_PLATFORM"; \
-      test -s /out/source-snapshot/manifest.json; \
-    }; \
-    write_runtime_seed_snapshot() { \
-      rm -rf /out/runtime-seed-snapshot; mkdir -p /out/runtime-seed-snapshot/frontend-app; \
-      test -s go.sum; test -s frontend-app/package-lock.json; \
-      cp go.sum /out/runtime-seed-snapshot/go.sum; cp frontend-app/package-lock.json /out/runtime-seed-snapshot/frontend-app/package-lock.json; \
-    }; \
-    write_source_baseline() { \
-      rm -rf /out/source-baseline.git; git init --quiet --bare --template= --object-format=sha1 /out/source-baseline.git; \
-      git --git-dir=/out/source-baseline.git --work-tree=/out/source-snapshot/root add --all --force; \
-      source_tree_sha=$(git --git-dir=/out/source-baseline.git write-tree); test "$source_tree_sha" = "$BUILD_SOURCE_TREE"; \
-      baseline_commit_sha=$(printf "%s\n" "super-dolphin accepted source baseline" | GIT_AUTHOR_NAME="Super Dolphin Source Baseline" GIT_AUTHOR_EMAIL="source-baseline.invalid" GIT_AUTHOR_DATE="2000-01-01T00:00:00Z" GIT_COMMITTER_NAME="Super Dolphin Source Baseline" GIT_COMMITTER_EMAIL="source-baseline.invalid" GIT_COMMITTER_DATE="2000-01-01T00:00:00Z" git --git-dir=/out/source-baseline.git commit-tree "$source_tree_sha"); \
-      test -n "$baseline_commit_sha"; test "$(git --git-dir=/out/source-baseline.git rev-list --parents -n 1 "$baseline_commit_sha")" = "$baseline_commit_sha"; \
-      git --git-dir=/out/source-baseline.git update-ref refs/source/baseline "$baseline_commit_sha"; \
-      printf "%s\n" "$source_tree_sha" > /out/source-baseline.git/source-tree-sha; printf "%s\n" "$baseline_commit_sha" > /out/source-baseline.git/source-baseline-commit-sha; \
-      rm -f /out/source-baseline.git/index; test "$(git --git-dir=/out/source-baseline.git rev-parse --verify refs/source/baseline)" = "$baseline_commit_sha"; \
-      test "$(git --git-dir=/out/source-baseline.git rev-list --all --count)" = 1; git --git-dir=/out/source-baseline.git fsck --full --strict; \
-    }; \
-    postprocess_step compiled-seed-identity verify_compiled_seed; \
-    postprocess_step source-manifest write_source_manifest; \
-    postprocess_step runtime-seed-snapshot write_runtime_seed_snapshot; \
-    postprocess_step source-baseline write_source_baseline; \
-    printf "[gate-image] postprocess complete\n"
-`)
-	output.WriteString("\n")
-	output.WriteString(`FROM ${RUNTIME_DEPS_IMAGE} AS generation-one
-USER root
-ARG BUILD_SOURCE_TREE
-ARG MAIN_COMMIT
-ARG GATE_SOURCE_DIGEST
-ARG IMAGE_INPUT_DIGEST
-ARG POLICY_DIGEST
-ARG TOOLCHAIN_DIGEST
-ARG TARGET_PLATFORM
-LABEL org.super-dolphin.source-tree-sha="${BUILD_SOURCE_TREE}" \
-      org.super-dolphin.main-commit-sha="${MAIN_COMMIT}" \
-      org.super-dolphin.gate-source-digest="${GATE_SOURCE_DIGEST}" \
-      org.super-dolphin.image-input-digest="${IMAGE_INPUT_DIGEST}" \
-      org.super-dolphin.policy-sha="${POLICY_DIGEST}" \
-      org.super-dolphin.toolchain-digest="${TOOLCHAIN_DIGEST}" \
-      org.super-dolphin.platform="${TARGET_PLATFORM}" \
-      org.super-dolphin.schema-version="1"
-COPY --from=postprocess /out/super-dolphin-gate /super-dolphin-gate
-COPY --from=postprocess /out/go-build-cache /opt/super-dolphin/cache/go-build
-COPY --from=postprocess /out/frontend-node-modules /opt/super-dolphin-gate/runtime/frontend/node_modules
-COPY --from=postprocess /out/vite-cache /opt/super-dolphin-gate/runtime/frontend/vite-cache
-COPY --from=postprocess /out/frontend-embed /opt/super-dolphin-gate/frontend-embed
-COPY --from=postprocess /out/source-snapshot /opt/super-dolphin-gate/source-snapshot
-COPY --from=postprocess /out/source-baseline.git /opt/super-dolphin-gate/source-baseline.git
-COPY --from=postprocess /out/compiled-seed-manifest.json /opt/super-dolphin-gate/compiled-seed-manifest.json
-COPY --from=postprocess /out/runtime-seed-snapshot /tmp/runtime-seed-snapshot
-RUN --network=none set -eu; \
-    printf "[gate-image] postprocess begin step=runtime-seed-write\n"; \
-    chmod -R a-w /opt/super-dolphin-gate/runtime/frontend/node_modules /opt/super-dolphin-gate/runtime/frontend/vite-cache; \
-    /super-dolphin-gate worker runtime-seed write /tmp/runtime-seed-snapshot /opt/super-dolphin-gate/runtime; \
-    printf "[gate-image] postprocess complete step=runtime-seed-write\n"; \
-    printf "[gate-image] postprocess begin step=readonly-finalize\n"; \
-    rm -rf /tmp/runtime-seed-snapshot; \
-    chmod a-w /opt/super-dolphin-gate/compiled-seed-manifest.json; \
-    chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot /opt/super-dolphin-gate/source-baseline.git; \
-    chmod -R a-w /opt/super-dolphin/cache/go-build; \
-    test -z "$(find /opt/super-dolphin/cache/go-build -type l -print -quit)"; \
-    test -z "$(find /opt/super-dolphin/cache/go-build -perm /222 -print -quit)"; \
-    printf "[gate-image] postprocess complete step=readonly-finalize\n"
-ENV GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off GOFLAGS=-mod=mod\ -buildvcs=false
-USER 65532:65532
-ENTRYPOINT ["/super-dolphin-gate"]
-`)
-	output.WriteString("\n")
-	output.WriteString(`FROM generation-one AS final-image
-`)
+	output.WriteString("FROM source-closure AS final\n")
 	return []byte(output.String()), nil
 }
 
@@ -1054,7 +892,7 @@ func renderManifest(localFiles, gateCompileFiles, sourceSnapshotFiles []string) 
 	inputs := slices.Clone(localFiles)
 	compileInputs := slices.Clone(gateCompileFiles)
 	manifest := inputManifest{
-		SchemaVersion:             "3",
+		SchemaVersion:             "4",
 		Dockerfile:                gateDockerfile,
 		Inputs:                    inputs,
 		GateCompileInputs:         compileInputs,
@@ -1546,4 +1384,66 @@ func badGoEmbedName(name string) bool {
 
 func relativeEscapesRoot(relative string) bool {
 	return relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// CompileIdentityForTree 返回精确 Git 树上本地 Gate 编译闭包与锁定工具链的摘要。
+// 调用方只能用它绑定 trusted launcher；它不读取候选工作树中的未跟踪文件。
+func CompileIdentityForTree(repository, tree string) (sourceDigest, toolchainDigest string, err error) {
+	if strings.TrimSpace(repository) == "" || !filepath.IsAbs(repository) || filepath.Clean(repository) != repository {
+		return "", "", errors.New("compile identity repository must be a clean absolute path")
+	}
+	if strings.TrimSpace(tree) == "" {
+		return "", "", errors.New("compile identity tree is required")
+	}
+	treeSHA, err := resolveTreeSHA(repository, tree)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve compile identity tree: %w", err)
+	}
+	sourceRoot, cleanup, err := createTemporarySourceRoot()
+	if err != nil {
+		return "", "", err
+	}
+	defer cleanup()
+	if err := extractGitTree(repository, treeSHA, sourceRoot); err != nil {
+		return "", "", fmt.Errorf("extract compile identity tree: %w", err)
+	}
+	compileFiles, err := collectGateCompileFiles(sourceRoot)
+	if err != nil {
+		return "", "", fmt.Errorf("collect local Gate compile identity: %w", err)
+	}
+	sourceDigest, err = digestCompileIdentityFiles(sourceRoot, compileFiles)
+	if err != nil {
+		return "", "", err
+	}
+	toolchain, err := os.ReadFile(filepath.Join(sourceRoot, gateToolchain))
+	if err != nil {
+		return "", "", fmt.Errorf("read locked Gate toolchain: %w", err)
+	}
+	toolchainDigest = digestCompileIdentityBytes(toolchain)
+	return sourceDigest, toolchainDigest, nil
+}
+
+func digestCompileIdentityFiles(sourceRoot string, paths []string) (string, error) {
+	hash := sha256.New()
+	for _, relative := range sortedUniqueStrings(paths) {
+		data, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(relative)))
+		if err != nil {
+			return "", fmt.Errorf("read local Gate compile input %q: %w", relative, err)
+		}
+		if _, err := fmt.Fprintf(hash, "%s\x00%d\x00", relative, len(data)); err != nil {
+			return "", fmt.Errorf("encode local Gate compile input %q: %w", relative, err)
+		}
+		if _, err := hash.Write(data); err != nil {
+			return "", fmt.Errorf("digest local Gate compile input %q: %w", relative, err)
+		}
+		if _, err := hash.Write([]byte{0}); err != nil {
+			return "", fmt.Errorf("finish local Gate compile input %q: %w", relative, err)
+		}
+	}
+	return fmt.Sprintf("sha256:%x", hash.Sum(nil)), nil
+}
+
+func digestCompileIdentityBytes(data []byte) string {
+	digest := sha256.Sum256(data)
+	return fmt.Sprintf("sha256:%x", digest[:])
 }

@@ -1,6 +1,7 @@
 # 三家项目级 MCP 配置
 
 本参考适用于本地 stdio 形式的 mcp-lsp。配置格式核对日期：2026-08-14。
+本参考适用于本地 stdio 形式的 mcp-lsp。配置格式核对日期：2026-08-16。
 
 所有示例都必须保留三个 sidecar 启动字段：`SUPER_DOLPHIN_RUNTIME_MODE=dev`、`SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR=<分发包资源根；源码构建则为 checkout 根，必须是绝对路径>`、`SUPER_DOLPHIN_DEPENDENCY_PROFILE=production`。它们必须位于当前 server 的 `env` 内，不能依赖另一个 shell 临时导出，也不能由二进制隐式补默认值。
 
@@ -31,7 +32,13 @@
 
 使用规范同步到项目根 AGENTS.md。
 
+部分 Codex 版本会启用 `tool_search_always_defer_mcp_tools`，导致 `lsp` 已连接但 `mcp__lsp__*` 只出现在延迟工具目录。先运行 `codex features list`：若该项显示 `removed` 且有效值为 `true`，旧配置 `features.tool_search_always_defer_mcp_tools = false` 不会生效。下面的 `features.code_mode.direct_only_tool_namespaces` 才是让 LSP 命名空间直接暴露的项目级配置；它必须与 `required = true` 同时保留，分别约束工具 schema 和初始化失败行为。
+
 ~~~toml
+[features.code_mode]
+enabled = true
+direct_only_tool_namespaces = ["mcp__lsp"]
+
 [mcp_servers.lsp]
 enabled = true
 required = true
@@ -58,21 +65,31 @@ GO_AGENT_LSP_ROOT = "/absolute/project"
 GO_AGENT_LSP_ROOTS = '["/absolute/project"]'
 ~~~
 
-Codex 的 stdio 配置由 command 判定，不需要额外 type = "stdio"。required = true 会在启用的 server 无法初始化时阻断启动或恢复，适合仓库强制 LSP。
+Codex 的 stdio 配置由 command 判定，不需要额外 type = "stdio"。`direct_only_tool_namespaces = ["mcp__lsp"]` 强制整个 LSP 命名空间走直接工具调用；不要枚举 `mcp__lsp__file` 等具体工具名。`required = true` 会在启用的 server 无法初始化时阻断启动或恢复，适合仓库强制 LSP。前者不承诺 sidecar 零耗时启动，后者防止 Codex 在 LSP 未就绪时静默继续。
 
 上面 TOML 中的注释可以保留在真实配置里。Codex 从该项目根启动 lsp 后，Agent 的 `file`、`inspect`、`xref`、`grep`、`structure`、`patch_edit` 和 `completion` 调用默认都应传项目相对路径。
 
 验证：
 
 ~~~text
+codex features list
 /mcp
 codex mcp list
 ~~~
 
-配置修改后必须先完整退出并重启 Codex Desktop/IDE 宿主或 Codex CLI 进程，再执行上述验证；Reload Window 或新建聊天不等于宿主重启。
+配置修改后必须先完整退出并重启 Codex Desktop/IDE 宿主或 Codex CLI 进程，再执行上述验证；Reload Window 或新建聊天不等于宿主重启。确认 `code_mode` 为 `true`，并在新任务中实际直接调用一个 `mcp__lsp` 工具；旧任务已冻结的工具 schema 不能证明新配置生效。
+
+新任务中的直接暴露必须同时满足以下三项：
+
+1. 顶层工具声明直接出现 `mcp__lsp.file`、`mcp__lsp.inspect`、`mcp__lsp.xref`、`mcp__lsp.grep`、`mcp__lsp.structure`、`mcp__lsp.patch_edit` 和 `mcp__lsp.completion`。
+2. 不经过 `functions.exec`，直接调用至少一个 `mcp__lsp` 工具成功。
+3. 在 `functions.exec` 内检查 `ALL_TOOLS.filter(({ name }) => name.startsWith("mcp__lsp__"))`，结果应为 `[]`。
+
+第 3 项为空是 direct-only 生效后的预期结果：`ALL_TOOLS` 只枚举 `functions.exec` 可嵌套调用或延迟发现的工具，不是顶层直接工具注册表。若它仍返回 LSP 工具，说明 LSP 仍可经 code mode 嵌套调用；若它为空但第 1 项缺失或第 2 项失败，才说明 LSP 没有成功注册或初始化。不能单凭 `/mcp` 显示 enabled、sidecar 进程存在或 `ALL_TOOLS` 非空判定直接暴露成功。
 
 官方依据：
 
+- https://learn.chatgpt.com/docs/config-file/config-reference
 - https://developers.openai.com/codex/mcp/
 - https://learn.chatgpt.com/docs/codex/config-advanced#project-config-files-codexconfigtoml
 - https://learn.chatgpt.com/docs/codex/mcp

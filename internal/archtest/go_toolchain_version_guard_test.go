@@ -91,22 +91,25 @@ func compareGoToolchainConsumers(
 
 func registeredGoToolchainConsumers() map[string]goToolchainConsumer {
 	return map[string]goToolchainConsumer{
-		"CONTRIBUTING.md":                              {Path: "CONTRIBUTING.md", Reason: "贡献者规范基线"},
-		"README.de.md":                                 {Path: "README.de.md", Reason: "德语安装前置条件"},
-		"README.es.md":                                 {Path: "README.es.md", Reason: "西语安装前置条件"},
-		"README.ja.md":                                 {Path: "README.ja.md", Reason: "日语安装前置条件"},
-		"README.ko.md":                                 {Path: "README.ko.md", Reason: "韩语安装前置条件"},
-		"README.md":                                    {Path: "README.md", Reason: "规范安装前置条件"},
-		"README.zh-CN.md":                              {Path: "README.zh-CN.md", Reason: "中文安装前置条件"},
-		"build/gate/closure/closure.go":                {Path: "build/gate/closure/closure.go", Reason: "闭包生成器运行时工具链锁定"},
-		"build/gate/runtime-deps.Dockerfile":           {Path: "build/gate/runtime-deps.Dockerfile", Reason: "运行时依赖镜像工具链探针"},
-		"build/gate/runtime-proxy/go.mod":              {Path: "build/gate/runtime-proxy/go.mod", Reason: "truth image proxy 模块"},
-		"build/gate/runtime-tools/go.mod":              {Path: "build/gate/runtime-tools/go.mod", Reason: "truth image tools 模块"},
-		"build/gate/toolchain.lock":                    {Path: "build/gate/toolchain.lock", Reason: "远程门禁工具链锁定"},
-		"docs/契约/jrpc2-convention.md":                  {Path: "docs/契约/jrpc2-convention.md", Reason: "当前 Go 契约版本"},
-		"internal/devtools/gate/go_distribution.go":    {Path: "internal/devtools/gate/go_distribution.go", Reason: "远程 Go 分发锁定"},
-		"scripts/go_distribution_lock.sh":              {Path: "scripts/go_distribution_lock.sh", Reason: "Go 官方分发锁校验"},
-		"scripts/verify_packaged_app_macos.sh":         {Path: "scripts/verify_packaged_app_macos.sh", Reason: "macOS 发布包验证模块"},
+		"CONTRIBUTING.md":                    {Path: "CONTRIBUTING.md", Reason: "贡献者规范基线"},
+		"README.de.md":                       {Path: "README.de.md", Reason: "德语安装前置条件"},
+		"README.es.md":                       {Path: "README.es.md", Reason: "西语安装前置条件"},
+		"README.ja.md":                       {Path: "README.ja.md", Reason: "日语安装前置条件"},
+		"README.ko.md":                       {Path: "README.ko.md", Reason: "韩语安装前置条件"},
+		"README.md":                          {Path: "README.md", Reason: "规范安装前置条件"},
+		"README.zh-CN.md":                    {Path: "README.zh-CN.md", Reason: "中文安装前置条件"},
+		"build/gate/closure/closure.go":      {Path: "build/gate/closure/closure.go", Reason: "闭包生成器运行时工具链锁定"},
+		"build/gate/runtime-deps.Dockerfile": {Path: "build/gate/runtime-deps.Dockerfile", Reason: "运行时依赖镜像工具链探针"},
+		"build/gate/runtime-proxy/go.mod":    {Path: "build/gate/runtime-proxy/go.mod", Reason: "truth image proxy 模块"},
+		"build/gate/runtime-tools/go.mod":    {Path: "build/gate/runtime-tools/go.mod", Reason: "truth image tools 模块"},
+		"build/gate/toolchain.lock":          {Path: "build/gate/toolchain.lock", Reason: "远程门禁工具链锁定"},
+		"docs/契约/jrpc2-convention.md":        {Path: "docs/契约/jrpc2-convention.md", Reason: "当前 Go 契约版本"},
+		"internal/devtools/godistribution/go_distribution.go":   {Path: "internal/devtools/godistribution/go_distribution.go", Reason: "官方 Go 分发锁定"},
+		"internal/devtools/godistribution/go-distribution.lock": {Path: "internal/devtools/godistribution/go-distribution.lock", Reason: "官方 Go 分发摘要锁"},
+		"scripts/go_distribution_lock.sh":                       {Path: "scripts/go_distribution_lock.sh", Reason: "Go 官方分发锁校验"},
+		"scripts/verify_packaged_app_macos.sh":                  {Path: "scripts/verify_packaged_app_macos.sh", Reason: "macOS 发布包验证模块"},
+		"scripts/deploy/linux/deploy_single_ubuntu_wine.sh":     {Path: "scripts/deploy/linux/deploy_single_ubuntu_wine.sh", Reason: "single Ubuntu/Wine runtime smoke toolchain probe"},
+		"scripts/tests/test_heteroci_deploy_scripts.sh":         {Path: "scripts/tests/test_heteroci_deploy_scripts.sh", Reason: "heterogeneous CI runner contract fixture toolchain"},
 	}
 }
 
@@ -128,7 +131,7 @@ func registeredGoToolchainConsumerPaths() map[string]struct{} {
 
 func collectGoToolchainConsumerPaths(t *testing.T, repository string, paths map[string]struct{}) {
 	t.Helper()
-	for _, root := range []string{".github/workflows", "build/gate", "cmd/super-dolphin-gate", "internal/devtools/gate", "internal/devtools/remoteci", "scripts"} {
+	for _, root := range []string{".github/workflows", "build/gate", "cmd/super-dolphin-gate", "internal/devtools/godistribution", "scripts"} {
 		err := filepath.WalkDir(filepath.Join(repository, root), func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
@@ -236,6 +239,9 @@ func skipOwnedGoModuleDirectory(path, repository string) error {
 	if err != nil {
 		return err
 	}
+	if relative == filepath.FromSlash("bin/LSP/test") {
+		return filepath.SkipDir
+	}
 	if strings.Contains(filepath.ToSlash(relative), "/") {
 		return nil
 	}
@@ -277,7 +283,7 @@ func assertDerivedGoToolchainConsumers(t *testing.T, repository string) {
 	checks := map[string][]string{
 		".github/workflows/release.yml": {"actions/setup-go@", "go-version-file: go.mod"},
 		"Makefile":                      {"go env GOVERSION"},
-		"build/gate/Dockerfile":         {"GOTOOLCHAIN=local", `COPY ["go.mod","go.sum"`},
+		"build/gate/Dockerfile":         {`"go.mod","go.sum"`},
 		"build/gate/runtime-deps.lock":  {`"go_mod_sha256"`},
 		"build/gate/toolchain.lock":     {`"name": "GO_IMAGE"`, `"reference": "mirror.gcr.io/library/golang@sha256:`},
 		"scripts/package_windows.ps1":   {"go env GOVERSION"},
@@ -288,10 +294,46 @@ func assertDerivedGoToolchainConsumers(t *testing.T, repository string) {
 			t.Fatalf("read derived Go toolchain consumer %s: %v", path, err)
 		}
 		for _, fragment := range required {
+			if path == "build/gate/Dockerfile" && fragment == `"go.mod","go.sum"` {
+				if !dockerfileContainsAdjacentCopyPair(data, "go.mod", "go.sum") {
+					t.Fatalf("derived Go toolchain consumer %s is missing adjacent root module COPY pair", path)
+				}
+				continue
+			}
 			if !strings.Contains(string(data), fragment) {
 				t.Fatalf("derived Go toolchain consumer %s is missing %q", path, fragment)
 			}
 		}
+	}
+}
+
+func dockerfileContainsAdjacentCopyPair(data []byte, first, second string) bool {
+	marker := `"` + first + `","` + second + `"`
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "COPY [") && strings.Contains(line, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDockerfileCopyPairRequiresOneCopyInstruction(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{name: "same copy", data: `COPY ["README.md","go.mod","go.sum","/root/"]`, want: true},
+		{name: "split copies", data: "COPY [\"go.mod\",\"/root/\"]\nCOPY [\"go.sum\",\"/root/\"]", want: false},
+		{name: "non copy text", data: `RUN echo "go.mod","go.sum"`, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := dockerfileContainsAdjacentCopyPair([]byte(test.data), "go.mod", "go.sum"); got != test.want {
+				t.Fatalf("dockerfileContainsAdjacentCopyPair() = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 
@@ -332,6 +374,14 @@ func TestSkipOwnedGoModuleDirectoryKeepsManagedNestedModules(t *testing.T) {
 		if err := skipOwnedGoModuleDirectory(filepath.Join(repository, directory), repository); err != nil {
 			t.Fatalf("managed directory %s skip result = %v, want nil", directory, err)
 		}
+	}
+}
+
+func TestSkipOwnedGoModuleDirectoryExcludesExternalLSPGoFixtures(t *testing.T) {
+	repository := t.TempDir()
+	path := filepath.Join(repository, filepath.FromSlash("bin/LSP/test"))
+	if err := skipOwnedGoModuleDirectory(path, repository); err != filepath.SkipDir {
+		t.Fatalf("external LSP Go fixture directory skip = %v, want %v", err, filepath.SkipDir)
 	}
 }
 

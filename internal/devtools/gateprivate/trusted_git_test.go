@@ -44,6 +44,20 @@ func TestTrustedGitCommandIgnoresReplaceAndAmbientRepositoryRouting(t *testing.T
 // only permitted candidate ODB capture fail-closed. No later trusted Git read
 // may consult ambient Git routing.
 func TestCandidateObjectAuthorityRejectsPartialAndDriftedAmbientRouting(t *testing.T) {
+	t.Run("primary only remains valid", func(t *testing.T) {
+		objects := filepath.Join(t.TempDir(), "objects")
+		if err := os.MkdirAll(objects, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("GIT_OBJECT_DIRECTORY", objects)
+		authority, err := CaptureCandidateObjectAuthority()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := authority.Digest(); err != nil {
+			t.Fatalf("reverify primary-only candidate object authority: %v", err)
+		}
+	})
 	t.Run("alternate without primary", func(t *testing.T) {
 		t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", t.TempDir())
 		if _, err := CaptureCandidateObjectAuthority(); err == nil {
@@ -97,16 +111,29 @@ func trustedGitFixtureWrite(t *testing.T, repository, contents string) {
 
 func trustedGitFixtureRun(t *testing.T, repository string, args ...string) {
 	t.Helper()
-	if output, err := exec.Command("/usr/bin/git", append([]string{"-C", repository}, args...)...).CombinedOutput(); err != nil {
+	if output, err := exec.Command(trustedGitFixtureExecutable(t), append([]string{"-C", repository}, args...)...).CombinedOutput(); err != nil {
 		t.Fatalf("fixture git %v: %v: %s", args, err, output)
 	}
 }
 
 func trustedGitFixtureOutput(t *testing.T, repository string, args ...string) string {
 	t.Helper()
-	output, err := exec.Command("/usr/bin/git", append([]string{"-C", repository}, args...)...).Output()
+	output, err := exec.Command(trustedGitFixtureExecutable(t), append([]string{"-C", repository}, args...)...).Output()
 	if err != nil {
 		t.Fatalf("fixture git %v: %v", args, err)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+func trustedGitFixtureExecutable(t *testing.T) string {
+	t.Helper()
+	executable, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	absolute, err := filepath.Abs(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return absolute
 }

@@ -31,7 +31,7 @@ func TestMultiLSPIdleTimeoutWiringGuard(t *testing.T) {
 			"idleTimeout:      cfg.IdleTimeout",
 		},
 		"cmd/mcp-lsp/multilsp/adapter.go": {
-			"goplsServerArgs(a.idleTimeout, runtime.GOOS)",
+			"lspplatform.GoplsServerArgs(a.idleTimeout)",
 		},
 		"cmd/mcp-lsp/multilsp/recycler.go": {
 			"timeout := mgr.idleTimeout",

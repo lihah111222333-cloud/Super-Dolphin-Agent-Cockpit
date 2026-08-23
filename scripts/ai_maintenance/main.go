@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,10 +10,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/capcontract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/trustedgitpolicy"
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 type gatePlanPolicy struct {
@@ -23,7 +30,6 @@ type gatePlanPolicy struct {
 	coreBackendGatePackages         []string
 	mcpLSPWorkloadExactFiles        map[string]bool
 	mcpLSPWorkloadPrefixes          []string
-	nightlyProtocolFiles            map[string]bool
 	archtestNonGoInputFiles         map[string]bool
 	archtestNonGoInputPrefixes      []string
 }
@@ -74,19 +80,8 @@ func newGatePlanPolicy() gatePlanPolicy {
 			"./internal/provider/unified", "./internal/provider/codexapp", "./internal/provider/claudecli",
 			"./internal/provider", "./scripts", "./scripts/ai_maintenance",
 		},
-		mcpLSPWorkloadExactFiles: map[string]bool{
-			"Makefile": true, ".github/workflows/ci.yml": true, ".github/workflows/release.yml": true,
-			"scripts/check_mcp_lsp_workload_catalog.sh": true, "scripts/mcp_lsp_workload_catalog.json": true,
-			"scripts/run_mcp_lsp_workload.sh": true, "scripts/ai_maintenance/main.go": true,
-			"scripts/ai_maintenance/owned_gate_execution.go": true, "scripts/ai_maintenance/evidence.go": true,
-			".githooks/README.md": true,
-		},
-		mcpLSPWorkloadPrefixes: []string{"cmd/mcp-lsp/", "scripts/mcp_lsp_workload_"},
-		nightlyProtocolFiles: map[string]bool{
-			"docs/automation/全仓夜间门禁健康巡检协议.md": true,
-			"docs/automation/门禁问题台账接管协议.md":   true,
-			"docs/automation/授权问题修复与验证协议.md":  true,
-		},
+		mcpLSPWorkloadExactFiles: workloadGateInputFileSet(catalog.Catalog{}),
+		mcpLSPWorkloadPrefixes:   []string{"cmd/mcp-lsp/", "internal/devtools/mcplspguardcore/", "scripts/mcp_lsp_workload_"},
 		archtestNonGoInputFiles: map[string]bool{
 			"cmd/mcp-orch/sqlc.yaml": true, "docs/契约/modularity-convention.md": true,
 			"frontend-app/src/App.jsx": true, "frontend-app/src/app/appShellModel.js": true,
@@ -103,14 +98,33 @@ func newGatePlanPolicy() gatePlanPolicy {
 	}
 }
 
+func workloadGateInputFileSet(document catalog.Catalog) map[string]bool {
+	result := make(map[string]bool)
+	for _, path := range catalog.WorkloadGateInputPaths(document) {
+		result[path] = true
+	}
+	return result
+}
+
+func bindCandidateWorkloadGateInputs(repoRoot string, policy gatePlanPolicy) (gatePlanPolicy, error) {
+	document, err := catalog.Load(repoRoot)
+	if err != nil {
+		return gatePlanPolicy{}, fmt.Errorf("load candidate workload gate inputs: %w", err)
+	}
+	policy.mcpLSPWorkloadExactFiles = workloadGateInputFileSet(document)
+	return policy, nil
+}
+
 type gatePlan struct {
-	ChangedFiles        []string `json:"changed_files"`
-	RequiredGates       []string `json:"required_gates"`
-	RequiredEvidence    []string `json:"required_evidence"`
-	GeneratedFiles      []string `json:"generated_files"`
-	AffectedGoPackages  []string `json:"affected_go_packages,omitempty"`
-	DiagnosticFiles     []string `json:"diagnostic_files,omitempty"`
-	RequiresEvidenceDoc bool     `json:"requires_evidence_doc"`
+	ReviewObject        reviewObject `json:"review_object"`
+	ChangedFiles        []string     `json:"changed_files"`
+	RequiredGates       []string     `json:"required_gates"`
+	RequiredEvidence    []string     `json:"required_evidence"`
+	GeneratedFiles      []string     `json:"generated_files"`
+	AffectedGoPackages  []string     `json:"affected_go_packages,omitempty"`
+	DiagnosticFiles     []string     `json:"diagnostic_files,omitempty"`
+	RequiresEvidenceDoc bool         `json:"requires_evidence_doc"`
+	executionRoot       string
 }
 
 type evidenceDoc struct {
@@ -147,15 +161,13 @@ func main() {
 
 func runMain(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: ai_maintenance <plan|run|validate-evidence> [flags]")
+		return errors.New("usage: ai_maintenance <plan|run> [flags]")
 	}
 	switch args[0] {
 	case "plan":
 		return runPlan(args[1:], os.Stdout)
 	case "run":
 		return runGates(args[1:])
-	case "validate-evidence":
-		return runValidateEvidence(args[1:])
 	default:
 		return fmt.Errorf("unknown subcommand %q", args[0])
 	}
@@ -164,24 +176,14 @@ func runMain(args []string) error {
 // runPlan 解析变更路径并输出只读 gate plan JSON。
 func runPlan(args []string, stdout *os.File) error {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
-	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
-	changed := multiFlag{}
+	reviewFlags := registerReviewFlags(fs)
 	if stdout == nil {
 		stdout = os.Stdout
 	}
-	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	files := []string(changed)
-	if len(files) == 0 {
-		var err error
-		files, err = changedFilesFromGit(*base)
-		if err != nil {
-			return err
-		}
-	}
-	plan, err := buildGatePlan(files)
+	plan, err := buildGatePlanFromReviewFlags(reviewFlags)
 	if err != nil {
 		return err
 	}
@@ -190,80 +192,118 @@ func runPlan(args []string, stdout *os.File) error {
 	return enc.Encode(plan)
 }
 
-// runGates 是统一入口的执行模式：先根据 diff 生成 gate plan，再可选校验证据包，最后只执行命中的命令面。
+// runGates 是统一入口的执行模式：先冻结 exact review object，再只执行命中的命令面。
 func runGates(args []string) error {
+	return runGatesWithMaterializer(args, materializeReviewObject, gateRunners)
+}
+
+// runGatesWithMaterializer 在同一 prepared session 内完成计划和执行，避免重新物化 exact candidate。
+func runGatesWithMaterializer(args []string, materializer reviewObjectMaterializer, factory gateRunnerFactory) (resultErr error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
-	evidencePath := fs.String("evidence", "", "optional AI maintenance evidence file to validate")
+	reviewFlags := registerReviewFlags(fs)
 	printPlan := fs.Bool("print-plan", false, "print gate plan and exit")
-	changed := multiFlag{}
-	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	files := []string(changed)
-	if len(files) == 0 {
-		var err error
-		files, err = changedFilesFromGit(*base)
-		if err != nil {
-			return err
-		}
+	if len(reviewFlags.changed) > 0 {
+		return runPathsOnlyGatePlan(reviewFlags, *printPlan)
 	}
-	plan, err := buildGatePlan(files)
+	return runExecutableGatePlan(reviewFlags, *printPlan, materializer, factory)
+}
+
+// runPathsOnlyGatePlan 保持 paths-only 展示输入不可进入执行器的边界。
+func runPathsOnlyGatePlan(reviewFlags *reviewFlags, printPlan bool) error {
+	if !printPlan {
+		return errors.New("paths-only review object is not executable")
+	}
+	if *reviewFlags.staged || *reviewFlags.worktree || *reviewFlags.base != "" || *reviewFlags.head != "" {
+		return errors.New("--changed-file paths-only mode cannot be combined with executable review object flags")
+	}
+	plan, err := buildGatePlan([]string(reviewFlags.changed))
 	if err != nil {
 		return err
 	}
-	if *printPlan {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(plan)
+}
+
+// runExecutableGatePlan 为 executable review object 创建一次 session 并执行或输出计划。
+func runExecutableGatePlan(reviewFlags *reviewFlags, printPlan bool, materializer reviewObjectMaterializer, factory gateRunnerFactory) (resultErr error) {
+	repoRoot, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		return fmt.Errorf("resolve review repository root: %w", err)
+	}
+	object, err := resolveReviewObject(repoRoot, reviewObjectOptions{
+		Base: *reviewFlags.base, Head: *reviewFlags.head, Staged: *reviewFlags.staged, Worktree: *reviewFlags.worktree,
+	})
+	if err != nil {
+		return err
+	}
+	session, err := prepareGatePlanForReviewObject(repoRoot, object, newGatePlanPolicy(), materializer)
+	if err != nil {
+		return err
+	}
+	if printPlan {
+		defer func() { resultErr = errors.Join(resultErr, session.close()) }()
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(plan)
+		return enc.Encode(session.plan)
 	}
-	if err := validateOptionalEvidence(*evidencePath, plan); err != nil {
-		return err
-	}
-	return executeGatePlan(plan)
+	return executePreparedGatePlanWithRunnerFactory(session, factory)
 }
 
-// validateOptionalEvidence 校验显式证据文件；未提供时保留控制器阻断提示但继续运行命令 gate。
-func validateOptionalEvidence(path string, plan gatePlan) error {
-	if path != "" {
-		return validateEvidenceFile(path, plan)
-	}
-	if plan.RequiresEvidenceDoc {
-		fmt.Fprintln(os.Stderr, "ai-maintenance evidence file not supplied; command gates will run, but LSP evidence remains controller-blocking")
-	}
-	return nil
+type reviewFlags struct {
+	base     *string
+	head     *string
+	staged   *bool
+	worktree *bool
+	changed  multiFlag
 }
 
-// runValidateEvidence 解析变更范围并校验指定 evidence 文件是否满足计划要求。
-func runValidateEvidence(args []string) error {
-	fs := flag.NewFlagSet("validate-evidence", flag.ContinueOnError)
-	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
-	evidencePath := fs.String("evidence", "", "AI maintenance evidence file")
-	changed := multiFlag{}
-	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
-	if err := fs.Parse(args); err != nil {
-		return err
+func registerReviewFlags(fs *flag.FlagSet) *reviewFlags {
+	flags := &reviewFlags{
+		base:     fs.String("base", "", "range base revision used to resolve the merge-base; defaults to HEAD~1"),
+		head:     fs.String("head", "", "range candidate revision; defaults to HEAD"),
+		staged:   fs.Bool("staged", false, "review the exact staged tree against HEAD"),
+		worktree: fs.Bool("worktree", false, "capture staged, unstaged, deleted, and untracked files once"),
 	}
-	if *evidencePath == "" {
-		return errors.New("--evidence is required")
-	}
-	files := []string(changed)
-	if len(files) == 0 {
-		var err error
-		files, err = changedFilesFromGit(*base)
-		if err != nil {
-			return err
+	fs.Var(&flags.changed, "changed-file", "paths-only plan input; may be repeated and cannot execute")
+	return flags
+}
+
+// buildGatePlanFromReviewFlags 将互斥 flag 解析为 paths-only 或 executable exact object 计划。
+func buildGatePlanFromReviewFlags(flags *reviewFlags) (gatePlan, error) {
+	return buildGatePlanFromReviewFlagsWithMaterializer(flags, materializeReviewObject)
+}
+
+// buildGatePlanFromReviewFlagsWithMaterializer 仅为 plan 输出准备并立即收口 session。
+func buildGatePlanFromReviewFlagsWithMaterializer(flags *reviewFlags, materializer reviewObjectMaterializer) (plan gatePlan, resultErr error) {
+	if len(flags.changed) > 0 {
+		if *flags.staged || *flags.worktree || *flags.base != "" || *flags.head != "" {
+			return gatePlan{}, errors.New("--changed-file paths-only mode cannot be combined with executable review object flags")
 		}
+		return buildGatePlan([]string(flags.changed))
 	}
-	plan, err := buildGatePlan(files)
+	repoRoot, err := capcontract.FindRepoRoot(".")
 	if err != nil {
-		return err
+		return gatePlan{}, fmt.Errorf("resolve review repository root: %w", err)
 	}
-	return validateEvidenceFile(*evidencePath, plan)
+	object, err := resolveReviewObject(repoRoot, reviewObjectOptions{
+		Base: *flags.base, Head: *flags.head, Staged: *flags.staged, Worktree: *flags.worktree,
+	})
+	if err != nil {
+		return gatePlan{}, err
+	}
+	session, err := prepareGatePlanForReviewObject(repoRoot, object, newGatePlanPolicy(), materializer)
+	if err != nil {
+		return gatePlan{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, session.close()) }()
+	return session.plan, nil
 }
 
-// buildGatePlan 把 changed files 映射成必须执行的命令和必须提交的证据项。
+// buildGatePlan 把 paths-only 演示输入映射成必须执行的命令。
 // 路由规则保持路径前缀级别，避免把任务语义藏进不可审计的动态推断。
 func buildGatePlan(files []string) (gatePlan, error) {
 	repoRoot, err := capcontract.FindRepoRoot(".")
@@ -273,19 +313,37 @@ func buildGatePlan(files []string) (gatePlan, error) {
 	return buildGatePlanForRepo(repoRoot, files, newGatePlanPolicy())
 }
 
+// buildGatePlanForReviewObject 从 exact tree pair 派生 changed-files，禁止调用方另行注入路径。
+func buildGatePlanForReviewObject(repoRoot string, object reviewObject, policy gatePlanPolicy) (plan gatePlan, resultErr error) {
+	session, err := prepareGatePlanForReviewObject(repoRoot, object, policy, materializeReviewObject)
+	if err != nil {
+		return gatePlan{}, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, session.close()) }()
+	return session.plan, nil
+}
+
 // buildGatePlanForRepo 使用 generator AST 派生的 capability roots 构造计划；解析失败时拒绝产出不完整计划。
 func buildGatePlanForRepo(repoRoot string, files []string, policy gatePlanPolicy) (gatePlan, error) {
+	return buildGatePlanForRepoAndObject(repoRoot, files, pathsOnlyReviewObject(), policy)
+}
+
+// buildGatePlanForRepoAndObject 只从指定 candidate root 的规则和源码构造完整门禁计划。
+func buildGatePlanForRepoAndObject(repoRoot string, files []string, object reviewObject, policy gatePlanPolicy) (gatePlan, error) {
 	capabilityRules, turnContractPaths, err := loadGatePlanRules(repoRoot, policy)
 	if err != nil {
 		return gatePlan{}, err
 	}
 	normalized := normalizeFiles(files)
-	plan := gatePlan{ChangedFiles: normalized}
+	criticalRouteContext, err := newCriticalTypecheckPlanContext(repoRoot, normalized, loadCriticalTypecheckProductionFiles)
+	if err != nil {
+		return gatePlan{}, fmt.Errorf("prepare critical typecheck route context: %w", err)
+	}
+	plan := gatePlan{ReviewObject: object, ChangedFiles: normalized}
 	gates := map[string]bool{"diff:whitespace": true}
 	evidence := map[string]bool{}
 	generated := map[string]bool{}
 	backendChanged, err := applyChangedFileGateRules(
-		repoRoot,
 		normalized,
 		capabilityRules,
 		turnContractPaths,
@@ -293,6 +351,7 @@ func buildGatePlanForRepo(repoRoot string, files []string, policy gatePlanPolicy
 		evidence,
 		generated,
 		policy,
+		criticalRouteContext,
 	)
 	if err != nil {
 		return gatePlan{}, err
@@ -330,15 +389,15 @@ func loadGatePlanRules(repoRoot string, policy gatePlanPolicy) (capcontract.Path
 
 // applyChangedFileGateRules 汇总所有变更路径的门禁规则，并报告是否需要后端验证面。
 func applyChangedFileGateRules(
-	repoRoot string,
 	files []string,
 	capabilityRules capcontract.PathRules,
 	turnContractPaths, gates, evidence, generated map[string]bool,
 	policy gatePlanPolicy,
+	criticalTypecheckContext criticalTypecheckPlanContext,
 ) (bool, error) {
 	backendChanged := false
 	for _, file := range files {
-		backendFile, err := applyFileGateRules(repoRoot, file, capabilityRules, turnContractPaths, gates, evidence, generated, policy)
+		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, evidence, generated, policy, criticalTypecheckContext)
 		if err != nil {
 			return false, err
 		}
@@ -362,9 +421,9 @@ func applyBackendGateRules(files []string, gates map[string]bool, backendChanged
 	}
 }
 
-// applyFileGateRules 汇总单个路径触发的命令 gate 和证据要求，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(repoRoot, file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool, policy gatePlanPolicy) (bool, error) {
-	backendChanged, err := applySourceGateRules(repoRoot, file, gates, evidence)
+// applyFileGateRules 汇总单个路径触发的命令 gate，并返回它是否属于 Go/后端验证面。
+func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool, policy gatePlanPolicy, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
+	backendChanged, err := applySourceGateRules(file, gates, evidence, criticalTypecheckContext)
 	if err != nil {
 		return false, err
 	}
@@ -393,11 +452,11 @@ func applyFileGateRules(repoRoot, file string, capabilityRules capcontract.PathR
 	if projectMapRelevant(file) {
 		gates["project-map:check"] = true
 	}
-	applyGeneratedFileEvidence(file, evidence, generated)
+	applyGeneratedFileRoute(file, evidence, generated)
 	return backendChanged, nil
 }
 
-func applyGeneratedFileEvidence(file string, evidence, generated map[string]bool) {
+func applyGeneratedFileRoute(file string, evidence, generated map[string]bool) {
 	if !generatedCodemapFile(file) {
 		return
 	}
@@ -432,13 +491,40 @@ func goModuleFile(file string) bool {
 
 // sqlcRelevant 覆盖两个生成入口、其配置、查询、迁移以及共享 store 消费面。
 func sqlcRelevant(file string) bool {
-	return file == "sqlc.yaml" ||
-		file == "cmd/mcp-orch/sqlc.yaml" ||
-		goModuleFile(file) ||
-		strings.HasPrefix(file, "sql/") ||
-		strings.HasPrefix(file, "cmd/mcp-orch/sql/") ||
-		strings.HasPrefix(file, "internal/platform/db/sqlite/migrations/") ||
-		strings.HasPrefix(file, "internal/store/")
+	exact := []string{
+		"sqlc.yaml",
+		"cmd/mcp-orch/sqlc.yaml",
+		"internal/archtest/backend_boundary_evaluator.go",
+		"internal/archtest/backend_boundary_sqlc.go",
+		"internal/archtest/backend_boundary_registry.go",
+		"internal/archtest/guardlib.go",
+		"internal/archtest/backend_boundary_sqlc_owner_test.go",
+		"internal/archtest/sqlc_bypass_guard_test.go",
+		"internal/archtest/migration_sqlc_guard_test.go",
+		"internal/archtest/sqlc_guard_fixture_test.go",
+		"internal/archtest/sqlc_guard_external_fixture_test.go",
+		"scripts/sqlc_postprocess.sh",
+		"scripts/sqlc_verify_worktree.sh",
+		"scripts/sqlc_verify_worktree_guard_test.go",
+		"Makefile",
+	}
+	if slices.Contains(exact, file) || goModuleFile(file) {
+		return true
+	}
+	prefixes := []string{
+		"sql/",
+		"cmd/mcp-orch/sql/",
+		"internal/platform/db/sqlite/migrations/",
+		sqlcconfig.RootOutputOwnerParent + "/",
+		"internal/devtools/sqlcconfig/",
+		trustedgitpolicy.SourceOwnerDirectory + "/",
+		trustedgitpolicy.GatePrivateSourceStem,
+		"scripts/sqlc_config_outputs/",
+		sqlcconfig.OrchestratorOutputOwnerParent + "/",
+	}
+	return slices.ContainsFunc(prefixes, func(prefix string) bool {
+		return strings.HasPrefix(file, prefix)
+	})
 }
 
 // turnContractRelevant 覆盖 canonical schema、基础设施以及 registry 派生的完整生产消费链。
@@ -495,17 +581,17 @@ func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
 	return false
 }
 
-// applySourceGateRules 根据生产源码路径补充必须执行的门禁和 LSP 证据要求。
-func applySourceGateRules(repoRoot, file string, gates, evidence map[string]bool) (bool, error) {
+// applySourceGateRules 根据生产源码路径补充必须执行的门禁和证据要求。
+func applySourceGateRules(file string, gates, evidence map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
 	if strings.HasPrefix(file, "frontend-app/") {
-		return applyFrontendSourceGateRules(repoRoot, file, gates, evidence)
+		return applyFrontendSourceGateRules(file, gates, evidence, criticalTypecheckContext)
 	}
 	return applyBackendSourceGateRules(file, evidence)
 }
 
-// applyFrontendSourceGateRules 为前端路径应用严格类型检查、lint、变更测试和 LSP 证据路由。
-func applyFrontendSourceGateRules(repoRoot, file string, gates, evidence map[string]bool) (bool, error) {
-	critical, err := criticalTypecheckRelevant(repoRoot, file)
+// applyFrontendSourceGateRules 为前端路径应用严格类型检查、lint、变更测试和 diagnostics 证据路由。
+func applyFrontendSourceGateRules(file string, gates, evidence map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
+	critical, err := criticalTypecheckContext.relevant(file)
 	if err != nil {
 		return false, fmt.Errorf("route critical typecheck path %q: %w", file, err)
 	}
@@ -524,7 +610,7 @@ func applyFrontendSourceGateRules(repoRoot, file string, gates, evidence map[str
 	return false, nil
 }
 
-// applyBackendSourceGateRules 为 Go 生产源码补充 LSP 证据并标记后端验证面。
+// applyBackendSourceGateRules 为 Go 生产源码补充证据并标记后端验证面。
 func applyBackendSourceGateRules(file string, evidence map[string]bool) (bool, error) {
 	if strings.HasSuffix(file, ".go") && (strings.HasPrefix(file, "cmd/") || strings.HasPrefix(file, "internal/") || strings.HasPrefix(file, "pkg/")) {
 		requireToolEvidence(file, evidence)
@@ -546,34 +632,46 @@ func requireToolEvidence(file string, evidence map[string]bool) {
 	}
 }
 
-func changedFilesFromGit(base string) ([]string, error) {
-	out, err := exec.Command("git", "diff", "--name-only", "-z", base+"...HEAD").CombinedOutput()
-	if err != nil {
-		out, err = exec.Command("git", "diff", "--name-only", "-z", base).CombinedOutput()
-		if err != nil {
-			return nil, fmt.Errorf("git diff changed files: %w\n%s", err, out)
+func sourceLike(file string) bool {
+	for _, suffix := range []string{".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".sql"} {
+		if strings.HasSuffix(file, suffix) {
+			return true
 		}
 	}
-	files := nulSeparatedPaths(out)
-	untracked, err := exec.Command("git", "ls-files", "--others", "--exclude-standard", "-z").CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("git untracked changed files: %w\n%s", err, untracked)
-	}
-	files = append(files, nulSeparatedPaths(untracked)...)
-	return normalizeFiles(files), nil
+	return false
 }
 
 func runCommand(dir, name string, args ...string) error {
+	return runCommandWithEnvironment(dir, name, gateCommandEnvironment(name), args...)
+}
+
+func runCommandWithEnvironment(dir, name string, environment []string, args ...string) error {
+	ctx, cancel := gateprivate.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	return runCommandWithEnvironmentContext(ctx, dir, name, environment, args...)
+}
+
+func runCommandWithEnvironmentContext(ctx context.Context, dir, name string, environment []string, args ...string) error {
+	if ctx == nil {
+		return errors.New("gate command context is required")
+	}
 	fmt.Printf("\n==> %s %s\n", name, strings.Join(args, " "))
-	cmd := exec.Command(name, args...)
-	cmd.Env = gateCommandEnvironment(name)
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = environment
+	if err := gateprivate.ConfigureBoundedCommand(cmd); err != nil {
+		return err
+	}
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	return cmd.Run()
+	runErr := cmd.Run()
+	if ctx.Err() != nil {
+		return errors.Join(ctx.Err(), runErr)
+	}
+	return runErr
 }
 
 func normalizeFiles(files []string) []string {
@@ -659,7 +757,6 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:embed-verify",
 		"workflow:actionlint",
 		"release:semantic-guards",
-		"nightly-protocol:check",
 		"mcp-lsp:catalog",
 		"mcp-lsp:idle-quick",
 		"backend:test_with_guard",

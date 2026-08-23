@@ -137,6 +137,7 @@ func runSQLiteReleaseGatePackageSmokeRuntime(t *testing.T, stage sqliteReleaseGa
 
 	cmd := sqliteReleaseGatePackageSmokeCommand(t, stage)
 	cmd.Env = sqliteReleaseGatePackageSmokeEnv(t, stage, home, oldPGData)
+	configureSQLitePackageProcessGroup(cmd)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -145,7 +146,7 @@ func runSQLiteReleaseGatePackageSmokeRuntime(t *testing.T, stage sqliteReleaseGa
 	}
 	waiter := startSQLitePackageCommandWaiter(cmd)
 	t.Cleanup(func() {
-		waiter.cleanup(cmd.Process)
+		waiter.cleanup(cmd)
 	})
 	sqlitePath := filepath.Join(home, "super-dolphin.db")
 	evidence := waitForSQLitePackageRuntimeEvidence(t, cmd, waiter, stage, sqlitePath, &output)
@@ -166,11 +167,11 @@ func startSQLitePackageCommandWaiter(cmd *exec.Cmd) *sqlitePackageCommandWaiter 
 	return waiter
 }
 
-func (waiter *sqlitePackageCommandWaiter) cleanup(process *os.Process) {
+func (waiter *sqlitePackageCommandWaiter) cleanup(cmd *exec.Cmd) {
 	select {
 	case <-waiter.done:
 	default:
-		_ = process.Kill()
+		_ = terminateSQLitePackageProcessGroup(cmd)
 	}
 	waiter.join()
 }
@@ -213,7 +214,7 @@ func waitForSQLitePackageRuntimeEvidence(
 		default:
 		}
 		if time.Now().After(deadline) {
-			_ = cmd.Process.Kill()
+			_ = terminateSQLitePackageProcessGroup(cmd)
 			if _, ok := waiter.await(10 * time.Second); !ok {
 				t.Fatal("real packaged entrypoint did not terminate after SQLite evidence timeout")
 			}
@@ -230,7 +231,7 @@ func terminateSQLitePackageRuntime(
 	output *bytes.Buffer,
 ) {
 	t.Helper()
-	if err := cmd.Process.Kill(); err != nil {
+	if err := terminateSQLitePackageProcessGroup(cmd); err != nil {
 		t.Fatalf("real packaged entrypoint exited before test-initiated termination: %v\n%s", err, output.String())
 	}
 	err, ok := waiter.await(10 * time.Second)

@@ -9,7 +9,7 @@ import (
 	"os"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/frontendcodesizetrusted"
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 // runFrontendCodeSizeCLI 在精确候选树上检查或刷新前端代码规模基线。
@@ -52,11 +52,15 @@ func parseFrontendCodeSizeArgs(args []string) (frontendcodesizetrusted.Operation
 		return "", "", "", protocolError("frontend-code-size requires check or refresh")
 	}
 	operation := frontendcodesizetrusted.Operation(args[0])
+	canonical, err := canonicalizeUniqueAuthorityArgs(args[1:], "tree", "accepted-tree")
+	if err != nil {
+		return "", "", "", protocolError("frontend-code-size %s arguments are invalid: %v", operation, err)
+	}
 	flags := flag.NewFlagSet("frontend-code-size "+string(operation), flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	tree := flags.String("tree", "", "exact Git tree SHA")
 	acceptedTree := flags.String("accepted-tree", "", "accepted baseline Git tree SHA")
-	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || *tree == "" || *acceptedTree == "" {
+	if err := flags.Parse(canonical); err != nil || flags.NArg() != 0 || *tree == "" || *acceptedTree == "" {
 		return "", "", "", protocolError("frontend-code-size %s requires --tree <exact-tree-sha> --accepted-tree <exact-tree-sha>", operation)
 	}
 	return operation, *tree, *acceptedTree, nil

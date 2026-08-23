@@ -2,7 +2,6 @@ package trustedlauncher
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -10,7 +9,7 @@ import (
 	"runtime"
 
 	gateclosure "github.com/lihah111222333-cloud/super-dolphin-agent/build/gate/closure"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteci"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/toolchainidentity"
 )
 
 // VerifyOptions 将运行中 executable 绑定到自身回执，并验证它兼容候选 Git tree。
@@ -103,8 +102,8 @@ func verifyReceiptCompilerDigests(ctx context.Context, receipt Receipt) error {
 	return nil
 }
 
-func verifyReceiptCompileClosure(ctx context.Context, options VerifyOptions, receipt Receipt) error {
-	sourceDigest, toolchainDigest, _, err := remoteci.LoadTrustedGateLauncherCompileClosure(ctx, options.RepositoryRoot, options.Tree)
+func verifyReceiptCompileClosure(_ context.Context, options VerifyOptions, receipt Receipt) error {
+	sourceDigest, toolchainDigest, err := gateclosure.CompileIdentityForTree(options.RepositoryRoot, options.Tree)
 	if err != nil {
 		return fmt.Errorf("recompute trusted launcher compile closure: %w", err)
 	}
@@ -178,12 +177,7 @@ func validateNonWritableArtifactPath(path string) error {
 }
 
 func digestFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return "sha256:" + fmt.Sprintf("%x", sum[:]), nil
+	return toolchainidentity.DigestFile(path)
 }
 
 // writeReceiptFile 以 create-only、fsync 与只读权限持久化严格回执。

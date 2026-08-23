@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
@@ -502,6 +503,9 @@ func TestEnsureClientRetainsFailedInitializeCleanupUntilRetry(t *testing.T) {
 
 	got, err := mgr.ensureClient(context.Background(), cfg)
 	assertInitializeCleanupFailure(t, got, err, factory, initErr, closeErr)
+	if !errors.Is(err, lspmanager.ErrLSPClientInitialization) {
+		t.Fatalf("first ensure error = %v, want ErrLSPClientInitialization", err)
+	}
 
 	got, err = mgr.ensureClient(context.Background(), cfg)
 	assertInitializeCleanupRetry(t, got, err, failed, replacement, factory)

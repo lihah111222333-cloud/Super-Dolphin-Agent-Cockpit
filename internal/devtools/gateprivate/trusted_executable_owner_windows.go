@@ -2,7 +2,14 @@
 
 package gateprivate
 
-import "os"
+import (
+	"os"
+	"os/exec"
+)
+
+func configureBoundedCommandPlatform(command *exec.Cmd) {
+	command.Cancel = command.Process.Kill
+}
 
 func trustedExecutableOwnedByRoot(os.FileInfo) bool {
 	return false

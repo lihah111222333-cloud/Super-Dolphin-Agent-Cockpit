@@ -15,6 +15,10 @@ var ErrDiagnosticsNotReady = errors.New("diagnostics not ready")
 // 工具层据此返回 typed capability_unsupported；其他 LSP 协议错误仍原样失败。
 var ErrSemanticTokensLegendUnavailable = errors.New("semantic tokens legend unavailable")
 
+// ErrLSPClientInitialization 标记 LSP client 初始化阶段失败，供跨层 errors.Is 分类。
+// 错误文本保持为既有 "initialize LSP client" 前缀，避免改变用户可见错误行为。
+var ErrLSPClientInitialization = errors.New("initialize LSP client")
+
 // Manager 聚合 mcp-lsp 工具需要的全部 LSP 能力。
 // 具体实现可拆分组合这些小接口，注册表只依赖该跨模块入口。
 type Manager interface {

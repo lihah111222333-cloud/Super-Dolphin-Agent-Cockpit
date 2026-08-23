@@ -4,21 +4,22 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 const goListDependencyTemplate = `{{.ImportPath}}{{"\t"}}{{join .Imports ","}}{{"\t"}}{{join .TestImports ","}}{{"\t"}}{{join .XTestImports ","}}`
 
 // resolveDirectReverseDependentPackages 只追加直接生产导入方和测试导入方，避免递归扩大测试面。
-func resolveDirectReverseDependentPackages(directPackages []string) ([]string, error) {
+func resolveDirectReverseDependentPackages(repoRoot string, directPackages []string) ([]string, error) {
 	if len(directPackages) == 0 {
 		return nil, fmt.Errorf("backend gate has no directly affected Go packages")
 	}
-	modulePath, err := goCommandOutput("list", "-m", "-f", "{{.Path}}")
+	modulePath, err := goCommandOutput(repoRoot, "list", "-m", "-f", "{{.Path}}")
 	if err != nil {
 		return nil, fmt.Errorf("resolve Go module path: %w", err)
 	}
-	listing, err := goCommandOutput("list", "-f", goListDependencyTemplate, "./...")
+	listing, err := goCommandOutput(repoRoot, "list", "-f", goListDependencyTemplate, "./...")
 	if err != nil {
 		return nil, fmt.Errorf("resolve direct reverse Go dependencies: %w", err)
 	}
@@ -26,7 +27,8 @@ func resolveDirectReverseDependentPackages(directPackages []string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-	filtered, err := excludeDeferredE2EGoPackages(packages, "scripts/ai_maintenance/deferred_e2e_packages.txt")
+	manifest := filepath.Join(repoRoot, "scripts", "ai_maintenance", "deferred_e2e_packages.txt")
+	filtered, err := excludeDeferredE2EGoPackages(packages, manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -40,8 +42,9 @@ func resolveDirectReverseDependentPackages(directPackages []string) ([]string, e
 	return sortedKeys(selected), nil
 }
 
-func goCommandOutput(args ...string) ([]byte, error) {
+func goCommandOutput(repoRoot string, args ...string) ([]byte, error) {
 	cmd := exec.Command("go", args...)
+	cmd.Dir = repoRoot
 	cmd.Env = gateCommandEnvironment("go")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -401,15 +401,26 @@ func validateBoundaryPolicyConflicts(label string, rule BackendBoundaryRule) []s
 
 // EvaluateBackendBoundary 解析选中规则覆盖的生产源码，并在根、语法或覆盖不完整时立即失败。
 func EvaluateBackendBoundary(root string, registry BackendBoundaryRegistry, ruleIDs ...BoundaryRuleID) (BoundaryEvaluation, error) {
-	rules, paths, err := prepareBackendBoundaryEvaluation(root, registry, ruleIDs)
+	canonicalRoot, err := canonicalBoundaryPath(root, true)
+	if err != nil {
+		return BoundaryEvaluation{}, fmt.Errorf("bind backend boundary root: %w", err)
+	}
+	if _, err := configuredSQLCOutputDirs(CheckOptions{RepoRoot: canonicalRoot}); err != nil {
+		return BoundaryEvaluation{}, fmt.Errorf("load SQLC ownership for backend boundary root: %w", err)
+	}
+	registry, err = bindConfiguredSQLCBoundary(canonicalRoot, registry)
 	if err != nil {
 		return BoundaryEvaluation{}, err
 	}
-	evaluation, err := evaluateBackendBoundaryPaths(root, paths, rules)
+	rules, paths, err := prepareBackendBoundaryEvaluation(canonicalRoot, registry, ruleIDs)
 	if err != nil {
 		return BoundaryEvaluation{}, err
 	}
-	if err := ensureBackendBoundaryCoverage(root, rules, evaluation); err != nil {
+	evaluation, err := evaluateBackendBoundaryPaths(canonicalRoot, paths, rules)
+	if err != nil {
+		return BoundaryEvaluation{}, err
+	}
+	if err := ensureBackendBoundaryCoverage(canonicalRoot, rules, evaluation); err != nil {
 		return BoundaryEvaluation{}, err
 	}
 	return evaluation, nil
@@ -489,7 +500,11 @@ func parseBackendBoundaryCandidate(root, path string, rules []BackendBoundaryRul
 	if err != nil {
 		return backendBoundaryCandidate{}, fmt.Errorf("read %s: %w", rel, err)
 	}
-	if IsGeneratedSQLCFile(rel, data) {
+	generated, err := IsGeneratedSQLCFile(CheckOptions{RepoRoot: root}, rel, data)
+	if err != nil {
+		return backendBoundaryCandidate{}, fmt.Errorf("load SQLC ownership for %s: %w", rel, err)
+	}
+	if generated {
 		return backendBoundaryCandidate{rel: rel, rules: applicable, generated: true}, nil
 	}
 	imports, err := parseBackendBoundaryImports(path, data)
@@ -511,10 +526,15 @@ func ensureBackendBoundaryCoverage(root string, rules []BackendBoundaryRule, eva
 	return nil
 }
 
-// EvaluateBackendBoundaryFile 对单一源码文件应用选中规则，供 fail-fast 夹具和守卫复用。
-func EvaluateBackendBoundaryFile(path, rel string, registry BackendBoundaryRegistry, ruleIDs ...BoundaryRuleID) ([]string, error) {
-	if strings.TrimSpace(rel) == "" {
-		return nil, fmt.Errorf("backend boundary relative path is empty")
+// EvaluateBackendBoundaryFile 对单一源码文件应用选中规则，显式绑定仓库根并复用 SQLC 所有权。
+func EvaluateBackendBoundaryFile(root, path, rel string, registry BackendBoundaryRegistry, ruleIDs ...BoundaryRuleID) ([]string, error) {
+	canonicalRoot, canonicalPath, canonicalRel, err := bindBackendBoundaryFile(root, path, rel)
+	if err != nil {
+		return nil, err
+	}
+	registry, err = bindConfiguredSQLCBoundary(canonicalRoot, registry)
+	if err != nil {
+		return nil, err
 	}
 	if violations := ValidateBackendBoundaryRegistry(registry); len(violations) > 0 {
 		return nil, fmt.Errorf("invalid backend boundary registry:\n%s", strings.Join(violations, "\n"))
@@ -523,22 +543,79 @@ func EvaluateBackendBoundaryFile(path, rel string, registry BackendBoundaryRegis
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(canonicalPath)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", rel, err)
+		return nil, fmt.Errorf("read %s: %w", canonicalRel, err)
 	}
-	if IsGeneratedSQLCFile(filepath.ToSlash(rel), data) {
+	generated, err := IsGeneratedSQLCFile(CheckOptions{RepoRoot: canonicalRoot}, canonicalRel, data)
+	if err != nil {
+		return nil, fmt.Errorf("load SQLC ownership for %s: %w", canonicalRel, err)
+	}
+	if generated {
 		return nil, nil
 	}
-	imports, err := parseBackendBoundaryImports(path, data)
+	imports, err := parseBackendBoundaryImports(canonicalPath, data)
 	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", rel, err)
+		return nil, fmt.Errorf("parse %s: %w", canonicalRel, err)
 	}
 	var violationsOut []string
-	for _, rule := range applicableBackendBoundaryRules(rules, filepath.ToSlash(rel)) {
-		violationsOut = append(violationsOut, evaluateBackendBoundaryRule(rule, filepath.ToSlash(rel), imports)...)
+	for _, rule := range applicableBackendBoundaryRules(rules, canonicalRel) {
+		violationsOut = append(violationsOut, evaluateBackendBoundaryRule(rule, canonicalRel, imports)...)
 	}
 	return violationsOut, nil
+}
+
+// bindBackendBoundaryFile 将 root、物理文件与逻辑相对路径绑定为同一个不可绕过的对象。
+func bindBackendBoundaryFile(root, filePath, rel string) (string, string, string, error) {
+	if strings.TrimSpace(root) == "" {
+		return "", "", "", fmt.Errorf("backend boundary repository root is required")
+	}
+	if strings.TrimSpace(rel) == "" {
+		return "", "", "", fmt.Errorf("backend boundary relative path is empty")
+	}
+	canonicalRoot, err := canonicalBoundaryPath(root, true)
+	if err != nil {
+		return "", "", "", fmt.Errorf("bind backend boundary root: %w", err)
+	}
+	canonicalPath, err := canonicalBoundaryPath(filePath, false)
+	if err != nil {
+		return "", "", "", fmt.Errorf("bind backend boundary file: %w", err)
+	}
+	derived, err := filepath.Rel(canonicalRoot, canonicalPath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("derive backend boundary relative path: %w", err)
+	}
+	canonicalRel := filepath.ToSlash(derived)
+	if derived == ".." || strings.HasPrefix(derived, ".."+string(filepath.Separator)) {
+		return "", "", "", fmt.Errorf("backend boundary file %s is outside repository root", filePath)
+	}
+	if rel != canonicalRel {
+		return "", "", "", fmt.Errorf("backend boundary relative path %q does not match canonical %q", rel, canonicalRel)
+	}
+	return canonicalRoot, canonicalPath, canonicalRel, nil
+}
+
+// canonicalBoundaryPath 将候选路径规整为无符号链接的绝对路径，并按期望的目录/文件类型 fail-fast。
+func canonicalBoundaryPath(candidate string, wantDirectory bool) (string, error) {
+	absolute, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("symbolic link is forbidden: %s", candidate)
+	}
+	if wantDirectory != info.IsDir() || (!wantDirectory && !info.Mode().IsRegular()) {
+		return "", fmt.Errorf("unexpected file type: %s", candidate)
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
 }
 
 // selectBackendBoundaryRules 保持调用方选择顺序，并拒绝未知或重复的规则 ID。
@@ -574,11 +651,17 @@ func collectBackendBoundaryGoFiles(root string) ([]string, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
-			if path != root && skipDirs[entry.Name()] {
+		if path != root && skipDirs[entry.Name()] {
+			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("backend boundary symbolic link is forbidden: %s", path)
 		}
 		if filepath.Ext(path) == ".go" && !strings.HasSuffix(entry.Name(), "_test.go") {
 			files = append(files, path)

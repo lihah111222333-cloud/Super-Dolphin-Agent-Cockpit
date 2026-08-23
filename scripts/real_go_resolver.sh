@@ -78,22 +78,22 @@ real_go_resolver_probe() {
   [[ "$version" == "go$required_version" ]] || return 1
 }
 
-require_remote_test_execution() {
+require_local_gate_execution() {
 	case "${1:-}" in
 		host-light|host-medium) return 0 ;;
 		"") ;;
 		*) echo "❌ 未知宿主测试负载类别: $1" >&2; return 2 ;;
 	esac
-  if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" || "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "local-authority" ]]; then
+  if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "local-authority" ]]; then
     return 0
   fi
   cat >&2 <<'EOF_MSG'
-❌ 禁止在宿主机直接执行仓库测试
+❌ 禁止在宿主机直接执行未分类仓库测试
 
 轻量/中量开发测试必须通过 scripts/test_with_guard.sh --host-test <light|medium>
 并满足精确 selector、资源上限和实时宿主负载门禁。重型门禁、重型测试、
-race、benchmark、fuzz、整包和未知负载仍必须经过 super-dolphin-gate test --target=remote，
-由远程 ECI coordinator 执行。
+race、benchmark、fuzz、整包和未知负载必须由受信四节点离线 Gate 编排；
+本脚本不启动、不转发 remote/ECI workload，也不提供云端兼容入口。
 EOF_MSG
   return 2
 }
@@ -162,10 +162,6 @@ resolve_real_go() {
     candidate="$GOROOT/bin/go"
     if [[ -x "$candidate" ]]; then
       candidate_abs="$(real_go_resolver_real_path "$candidate")"
-      if [[ "${SUPER_DOLPHIN_TEST_BACKEND:-}" == "remote-worker" ]]; then
-        printf '%s\n' "$candidate_abs"
-        return 0
-      fi
       if real_go_resolver_probe "$candidate_abs" "$required_version"; then
         printf '%s\n' "$candidate_abs"
         return 0

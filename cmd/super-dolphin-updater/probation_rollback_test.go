@@ -584,7 +584,7 @@ func upsertCandidateTestEnv(env []string, key, value string) []string {
 }
 
 func candidateTestEndpoint() (string, error) {
-	file, err := os.CreateTemp("/tmp", "sd-candidate-")
+	file, err := os.CreateTemp("", "sd-candidate-")
 	if err != nil {
 		return "", err
 	}

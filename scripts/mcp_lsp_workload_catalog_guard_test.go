@@ -1,199 +1,37 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
+
+	catalog "github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog"
 )
 
 const (
-	mcpLSPWorkloadCatalogPath   = "scripts/mcp_lsp_workload_catalog.json"
-	mcpLSPWorkloadRunnerPath    = "scripts/run_mcp_lsp_workload.sh"
-	mcpLSPWorkloadCatalogSchema = "super-dolphin/mcp-lsp-workload-catalog/v1"
+	mcpLSPWorkloadCatalogPath = "scripts/mcp_lsp_workload_catalog.json"
+	mcpLSPWorkloadRunnerPath  = "scripts/run_mcp_lsp_workload.sh"
 )
 
-type mcpLSPWorkloadCatalogGuardDocument struct {
-	Schema        string                               `json:"schema"`
-	CatalogDigest string                               `json:"catalog_digest"`
-	Workloads     []mcpLSPWorkloadCatalogGuardWorkload `json:"workloads"`
-}
-
-type mcpLSPWorkloadCatalogGuardWorkload struct {
-	ID                           string   `json:"id"`
-	ImplementationStatus         string   `json:"implementation_status"`
-	ProducerImplementationStatus string   `json:"producer_implementation_status"`
-	RunnerTarget                 string   `json:"runner_target"`
-	Platforms                    []string `json:"platforms"`
-	TimeoutSeconds               int      `json:"timeout_seconds"`
-	TriggerClass                 string   `json:"trigger_class"`
-	ReceiptSchema                string   `json:"receipt_schema"`
-	ProducerWorkflowPath         string   `json:"producer_workflow_path"`
-	ProducerArtifactName         string   `json:"producer_artifact_name"`
-	T6Blocking                   bool     `json:"t6_blocking"`
-	ReleaseBlocking              bool     `json:"release_blocking"`
-	ReceiptRequired              *bool    `json:"receipt_required"`
-	Command                      []string `json:"command"`
-}
-
-func TestMcpLSPWorkloadCatalogSchemaAndCanonicalIDs(t *testing.T) {
-	document := readMcpLSPWorkloadCatalogGuardDocument(t)
-	assertMcpLSPWorkloadCatalogSchema(t, document)
-	assertMcpLSPWorkloadCatalogIDs(t, document)
-	assertMcpLSPWorkloadCatalogWorkloads(t, document)
-}
-
-func assertMcpLSPWorkloadCatalogSchema(t *testing.T, document mcpLSPWorkloadCatalogGuardDocument) {
-	t.Helper()
-	if document.Schema != mcpLSPWorkloadCatalogSchema {
-		t.Fatalf("catalog schema = %q, want %q", document.Schema, mcpLSPWorkloadCatalogSchema)
-	}
-	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(document.CatalogDigest) {
-		t.Fatalf("catalog digest = %q, want sha256:<64 lowercase hex>", document.CatalogDigest)
-	}
-	if len(document.Workloads) == 0 {
-		t.Fatal("catalog must contain workloads")
-	}
-}
-
-func assertMcpLSPWorkloadCatalogIDs(t *testing.T, document mcpLSPWorkloadCatalogGuardDocument) {
-	t.Helper()
-	wantIDs := []string{
-		"mcp-lsp-idle-quick",
-		"mcp-lsp-native-process-tree",
-		"mcp-lsp-default-15m",
-		"mcp-lsp-100-workspace-soak",
-		"mcp-lsp-release-artifact",
-	}
-	ids := make([]string, 0, len(document.Workloads))
-	seen := map[string]bool{}
-	for _, workload := range document.Workloads {
-		if seen[workload.ID] {
-			t.Fatalf("duplicate workload ID %q", workload.ID)
-		}
-		seen[workload.ID] = true
-		ids = append(ids, workload.ID)
-	}
-	if !slices.Equal(ids, wantIDs) {
-		t.Fatalf("catalog IDs = %v, want %v", ids, wantIDs)
-	}
-}
-
-func assertMcpLSPWorkloadCatalogWorkloads(t *testing.T, document mcpLSPWorkloadCatalogGuardDocument) {
-	t.Helper()
-	for _, workload := range document.Workloads {
-		assertMcpLSPWorkloadMetadata(t, workload)
-		assertMcpLSPWorkloadImplementation(t, workload)
-	}
-}
-
-func assertMcpLSPWorkloadMetadata(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
-	t.Helper()
-	if workload.RunnerTarget == "" {
-		t.Errorf("workload %q has no runner_target", workload.ID)
-	}
-	if len(workload.Platforms) == 0 {
-		t.Errorf("workload %q has no platforms", workload.ID)
-	}
-	if workload.TimeoutSeconds <= 0 {
-		t.Errorf("workload %q timeout_seconds = %d, want positive", workload.ID, workload.TimeoutSeconds)
-	}
-	if workload.TriggerClass == "" || workload.ReceiptSchema == "" {
-		t.Errorf("workload %q missing trigger_class or receipt_schema", workload.ID)
-	}
-	if workload.ProducerWorkflowPath == "" || workload.ProducerArtifactName == "" {
-		t.Errorf("workload %q missing producer coordinates", workload.ID)
-	}
-	if workload.ReceiptRequired == nil || !*workload.ReceiptRequired {
-		t.Errorf("workload %q must require receipt", workload.ID)
-	}
-}
-
-func assertMcpLSPWorkloadImplementation(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
-	t.Helper()
-	assertMcpLSPProducerImplementation(t, workload)
-	assertMcpLSPDefaultTimeout(t, workload)
-	assertMcpLSPImplementationCommand(t, workload)
-}
-
-// assertMcpLSPProducerImplementation 校验生产者状态及发布阻断标记。
-func assertMcpLSPProducerImplementation(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
-	if workload.ProducerImplementationStatus != "implemented" && workload.ProducerImplementationStatus != "missing" {
-		t.Errorf("workload %q has unsupported producer_implementation_status %q", workload.ID, workload.ProducerImplementationStatus)
-	}
-	if workload.ProducerImplementationStatus == "missing" && !workload.ReleaseBlocking {
-		t.Errorf("workload %q missing producer implementation must block release", workload.ID)
-	}
-}
-
-// assertMcpLSPDefaultTimeout 校验默认 15 分钟 workload 的最小预算。
-func assertMcpLSPDefaultTimeout(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
-	if workload.ID == "mcp-lsp-default-15m" && workload.TimeoutSeconds < 1500 {
-		t.Errorf("default-15m timeout_seconds = %d, want at least 1500", workload.TimeoutSeconds)
-	}
-}
-
-// assertMcpLSPImplementationCommand 校验实现状态与 command/T6/release 约束。
-func assertMcpLSPImplementationCommand(t *testing.T, workload mcpLSPWorkloadCatalogGuardWorkload) {
-	if workload.ImplementationStatus == "implemented" {
-		if len(workload.Command) == 0 {
-			t.Errorf("implemented workload %q has no catalog command", workload.ID)
-		}
-		return
-	}
-	if workload.ImplementationStatus == "missing" && (!workload.T6Blocking || !workload.ReleaseBlocking || len(workload.Command) != 0) {
-		t.Errorf("missing workload %q must block T6/release and be commandless", workload.ID)
-	}
-}
-
-func TestMcpLSPWorkloadCatalogDigestMatchesCanonicalPayload(t *testing.T) {
-	path := filepath.Join(repoRootForMcpLSPWorkloadCatalogGuard(t), mcpLSPWorkloadCatalogPath)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var value map[string]any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		t.Fatalf("parse catalog: %v", err)
-	}
-	digestValue, ok := value["catalog_digest"].(string)
-	if !ok || digestValue == "" {
-		t.Fatal("catalog_digest is required")
-	}
-	delete(value, "catalog_digest")
-	canonical, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal digest payload: %v", err)
-	}
-	digest := sha256.Sum256(append(canonical, '\n'))
-	want := "sha256:" + hex.EncodeToString(digest[:])
-	if digestValue != want {
-		t.Fatalf("catalog digest = %q, want %q", digestValue, want)
-	}
-}
-
-func TestMcpLSPWorkloadRunnerConsumesIDsAndFailsClosed(t *testing.T) {
-	repoRoot := repoRootForMcpLSPWorkloadCatalogGuard(t)
+func TestMcpLSPWorkloadRunnerConsumesCatalogIDsAndFailsClosed(t *testing.T) {
+	repoRoot, tree, document := loadMcpLSPWorkloadCatalogGuardContext(t)
 	runner := filepath.Join(repoRoot, mcpLSPWorkloadRunnerPath)
-	if _, err := os.Stat(runner); err != nil {
-		t.Fatalf("runner missing: %v", err)
+	implementedLocal := implementedLocalWorkloads(document)
+	if len(implementedLocal) == 0 {
+		t.Fatal("catalog has no implemented local runner workload")
 	}
-	for _, id := range []string{"mcp-lsp-idle-quick", "mcp-lsp-native-process-tree"} {
-		cmd := exec.Command("bash", runner, "--id", id, "--print-plan")
+	for _, workload := range implementedLocal {
+		cmd := exec.Command("bash", runner, "--tree", tree, "--id", workload.ID, "--print-plan")
 		cmd.Dir = repoRoot
 		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("runner --id %s failed: %v\n%s", id, err, output)
+			t.Fatalf("runner --id %s failed: %v\n%s", workload.ID, err, output)
 		}
 	}
-	for _, args := range [][]string{{"--id", "missing-id", "--print-plan"}, {"--print-plan"}} {
+	for _, args := range [][]string{{"--tree", tree, "--id", "mcp-lsp-renamed", "--print-plan"}, {"--tree", tree, "--print-plan"}} {
 		cmd := exec.Command("bash", append([]string{runner}, args...)...)
 		cmd.Dir = repoRoot
 		if output, err := cmd.CombinedOutput(); err == nil {
@@ -202,79 +40,260 @@ func TestMcpLSPWorkloadRunnerConsumesIDsAndFailsClosed(t *testing.T) {
 	}
 }
 
-func TestMcpLSPWorkloadRunnerNVMissingFailsClosedWithExitOne(t *testing.T) {
-	repoRoot := repoRootForMcpLSPWorkloadCatalogGuard(t)
+func TestMcpLSPWorkloadRunnerMissingImplementationFailsClosedWithExitOne(t *testing.T) {
+	repoRoot, tree, document := loadMcpLSPWorkloadCatalogGuardContext(t)
 	runner := filepath.Join(repoRoot, mcpLSPWorkloadRunnerPath)
-	for _, id := range []string{"mcp-lsp-default-15m", "mcp-lsp-100-workspace-soak", "mcp-lsp-release-artifact"} {
-		assertMcpLSPWorkloadNVMissing(t, repoRoot, runner, id)
+	found := false
+	for _, workload := range document.Workloads {
+		if workload.ImplementationStatus != "missing" {
+			continue
+		}
+		found = true
+		cmd := exec.Command("bash", runner, "--tree", tree, "--id", workload.ID)
+		cmd.Dir = repoRoot
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("missing workload %s unexpectedly succeeded: %s", workload.ID, output)
+		}
+		if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
+			t.Fatalf("missing workload %s exit = %v, want exit 1; output=%s", workload.ID, err, output)
+		}
+		if !strings.Contains(string(output), "implementation_status=missing") {
+			t.Fatalf("missing workload %s output omitted implementation status: %s", workload.ID, output)
+		}
+	}
+	if !found {
+		t.Fatal("catalog has no missing implementation workload")
 	}
 }
 
-func TestMcpLSPWorkloadRunnerReceiptRoundTrip(t *testing.T) {
-	repoRoot := repoRootForMcpLSPWorkloadCatalogGuard(t)
+func TestMcpLSPWorkloadRunnerRejectsDirtyExecutionCandidate(t *testing.T) {
+	repoRoot, tree, document := loadMcpLSPWorkloadCatalogGuardContext(t)
+	workload := firstImplementedShortLocalWorkload(document)
+	if workload.ID == "" {
+		t.Fatal("catalog has no short implemented local runner workload")
+	}
 	runner := filepath.Join(repoRoot, mcpLSPWorkloadRunnerPath)
-	guard := filepath.Join(repoRoot, "scripts", "check_mcp_lsp_workload_catalog.sh")
 	receipt := filepath.Join(t.TempDir(), "quick-receipt.json")
-	run := exec.Command("bash", runner, "--id", "mcp-lsp-idle-quick", "--receipt", receipt)
+	if err := os.WriteFile(filepath.Join(repoRoot, "explicit-dirty-source.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := exec.Command("bash", runner, "--tree", tree, "--id", workload.ID, "--receipt", receipt)
 	run.Dir = repoRoot
-	if output, err := run.CombinedOutput(); err != nil {
-		t.Fatalf("quick runner failed: %v\n%s", err, output)
-	}
-	check := exec.Command("bash", guard, "--receipt", receipt, "--id", "mcp-lsp-idle-quick")
-	check.Dir = repoRoot
-	if output, err := check.CombinedOutput(); err != nil {
-		t.Fatalf("quick receipt guard failed: %v\n%s", err, output)
+	if output, err := run.CombinedOutput(); err == nil || !strings.Contains(string(output), "worktree is dirty") {
+		t.Fatalf("runner output=%s err=%v, want dirty candidate rejection", output, err)
 	}
 }
 
-func assertMcpLSPWorkloadNVMissing(t *testing.T, repoRoot, runner, id string) {
-	t.Helper()
-	cmd := exec.Command("bash", runner, "--id", id)
-	cmd.Dir = repoRoot
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("N/V workload %s unexpectedly succeeded: %s", id, output)
-	}
-	if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
-		t.Fatalf("N/V workload %s exit = %v, want exit 1; output=%s", id, err, output)
-	}
-	for _, want := range []string{"implementation_status=missing", "t6_blocking=true", "release_blocking=true"} {
-		if !strings.Contains(string(output), want) {
-			t.Fatalf("N/V output for %s missing %q: %s", id, want, output)
-		}
-	}
-}
-
-func TestMcpLSPWorkloadCatalogConsumersReferenceOnlyIDs(t *testing.T) {
-	repoRoot := repoRootForMcpLSPWorkloadCatalogGuard(t)
-	consumerFiles := []string{"Makefile", "scripts/ai_maintenance/main.go", "scripts/ai_maintenance/owned_gate_execution.go", ".githooks/README.md"}
-	for _, relative := range consumerFiles {
-		raw, err := os.ReadFile(filepath.Join(repoRoot, relative))
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(raw)
-		if relative == "Makefile" {
-			legacy := "$(TEST_WITH_GUARD) --quick-guard -tags=e2e ./cmd/mcp-lsp -run '^TestMcpLSPBinary(LinkedWorktreesResourceCohortRecycleAndRecover|ResourceCohortMalformedReportQuarantine)_E2E$$' -v -timeout 240s -count=1"
-			text = strings.ReplaceAll(text, legacy, "")
-		}
-		if strings.Contains(text, "go test ./cmd/mcp-lsp") || strings.Contains(text, "-tags=e2e ./cmd/mcp-lsp") {
-			t.Fatalf("%s copies mcp-lsp command truth instead of catalog ID", relative)
-		}
+func TestMcpLSPWrappersRequireExplicitCandidateTree(t *testing.T) {
+	root := repoRootForMcpLSPWorkloadCatalogGuard(t)
+	for _, test := range []struct {
+		name   string
+		path   string
+		args   []string
+		stderr string
+	}{
+		{name: "runner missing", path: mcpLSPWorkloadRunnerPath, args: []string{"--id", "mcp-lsp-idle-quick", "--print-plan"}, stderr: "--tree is required"},
+		{name: "guard missing", path: "scripts/check_mcp_lsp_workload_catalog.sh", args: []string{"--receipt-only", "--receipt", filepath.Join(t.TempDir(), "missing.json"), "--id", "mcp-lsp-idle-quick"}, stderr: "--tree is required"},
+		{name: "runner empty", path: mcpLSPWorkloadRunnerPath, args: []string{"--tree=", "--id", "mcp-lsp-idle-quick", "--print-plan"}, stderr: "requires exactly one candidate tree"},
+		{name: "guard duplicate", path: "scripts/check_mcp_lsp_workload_catalog.sh", args: []string{"--tree", strings.Repeat("a", 40), "--tree=" + strings.Repeat("b", 40)}, stderr: "exactly one candidate tree"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command("bash", append([]string{filepath.Join(root, test.path)}, test.args...)...)
+			command.Dir = root
+			output, err := command.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), test.stderr) {
+				t.Fatalf("wrapper output=%s err=%v, want %q", output, err, test.stderr)
+			}
+		})
 	}
 }
 
-func readMcpLSPWorkloadCatalogGuardDocument(t *testing.T) mcpLSPWorkloadCatalogGuardDocument {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(repoRootForMcpLSPWorkloadCatalogGuard(t), mcpLSPWorkloadCatalogPath))
+func TestMcpLSPGuardWrapperRequiresExplicitTrustedSelf(t *testing.T) {
+	root := repoRootForMcpLSPWorkloadCatalogGuard(t)
+	wrapper := filepath.Join(root, "scripts/check_mcp_lsp_workload_catalog.sh")
+	fakeDir := t.TempDir()
+	fake := filepath.Join(fakeDir, "super-dolphin-gate")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("bash", wrapper, "--tree", strings.Repeat("a", 40))
+	command.Dir = root
+	command.Env = append(os.Environ(), "PATH="+fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"), "SUPER_DOLPHIN_GATE_SELF=")
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "SUPER_DOLPHIN_GATE_SELF") {
+		t.Fatalf("guard wrapper used PATH fake: output=%s err=%v", output, err)
+	}
+}
+
+func TestMcpLSPGuardWrapperLabelsDirectSelfAsNonAuthoritative(t *testing.T) {
+	root := repoRootForMcpLSPWorkloadCatalogGuard(t)
+	fake := filepath.Join(t.TempDir(), "fake-gate")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("bash", filepath.Join(root, "scripts/check_mcp_lsp_workload_catalog.sh"), "--tree", strings.Repeat("a", 40))
+	command.Dir = root
+	command.Env = []string{"PATH=/usr/bin:/bin", "SUPER_DOLPHIN_GATE_SELF=" + fake}
+	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("read catalog: %v", err)
+		t.Fatalf("wrapper error = %v output=%s", err, output)
 	}
-	var document mcpLSPWorkloadCatalogGuardDocument
-	if err := json.Unmarshal(raw, &document); err != nil {
-		t.Fatalf("parse catalog: %v", err)
+	if !strings.Contains(string(output), "LOCAL_NON_AUTHORITATIVE NOT_VERIFIED") {
+		t.Fatalf("direct wrapper output = %q, want N/V marker", output)
 	}
-	return document
+}
+
+func TestMcpLSPMakeTargetPassesExactCandidateTree(t *testing.T) {
+	repoRoot, tree, _ := loadMcpLSPWorkloadCatalogGuardContext(t)
+	capturePath := filepath.Join(t.TempDir(), "runner-argv.txt")
+	runnerPath := filepath.Join(repoRoot, mcpLSPWorkloadRunnerPath)
+	stub := "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > \"$CAPTURE_PATH\"\n"
+	if err := os.WriteFile(runnerPath, []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("make", "-C", repoRoot, "test-e2e-mcp-lsp-idle-quick", "MCP_LSP_CANDIDATE_TREE="+tree)
+	command.Env = append(os.Environ(), "CAPTURE_PATH="+capturePath)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("make exact-tree fixture failed: %v\n%s", err, output)
+	}
+	argv, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--tree\n" + tree + "\n--id\nmcp-lsp-idle-quick\n"
+	if string(argv) != want {
+		t.Fatalf("Make runner argv = %q, want %q", argv, want)
+	}
+	missing := exec.Command("make", "-C", repoRoot, "test-e2e-mcp-lsp-idle-quick", "MCP_LSP_CANDIDATE_TREE=")
+	missing.Env = append(os.Environ(), "CAPTURE_PATH="+capturePath)
+	if output, err := missing.CombinedOutput(); err == nil || !strings.Contains(string(output), "MCP_LSP_CANDIDATE_TREE is required") {
+		t.Fatalf("Make missing-tree output=%s err=%v", output, err)
+	}
+}
+
+func TestMcpLSPCatalogMakeTargetRequiresExplicitSelfOwner(t *testing.T) {
+	repoRoot, tree, _ := loadMcpLSPWorkloadCatalogGuardContext(t)
+	missing := exec.Command("make", "-C", repoRoot, "mcp-lsp-workload-catalog-check", "MCP_LSP_CANDIDATE_TREE="+tree)
+	missing.Env = []string{"PATH=/usr/bin:/bin"}
+	if output, err := missing.CombinedOutput(); err == nil || !strings.Contains(string(output), "SUPER_DOLPHIN_GATE_SELF is required") {
+		t.Fatalf("Make missing self output=%s err=%v", output, err)
+	}
+	fake := filepath.Join(t.TempDir(), "diagnostic-gate")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("make", "-C", repoRoot, "mcp-lsp-workload-catalog-check",
+		"MCP_LSP_CANDIDATE_TREE="+tree, "SUPER_DOLPHIN_GATE_SELF="+fake)
+	command.Env = []string{"PATH=/usr/bin:/bin"}
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "LOCAL_NON_AUTHORITATIVE NOT_VERIFIED") {
+		t.Fatalf("Make explicit self output=%s, want diagnostic N/V", output)
+	}
+}
+
+func loadMcpLSPWorkloadCatalogGuardContext(t *testing.T) (string, string, catalog.Catalog) {
+	t.Helper()
+	repoRoot := materializeMcpLSPCandidateFixture(t, repoRootForMcpLSPWorkloadCatalogGuard(t))
+	tree := mcpLSPWorkloadCatalogGuardTree(t, repoRoot)
+	document, err := catalog.LoadAt(repoRoot, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repoRoot, tree, document
+}
+
+func materializeMcpLSPCandidateFixture(t *testing.T, sourceRoot string) string {
+	t.Helper()
+	repoRoot := filepath.Join(t.TempDir(), "candidate")
+	tree := snapshotMcpLSPCandidateTree(t, sourceRoot)
+	archive := exec.Command("git", "-C", sourceRoot, "archive", "--format=tar", tree)
+	content, err := archive.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract := exec.Command("tar", "-xf", "-", "-C", repoRoot)
+	extract.Stdin = bytes.NewReader(content)
+	if output, err := extract.CombinedOutput(); err != nil {
+		t.Fatalf("extract candidate tree %s: %v\n%s", tree, err, output)
+	}
+	runMcpLSPFixtureGit(t, repoRoot, nil, "init", "--quiet")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "gc.auto", "0")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "maintenance.auto", "false")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "maintenance.autoDetach", "false")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "user.name", "mcp-lsp-candidate-test")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "config", "user.email", "mcp-lsp-candidate-test@example.invalid")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "add", "-A")
+	runMcpLSPFixtureGit(t, repoRoot, nil, "commit", "--quiet", "-m", "候选树")
+	return repoRoot
+}
+
+func snapshotMcpLSPCandidateTree(t *testing.T, sourceRoot string) string {
+	t.Helper()
+	indexPath := filepath.Join(t.TempDir(), "candidate.index")
+	environment := append(os.Environ(), "GIT_INDEX_FILE="+indexPath)
+	for _, args := range [][]string{{"read-tree", "HEAD"}, {"add", "-A", "--", "."}} {
+		command := exec.Command("git", append([]string{"-C", sourceRoot}, args...)...)
+		command.Env = environment
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("snapshot candidate git %v: %v\n%s", args, err, output)
+		}
+	}
+	command := exec.Command("git", "-C", sourceRoot, "write-tree")
+	command.Env = environment
+	output, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := strings.TrimSpace(string(output))
+	if tree == "" {
+		t.Fatal("candidate snapshot tree is empty")
+	}
+	return tree
+}
+
+func runMcpLSPFixtureGit(t *testing.T, repoRoot string, stdin []byte, args ...string) {
+	t.Helper()
+	commandArgs := append([]string(nil), args...)
+	if repoRoot != "" {
+		commandArgs = append([]string{"-C", repoRoot}, commandArgs...)
+	}
+	command := exec.Command("git", commandArgs...)
+	command.Stdin = bytes.NewReader(stdin)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", commandArgs, err, output)
+	}
+}
+
+func implementedLocalWorkloads(document catalog.Catalog) []catalog.Workload {
+	result := make([]catalog.Workload, 0)
+	for _, workload := range document.Workloads {
+		if workload.ImplementationStatus == "implemented" && workload.RunnerTarget == "local-go-test" {
+			result = append(result, workload)
+		}
+	}
+	return result
+}
+
+func firstImplementedShortLocalWorkload(document catalog.Catalog) catalog.Workload {
+	for _, workload := range implementedLocalWorkloads(document) {
+		if workload.TriggerClass != "default-15m-source-e2e" {
+			return workload
+		}
+	}
+	return catalog.Workload{}
+}
+
+func mcpLSPWorkloadCatalogGuardTree(t *testing.T, root string) string {
+	t.Helper()
+	output, err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--end-of-options", "HEAD^{tree}").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func repoRootForMcpLSPWorkloadCatalogGuard(t *testing.T) string {
@@ -286,14 +305,14 @@ func repoRootForMcpLSPWorkloadCatalogGuard(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		return filepath.Clean(filepath.Join(wd, ".."))
 	}
-	root := wd
+	root := filepath.Clean(wd)
 	for {
 		if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
 			return root
 		}
 		parent := filepath.Dir(root)
 		if parent == root {
-			t.Fatal(fmt.Errorf("repository root not found from %q", wd))
+			t.Fatal("repository root not found")
 		}
 		root = parent
 	}

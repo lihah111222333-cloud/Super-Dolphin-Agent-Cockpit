@@ -1,3 +1,4 @@
+// SQLC manual extension. DO NOT OVERWRITE.
 // Package sqlc 是 sqlc 代码生成包的手工扩展，提供 SQLite 与 Go 类型之间的转换工具函数。
 // 生成文件（Code generated 头部）不在此修改；本文件只放手工补充的类型别名与辅助函数。
 package sqlc

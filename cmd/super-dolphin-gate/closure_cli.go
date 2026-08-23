@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	gateclosure "github.com/lihah111222333-cloud/super-dolphin-agent/build/gate/closure"
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 func runClosureCheck(args []string) error {

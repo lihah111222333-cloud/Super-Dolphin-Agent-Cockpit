@@ -34,7 +34,6 @@ export const FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS = Object.freeze([
   'frontend-app/scripts/desktop-failure-contract.mjs',
   'frontend-app/scripts/desktop-failure-smoke.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
-  'frontend-app/scripts/performance-budget-model.mjs',
   'frontend-app/scripts/sync-frontend-dist.mjs',
   'frontend-app/tests/e2e/desktop-failure.spec.js',
   'internal/ui/wails/testdata/failure_smoke_host/main.go',

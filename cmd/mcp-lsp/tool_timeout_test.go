@@ -77,7 +77,7 @@ func waitForScopedToolCall(t *testing.T, done <-chan scopedToolCallResult) scope
 func assertTimeoutToolResult(t *testing.T, result any) {
 	t.Helper()
 	text := requirePlainTextToolResult(t, result, true)
-	for _, want := range []string{"lsp_timeout", "retryable=1"} {
+	for _, want := range []string{"ERROR code=lsp_timeout retryable=1", "MESSAGE\ttool handler timed out", "HINT\tnext:"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("timeout content = %q, want %q", text, want)
 		}

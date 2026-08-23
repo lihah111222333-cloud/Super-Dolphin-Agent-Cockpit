@@ -64,8 +64,6 @@ func TestCollectClosureFilesIncludesPrecompiledGateTestInputs(t *testing.T) {
 		"cmd/super-dolphin-gate/main.go",
 		"go.mod",
 		"go.sum",
-		"third_party/kelindar-event/event.go",
-		"third_party/kelindar-event/go.mod",
 	} {
 		if !slices.Contains(gateCompileFiles, path) {
 			t.Fatalf("gate compile closure does not contain %s", path)
@@ -115,7 +113,7 @@ func TestRenderManifestBindsExactSourceSnapshotInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPaths := []string{"LICENSE", "README.md"}
-	if manifest.SchemaVersion != "3" || manifest.SourceSnapshotInputCount != len(wantPaths) || manifest.SourceSnapshotPathsSHA256 != sourceSnapshotPathsDigest(wantPaths) {
+	if manifest.SchemaVersion != "4" || manifest.SourceSnapshotInputCount != len(wantPaths) || manifest.SourceSnapshotPathsSHA256 != sourceSnapshotPathsDigest(wantPaths) {
 		t.Fatalf("manifest identity = schema %q count %d digest %q", manifest.SchemaVersion, manifest.SourceSnapshotInputCount, manifest.SourceSnapshotPathsSHA256)
 	}
 	if _, err := renderManifest(nil, nil, nil); err == nil {
@@ -126,7 +124,7 @@ func TestRenderManifestBindsExactSourceSnapshotInputs(t *testing.T) {
 	}
 }
 
-func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing.T) {
+func TestRenderDockerfileBindsExactSourceClosure(t *testing.T) {
 	repositoryRoot := testRepositoryRoot(t)
 	lock, err := readToolchainLock(filepath.Join(repositoryRoot, gateToolchain))
 	if err != nil {
@@ -136,203 +134,42 @@ func TestRenderDockerfilePrecompilesGateModesIntoReadOnlyRuntimeCache(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	dockerfile, err := renderDockerfile(lock, runtimeDeps, nil, []string{"README.md"})
+	dockerfile, err := renderDockerfile(lock, runtimeDeps, nil, []string{"LICENSE", "README.md"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	output := string(dockerfile)
-	for _, wanted := range []string{
-		"go build -mod=mod -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate",
-		"ARG MAIN_COMMIT",
+	for _, required := range []string{
+		"FROM scratch AS source-closure",
+		"FROM source-closure AS final",
+		"ARG BUILD_SOURCE_TREE",
 		"ARG GATE_SOURCE_DIGEST",
 		"ARG RUNTIME_DEPENDENCY_DIGEST",
-		"remote-ci-cache-material/v1",
-		`"authority":"non_authoritative_material"`,
-		`"seed_steps"`,
-		"compiled seed material manifest fields mismatch",
-		"compiled seed material identity mismatch",
-		"postprocess_step compiled-seed-identity verify_compiled_seed",
-		"org.super-dolphin.gate-source-digest=\"${GATE_SOURCE_DIGEST}\"",
-		"org.super-dolphin.main-commit-sha=\"${MAIN_COMMIT}\"",
-		"COPY --from=postprocess /out/compiled-seed-manifest.json /opt/super-dolphin-gate/compiled-seed-manifest.json",
-		"--mount=type=bind,from=baseline-cache,source=/,target=/baseline-cache,ro",
-		"ARG BASELINE_CACHE_IMAGE",
-		"ARG COMPILED_SEED_IMAGE",
-		"FROM ${BASELINE_CACHE_IMAGE} AS baseline-cache",
-		"FROM ${COMPILED_SEED_IMAGE} AS compiled-seed-source",
-		"COPY --from=compiled-seed-source /out/ /out/",
-		"worker go-cache-proxy --seed /baseline-cache/opt/super-dolphin/cache/go-build --private /out/go-build-cache",
-		"env GOCACHEPROG=\"$go_cache_proxy --metrics",
-		"seed compile complete phase=%s authority=non_authoritative_material",
-		"cache phase={} private_hits={} baseline_hits={} misses={} puts={}",
-		"compiled-seed complete go_cache_entries=%s",
-		"seed_compile_phase normal_compile env CGO_ENABLED=1 go test -mod=mod -run \"^$\" ./...",
-		"seed_compile_phase e2e_compile env CGO_ENABLED=1 go test -mod=mod -tags=e2e -run \"^$\" ./...",
-		"worker race-package-patterns",
-		"seed_compile_phase race_compile env CGO_ENABLED=1 go test -mod=mod -race -run \"^$\" \"$@\"",
-		"FROM scratch AS source-snapshot",
-		"COPY --from=source-snapshot /root/ /out/source-snapshot/root/",
-		"test -n \"$MAIN_COMMIT\" && test -n \"$BUILD_SOURCE_TREE\" && test -n \"$GATE_SOURCE_DIGEST\" && test -n \"$RUNTIME_DEPENDENCY_DIGEST\"",
-		"for object_id in \"$MAIN_COMMIT\" \"$BUILD_SOURCE_TREE\"; do test \"${#object_id}\" -eq 40",
-		"for digest in \"$GATE_SOURCE_DIGEST\" \"$RUNTIME_DEPENDENCY_DIGEST\" \"$IMAGE_INPUT_DIGEST\" \"$POLICY_DIGEST\" \"$TOOLCHAIN_DIGEST\"; do case \"$digest\" in sha256:*) digest=${digest#sha256:};; *) exit 1;; esac; test \"${#digest}\" -eq 64",
-		"test \"$TARGET_PLATFORM\" = linux/amd64",
-		"source_tree",
-		"closure_digest",
-		"object_format",
-		"blob_digest",
-		"blob_oid",
-		"size",
-		"git init --quiet --bare --template= --object-format=sha1 /out/source-baseline.git",
-		"git --git-dir=/out/source-baseline.git --work-tree=/out/source-snapshot/root add --all --force",
-		"source_tree_sha=$(git --git-dir=/out/source-baseline.git write-tree)",
-		"test \"$source_tree_sha\" = \"$BUILD_SOURCE_TREE\"",
-		"printf \"%s\\n\" \"super-dolphin accepted source baseline\"",
-		"GIT_AUTHOR_NAME=\"Super Dolphin Source Baseline\"",
-		"GIT_AUTHOR_EMAIL=\"source-baseline.invalid\"",
-		"GIT_AUTHOR_DATE=\"2000-01-01T00:00:00Z\"",
-		"GIT_COMMITTER_NAME=\"Super Dolphin Source Baseline\"",
-		"GIT_COMMITTER_EMAIL=\"source-baseline.invalid\"",
-		"GIT_COMMITTER_DATE=\"2000-01-01T00:00:00Z\"",
-		"commit-tree \"$source_tree_sha\"",
-		"rev-list --parents -n 1 \"$baseline_commit_sha\"",
-		"update-ref refs/source/baseline \"$baseline_commit_sha\"",
-		"source-tree-sha",
-		"source-baseline-commit-sha",
-		"rev-list --all --count",
-		"COPY --from=postprocess /out/source-baseline.git /opt/super-dolphin-gate/source-baseline.git",
-		"chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot /opt/super-dolphin-gate/source-baseline.git",
-		"COPY --from=postprocess /out/source-snapshot /opt/super-dolphin-gate/source-snapshot",
-		"chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot",
-		"ENV GOCACHE=/out/go-build-cache",
-		"COPY --from=postprocess /out/go-build-cache /opt/super-dolphin/cache/go-build",
-		"chmod -R a-w /opt/super-dolphin/cache/go-build",
-		"find /opt/super-dolphin/cache/go-build -type l -print -quit",
-		"find /opt/super-dolphin/cache/go-build -perm /222 -print -quit",
-		"vite_cache_seed=/out/vite-cache-stage/.vite-temp",
-		"(cd frontend-app && env SUPER_DOLPHIN_VITE_CACHE_DIR=\"$vite_cache_seed\" ./node_modules/.bin/vite optimize --force)",
-		"test -s \"$vite_cache_seed/deps/_metadata.json\"",
-		"test ! -e frontend-app/node_modules/.vite-temp && test ! -L frontend-app/node_modules/.vite-temp",
-		"npm --prefix frontend-app ci --ignore-scripts --no-audit --no-fund",
-		"npm --prefix frontend-app run build",
-		"test -s frontend-app/dist/index.html",
-		"cp -a \"$vite_cache_seed\"/. /out/vite-cache/",
-		"COPY --from=postprocess /out/frontend-node-modules /opt/super-dolphin-gate/runtime/frontend/node_modules",
-		"COPY --from=postprocess /out/vite-cache /opt/super-dolphin-gate/runtime/frontend/vite-cache",
-		"COPY --from=postprocess /out/frontend-embed /opt/super-dolphin-gate/frontend-embed",
+		"ARG TOOLCHAIN_DIGEST",
+		"trusted-gate-closure/v1",
+		"org.super-dolphin.source-tree-sha=\"${BUILD_SOURCE_TREE}\"",
+		"org.super-dolphin.runtime-dependency-digest=\"${RUNTIME_DEPENDENCY_DIGEST}\"",
+		"COPY [\"LICENSE\",\"README.md\",\"/root/./\"]",
 	} {
-		if !strings.Contains(output, wanted) {
-			t.Fatalf("generated Dockerfile does not contain %q", wanted)
+		if !strings.Contains(output, required) {
+			t.Fatalf("source closure wire is missing %q", required)
 		}
 	}
-	for _, unwanted := range []string{
-		"\n')\n",
-		"COPY . .",
-		"gate compile seed",
-		"super-dolphin-gate-executor",
-		"/opt/super-dolphin-gate/owners",
-		"nilness-guard",
-		"/opt/super-dolphin-gate/cache-seed/go-build",
-		"COPY --from=baseline-cache /opt/super-dolphin/cache/go-build /root/.cache/go-build",
-		"cp -a /baseline-cache",
-		"SOURCE_CLOSURE_DIGEST=",
-		"content_digest",
-		"frontend-build-cache",
-		"/runtime/frontend/build-cache",
-		"check+\"\\\\0true",
-	} {
-		if strings.Contains(output, unwanted) {
-			t.Fatalf("generated environment Dockerfile unexpectedly contains job-source build step %q", unwanted)
-		}
-	}
-	for _, forbidden := range []string{"record_provision_check", "generation-one-build-receipt", "generation-one-receipts", "provision_checks", "accepted_snapshot_id"} {
-		if strings.Contains(output, forbidden) {
-			t.Fatalf("generated Dockerfile must not produce non-ECI authority artifact %q", forbidden)
-		}
-	}
-	for _, check := range []string{"gate_build", "normal_compile", "e2e_compile", "race_compile"} {
-		if count := strings.Count(output, "seed_compile_phase "+check+" env"); count != 1 {
-			t.Fatalf("generated Dockerfile has %d %s check invocations, want exactly one", count, check)
-		}
-	}
-	if strings.Index(output, "test -n \"$MAIN_COMMIT\"") > strings.Index(output, "seed_compile_phase gate_build") {
-		t.Fatal("generated Dockerfile validates build identity after the first required check")
-	}
-	readonlyFrontendSeeds := strings.Index(output, "chmod -R a-w /opt/super-dolphin-gate/runtime/frontend/node_modules /opt/super-dolphin-gate/runtime/frontend/vite-cache")
-	runtimeSeedWrite := strings.Index(output, "/super-dolphin-gate worker runtime-seed write")
-	if readonlyFrontendSeeds < 0 || runtimeSeedWrite <= readonlyFrontendSeeds {
-		t.Fatal("generated Dockerfile must finalize manifest-covered frontend seed permissions before writing the runtime manifest")
-	}
-	compiledStart := strings.Index(output, "FROM ${RUNTIME_DEPS_IMAGE} AS compiled-seed")
-	snapshotStart := strings.Index(output, "FROM scratch AS source-snapshot")
-	if compiledStart < 0 || snapshotStart <= compiledStart {
-		t.Fatal("the compiled seed target must finish before the complete source snapshot stage begins")
-	}
-	if strings.Index(output, "npm --prefix frontend-app run build") > strings.Index(output, "seed_compile_phase normal_compile") {
-		t.Fatal("generated Dockerfile compiles Go embed consumers before frontend assets exist")
-	}
-	if !strings.Contains(output, "touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\nFROM scratch AS source-snapshot\n") {
-		t.Fatal("generated Dockerfile does not close the compiled seed before the complete source snapshot stage")
-	}
-	postprocessStart := strings.Index(output, "FROM ${RUNTIME_DEPS_IMAGE} AS postprocess")
-	if postprocessStart < 0 || strings.Contains(output[postprocessStart:], "FROM compiled-seed AS postprocess") {
-		t.Fatal("generation-one postprocessing must consume the published compiled seed image instead of rebuilding the local stage")
-	}
-	compiledEnd := strings.Index(output, "FROM ${COMPILED_SEED_IMAGE} AS compiled-seed-source")
-	if compiledStart < 0 || compiledEnd <= compiledStart || strings.Contains(output[compiledStart:compiledEnd], "/out/source-snapshot/root") {
-		t.Fatal("full source snapshot must not invalidate or be read by the expensive compiled seed stage")
-	}
-	if !strings.Contains(output, "postprocess failed step=%s exit_code=%s action=fail_fast") {
-		t.Fatal("postprocess steps must log an explicit fail-fast result")
-	}
-}
-
-func TestRenderDockerfileEmbedsMinimalReadOnlySourceBaseline(t *testing.T) {
-	repositoryRoot := testRepositoryRoot(t)
-	lock, err := readToolchainLock(filepath.Join(repositoryRoot, gateToolchain))
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtimeDeps, err := readRuntimeDepsLock(filepath.Join(repositoryRoot, gateRuntimeDepsLock))
-	if err != nil {
-		t.Fatal(err)
-	}
-	dockerfile, err := renderDockerfile(lock, runtimeDeps, nil, []string{"README.md"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output := string(dockerfile)
 	for _, forbidden := range []string{
-		"generation-one-compiled-seed/v1",
-		`"checks"`,
-		"git clone",
-		"git fetch",
-		"--mirror",
-		"refs/heads/",
-		"refs/tags/",
-		"git log",
-		"/src/.git",
+		"remote-ci-" + "cache-material/v1",
+		"non_" + "authoritative_material",
+		"runtime_" + "image",
+		"RUNTIME_DEPS_" + "IMAGE",
+		"BASELINE_" + "CACHE_IMAGE",
+		"COMPILED_" + "SEED_IMAGE",
+		"compiled-" + "seed",
+		"Image" + "Cache",
 	} {
 		if strings.Contains(output, forbidden) {
-			t.Fatalf("source baseline Dockerfile contains history or workspace fallback %q", forbidden)
+			t.Fatalf("source closure wire contains retired cloud material %q", forbidden)
 		}
 	}
-	if strings.Count(output, "commit-tree \"$source_tree_sha\"") != 1 {
-		t.Fatalf("source baseline Dockerfile must create exactly one parentless synthetic commit")
-	}
-	if strings.Count(output, "update-ref refs/source/baseline") != 1 {
-		t.Fatalf("source baseline Dockerfile must publish exactly one fixed baseline ref")
-	}
-	if strings.Index(output, "source_tree_sha=$(git --git-dir=/out/source-baseline.git write-tree)") > strings.Index(output, "commit-tree \"$source_tree_sha\"") {
-		t.Fatal("source baseline commit must be created after the accepted source tree is written")
-	}
-	if strings.Index(output, "test \"$source_tree_sha\" = \"$BUILD_SOURCE_TREE\"") > strings.Index(output, "commit-tree \"$source_tree_sha\"") {
-		t.Fatal("source baseline commit must be blocked unless write-tree matches BUILD_SOURCE_TREE")
-	}
-	if strings.Index(output, "COPY --from=postprocess /out/source-baseline.git /opt/super-dolphin-gate/source-baseline.git") > strings.Index(output, "chmod -R a-w /opt/super-dolphin-gate/frontend-embed /opt/super-dolphin-gate/source-snapshot /opt/super-dolphin-gate/source-baseline.git") {
-		t.Fatal("source baseline must be copied before its final recursive read-only enforcement")
-	}
 }
-
 func testRepositoryRoot(t *testing.T) string {
 	t.Helper()
 	repositoryRoot, err := filepath.Abs("../../..")

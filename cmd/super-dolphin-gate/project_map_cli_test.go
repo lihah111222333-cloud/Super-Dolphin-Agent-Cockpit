@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 func TestProjectMapCLIRefreshesAndChecksExactTreeWithCompiledGenerator(t *testing.T) {

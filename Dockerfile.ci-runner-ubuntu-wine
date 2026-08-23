@@ -1,0 +1,128 @@
+# syntax=docker/dockerfile:1.7
+
+FROM --platform=linux/amd64 ubuntu@sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316
+
+LABEL org.opencontainers.image.base.name="ubuntu:24.04" \
+      org.opencontainers.image.base.digest="sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316" \
+      com.super-dolphin.runtime="ubuntu_wine_container" \
+      com.super-dolphin.target-platform="windows/amd64" \
+      com.super-dolphin.authority="LOCAL_NON_AUTHORITATIVE" \
+      com.super-dolphin.qualification="NOT_VERIFIED" \
+      com.super-dolphin.wine-arch="win64"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    SUPER_DOLPHIN_RUNTIME=ubuntu_wine_container \
+    SUPER_DOLPHIN_TARGET_PLATFORM=windows/amd64 \
+    SUPER_DOLPHIN_AUTHORITY=LOCAL_NON_AUTHORITATIVE \
+    SUPER_DOLPHIN_RESULT_STATUS=NOT_VERIFIED \
+    SUPER_DOLPHIN_TOOLCHAIN=go1.26.5 \
+    SUPER_DOLPHIN_NODE=v22.13.0 \
+    GO_VERSION=go1.26.5 \
+    GO_TARBALL_SHA256=sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053 \
+    NODE_VERSION=v22.13.0 \
+    NODE_TARBALL_SHA256=sha256:3ff0d57063c33313d73d0bdcebc4c778ad6be948234584694a042c6fe57164f6 \
+    GOTOOLCHAIN=local \
+    GOROOT=/usr/local/go \
+    GOPATH=/home/ci-runner/go \
+    GOMODCACHE=/home/ci-runner/go/pkg/mod \
+    GOCACHE=/home/ci-runner/.cache/go-build \
+    GOTMPDIR=/tmp/go-tmp \
+    HOME=/home/ci-runner \
+    WINEARCH=win64 \
+    WINEPREFIX=/home/ci-runner/.wine64 \
+    GO_BIN=/usr/local/go/bin/go \
+    NODE_BIN=/usr/local/bin/node \
+    WINE_BIN=/usr/bin/wine \
+    WINE_REAL_BIN=/usr/lib/wine/wine64 \
+    WINE_SERVER_REAL_BIN=/usr/lib/wine/wineserver64 \
+    WINELOADER=/usr/lib/wine/wine64 \
+    WINESERVER=/usr/lib/wine/wineserver64 \
+    WINEBOOT_BIN=/usr/bin/wineboot \
+    XVFB_RUN_BIN=/usr/bin/xvfb-run \
+    MINGW_CC_BIN=/usr/bin/x86_64-w64-mingw32-gcc \
+    PATH=/usr/local/go/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ADD --checksum=sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053 \
+    https://go.dev/dl/go1.26.5.linux-amd64.tar.gz \
+    /tmp/go1.26.5.linux-amd64.tar.gz
+
+ADD --checksum=sha256:3ff0d57063c33313d73d0bdcebc4c778ad6be948234584694a042c6fe57164f6 \
+    https://nodejs.org/dist/v22.13.0/node-v22.13.0-linux-x64.tar.xz \
+    /tmp/node-v22.13.0-linux-x64.tar.xz
+
+RUN set -eux; \
+    printf '%s  %s\n' \
+      '5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053' \
+      '/tmp/go1.26.5.linux-amd64.tar.gz' | sha256sum -c -; \
+    tar -C /usr/local -xzf /tmp/go1.26.5.linux-amd64.tar.gz; \
+    apt-get update; \
+    apt-get install --no-install-recommends -y \
+      bash \
+      ca-certificates \
+      file \
+      git \
+      make \
+      mingw-w64=11.0.1-3build1 \
+      passwd \
+      procps \
+      util-linux \
+      wine=9.0~repack-4build3 \
+      wine64=9.0~repack-4build3 \
+      xvfb=2:21.1.12-1ubuntu1.6 \
+      xz-utils; \
+    printf '%s  %s\n' \
+      '3ff0d57063c33313d73d0bdcebc4c778ad6be948234584694a042c6fe57164f6' \
+      '/tmp/node-v22.13.0-linux-x64.tar.xz' | sha256sum -c -; \
+    tar -C /usr/local --strip-components=1 -xJf /tmp/node-v22.13.0-linux-x64.tar.xz; \
+    groupadd --gid 65532 ci-runner; \
+    useradd --uid 65532 --gid 65532 --create-home --no-log-init --shell /bin/bash ci-runner; \
+    install -d -o 65532 -g 65532 -m 0755 /workspace /home/ci-runner/go /home/ci-runner/go/pkg/mod \
+      /home/ci-runner/.cache/go-build /tmp/go-tmp; \
+    chmod 1777 /tmp/go-tmp; \
+    install -d -o 65532 -g 65532 -m 0700 /home/ci-runner/.wine64; \
+    runuser -u ci-runner -- env WINEARCH=win64 WINEPREFIX=/home/ci-runner/.wine64 \
+      WINELOADER=/usr/lib/wine/wine64 WINESERVER=/usr/lib/wine/wineserver64 \
+      /usr/bin/xvfb-run --auto-servernum \
+      --server-args='-screen 0 1024x768x24 -nolisten tcp' \
+      /usr/lib/wine/wine64 wineboot.exe --init; \
+    runuser -u ci-runner -- env WINEARCH=win64 WINEPREFIX=/home/ci-runner/.wine64 \
+      WINELOADER=/usr/lib/wine/wine64 WINESERVER=/usr/lib/wine/wineserver64 \
+      /usr/lib/wine/wineserver64 -w; \
+    test -f /home/ci-runner/.wine64/system.reg; \
+    runuser -u ci-runner -- env WINEARCH=win64 WINEPREFIX=/home/ci-runner/.wine64 \
+      WINELOADER=/usr/lib/wine/wine64 WINESERVER=/usr/lib/wine/wineserver64 \
+      /usr/bin/xvfb-run --auto-servernum \
+      --server-args='-screen 0 1024x768x24 -nolisten tcp' \
+      /usr/bin/wine --version | grep -Fq 'wine-9.0'; \
+    test -x /usr/bin/x86_64-w64-mingw32-gcc; \
+    test -x /usr/lib/wine/wine64; \
+    test -x /usr/lib/wine/wineserver64; \
+    /usr/bin/x86_64-w64-mingw32-gcc --version | grep -Fq 'x86_64'; \
+    test "$(/usr/local/go/bin/go version)" = 'go version go1.26.5 linux/amd64'; \
+    test "$(/usr/local/bin/node --version)" = 'v22.13.0'; \
+    install -d -o 65532 -g 65532 -m 0755 /opt/super-dolphin/smoke; \
+    printf '%s\n' 'package main' 'func main() {}' > /tmp/wine-smoke.go; \
+    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+      /usr/local/go/bin/go build -trimpath -o /opt/super-dolphin/smoke/wine-smoke.exe /tmp/wine-smoke.go; \
+    chown 65532:65532 /opt/super-dolphin/smoke/wine-smoke.exe; \
+    chmod 0555 /opt/super-dolphin/smoke/wine-smoke.exe; \
+    /usr/bin/file /opt/super-dolphin/smoke/wine-smoke.exe | grep -Fq 'PE32+ executable'; \
+    runuser -u ci-runner -- env WINEARCH=win64 WINEPREFIX=/home/ci-runner/.wine64 \
+      WINELOADER=/usr/lib/wine/wine64 WINESERVER=/usr/lib/wine/wineserver64 \
+      /usr/bin/xvfb-run --auto-servernum \
+      --server-args='-screen 0 1024x768x24 -nolisten tcp' \
+      /usr/bin/wine /opt/super-dolphin/smoke/wine-smoke.exe; \
+    runuser -u ci-runner -- env WINEARCH=win64 WINEPREFIX=/home/ci-runner/.wine64 \
+      WINELOADER=/usr/lib/wine/wine64 WINESERVER=/usr/lib/wine/wineserver64 \
+      /usr/lib/wine/wineserver64 -k; \
+    chown -R 65532:65532 /home/ci-runner; \
+    rm -f /tmp/go1.26.5.linux-amd64.tar.gz /tmp/node-v22.13.0-linux-x64.tar.xz \
+      /tmp/wine-smoke.go; \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+USER 65532:65532
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD ["/usr/bin/xvfb-run", "--auto-servernum", "--server-args=-screen 0 1024x768x24 -nolisten tcp", "/usr/bin/wine", "--version"]
+
+CMD ["/bin/bash"]

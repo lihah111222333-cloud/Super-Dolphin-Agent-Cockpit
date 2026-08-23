@@ -704,6 +704,7 @@ type recoveryTestTurnHandle interface {
 
 func startRecoveryTestTurn(t *testing.T, ctx context.Context, s *session) recoveryTestTurnHandle {
 	t.Helper()
+	s.setThreadID("thread-1")
 	handle, err := s.StartTurn(ctx, dto.TurnRequest{
 		ThreadID: "thread-1",
 		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},

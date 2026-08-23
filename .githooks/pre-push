@@ -14,62 +14,6 @@ repo_root=$(git rev-parse --show-toplevel) || {
 # shellcheck disable=SC1091
 source "$repo_root/.githooks/trusted-gate-launcher.sh"
 
-dispatch_imagecache_refresh() {
-  local source_commit=${1:?source commit is required}
-  local source_tree=${2:?source tree is required}
-  local refresh_config=${3:?refresh config is required}
-  local common_dir state_dir script_dir relative_path target_path temporary_path dispatcher refresh_script log_file
-  common_dir=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir) || {
-    printf '%s\n' 'pre-push blocked: cannot resolve ImageCache refresh state directory.' >&2
-    return 1
-  }
-  state_dir="$common_dir/super-dolphin/imagecache-refresh"
-  script_dir="$state_dir/scripts/$source_tree"
-  mkdir -p "$script_dir" || {
-    printf '%s\n' 'pre-push blocked: cannot create ImageCache refresh state directory.' >&2
-    return 1
-  }
-  chmod 0700 "$state_dir" "$state_dir/scripts" "$script_dir"
-  for relative_path in scripts/dispatch_remote_ci_imagecache_refresh.sh scripts/refresh_remote_ci_imagecache.sh; do
-    target_path="$script_dir/${relative_path##*/}"
-    temporary_path="$target_path.tmp.$$"
-    if ! git -C "$repo_root" cat-file blob "$source_tree:$relative_path" >"$temporary_path"; then
-      rm -f -- "$temporary_path"
-      printf 'pre-push blocked: pushed tree is missing ImageCache refresh entry %s.\n' "$relative_path" >&2
-      return 1
-    fi
-    chmod 0500 "$temporary_path"
-    mv -f -- "$temporary_path" "$target_path"
-  done
-  dispatcher="$script_dir/dispatch_remote_ci_imagecache_refresh.sh"
-  refresh_script="$script_dir/refresh_remote_ci_imagecache.sh"
-  log_file="$state_dir/refresh.log"
-  nohup env \
-    -u SUPER_DOLPHIN_CI_AGENT_TOKEN \
-    -u SUPER_DOLPHIN_CI_GHCR_TOKEN \
-    -u SUPER_DOLPHIN_CI_GHCR_USERNAME \
-    -u SUPER_DOLPHIN_CI_REFRESH_BASE_IMAGE \
-    -u SUPER_DOLPHIN_CI_REFRESH_BASE_SNAPSHOT \
-    -u SUPER_DOLPHIN_CI_REFRESH_OCI_BASE_IMAGE \
-    -u SUPER_DOLPHIN_CI_REFRESH_BASE_ARCHIVE_SHA256 \
-    "$dispatcher" \
-    --repository "$repo_root" \
-    --source-ref "$source_commit" \
-    --config "$refresh_config" \
-    --refresh-script "$refresh_script" \
-    --if-older-than-hours 24 \
-    </dev/null >>"$log_file" 2>&1 &
-}
-
-# 首次身份协商不得读取远程配置或规范化 ref；hook 不签发或保存 token。
-if [[ "${SUPER_DOLPHIN_CI_AGENT_TOKEN-}" == "issue" || -z "${SUPER_DOLPHIN_CI_AGENT_TOKEN+x}" ]]; then
-  if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
-    printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable; install it with make install-hooks, then rerun the push.' >&2
-    exit 1
-  fi
-  exec "$gate_bin" remote hook pre-push
-fi
-
 umask 077
 push_input_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-prepush.XXXXXX")
 cleanup_push_input() {
@@ -172,23 +116,22 @@ else
   fi
 fi
 
-remote_config=${SUPER_DOLPHIN_GATE_REMOTE_CONFIG:-$(git config --local --get super-dolphin.remote.config || true)}
-remote_ledger=${SUPER_DOLPHIN_GATE_LEDGER:-$(git config --local --get super-dolphin.remote.ledger || true)}
-if [[ -z "$remote_config" || -z "$remote_ledger" ]]; then
-  printf '%s\n' 'pre-push blocked: remote CI requires remote config and duration ledger paths.' >&2
-  exit 1
+if [[ -n "$selected_push_tree" ]]; then
+  if ! "$gate_bin" project-map check --tree "$selected_push_tree"; then
+    printf '%s\n' 'pre-push blocked: trusted project-map check failed for the pushed tree.' >&2
+    exit 1
+  fi
+  if ! "$gate_bin" closure check --tree "$selected_push_tree"; then
+    printf '%s\n' 'pre-push blocked: trusted local Gate closure check failed for the pushed tree.' >&2
+    exit 1
+  fi
+else
+  current_tree=$(git -C "$repo_root" write-tree) || {
+    printf '%s\n' 'pre-push blocked: current staged tree is unavailable for local Gate checks.' >&2
+    exit 1
+  }
+  if ! "$gate_bin" project-map check --tree "$current_tree" || ! "$gate_bin" closure check --tree "$current_tree"; then
+    printf '%s\n' 'pre-push blocked: trusted local Gate checks failed for the current tree.' >&2
+    exit 1
+  fi
 fi
-refresh_config=$remote_config
-if [[ "$refresh_config" != /* ]]; then
-  refresh_config="$repo_root/$refresh_config"
-fi
-if [[ -n "$selected_push_commit" ]]; then
-  dispatch_imagecache_refresh "$selected_push_commit" "$selected_push_tree" "$refresh_config"
-fi
-remote_args=(
-  remote hook pre-push
-  --config "$remote_config"
-  --ledger "$remote_ledger"
-  --repository "$repo_root"
-)
-exec "$gate_bin" "${remote_args[@]}" "$1" "$2" <"$push_input_file"

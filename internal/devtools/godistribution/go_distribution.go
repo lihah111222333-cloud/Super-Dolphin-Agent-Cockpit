@@ -30,7 +30,7 @@ type Asset struct {
 //go:embed go-distribution.lock
 var lockedAssets string
 
-// Lookup returns the exact official archive locked for one GOOS/GOARCH pair.
+// Lookup 返回一个 GOOS/GOARCH 对应的唯一官方锁定归档。
 func Lookup(goos, goarch string) (Asset, error) {
 	assets, err := parse(lockedAssets)
 	if err != nil {
@@ -43,12 +43,12 @@ func Lookup(goos, goarch string) (Asset, error) {
 	return asset, nil
 }
 
-// RemoteCIAsset returns the only archive permitted for remote CI.
+// RemoteCIAsset 返回权威远程 CI 唯一允许使用的 Linux 归档。
 func RemoteCIAsset() (Asset, error) {
 	return Lookup(remoteGOOS, remoteGOARCH)
 }
 
-// ValidateRemoteCIAsset rejects every archive except the exact linux/amd64 lock item.
+// ValidateRemoteCIAsset 拒绝精确 Linux/amd64 锁记录以外的归档。
 func ValidateRemoteCIAsset(asset Asset) error {
 	expected, err := RemoteCIAsset()
 	if err != nil {
@@ -60,8 +60,9 @@ func ValidateRemoteCIAsset(asset Asset) error {
 	return nil
 }
 
+// parse 严格解析固定平台全集，拒绝缺失、重复或多余的锁记录。
 func parse(data string) (map[string]Asset, error) {
-	assets := make(map[string]Asset, 3)
+	assets := make(map[string]Asset, 4)
 	for lineNumber, line := range strings.Split(strings.TrimSuffix(data, "\n"), "\n") {
 		fields := strings.Split(line, "\t")
 		if len(fields) != 6 {
@@ -81,31 +82,27 @@ func parse(data string) (map[string]Asset, error) {
 		}
 		assets[key] = asset
 	}
-	for _, key := range []string{"darwin/arm64", "darwin/amd64", "linux/amd64"} {
+	for _, key := range []string{"darwin/arm64", "darwin/amd64", "linux/amd64", "windows/amd64"} {
 		if _, ok := assets[key]; !ok {
 			return nil, fmt.Errorf("Go distribution lock is missing %s", key)
 		}
 	}
-	if len(assets) != 3 {
+	if len(assets) != 4 {
 		return nil, errors.New("Go distribution lock contains unsupported platforms")
 	}
 	return assets, nil
 }
 
+// validateAsset 校验版本、平台、官方 URL 和 SHA-256 形状。
 func validateAsset(asset Asset) error {
 	if asset.Version != Version {
 		return fmt.Errorf("version must be %q", Version)
 	}
-	if asset.GOOS != "darwin" && asset.GOOS != "linux" {
-		return fmt.Errorf("unsupported GOOS %q", asset.GOOS)
+	extension, err := archiveExtension(asset.GOOS, asset.GOARCH)
+	if err != nil {
+		return err
 	}
-	if asset.GOARCH != "amd64" && asset.GOARCH != "arm64" {
-		return fmt.Errorf("unsupported GOARCH %q", asset.GOARCH)
-	}
-	if asset.GOOS == "linux" && asset.GOARCH != "amd64" {
-		return fmt.Errorf("unsupported platform %s/%s", asset.GOOS, asset.GOARCH)
-	}
-	expectedURL := fmt.Sprintf("https://go.dev/dl/%s.%s-%s.tar.gz", Version, asset.GOOS, asset.GOARCH)
+	expectedURL := fmt.Sprintf("https://go.dev/dl/%s.%s-%s.%s", Version, asset.GOOS, asset.GOARCH, extension)
 	if asset.URL != expectedURL {
 		return fmt.Errorf("URL must be the official archive URL %q", expectedURL)
 	}
@@ -113,4 +110,27 @@ func validateAsset(asset Asset) error {
 		return errors.New("SHA-256 must be 64 lowercase hexadecimal characters")
 	}
 	return nil
+}
+
+// archiveExtension 返回受支持平台的官方 Go 归档扩展名。
+func archiveExtension(goos, goarch string) (string, error) {
+	switch goos {
+	case "darwin":
+		if goarch != "amd64" && goarch != "arm64" {
+			return "", fmt.Errorf("unsupported platform %s/%s", goos, goarch)
+		}
+		return "tar.gz", nil
+	case "linux":
+		if goarch != "amd64" {
+			return "", fmt.Errorf("unsupported platform %s/%s", goos, goarch)
+		}
+		return "tar.gz", nil
+	case "windows":
+		if goarch != "amd64" {
+			return "", fmt.Errorf("unsupported platform %s/%s", goos, goarch)
+		}
+		return "zip", nil
+	default:
+		return "", fmt.Errorf("unsupported GOOS %q", goos)
+	}
 }

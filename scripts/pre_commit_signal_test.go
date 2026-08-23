@@ -1,3 +1,5 @@
+//go:build !linux
+
 package main
 
 import (
@@ -6,14 +8,9 @@ import (
 )
 
 func configureInterruptProcessGroup(cmd *exec.Cmd) {
-	cmd.Cancel = func() error {
-		return cmd.Process.Signal(os.Interrupt)
-	}
+	cmd.Cancel = nil
 }
 
 func interruptProcessGroup(cmd *exec.Cmd) error {
-	if cmd.Cancel != nil {
-		return cmd.Cancel()
-	}
 	return cmd.Process.Signal(os.Interrupt)
 }

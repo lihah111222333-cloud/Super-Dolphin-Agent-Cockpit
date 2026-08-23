@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gateprivate"
 )
 
 func TestRetiredTopLevelCommandsAreStrictlyUnknown(t *testing.T) {
@@ -27,9 +27,9 @@ func TestTopLevelHelpIsLocalAndDocumentsAuthorityEntrypoints(t *testing.T) {
 		t.Fatalf("top-level --help exit code = %d, stderr=%q", code, stderr)
 	}
 	for _, required := range []string{
-		"super-dolphin-gate test",
-		"--target=remote",
-		"super-dolphin-gate remote run",
+		"super-dolphin-gate codemap",
+		"super-dolphin-gate closure",
+		"super-dolphin-gate launcher",
 	} {
 		if !strings.Contains(stdout, required) {
 			t.Fatalf("top-level --help omitted %q:\n%s", required, stdout)

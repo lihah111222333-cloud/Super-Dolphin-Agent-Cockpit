@@ -61,7 +61,7 @@ fi
 
 cd "$temp_root"
 env -i HOME="${HOME:?}" PATH=/usr/bin:/bin \
-  GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
+  GOCACHE="$temp_root/go-build-cache" GOENV=off GOFLAGS= GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off \
   "$go_binary" run -mod=readonly ./cmd/build-trusted-gate-launcher \
     --repository "$repo_root" \
     --tree "$tree"

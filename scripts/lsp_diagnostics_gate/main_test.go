@@ -390,7 +390,7 @@ func TestRegisteredBuildTagsMatchTrackedPositiveTagInventory(t *testing.T) {
 		fileCount int
 	}{
 		{tag: "codex_smoketest", fileCount: 1},
-		{tag: "e2e", fileCount: 20},
+		{tag: "e2e", fileCount: 29},
 		{tag: "e2e_claude", fileCount: 1},
 		{tag: "e2e_vision", fileCount: 1},
 		{tag: "lsp_integration", fileCount: 1},
@@ -580,9 +580,10 @@ func TestTargetCompileKeySeparatesBuildTagsAndRegistryVersion(t *testing.T) {
 	}
 }
 
+// super-dolphin-ci: platform=darwin
 func TestActualStagedWindowsGateFileGetsTargetCompileEvidence(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows source is host-visible on Windows")
+	if runtime.GOOS != "darwin" {
+		t.Skip("cross-target Windows compile evidence is a Darwin-hosted test")
 	}
 	root := lspDiagnosticsGateRepoRoot(t)
 	target := stagedWindowsTargetCompile(t, root)
@@ -601,7 +602,7 @@ func lspDiagnosticsGateRepoRoot(t *testing.T) string {
 
 func stagedWindowsTargetCompile(t *testing.T, root string) targetCompileTarget {
 	t.Helper()
-	selection, err := diagnosticTargets(root, options{files: []string{"internal/devtools/gate/executor_signal_windows.go"}})
+	selection, err := diagnosticTargets(root, options{files: []string{"internal/devtools/remoteportable/process_windows.go"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +610,7 @@ func stagedWindowsTargetCompile(t *testing.T, root string) targetCompileTarget {
 		t.Fatalf("Windows target selection = %#v", selection)
 	}
 	target := selection.targetCompiles[0]
-	if target.File != "internal/devtools/gate/executor_signal_windows.go" || target.GOOS != "windows" {
+	if target.File != "internal/devtools/remoteportable/process_windows.go" || target.GOOS != "windows" {
 		t.Fatalf("Windows target compile = %#v", target)
 	}
 	if len(target.BuildTags) != 0 || target.BuildTagRegistryVersion != "" {

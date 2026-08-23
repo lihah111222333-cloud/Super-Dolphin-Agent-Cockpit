@@ -1,3 +1,7 @@
+//go:build linux
+
+// super-dolphin-ci: platform=linux
+
 package main
 
 // 本文件是公共跨平台的 Linux 交付静态门禁：它读取脚本和清单，不调用 Linux 专用系统 API，

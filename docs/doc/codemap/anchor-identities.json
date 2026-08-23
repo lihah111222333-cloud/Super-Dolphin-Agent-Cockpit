@@ -1403,7 +1403,7 @@
       "codemap_line": 75,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "37",
-      "content_sha256": "de90f60c8017cb8392ed31d6bac90238f810eedd84ba7dde6a4fe945d69f09ce",
+      "content_sha256": "4f94e4962d18abae72a6a7e874fc838b5499a8aa55504873871ae36d3c78ba47",
       "symbol": "bootstrapRunner"
     },
     {
@@ -1478,7 +1478,7 @@
       "codemap_line": 91,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "37",
-      "content_sha256": "de90f60c8017cb8392ed31d6bac90238f810eedd84ba7dde6a4fe945d69f09ce",
+      "content_sha256": "4f94e4962d18abae72a6a7e874fc838b5499a8aa55504873871ae36d3c78ba47",
       "symbol": "bootstrapRunner"
     },
     {
@@ -1486,7 +1486,7 @@
       "codemap_line": 92,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "105",
-      "content_sha256": "c7815d4f954adc6aac341def858fc3e5234c152c27654587e363b9d92e273320",
+      "content_sha256": "23424d04c49bc7ee7f9becdd1bcc17a6faf198d101fc3b0b5a6d56f16455d729",
       "symbol": "run"
     },
     {
@@ -1502,7 +1502,7 @@
       "codemap_line": 94,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "136",
-      "content_sha256": "31eeae0fcc29263797156d36d0d384a0596442d673984c69c0971bbec2b6e017",
+      "content_sha256": "2b2bd4d2efedd06e8a7189af3012421f9861f05acd5f0f2d72aee657d99dbaef",
       "symbol": "newServer"
     },
     {
@@ -1510,8 +1510,7 @@
       "codemap_line": 94,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "151",
-      "content_sha256": "809f5728ee2cb020e0b9767b2e770a7cb746b0912925e015cd68e713f4eb2405",
-      "symbol": "lspToolCallResultPolicy"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1589,7 +1588,7 @@
       "codemap_line": 209,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "136",
-      "content_sha256": "31eeae0fcc29263797156d36d0d384a0596442d673984c69c0971bbec2b6e017",
+      "content_sha256": "2b2bd4d2efedd06e8a7189af3012421f9861f05acd5f0f2d72aee657d99dbaef",
       "symbol": "newServer"
     },
     {
@@ -1613,8 +1612,7 @@
       "codemap_line": 210,
       "target_path": "cmd/mcp-lsp/fx.go",
       "line_spec": "151",
-      "content_sha256": "809f5728ee2cb020e0b9767b2e770a7cb746b0912925e015cd68e713f4eb2405",
-      "symbol": "lspToolCallResultPolicy"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -6049,7 +6047,7 @@
       "codemap_line": 290,
       "target_path": "internal/module/turn/tracker.go",
       "line_spec": "13-31",
-      "content_sha256": "3e31083fa1b6a0122da607fef026ab27979ad6f6ef1fe159b4c42822177e98e5"
+      "content_sha256": "73b2379ac9e9b61f9183cadd3f657340f769af98f2d1ffeb1ff4c6512a7420b1"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6202,7 +6200,7 @@
       "codemap_line": 340,
       "target_path": "internal/module/turn/tracker.go",
       "line_spec": "11-166",
-      "content_sha256": "d6599da7a0be0cee149163eb20e89f0edbc039bca3de7de32dac7c3a3567126b"
+      "content_sha256": "d8ecee11f57ac5f0282a572467f86322d9867ef1d74f1bd866c73854992bda9c"
     },
     {
       "codemap_file": "07-module-write.md",

@@ -17,6 +17,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve"
+	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -281,7 +282,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 	)
 	if err != nil {
 		cleanupErr := m.cleanupProvisionalClient(cfg.key, generation, client, false)
-		return nil, joinProvisionalClientError(fmt.Errorf("initialize LSP client: %w", err), cleanupErr)
+		return nil, joinProvisionalClientError(fmt.Errorf("%w: %w", lspmanager.ErrLSPClientInitialization, err), cleanupErr)
 	}
 
 	m.mu.Lock()
@@ -592,7 +593,7 @@ func provisionalWorkspaceHash(key string) string {
 // lspClientInstanceDigest 以 scope/language/generation 生成脱敏实例关联键；不写 URI
 // 或命令行，供 manager 与 transport 生命周期日志做内部关联。
 func lspClientInstanceDigest(cfg workspaceConfig, generation uint64) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", provisionalWorkspaceHash(cfg.key), cfg.languageID, generation)))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%d", provisionalWorkspaceHash(cfg.key), cfg.languageID, generation))
 	return hex.EncodeToString(sum[:8])
 }
 
