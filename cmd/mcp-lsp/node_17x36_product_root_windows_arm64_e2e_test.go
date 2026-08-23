@@ -1,4 +1,4 @@
-//go:build windows && arm64
+//go:build windows && arm64 && e2e
 
 package main
 
@@ -8,6 +8,8 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
 )
+
+const node17x36HelperEvidenceStatus = "NON_PASS_support_only"
 
 // node17x36ReusableProductRootFixture 创建带 owner-only ACL 与受控清理的复用根测试夹具。
 func node17x36ReusableProductRootFixture(t *testing.T) string {

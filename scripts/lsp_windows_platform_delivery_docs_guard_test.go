@@ -784,6 +784,8 @@ func TestLSPWindowsARM64E2EProofContracts(t *testing.T) {
 	}{
 		{path: "cmd/mcp-lsp/installer/host_platform_windows_arm64_e2e_test.go", requireNonPass: true},
 		{path: "cmd/mcp-lsp/lsp_binary_cached_ruby_semantic_windows_arm64_e2e_test.go", requireNonPass: true},
+		{path: "cmd/mcp-lsp/lsp_binary_windows_arm64_emmylua_helpers_e2e_test.go", requireNonPass: true},
+		{path: "cmd/mcp-lsp/node_17x36_product_root_windows_arm64_e2e_test.go", requireNonPass: true},
 		{path: "cmd/mcp-lsp/lsp_binary_real_prisma_windows_arm64_raw_protocol_matrix_e2e_test.go", requireNonPass: true},
 		{path: "cmd/mcp-lsp/lsp_binary_windows_arm64_emmylua_e2e_test.go", formal: true, requireNonPass: true},
 		{path: "cmd/mcp-lsp/windows_arm64_process_arm64_csharp_mcp_36_soak_e2e_test.go", formal: true, requireNonPass: true},
@@ -805,9 +807,6 @@ func TestLSPWindowsARM64E2EProofContracts(t *testing.T) {
 	knownContracts := make(map[string]struct{}, len(contracts))
 	for _, contract := range contracts {
 		knownContracts[contract.path] = struct{}{}
-	}
-	for _, contract := range contracts {
-		contract := contract
 		t.Run(contract.path, func(t *testing.T) {
 			source := readRepoFile(t, filepath.Join("..", filepath.FromSlash(contract.path)))
 			base := strings.ToLower(filepath.Base(contract.path))

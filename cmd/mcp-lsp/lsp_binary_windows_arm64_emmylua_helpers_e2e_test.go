@@ -1,4 +1,4 @@
-//go:build windows && arm64
+//go:build windows && arm64 && e2e
 
 package main
 
@@ -7,6 +7,8 @@ import (
 	"os"
 	"testing"
 )
+
+const emmyLuaHelperEvidenceStatus = "NON_PASS_support_only"
 
 // emmyLuaPathExists 返回受控 EmmyLua 缓存路径是否存在，并屏蔽绝对路径错误。
 func emmyLuaPathExists(t *testing.T, path string) bool {

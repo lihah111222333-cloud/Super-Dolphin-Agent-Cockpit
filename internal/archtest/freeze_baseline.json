@@ -4316,7 +4316,7 @@
           "max_struct_fields": 3
         },
         "scripts/lsp_windows_platform_delivery_docs_guard_test.go": {
-          "lines": 2887,
+          "lines": 2886,
           "max_func_len": 188,
           "max_nesting": 5,
           "max_complexity": 65,
@@ -8643,7 +8643,7 @@
         "max_struct_fields": 3
       },
       "scripts/lsp_windows_platform_delivery_docs_guard_test.go": {
-        "lines": 2887,
+        "lines": 2886,
         "max_func_len": 188,
         "max_nesting": 5,
         "max_complexity": 65,
