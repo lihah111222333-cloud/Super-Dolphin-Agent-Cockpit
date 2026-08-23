@@ -4,18 +4,18 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:9a6659acf9a577e63482619065eac4a7d484c66e0a0852046609572c5c98c444",
-    "source_sha256": "sha256:c6e1a0da7d8411ed459f2313152a4971dce621798db0c984e86cd5d83619f80b",
-    "entries_sha256": "sha256:8bbbcaefe56eb14bd3c6f42fd37e9b5092fa42827e3ddc7fa25285de93e0eeae"
+    "source_sha256": "sha256:05a732a22c4c7c837a7dc27c6da5f724fe5d4a929f3ff7037d8641f51f5e8325",
+    "entries_sha256": "sha256:d0cc717467de4d548ce71ed06f059be3b935f3d3c47860aaba67f73218d72312"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5455,
+  "files": 5457,
   "domains": {
     "other": 1202,
     "remote-ci": 270,
-    "docs-agent": 99,
+    "docs-agent": 101,
     "app-ui": 767,
     "platform-provider": 1710,
     "orchestration": 411,
@@ -71,8 +71,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 99,
-        "size_kb": 14.8,
+        "file_count": 101,
+        "size_kb": 15.1,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
@@ -89,7 +89,7 @@
     "(root)": 12,
     "cmd": 1267,
     "config": 3,
-    "docs": 92,
+    "docs": 94,
     "frontend-app": 759,
     "internal": 3033,
     "pkg": 30,
