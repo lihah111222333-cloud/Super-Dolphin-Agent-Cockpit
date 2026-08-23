@@ -374,9 +374,9 @@ func runWorkspaceSymbols(
 		}
 	} else if truncated {
 		if matchMode == workspaceSymbolMatchFuzzy {
-			response.Hint = "next: workspace_symbol results truncated; narrow query with container/class prefix, use match_mode=exact, or increase max_results"
+			response.Hint = "next: workspace_symbol results truncated; narrow query with container prefix, use match_mode=exact, or increase max_results"
 		} else {
-			response.Hint = "next: workspace_symbol results truncated; narrow query with container/class prefix or file_path, or increase max_results"
+			response.Hint = "next: workspace_symbol results truncated; narrow query with container prefix or file_path, or increase max_results"
 		}
 	}
 	return response, nil

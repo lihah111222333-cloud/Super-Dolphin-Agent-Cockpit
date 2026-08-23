@@ -19,6 +19,9 @@ When the `lsp` namespace is exposed, it provides only three pure semantic tools:
   * `diagnostics(file_paths=["relative/file1.py", "relative/file2.py"])`
 
 ## 3. Anti-Overkill Discipline & Investigation Guardrails
+- **Test-Driven Backward Induction**: When diagnosing ambiguous issues, prioritize locating and reading failed test cases and assertions in `tests/`, and backward trace the execution flow from the assertion gap to the source code defect.
+- **Holistic Polymorphic & Operator Completeness**: When modifying class constructors, factory methods, or return signatures, mandatorily check and synchronously update all related operator overloads (e.g., magic methods such as `__add__`, `__mul__`, `__eq__`) and the inheritance chain to ensure polymorphic completeness.
+- **Active Working-Tree Focus**: You must deduce entirely based on the actual code logic and AST structure of the active working tree. It is strictly forbidden to browse historical commits via `git log` / `git blame` to blindly copy old answers.
 - **Anti-Overkill Rule**: Do NOT initiate heavy cross-file explorations for trivial, single-file fixes.
 - **Root-Cause Minimality Priority**: When a bug originates in a utility, conversion, or helper function (e.g. `as_compatible_data`), ALWAYS fix the defect directly inside the root function. NEVER place defensive bypasses or workarounds in upstream callers (e.g. `Variable.__setitem__`) when the root function itself is flawed. Unit tests often evaluate root functions directly in isolation.
 - **Root-Cause vs Parameter Plumbing (Origin vs Pipeline Flow)**:

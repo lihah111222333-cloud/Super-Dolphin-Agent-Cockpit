@@ -172,3 +172,48 @@ func TestXRefReferencesAutoSnapIndentationAndKeywords(t *testing.T) {
 		t.Fatalf("manager position = %#v, want %#v (auto-snapped from indentation)", manager.gotPosition, want)
 	}
 }
+
+func TestXRefReferencesTruncationHint(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "app.go")
+	if err := os.WriteFile(filePath, []byte("package app\nfunc Run() {}\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	results := make([]protocol.LocationResult, 20)
+	for i := 0; i < 20; i++ {
+		results[i] = protocol.LocationResult{
+			Location: &protocol.Location{
+				URI: "file://" + filePath,
+				Range: protocol.Range{
+					Start: protocol.Position{Line: i, Character: 0},
+					End:   protocol.Position{Line: i, Character: 5},
+				},
+			},
+		}
+	}
+	manager := &xrefImportTopologyManager{
+		refResults: results,
+	}
+	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
+
+	input, err := json.Marshal(xrefParams{
+		Action:     "references",
+		Pos:        filePath + ":2:6",
+		MaxResults: 15, // truncate at 15
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	got, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), input)
+	if err != nil {
+		t.Fatalf("references returned error: %v", err)
+	}
+	grouped := got.(protocol.GroupedLocationResult)
+	if !grouped.Truncated {
+		t.Fatalf("expected truncated results")
+	}
+	if !strings.Contains(grouped.Hint, "symbol has >15 references (truncated)") {
+		t.Fatalf("truncated hint = %q, want 'symbol has >15 references (truncated)'", grouped.Hint)
+	}
+}

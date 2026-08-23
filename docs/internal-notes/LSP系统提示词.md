@@ -120,6 +120,18 @@ MCP-LSP 仅暴露三个纯语义工具：
 - **触发场景**：配置或参数显式要求关闭某项功能或设定阈值为 0 / False（如 `min_lines=0`、`enabled=False`）时。
 - **动作要求**：必须在最高层调度入口（如 `run()`、`process()`）直接短路拦截返回（Short-circuit Bypass），避免调用下游格式化、渲染或空展示逻辑导致多余空头标记或意外副作用。
 
+### 3.11 测试驱动的逆向溯源 (Test-Driven Backward Induction)
+- **触发场景**：诊断模糊问题时。
+- **动作要求**：优先定位并阅读 `tests/` 中的失败测试用例与断言，从断言差距逆向溯源执行流到源码缺陷点。
+
+### 3.12 运算符与多态完整性 (Holistic Polymorphic & Operator Completeness)
+- **触发场景**：修改类构造函数、工厂方法或返回签名时。
+- **动作要求**：强制检查并同步更新所有相关的运算符重载（如 `__add__`, `__mul__`, `__eq__` 等魔术方法）及继承链，确保多态完整性。
+
+### 3.13 当前工作树绝对聚焦 (Active Working-Tree Focus)
+- **触发场景**：推演问题与排查逻辑时。
+- **动作要求**：必须完全基于当前工作树（Active Working Tree）的实际代码逻辑和 AST 结构进行推演，严禁通过 `git log` / `git blame` 翻阅历史 commit 盲抄旧答案。
+
 ---
 
 ## 4. 强制测试门禁与五步标准闭环 (Hard Test Gate & 5-Step Loop)

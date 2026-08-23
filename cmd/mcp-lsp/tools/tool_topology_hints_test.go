@@ -157,7 +157,7 @@ func TestStructureWorkspaceSymbolTruncationNarrowingHint(t *testing.T) {
 	}
 	if !strings.Contains(respFuzzy.Hint, "workspace_symbol results truncated") ||
 		!strings.Contains(respFuzzy.Hint, "match_mode=exact") ||
-		!strings.Contains(respFuzzy.Hint, "container/class prefix") {
+		!strings.Contains(respFuzzy.Hint, "container prefix") {
 		t.Fatalf("fuzzy truncated hint = %q, want container prefix or exact guidance", respFuzzy.Hint)
 	}
 }
