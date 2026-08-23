@@ -310,7 +310,9 @@ func runDocumentSymbols(
 		Showing:   showing,
 		Truncated: showing < total,
 	}
-	if resp.Truncated {
+	if total == 0 {
+		resp.Hint = "no symbols found in document; verify file path and content, or check if language server supports document symbols"
+	} else if resp.Truncated {
 		resp.Hint = "next: increase max_results or narrow the file/symbol scope"
 		if limit == protocol.XRefResultLimit {
 			resp.FailureReason = "document_symbol_hard_limit_reached"
@@ -358,11 +360,23 @@ func runWorkspaceSymbols(
 	items = selectWorkspaceSymbolMatches(items, query, matchMode)
 	total := len(items)
 	items = limitSlice(items, limit)
+	truncated := len(items) < total
 	response := workspaceSymbolListResponse{
-		Data: items, Total: total, Showing: len(items), Truncated: len(items) < total,
-		Hint: "next: increase max_results or narrow query/workspace_language/file_path",
+		Data: items, Total: total, Showing: len(items), Truncated: truncated,
 	}
-	if matchMode == workspaceSymbolMatchExact {
+	if total == 0 {
+		if matchMode == workspaceSymbolMatchExact {
+			response.Hint = "no symbols found matching exact query; check symbol casing, retry with match_mode=fuzzy, or use document_symbol for exact file-level inspection"
+		} else {
+			response.Hint = "no symbols found; check symbol name or casing, or use document_symbol on target file"
+		}
+	} else if truncated {
+		if matchMode == workspaceSymbolMatchFuzzy {
+			response.Hint = "next: workspace_symbol results truncated; narrow query with container/class prefix, use match_mode=exact, or increase max_results"
+		} else {
+			response.Hint = "next: workspace_symbol results truncated; narrow query with container/class prefix or file_path, or increase max_results (retry with match_mode=fuzzy to broaden search)"
+		}
+	} else if matchMode == workspaceSymbolMatchExact {
 		response.Hint = "next: retry with match_mode=fuzzy to include non-exact symbol names"
 	}
 	return response, nil
@@ -434,6 +448,8 @@ func runFoldingRanges(
 	}
 	if response.Truncated {
 		response.Hint = "next: increase max_results or narrow file scope"
+	} else if total == 0 {
+		response.Hint = "no folding ranges found in file"
 	}
 	return response, nil
 }
@@ -473,6 +489,8 @@ func runSemanticTokens(
 	response := semanticTokenListResponse{Legend: legend, Data: data, Total: total, Truncated: len(data) < total}
 	if response.Truncated {
 		response.Hint = "next: increase max_results or narrow file scope"
+	} else if total == 0 {
+		response.Hint = "no semantic tokens found in file"
 	}
 	return response, nil
 }

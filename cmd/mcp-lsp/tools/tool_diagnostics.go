@@ -332,7 +332,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		Data:    tables,
 		Total:   total,
 		Showing: total,
-		Hint:    "next: inspect the reported location with native file tools, apply a native apply_patch edit, then rerun diagnostics",
+		Hint:    "next: focus on diagnostics intersecting active diff/patch hunks; inspect reported locations with native file tools, apply a native apply_patch edit, then rerun diagnostics",
 		Meta:    diagnosticsMeta{Message: message},
 	}, nil
 }
