@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -111,22 +110,6 @@ func reviewFrontendDependencySeed(executionRoot string) (string, func() error, e
 		return "", nil, fmt.Errorf("frontend dependency seed must be a physical directory: %s", configured)
 	}
 	return normalizeReviewFrontendDependencySeed(configured, filepath.Dir(executionRoot))
-}
-
-// normalizeReviewFrontendDependencySeed 建立轻量视图，避免复制或遍历完整依赖树。
-func normalizeReviewFrontendDependencySeed(sourceRoot, worktreeRoot string) (string, func() error, error) {
-	if runtime.GOOS == "windows" {
-		return cleanWindowsReviewFrontendDependencySeed(sourceRoot)
-	}
-	seedRoot, err := os.MkdirTemp(worktreeRoot, ".ai-maintenance-frontend-seed-*")
-	if err != nil {
-		return "", nil, fmt.Errorf("reserve normalized frontend dependency seed: %w", err)
-	}
-	cleanup := func() error { return removeReviewDependencySeed(worktreeRoot, seedRoot) }
-	if err := populateNormalizedReviewDependencySeed(sourceRoot, seedRoot); err != nil {
-		return "", nil, errors.Join(err, cleanup())
-	}
-	return seedRoot, cleanup, nil
 }
 
 // populateNormalizedReviewDependencySeed 排除 cache，并物化浅层 package root 骨架。

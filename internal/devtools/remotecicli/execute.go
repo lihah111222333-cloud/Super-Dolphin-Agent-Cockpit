@@ -123,7 +123,7 @@ type executeCatalogBinding struct {
 	units          []heteroci.ExecutionUnit
 }
 
-// prepareExecuteInputs 完成 exact tree、runtime、四节点 topology 和请求摘要绑定；不连接节点或 PostgreSQL。
+// prepareExecuteInputs 完成 exact tree、runtime、单 Ubuntu/Wine topology 和请求摘要绑定；不连接节点或 PostgreSQL。
 func prepareExecuteInputs(ctx context.Context, args []string) (executePreparedInputs, error) {
 	_, _, runtimeConfigPath, err := parseExecuteArgs(args)
 	if err != nil {
@@ -318,7 +318,7 @@ func parseExecuteArgs(args []string) (string, string, string, error) {
 	return args[1], args[3], args[5], nil
 }
 
-// validateExecuteRuntimeTopology 要求 runtime binding 与四节点 manifest 在 node、platform、endpoint 和 probe identity 上双向 exact 相等。
+// validateExecuteRuntimeTopology 要求 runtime binding 与单 Ubuntu/Wine manifest 在 node、platform、endpoint 和 probe identity 上双向 exact 相等。
 func validateExecuteRuntimeTopology(runtimeConfig remoteruntime.RuntimeConfig, topology heteroci.Manifest) error {
 	if err := topology.ValidateSingleUbuntuWineExecutionPool(); err != nil {
 		return err

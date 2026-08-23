@@ -31,16 +31,6 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 	)
 	assertStringSetOmits(t, plan.RequiredGates, "frontend:build", "frontend:typecheck-contracts")
 	assertStringSetContains(t, plan.DiagnosticFiles, "frontend-app/src/App.jsx", "internal/app/modules.go")
-	assertStringSetContains(t, plan.RequiredEvidence,
-		"generated:source",
-		"lsp:diagnostics",
-		"native:apply_patch",
-		"native:read",
-		"native:search",
-	)
-	if !plan.RequiresEvidenceDoc {
-		t.Fatal("source and generated changes must require evidence doc")
-	}
 	assertStringSetContains(t, plan.GeneratedFiles, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md")
 }
 
@@ -320,12 +310,6 @@ func exactCurrentReviewPlan(t *testing.T, gates ...string) gatePlan {
 func TestBuildGatePlanRequiresDiagnosticsGateForGoScripts(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"scripts/ai_maintenance/main.go"})
 
-	assertStringSetContains(t, plan.RequiredEvidence,
-		"lsp:diagnostics",
-		"native:apply_patch",
-		"native:read",
-		"native:search",
-	)
 	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard", "lsp:changed-diagnostics")
 	assertStringSetContains(t, plan.DiagnosticFiles, "scripts/ai_maintenance/main.go")
 	assertStringSetOmits(t, plan.RequiredGates, "ai-maintenance:self-test")

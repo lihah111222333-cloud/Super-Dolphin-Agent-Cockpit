@@ -1,4 +1,4 @@
-//go:build e2e && windows && arm64
+//go:build windows && arm64 && e2e
 
 package main
 
@@ -12,6 +12,7 @@ import (
 )
 
 func TestMcpLSPCachedRubyDiagnosticsAndDocumentSymbol_E2E(t *testing.T) {
+	t.Log("evidence_status=NON_PASS_targeted_cache_semantic")
 	binary := strings.TrimSpace(os.Getenv("MCP_LSP_CACHED_PRODUCT_BINARY"))
 	if binary == "" {
 		t.Skip("set MCP_LSP_CACHED_PRODUCT_BINARY to the compiled mcp-lsp binary")

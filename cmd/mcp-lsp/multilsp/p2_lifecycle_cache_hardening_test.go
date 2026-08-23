@@ -182,21 +182,30 @@ func TestInitializeFailureDoesNotLeaveStaleWorkspaceClient(t *testing.T) {
 	}
 }
 
-func TestPOSIXGoRSSLimitUsesLanguageSpecificDefault(t *testing.T) {
-	if got := rssLimitBytesForLanguageOnOS("go", "linux"); got != defaultGoRSSLimitBytes {
-		t.Fatalf("rssLimitBytesForLanguageOnOS(go, linux) = %d, want %d", got, uint64(defaultGoRSSLimitBytes))
-	}
-}
-
 func TestGenericRSSLimitUsesDefaultLimit(t *testing.T) {
 	if got := rssLimitBytesForLanguage("typescript"); got != defaultCohortHardLimitBytes {
 		t.Fatalf("rssLimitBytesForLanguage(typescript) = %d, want %d", got, uint64(defaultCohortHardLimitBytes))
 	}
 }
 
-func TestWindowsGoplsUsesStandaloneFourGiBProcessLimit(t *testing.T) {
-	if got := rssLimitBytesForLanguageOnOS("go", "windows"); got != defaultGoWindowsRSSLimitBytes {
-		t.Fatalf("Windows standalone gopls RSS limit = %d, want %d", got, uint64(defaultGoWindowsRSSLimitBytes))
+func TestDefaultRSSLimitBytesForLanguageUsesExactInjectedDefaults(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		languageID   string
+		goLimit      uint64
+		genericLimit uint64
+		want         uint64
+	}{
+		{name: "non-Windows Go", languageID: "go", goLimit: defaultGoRSSLimitBytes, genericLimit: defaultCohortHardLimitBytes, want: defaultGoRSSLimitBytes},
+		{name: "Windows Go module", languageID: "gomod", goLimit: defaultGoWindowsRSSLimitBytes, genericLimit: defaultCohortHardLimitBytes, want: defaultGoWindowsRSSLimitBytes},
+		{name: "generic", languageID: "typescript", goLimit: defaultGoWindowsRSSLimitBytes, genericLimit: defaultCohortHardLimitBytes, want: defaultCohortHardLimitBytes},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := defaultRSSLimitBytesForLanguage(testCase.languageID, testCase.goLimit, testCase.genericLimit)
+			if got != testCase.want {
+				t.Fatalf("defaultRSSLimitBytesForLanguage(%q, %d, %d) = %d, want %d", testCase.languageID, testCase.goLimit, testCase.genericLimit, got, testCase.want)
+			}
+		})
 	}
 }
 

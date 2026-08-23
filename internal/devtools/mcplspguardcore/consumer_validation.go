@@ -409,8 +409,6 @@ func liveConsumerReferences(relative string, raw []byte) (map[string]int, error)
 	switch relative {
 	case "scripts/ai_maintenance/owned_gate_execution.go":
 		return ownedGateWorkloadReferences(file), nil
-	case "scripts/ai_maintenance/evidence.go":
-		return platformWorkloadReferences(file), nil
 	case "scripts/mcp_lsp_workload_runner/platform_windows.go":
 		return platformWorkloadReferences(file), nil
 	default:

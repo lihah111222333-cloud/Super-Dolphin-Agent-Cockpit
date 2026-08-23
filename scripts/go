@@ -19,7 +19,7 @@ main() {
   $replacement
 
 说明:
-  - 所有测试先经过受信本地 Gate 与四节点离线编排；共享依赖与编译缓存只能加速，每次测试仍实际执行
+  - 所有测试先经过受信本地 Gate 与单 Ubuntu physical host + Ubuntu/Wine logical runtimes 编排；共享依赖与编译缓存只能加速，每次测试仍实际执行
   - 内部测试脚本的进程退出码本身不构成候选树或 release authority
   - build / vet 若包含测试守卫，同样必须通过受信 CI 入口
 EOF_MSG

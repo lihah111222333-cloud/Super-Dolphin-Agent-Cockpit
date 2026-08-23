@@ -500,6 +500,12 @@ func TestPostgreSQLOwnerRejectsStandbyBeforeDDL(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLOwnerServerQueryNormalizesInetAddress(t *testing.T) {
+	if !strings.Contains(postgreSQLOwnerServerQuery, "host(inet_server_addr())") || strings.Contains(postgreSQLOwnerServerQuery, "inet_server_addr()::text") {
+		t.Fatalf("owner server query does not normalize PostgreSQL inet output: %q", postgreSQLOwnerServerQuery)
+	}
+}
+
 func TestPostgreSQLOwnerRejectsUntrustedAuthorityBeforeMutation(t *testing.T) {
 	cases := []struct {
 		name   string

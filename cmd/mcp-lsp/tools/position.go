@@ -393,59 +393,88 @@ var (
 	declAssignRE     = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)`)
 )
 
-var commonLanguageKeywords = map[string]bool{
-	"def": true, "class": true, "func": true, "fn": true, "function": true,
-	"var": true, "let": true, "const": true, "val": true, "type": true,
-	"struct": true, "interface": true, "enum": true, "trait": true, "impl": true,
-	"package": true, "namespace": true, "module": true, "import": true, "from": true, "export": true, "as": true,
-	"async": true, "await": true, "public": true, "private": true, "protected": true,
-	"static": true, "final": true, "override": true, "mut": true, "pub": true,
-	"inline": true, "virtual": true, "abstract": true, "extern": true, "default": true,
-	"return": true, "yield": true, "if": true, "else": true, "elif": true,
-	"for": true, "while": true, "loop": true, "match": true, "switch": true,
-	"case": true, "break": true, "continue": true, "goto": true, "throw": true,
-	"try": true, "catch": true, "finally": true, "except": true, "raise": true,
-	"with": true, "defer": true, "go": true, "select": true,
-	"nil": true, "null": true, "true": true, "false": true, "none": true,
-	"self": true, "this": true, "super": true,
-	"new": true, "delete": true, "sizeof": true, "typeof": true, "instanceof": true,
-	"in": true, "is": true, "not": true, "and": true, "or": true,
-}
-
 type identifierInfo struct {
 	name     string
 	startCol int
 	endCol   int
 }
 
-func findCommentStartColumn(lineText string, runes []rune) int {
-	inSingleQuote := false
-	inDoubleQuote := false
+type quoteScanState struct {
+	inSingle bool
+	inDouble bool
+}
+
+// findCommentStartColumn 返回引号外第一个受支持注释标记的一基列号。
+func findCommentStartColumn(runes []rune) int {
+	state := quoteScanState{}
 	for i, r := range runes {
-		if r == '\'' && !inDoubleQuote && (i == 0 || runes[i-1] != '\\') {
-			inSingleQuote = !inSingleQuote
+		if state.consumeQuote(runes, i) {
 			continue
 		}
-		if r == '"' && !inSingleQuote && (i == 0 || runes[i-1] != '\\') {
-			inDoubleQuote = !inDoubleQuote
+		if state.inSingle || state.inDouble {
 			continue
 		}
-		if inSingleQuote || inDoubleQuote {
-			continue
-		}
-		if r == '#' {
-			return i + 1
-		}
-		if r == '/' && i+1 < len(runes) && (runes[i+1] == '/' || runes[i+1] == '*') {
-			return i + 1
-		}
-		if r == '-' && i+1 < len(runes) && runes[i+1] == '-' {
+		if isCommentMarkerAt(runes, i, r) {
 			return i + 1
 		}
 	}
 	return -1
 }
 
+// consumeQuote 消费未转义的单双引号并更新扫描状态。
+func (state *quoteScanState) consumeQuote(runes []rune, index int) bool {
+	if index > 0 && runes[index-1] == '\\' {
+		return false
+	}
+	switch runes[index] {
+	case '\'':
+		if state.inDouble {
+			return false
+		}
+		state.inSingle = !state.inSingle
+		return true
+	case '"':
+		if state.inSingle {
+			return false
+		}
+		state.inDouble = !state.inDouble
+		return true
+	default:
+		return false
+	}
+}
+
+// isCommentMarkerAt 判断当前位置是否为 Python、C 系或 SQL 注释起点。
+func isCommentMarkerAt(runes []rune, index int, current rune) bool {
+	if current == '#' {
+		return true
+	}
+	if index+1 >= len(runes) {
+		return false
+	}
+	next := runes[index+1]
+	return current == '/' && (next == '/' || next == '*') || current == '-' && next == '-'
+}
+
+// isCommonLanguageKeyword 判断标识符是否属于自动吸附应跳过的通用语言关键字。
+func isCommonLanguageKeyword(identifier string) bool {
+	switch strings.ToLower(identifier) {
+	case "def", "class", "func", "fn", "function",
+		"var", "let", "const", "val", "type", "struct", "interface", "enum", "trait", "impl",
+		"package", "namespace", "module", "import", "from", "export", "as",
+		"async", "await", "public", "private", "protected", "static", "final", "override", "mut", "pub",
+		"inline", "virtual", "abstract", "extern", "default", "return", "yield", "if", "else", "elif",
+		"for", "while", "loop", "match", "switch", "case", "break", "continue", "goto", "throw",
+		"try", "catch", "finally", "except", "raise", "with", "defer", "go", "select",
+		"nil", "null", "true", "false", "none", "self", "this", "super", "new", "delete",
+		"sizeof", "typeof", "instanceof", "in", "is", "not", "and", "or":
+		return true
+	default:
+		return false
+	}
+}
+
+// findPrimaryIdentifier 优先返回声明模式捕获的标识符，否则返回首个有效候选。
 func findPrimaryIdentifier(lineText string, candidates []identifierInfo) (identifierInfo, bool) {
 	if len(candidates) == 0 {
 		return identifierInfo{}, false
@@ -482,68 +511,96 @@ func snapColumnToIdentifier(lineText string, requestedCol int, hasCol bool, rune
 		return requestedCol
 	}
 
-	commentStartCol := findCommentStartColumn(lineText, runes)
+	commentStartCol := findCommentStartColumn(runes)
+	allIdentifiers, validCandidates := collectIdentifierCandidates(lineText, commentStartCol)
+	primary, hasPrimary := findPrimaryIdentifier(lineText, validCandidates)
+	if !hasCol || requestedCol <= 0 {
+		return implicitIdentifierColumn(runes, primary, hasPrimary)
+	}
+	return snapExplicitIdentifierColumn(runes, requestedCol, commentStartCol, allIdentifiers, validCandidates, primary, hasPrimary)
+}
 
+// collectIdentifierCandidates 收集全部标识符，并过滤注释内标识符与语言关键字。
+func collectIdentifierCandidates(lineText string, commentStartCol int) ([]identifierInfo, []identifierInfo) {
 	matches := positionIdentifierRE.FindAllStringIndex(lineText, -1)
-	var allIdentifiers []identifierInfo
-	var validCandidates []identifierInfo
-
+	allIdentifiers := make([]identifierInfo, 0, len(matches))
+	validCandidates := make([]identifierInfo, 0, len(matches))
 	for _, match := range matches {
-		idName := lineText[match[0]:match[1]]
+		identifier := lineText[match[0]:match[1]]
 		startCol := utf8.RuneCountInString(lineText[:match[0]]) + 1
-		endCol := utf8.RuneCountInString(lineText[:match[1]]) + 1
-		info := identifierInfo{name: idName, startCol: startCol, endCol: endCol}
+		info := identifierInfo{
+			name: identifier, startCol: startCol,
+			endCol: utf8.RuneCountInString(lineText[:match[1]]) + 1,
+		}
 		allIdentifiers = append(allIdentifiers, info)
-
-		inComment := commentStartCol > 0 && startCol >= commentStartCol
-		isKeyword := commonLanguageKeywords[strings.ToLower(idName)]
-		if !inComment && !isKeyword {
+		if (commentStartCol <= 0 || startCol < commentStartCol) && !isCommonLanguageKeyword(identifier) {
 			validCandidates = append(validCandidates, info)
 		}
 	}
+	return allIdentifiers, validCandidates
+}
 
-	primary, hasPrimary := findPrimaryIdentifier(lineText, validCandidates)
-
-	if !hasCol || requestedCol <= 0 {
-		if hasPrimary {
-			return primary.startCol
-		}
-		for i, r := range runes {
-			if !unicode.IsSpace(r) {
-				return i + 1
-			}
-		}
-		return 1
-	}
-
-	for _, cand := range validCandidates {
-		if requestedCol >= cand.startCol && requestedCol <= cand.endCol {
-			return requestedCol
-		}
-	}
-
+// implicitIdentifierColumn 为未提供显式列号的请求选择声明标识符或首个非空白字符。
+func implicitIdentifierColumn(runes []rune, primary identifierInfo, hasPrimary bool) int {
 	if hasPrimary {
-		if commentStartCol > 0 && requestedCol >= commentStartCol {
-			return primary.startCol
-		}
-		for _, id := range allIdentifiers {
-			if requestedCol >= id.startCol && requestedCol <= id.endCol {
-				if commonLanguageKeywords[strings.ToLower(id.name)] {
-					return primary.startCol
-				}
-			}
-		}
-		firstNonSpace := len(runes) + 1
-		for i, r := range runes {
-			if !unicode.IsSpace(r) {
-				firstNonSpace = i + 1
-				break
-			}
-		}
-		if requestedCol <= firstNonSpace {
-			return primary.startCol
+		return primary.startCol
+	}
+	return firstNonSpaceColumn(runes)
+}
+
+// snapExplicitIdentifierColumn 对显式列号执行候选命中、注释和关键字校准。
+func snapExplicitIdentifierColumn(
+	runes []rune,
+	requestedCol int,
+	commentStartCol int,
+	allIdentifiers, validCandidates []identifierInfo,
+	primary identifierInfo,
+	hasPrimary bool,
+) int {
+	if identifierColumnContains(validCandidates, requestedCol) {
+		return requestedCol
+	}
+	if !hasPrimary {
+		return requestedCol
+	}
+	if commentStartCol > 0 && requestedCol >= commentStartCol {
+		return primary.startCol
+	}
+	if keywordColumnContains(allIdentifiers, requestedCol) {
+		return primary.startCol
+	}
+	if requestedCol <= firstNonSpaceColumn(runes) {
+		return primary.startCol
+	}
+	return requestedCol
+}
+
+// identifierColumnContains 判断列号是否落在任一标识符范围内。
+func identifierColumnContains(identifiers []identifierInfo, column int) bool {
+	for _, identifier := range identifiers {
+		if column >= identifier.startCol && column <= identifier.endCol {
+			return true
 		}
 	}
+	return false
+}
 
-	return requestedCol
+// keywordColumnContains 判断列号是否落在语言关键字范围内。
+func keywordColumnContains(identifiers []identifierInfo, column int) bool {
+	for _, identifier := range identifiers {
+		if column >= identifier.startCol && column <= identifier.endCol && isCommonLanguageKeyword(identifier.name) {
+			return true
+		}
+	}
+	return false
+}
+
+// firstNonSpaceColumn 返回首个非空白字符的一基列号，空行返回一。
+func firstNonSpaceColumn(runes []rune) int {
+	for index, value := range runes {
+		if !unicode.IsSpace(value) {
+			return index + 1
+		}
+	}
+	return 1
 }

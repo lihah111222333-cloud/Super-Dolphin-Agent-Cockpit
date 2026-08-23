@@ -16,7 +16,7 @@
 | RPC / MCP | `jrpc2-convention.md`、`mcp-service-convention.md` | JSON-RPC、stdio MCP、控制面注册和 manifest |
 | Store / SQL | `sqlc-convention.md` | SQLite migration、sqlc 生成物和 store 边界 |
 | 状态 / 事件 | `statemachine-event-convention.md`、`workflow-runtime-state-contract.md`、`recall-topic-naming.md` | 状态机、事件 payload 和运行态命名 |
-| 远程 CI | `remote-ci-eci-imagecache-contract.md` | 四节点容量分片单路径、PostgreSQL remote authority、portable manifest 和可观测 JSONL |
+| 远程 CI | `remote-ci-eci-imagecache-contract.md` | 单 Ubuntu physical host + Ubuntu/Wine logical runtimes 容量分片单路径、PostgreSQL remote authority、portable manifest 和可观测 JSONL |
 
 ## 维护规则
 

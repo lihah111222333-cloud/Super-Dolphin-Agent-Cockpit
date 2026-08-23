@@ -200,14 +200,14 @@ const MODULE_DESCRIPTIONS = {
 
 const PURPOSE_RULES = [
   ['cmd/super-dolphin-gate/', 'trusted local Gate、project-map、closure 与 worker 入口'],
-  ['cmd/super-dolphin-remote-ci/', '独立 remote-ci portable descriptor validation 入口'],
+  ['cmd/super-dolphin-remote-ci/', '独立 remote-ci portable validation 与 production execute 入口'],
   ['internal/devtools/heteroci/', '通用异构节点、容量规划与本地非权威路由契约'],
   ['internal/devtools/remoteportable/', 'portable manifest、binding 与跨仓 target identity'],
   ['internal/devtools/remotecicli/', '独立 remote-ci validation composition root'],
   ['.githooks/pre-commit', '精确 staged tree 的本地代码守卫入口'],
   ['.githooks/pre-push', '精确 ref update 的 trusted local Gate 门禁入口'],
   ['.githooks/trusted-gate-launcher.sh', 'trusted local Gate launcher 验证入口'],
-  ['docs/契约/remote-ci-eci-imagecache-contract.md', '独立 portable remote-ci 四节点/PG/observable validation Accepted 契约'],
+  ['docs/契约/remote-ci-eci-imagecache-contract.md', '独立 portable remote-ci 单 Ubuntu/Wine/PG/observable execute Accepted 契约'],
 
   ['frontend-app/src/pages/', 'React 页面与路由级 UI'],
   ['frontend-app/src/entities/', 'React 客户端状态、thread/composer/store 模型'],
@@ -326,7 +326,7 @@ const RUNTIME_ENTRY_ROWS = [
   ['MCP orchestration peer', 'cmd/mcp-orch/main.go', 'stdio / managed peer', 'Agent lifecycle, DAG, wakeup, workspace and shared file tools'],
   ['MCP LSP peer', 'cmd/mcp-lsp/main.go', 'stdio / managed peer', 'Generic multi-language LSP peer and code intelligence tools'],
   ['Trusted local Gate', 'cmd/super-dolphin-gate/main.go', 'Git hooks / local validation', 'Exact-tree project-map, closure, and local code-guard checks'],
-  ['Portable validation peer', 'cmd/super-dolphin-remote-ci/main.go', 'standalone validation binary', 'Strict portable manifest binding; execute remains fail-fast retired'],
+  ['Remote CI engine', 'cmd/super-dolphin-remote-ci/main.go', 'standalone validation and execute binary', 'Strict portable binding plus the single Ubuntu/Wine PostgreSQL production lifecycle'],
   ['React UI', 'frontend-app/src/main.jsx', '5175 dev server', 'Current React/Vite frontend entry'],
   ['macOS dev runner', 'run-new-ui-desktop.sh', '5175 dev UI + local desktop host', 'Desktop host plus Vite dev flow'],
   ['Windows dev runner', 'run-new-ui-desktop.ps1', '5175 dev UI + local desktop host', 'PowerShell desktop host plus Vite dev flow'],
@@ -380,7 +380,7 @@ const SUBSYSTEM_PREFIX_GROUPS = [
   ]],
   ['remote CI', [
     ['cmd/super-dolphin-gate', 'trusted local Gate、project-map 与 closure worker CLI'],
-    ['cmd/super-dolphin-remote-ci', '独立 portable descriptor validation CLI'],
+    ['cmd/super-dolphin-remote-ci', '独立 portable validation 与 production execute CLI'],
     ['internal/devtools/heteroci', '通用异构节点、容量规划与本地非权威路由'],
     ['internal/devtools/remoteportable', 'portable manifest 与 cross-repository target binding'],
     ['internal/devtools/remotecicli', '独立 remote-ci validation composition root'],

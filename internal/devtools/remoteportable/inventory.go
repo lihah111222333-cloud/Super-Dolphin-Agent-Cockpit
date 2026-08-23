@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/build"
 	"path"
 	"slices"
 	"sort"
@@ -41,7 +42,10 @@ func BuildPortableGoWorkloadInventory(ctx context.Context, reader ExactGitTreeRe
 	if err != nil {
 		return PortableGoWorkloadInventory{}, err
 	}
-	packages := portableGoPackages(entries, moduleDirs, excludedNestedModules, platform)
+	packages, err := portableGoPackages(ctx, reader, tree, entries, moduleDirs, excludedNestedModules, platform)
+	if err != nil {
+		return PortableGoWorkloadInventory{}, err
+	}
 	return PortableGoWorkloadInventory{GoPackages: packages, NestedGoModules: moduleDirs}, nil
 }
 
@@ -78,6 +82,7 @@ func validatePortableGoInventoryRequest(ctx context.Context, reader ExactGitTree
 	return nil
 }
 
+// validatePortableTreeEntries 校验 exact tree 条目均为唯一、规范的仓库相对 blob 路径。
 func validatePortableTreeEntries(entries []GitTreeEntry) error {
 	if len(entries) == 0 {
 		return errors.New("portable exact tree is empty")
@@ -267,15 +272,32 @@ func portablePathUnderAnyExcludedModule(directory string, excluded []string) boo
 	return false
 }
 
-// portableGoPackages 过滤 excluded subtree 后构建确定性 module/package 目标。
-func portableGoPackages(entries []GitTreeEntry, moduleDirs, excludedNestedModules []string, platform string) []string {
-	moduleSet := make(map[string]struct{}, len(moduleDirs))
-	for _, directory := range moduleDirs {
-		moduleSet[directory] = struct{}{}
+// portableGoPackages 过滤 excluded subtree 后构建确定性、实际可构建的 module/package 目标。
+func portableGoPackages(ctx context.Context, reader ExactGitTreeReader, tree string, entries []GitTreeEntry, moduleDirs, excludedNestedModules []string, platform string) ([]string, error) {
+	sources, err := loadPortableGoSources(ctx, reader, tree, entries, moduleDirs, excludedNestedModules)
+	if err != nil {
+		return nil, err
 	}
-	packages := make(map[string]struct{})
+	buildContext, err := portableGoBuildContext(platform, sources)
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := portableGoPackageCandidates(buildContext, sources, entries, moduleDirs, excludedNestedModules)
+	if err != nil {
+		return nil, err
+	}
+	return portableBuildablePackageKeys(candidates), nil
+}
+
+// loadPortableGoSources 从 exact tree 读取 declared module 内且不属于 excluded subtree 的 Go blob。
+func loadPortableGoSources(ctx context.Context, reader ExactGitTreeReader, tree string, entries []GitTreeEntry, moduleDirs, excludedNestedModules []string) (map[string]portableGoSource, error) {
+	moduleSet := make(map[string]struct{}, len(moduleDirs))
+	for _, moduleRoot := range moduleDirs {
+		moduleSet[moduleRoot] = struct{}{}
+	}
+	sources := make(map[string]portableGoSource)
 	for _, entry := range entries {
-		if path.Ext(entry.Path) != ".go" || !portableGoFileMatchesPlatform(entry.Path, platform) {
+		if path.Ext(entry.Path) != ".go" {
 			continue
 		}
 		directory := path.Dir(entry.Path)
@@ -286,22 +308,47 @@ func portableGoPackages(entries []GitTreeEntry, moduleDirs, excludedNestedModule
 		if moduleRoot == "" || !portablePathUnderDeclaredModule(directory, moduleRoot, moduleSet) {
 			continue
 		}
-		relative := strings.TrimPrefix(directory, moduleRoot)
-		relative = strings.TrimPrefix(relative, "/")
-		packageTarget := "."
-		if relative != "" {
-			packageTarget = "./" + relative
+		data, err := reader.ReadBlob(ctx, tree, entry.Path)
+		if err != nil {
+			return nil, fmt.Errorf("read portable Go source %q: %w", entry.Path, err)
 		}
-		packages[moduleRoot+"\x00"+packageTarget] = struct{}{}
+		sources[entry.Path] = portableGoSource{entry: entry, data: data, moduleRoot: moduleRoot}
 	}
-	result := make([]string, 0, len(packages))
-	for key := range packages {
-		result = append(result, key)
+	return sources, nil
+}
+
+// portableGoPackageCandidates 用标准 build context 选择文件并合并同包的 cgo/embed 可构建性。
+func portableGoPackageCandidates(buildContext build.Context, sources map[string]portableGoSource, entries []GitTreeEntry, moduleDirs, excludedNestedModules []string) (map[string]portableGoPackageCandidate, error) {
+	candidates := make(map[string]portableGoPackageCandidate)
+	for _, source := range sources {
+		packageKey, candidate, matched, err := portableGoSourceCandidate(buildContext, source, entries, moduleDirs, excludedNestedModules)
+		if err != nil {
+			return nil, err
+		}
+		if !matched {
+			continue
+		}
+		current := candidates[packageKey]
+		current.hasBuildableFile = current.hasBuildableFile || candidate.hasBuildableFile
+		current.invalid = current.invalid || candidate.invalid
+		candidates[packageKey] = current
+	}
+	return candidates, nil
+}
+
+// portableBuildablePackageKeys 筛出至少一个可构建文件且未被 unresolved embed 使整包失效的目标。
+func portableBuildablePackageKeys(candidates map[string]portableGoPackageCandidate) []string {
+	result := make([]string, 0, len(candidates))
+	for packageKey, candidate := range candidates {
+		if candidate.hasBuildableFile && !candidate.invalid {
+			result = append(result, packageKey)
+		}
 	}
 	slices.Sort(result)
 	return result
 }
 
+// portableOwningModule 返回包含 directory 的最长 declared module root。
 func portableOwningModule(directory string, moduleDirs []string) string {
 	best := ""
 	for _, module := range moduleDirs {
@@ -319,65 +366,4 @@ func portablePathUnderDeclaredModule(directory, module string, modules map[strin
 		return false
 	}
 	return module == "." || directory == module || strings.HasPrefix(directory, module+"/")
-}
-
-// portableGoFileMatchesPlatform 按 Go 文件名的精确 OS/架构后缀筛选目标平台。
-func portableGoFileMatchesPlatform(filePath, platform string) bool {
-	fileOS, fileArch, ok := portableGoFilenameTarget(filePath)
-	if !ok {
-		return false
-	}
-	if fileArch != "" && fileArch != "amd64" {
-		return false
-	}
-	if fileOS == "unix" {
-		return platform == string(RepositoryWorkloadPlatformLinuxAMD64)
-	}
-	switch platform {
-	case string(RepositoryWorkloadPlatformLinuxAMD64):
-		return fileOS == "" || fileOS == "linux"
-	case string(RepositoryWorkloadPlatformWindowsAMD64):
-		return fileOS == "" || fileOS == "windows"
-	default:
-		return false
-	}
-}
-
-// portableGoFilenameTarget 解析 Go 文件名末尾的 OS 与架构选择器。
-func portableGoFilenameTarget(filePath string) (string, string, bool) {
-	stem, ok := strings.CutSuffix(path.Base(filePath), ".go")
-	if !ok {
-		return "", "", false
-	}
-	components := strings.Split(strings.TrimSuffix(stem, "_test"), "_")
-	fileOS, fileArch := "", ""
-	last := len(components) - 1
-	if last >= 0 && portableGoFilenameOS(components[last]) {
-		fileOS = components[last]
-	} else if last >= 0 && portableGoFilenameArch(components[last]) {
-		fileArch = components[last]
-		last--
-		if last >= 0 && portableGoFilenameOS(components[last]) {
-			fileOS = components[last]
-		}
-	}
-	return fileOS, fileArch, true
-}
-
-func portableGoFilenameOS(value string) bool {
-	switch value {
-	case "aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux", "nacl", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "zos", "unix":
-		return true
-	default:
-		return false
-	}
-}
-
-func portableGoFilenameArch(value string) bool {
-	switch value {
-	case "386", "amd64", "arm", "arm64", "loong64", "mips", "mips64", "mips64le", "mipsle", "ppc64", "ppc64le", "riscv64", "s390x", "wasm":
-		return true
-	default:
-		return false
-	}
 }

@@ -10,7 +10,7 @@ const (
 	routingBlockerCapacity = CapacityBlockerReasonCapacityUnavailable
 )
 
-// BuildRoutingDecision 将已验证的装箱规划闭合为固定本地四节点路由决策。
+// BuildRoutingDecision 将已验证的装箱规划闭合为单 Ubuntu physical host 上 Ubuntu/Wine logical runtimes 的本地路由决策。
 func BuildRoutingDecision(
 	manifest Manifest,
 	snapshot SnapshotSet,

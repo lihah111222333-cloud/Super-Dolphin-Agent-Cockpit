@@ -29,7 +29,7 @@ func frontendLintSourceRelevant(file string) bool {
 	}
 }
 
-// frontendDiagnosticsRelevant 仅把语言服务器可诊断的前端源码和工具脚本加入证据范围。
+// frontendDiagnosticsRelevant 仅把语言服务器可诊断的前端源码和工具脚本加入诊断范围。
 func frontendDiagnosticsRelevant(file string) bool {
 	return frontendLintSourceRelevant(file)
 }

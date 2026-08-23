@@ -695,17 +695,11 @@ func assertProducerFieldsAcceptedByConsumer(t *testing.T, producer, consumer any
 
 func TestSchemaCompilerRejectsNonAbsoluteOrUncleanHelperPaths(t *testing.T) {
 	directory := t.TempDir()
-	testExecutable, err := os.Executable()
-	if err != nil {
-		t.Fatalf("os.Executable: %v", err)
-	}
-	helper := filepath.Join(directory, "mcp-schema-compiler-helper"+filepath.Ext(testExecutable))
+	identity := testHelperIdentity()
+	helper := filepath.Join(directory, HelperFileName(identity.GOOS))
 	marker := filepath.Join(directory, "started")
 	script := "#!/bin/sh\nprintf started >" + marker + "\n"
-	image := []byte(script)
-	if runtime.GOOS == "windows" {
-		image = append([]byte{'M', 'Z'}, image...)
-	}
+	image := helperFixtureImage(identity.GOOS, []byte(script))
 	if err := os.WriteFile(helper, image, 0o700); err != nil {
 		t.Fatalf("write helper fixture: %v", err)
 	}
@@ -720,7 +714,7 @@ func TestSchemaCompilerRejectsNonAbsoluteOrUncleanHelperPaths(t *testing.T) {
 	for _, helperPath := range paths {
 		client, err := NewClient(context.Background(), ClientConfig{
 			HelperPath: helperPath, ManifestPath: helper + HelperManifestSuffix,
-			FilesystemWorkerPath: os.Args[0], Identity: testHelperIdentity(),
+			FilesystemWorkerPath: os.Args[0], Identity: identity,
 		})
 		if err == nil || client != nil {
 			t.Errorf("NewClient(%q) = (%v, %v), want rejection", helperPath, client, err)
@@ -729,12 +723,12 @@ func TestSchemaCompilerRejectsNonAbsoluteOrUncleanHelperPaths(t *testing.T) {
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("non-pinned helper was started: stat error = %v", err)
 	}
-	if err := WriteHelperManifest(helper, helper+HelperManifestSuffix, testHelperIdentity()); err != nil {
+	if err := WriteHelperManifest(helper, helper+HelperManifestSuffix, identity); err != nil {
 		t.Fatalf("write helper manifest: %v", err)
 	}
 	client, err := NewClient(context.Background(), ClientConfig{
 		HelperPath: helper, ManifestPath: helper + HelperManifestSuffix,
-		FilesystemWorkerPath: os.Args[0], Identity: testHelperIdentity(),
+		FilesystemWorkerPath: os.Args[0], Identity: identity,
 	})
 	if err != nil || client == nil {
 		t.Fatalf("NewClient(absolute clean) = (%v, %v)", client, err)

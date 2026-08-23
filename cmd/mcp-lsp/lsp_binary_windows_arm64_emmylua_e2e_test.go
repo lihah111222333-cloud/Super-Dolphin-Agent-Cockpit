@@ -147,50 +147,44 @@ func emmyLuaDirectoryState(t *testing.T, path string) (bool, int) {
 	return true, len(entries)
 }
 
-func emmyLuaPathExists(t *testing.T, path string) bool {
-	t.Helper()
-	_, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	if err != nil {
-		t.Fatalf("inspect EmmyLua cache entry: %s", redactEmmyLuaWindowsARM64Text(err.Error(), path))
-	}
-	return true
-}
-
 // emmyLuaWindowsARM64ProductRoot 解析受控的产品根；未提供时创建一次性私有根，
 // 提供时只复用现有绝对目录，便于短 precheck 复用已安装的 EmmyLua 缓存。
 func emmyLuaWindowsARM64ProductRoot(t *testing.T) (string, bool, error) {
 	t.Helper()
 	configured := strings.TrimSpace(os.Getenv(emmyLuaWindowsARM64ProductRootEnv))
 	if configured == "" {
-		root, err := os.MkdirTemp("", "sd-emmylua-production-windows-arm64-")
+		productRoot, err := os.MkdirTemp("", "sd-emmylua-production-windows-arm64-")
 		if err != nil {
 			return "", false, fmt.Errorf("create private EmmyLua product root: %w", err)
 		}
 		t.Cleanup(func() {
-			if err := removeRealWindowsProductRoot(root); err != nil {
+			if err := removeRealWindowsProductRoot(productRoot); err != nil {
 				t.Errorf("remove EmmyLua Windows ARM64 product root: %v", err)
 			}
 		})
-		return root, false, nil
+		if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
+			return "", false, fmt.Errorf("restrict private EmmyLua product root: %w", err)
+		}
+		return productRoot, false, nil
 	}
-	root := filepath.Clean(configured)
-	if !filepath.IsAbs(root) {
+	productRoot := filepath.Clean(configured)
+	if !filepath.IsAbs(productRoot) {
 		return "", true, fmt.Errorf("%s must be an absolute Windows product root: %q", emmyLuaWindowsARM64ProductRootEnv, configured)
 	}
-	if !strings.HasPrefix(strings.ToLower(filepath.Base(root)), "sd-emmylua-production-windows-arm64-") {
-		return "", true, fmt.Errorf("%s must identify an approved EmmyLua product root: %q", emmyLuaWindowsARM64ProductRootEnv, filepath.Base(root))
+	if !strings.HasPrefix(strings.ToLower(filepath.Base(productRoot)), "sd-emmylua-production-windows-arm64-") {
+		return "", true, fmt.Errorf("%s must identify an approved EmmyLua product root: %q", emmyLuaWindowsARM64ProductRootEnv, filepath.Base(productRoot))
 	}
-	info, err := os.Stat(root)
+	info, err := os.Stat(productRoot)
 	if err != nil {
-		return "", true, fmt.Errorf("stat reusable EmmyLua product root %q: %w", root, err)
+		return "", true, fmt.Errorf("stat reusable EmmyLua product root %q: %w", productRoot, err)
 	}
 	if !info.IsDir() {
-		return "", true, fmt.Errorf("reusable EmmyLua product root %q is not a directory", root)
+		return "", true, fmt.Errorf("reusable EmmyLua product root %q is not a directory", productRoot)
 	}
-	return root, true, nil
+	if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
+		return "", true, fmt.Errorf("restrict reusable EmmyLua product root: %w", err)
+	}
+	return productRoot, true, nil
 }
 
 // TestEmmyLuaWindowsARM64ProductRootContract 锁定 fresh install 与既有缓存复用的入口，
@@ -295,9 +289,6 @@ func TestWindowsARM64EmmyLuaProductionE2E(t *testing.T) {
 	productRoot, reusedProductRoot, err := emmyLuaWindowsARM64ProductRoot(t)
 	if err != nil {
 		t.Fatalf("resolve EmmyLua Windows ARM64 product root: %v", err)
-	}
-	if err := securefs.RestrictPrivateOwnerOnly(productRoot, 0o700); err != nil {
-		t.Fatalf("restrict private product root: %v", err)
 	}
 	cacheBefore := snapshotEmmyLuaCache(t, productRoot, manifest, asset)
 	cacheAfter := emmyLuaCacheSnapshot{}

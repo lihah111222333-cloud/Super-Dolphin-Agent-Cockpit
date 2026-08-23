@@ -105,7 +105,6 @@ func TestValidateConsumersRequiresExactLiveRegistryCoverage(t *testing.T) {
 	platformAdapter := "package main\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc runnerPlatformWorkload(workload catalog.Workload) catalog.Workload { return cloneRunnerWorkload(workload) }\n"
 	writeConsumerFixture("scripts/mcp_lsp_workload_runner/platform_nonwindows.go", platformAdapter)
 	writeConsumerFixture("scripts/mcp_lsp_workload_runner/platform_windows.go", platformAdapter)
-	writeConsumerFixture("scripts/ai_maintenance/evidence.go", string(readGuardCandidateBlob(t, "scripts/ai_maintenance/evidence.go")))
 	writeConsumerFixture("internal/devtools/mcplspguardcore/guard.go", "package mcplspcatalogguard\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc guard() { _, _ = catalog.LoadAt(repository, tree) }\n")
 	writeConsumerFixture("internal/devtools/mcplspguardcore/consumer_ast_helpers.go", "package mcplspcatalogguard\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc flow() { _, _ = catalog.LoadAt(repository, tree) }\n")
 	writeConsumerFixture("internal/devtools/mcplspguardcore/consumer_validation.go", "package mcplspcatalogguard\nimport catalog \"github.com/lihah111222333-cloud/super-dolphin-agent/scripts/mcp_lsp_workload_catalog\"\nfunc validation() { _, _ = catalog.LoadAt(repository, tree) }\n")
@@ -231,7 +230,6 @@ func TestWorkloadConsumerRegistryIncludesLiveGuardConsumers(t *testing.T) {
 	paths := catalog.WorkloadConsumerPaths()
 	for _, want := range []string{
 		"cmd/super-dolphin-gate/main.go",
-		"scripts/ai_maintenance/evidence.go",
 		"internal/devtools/mcplspguardcore/guard.go",
 	} {
 		if !slices.Contains(paths, want) {

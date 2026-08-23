@@ -59,11 +59,13 @@ type postgresqlOwnerQueryRower interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
+const postgreSQLOwnerServerQuery = `SELECT pg_is_in_recovery(), current_setting('transaction_read_only'), current_setting('synchronous_commit'), COALESCE(host(inet_server_addr()), ''), current_user`
+
 // validatePostgreSQLOwnerServer 拒绝 standby、只读事务与非 remote_apply 同步提交。
 func validatePostgreSQLOwnerServer(ctx context.Context, queryer postgresqlOwnerQueryRower) error {
 	var inRecovery bool
 	var transactionReadOnly, synchronousCommit, serverAddress, currentUser string
-	err := queryer.QueryRowContext(ctx, `SELECT pg_is_in_recovery(), current_setting('transaction_read_only'), current_setting('synchronous_commit'), inet_server_addr()::text, current_user`).Scan(&inRecovery, &transactionReadOnly, &synchronousCommit, &serverAddress, &currentUser)
+	err := queryer.QueryRowContext(ctx, postgreSQLOwnerServerQuery).Scan(&inRecovery, &transactionReadOnly, &synchronousCommit, &serverAddress, &currentUser)
 	if err != nil {
 		return fmt.Errorf("%w: inspect server: %w", ErrPostgreSQLOwnerTopology, err)
 	}

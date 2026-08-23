@@ -333,16 +333,9 @@ func runWorkspaceSymbols(
 	languageID string,
 	req structureParams,
 ) (any, error) {
-	query := strings.TrimSpace(req.Query)
-	if query == "" {
-		return nil, errors.New("query is required")
-	}
-	matchMode, err := normalizeWorkspaceSymbolMatchMode(req.MatchMode)
+	query, matchMode, err := validateWorkspaceSymbolRequest(manager, req)
 	if err != nil {
 		return nil, err
-	}
-	if manager == nil {
-		return nil, errManagerUnavailable
 	}
 	limit := format.WorkspaceSymbolLimit(req.MaxResults)
 	results, err := manager.WorkspaceSymbol(ctx, query, languageID)
@@ -359,27 +352,52 @@ func runWorkspaceSymbols(
 			return nil, err
 		}
 	}
+	return buildWorkspaceSymbolResponse(items, query, matchMode, limit), nil
+}
+
+// validateWorkspaceSymbolRequest 校验 workspace_symbol 查询、匹配模式和 manager 前置条件。
+func validateWorkspaceSymbolRequest(manager lspmanager.Manager, req structureParams) (string, string, error) {
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
+		return "", "", errors.New("query is required")
+	}
+	matchMode, err := normalizeWorkspaceSymbolMatchMode(req.MatchMode)
+	if err != nil {
+		return "", "", err
+	}
+	if manager == nil {
+		return "", "", errManagerUnavailable
+	}
+	return query, matchMode, nil
+}
+
+// buildWorkspaceSymbolResponse 完成匹配、限流并保留对应的恢复 HINT。
+func buildWorkspaceSymbolResponse(items []format.CompactWorkspaceSymbol, query, matchMode string, limit int) workspaceSymbolListResponse {
 	items = selectWorkspaceSymbolMatches(items, query, matchMode)
 	total := len(items)
 	items = limitSlice(items, limit)
-	truncated := len(items) < total
 	response := workspaceSymbolListResponse{
-		Data: items, Total: total, Showing: len(items), Truncated: truncated,
+		Data: items, Total: total, Showing: len(items), Truncated: len(items) < total,
+	}
+	response.Hint = workspaceSymbolHint(response.Total, response.Truncated, matchMode)
+	return response
+}
+
+// workspaceSymbolHint 根据匹配结果和限流状态生成稳定的下一步提示。
+func workspaceSymbolHint(total int, truncated bool, matchMode string) string {
+	if total == 0 && matchMode == workspaceSymbolMatchExact {
+		return "no symbols found matching exact query; check symbol casing, retry with match_mode=fuzzy, or use document_symbol for exact file-level inspection"
 	}
 	if total == 0 {
-		if matchMode == workspaceSymbolMatchExact {
-			response.Hint = "no symbols found matching exact query; check symbol casing, retry with match_mode=fuzzy, or use document_symbol for exact file-level inspection"
-		} else {
-			response.Hint = "no symbols found; check symbol name or casing, or use document_symbol on target file"
-		}
-	} else if truncated {
-		if matchMode == workspaceSymbolMatchFuzzy {
-			response.Hint = "next: workspace_symbol results truncated; narrow query with container prefix, use match_mode=exact, or increase max_results"
-		} else {
-			response.Hint = "next: workspace_symbol results truncated; narrow query with container prefix or file_path, or increase max_results"
-		}
+		return "no symbols found; check symbol name or casing, or use document_symbol on target file"
 	}
-	return response, nil
+	if truncated && matchMode == workspaceSymbolMatchFuzzy {
+		return "next: workspace_symbol results truncated; narrow query with container prefix, use match_mode=exact, or increase max_results"
+	}
+	if truncated {
+		return "next: workspace_symbol results truncated; narrow query with container prefix or file_path, or increase max_results"
+	}
+	return ""
 }
 
 // normalizeWorkspaceSymbolMatchMode 收敛 workspace_symbol 匹配模式，未知值立即失败。缺省时默认使用 fuzzy/smart ranking。
@@ -448,54 +466,82 @@ func selectWorkspaceSymbolMatches(items []format.CompactWorkspaceSymbol, query, 
 // scoreWorkspaceSymbol 计算符号与 query 的 Smart Ranking 权重得分。
 // 权重降序：Exact 100 > Prefix 80 > WordBoundary/CamelCase 60 > Substring 40 > Server Fuzzy 20.
 func scoreWorkspaceSymbol(name, container, query string) int {
-	nameTrim := strings.TrimSpace(name)
-	queryTrim := strings.TrimSpace(query)
-	if nameTrim == "" || queryTrim == "" {
+	target, ok := newWorkspaceSymbolScoreTarget(name, container, query)
+	if !ok {
 		return 0
 	}
-
-	// 1. Exact Match (100)
-	if nameTrim == queryTrim || strings.EqualFold(nameTrim, queryTrim) {
+	if target.isExactMatch() {
 		return 100
 	}
-	if container != "" {
-		fullDot := container + "." + nameTrim
-		fullColon := container + "::" + nameTrim
-		if fullDot == queryTrim || strings.EqualFold(fullDot, queryTrim) ||
-			fullColon == queryTrim || strings.EqualFold(fullColon, queryTrim) {
-			return 100
-		}
-	}
-	leafName := extractLeafSymbol(nameTrim)
-	if leafName != nameTrim && (leafName == queryTrim || strings.EqualFold(leafName, queryTrim)) {
-		return 100
-	}
-
-	lowerName := strings.ToLower(nameTrim)
-	lowerQuery := strings.ToLower(queryTrim)
-	lowerLeaf := strings.ToLower(leafName)
-
-	// 2. Prefix Match (80)
-	if strings.HasPrefix(lowerName, lowerQuery) || strings.HasPrefix(lowerLeaf, lowerQuery) {
+	if target.isPrefixMatch() {
 		return 80
 	}
-
-	// 3. WordBoundary / CamelCase Match (60)
-	if isWordBoundaryMatch(nameTrim, lowerQuery) || isWordBoundaryMatch(leafName, lowerQuery) ||
-		isCamelCaseAcronymMatch(nameTrim, lowerQuery) || isCamelCaseAcronymMatch(leafName, lowerQuery) {
+	if target.isBoundaryMatch() {
 		return 60
 	}
-
-	// 4. Substring Match (40)
-	if strings.Contains(lowerName, lowerQuery) || strings.Contains(lowerLeaf, lowerQuery) {
+	if target.isSubstringMatch() {
 		return 40
 	}
-	if container != "" && strings.Contains(strings.ToLower(container), lowerQuery) {
-		return 40
-	}
-
-	// 5. Server-Returned Fuzzy (20)
 	return 20
+}
+
+type workspaceSymbolScoreTarget struct {
+	name       string
+	container  string
+	query      string
+	leaf       string
+	lowerName  string
+	lowerQuery string
+	lowerLeaf  string
+}
+
+// newWorkspaceSymbolScoreTarget 规范化一次 Smart Ranking 输入，避免各评分阶段重复清洗。
+func newWorkspaceSymbolScoreTarget(name, container, query string) (workspaceSymbolScoreTarget, bool) {
+	name = strings.TrimSpace(name)
+	query = strings.TrimSpace(query)
+	if name == "" || query == "" {
+		return workspaceSymbolScoreTarget{}, false
+	}
+	leaf := extractLeafSymbol(name)
+	return workspaceSymbolScoreTarget{
+		name: name, container: container, query: query, leaf: leaf,
+		lowerName: strings.ToLower(name), lowerQuery: strings.ToLower(query), lowerLeaf: strings.ToLower(leaf),
+	}, true
+}
+
+// isExactMatch 判断完整名、容器限定名或叶子名是否精确匹配。
+func (target workspaceSymbolScoreTarget) isExactMatch() bool {
+	if strings.EqualFold(target.name, target.query) {
+		return true
+	}
+	if target.container != "" {
+		fullDot := target.container + "." + target.name
+		fullColon := target.container + "::" + target.name
+		if strings.EqualFold(fullDot, target.query) || strings.EqualFold(fullColon, target.query) {
+			return true
+		}
+	}
+	return target.leaf != target.name && strings.EqualFold(target.leaf, target.query)
+}
+
+// isPrefixMatch 判断完整名或叶子名是否以前缀命中。
+func (target workspaceSymbolScoreTarget) isPrefixMatch() bool {
+	return strings.HasPrefix(target.lowerName, target.lowerQuery) || strings.HasPrefix(target.lowerLeaf, target.lowerQuery)
+}
+
+// isBoundaryMatch 判断完整名或叶子名是否按单词边界或 CamelCase 缩写命中。
+func (target workspaceSymbolScoreTarget) isBoundaryMatch() bool {
+	return isWordBoundaryMatch(target.name, target.lowerQuery) ||
+		isWordBoundaryMatch(target.leaf, target.lowerQuery) ||
+		isCamelCaseAcronymMatch(target.name, target.lowerQuery) ||
+		isCamelCaseAcronymMatch(target.leaf, target.lowerQuery)
+}
+
+// isSubstringMatch 判断名称、叶子名或容器是否包含查询文本。
+func (target workspaceSymbolScoreTarget) isSubstringMatch() bool {
+	return strings.Contains(target.lowerName, target.lowerQuery) ||
+		strings.Contains(target.lowerLeaf, target.lowerQuery) ||
+		strings.Contains(strings.ToLower(target.container), target.lowerQuery)
 }
 
 func extractLeafSymbol(name string) string {
@@ -526,28 +572,34 @@ func isWordBoundaryMatch(name, lowerQuery string) bool {
 		if i == 0 {
 			continue // index 0 is prefix match (score 80)
 		}
-		matches := true
-		for k := 0; k < len(queryRunes); k++ {
-			if lowerRunes[i+k] != queryRunes[k] {
-				matches = false
-				break
-			}
-		}
-		if !matches {
+		if !runeSequenceMatches(lowerRunes[i:], queryRunes) {
 			continue
 		}
-		prevRune := runes[i-1]
-		currRune := runes[i]
-		if isWordDelimiter(prevRune) {
-			return true
-		}
-		if unicode.IsUpper(currRune) && unicode.IsLower(prevRune) {
+		if isWordBoundaryAt(runes, i) {
 			return true
 		}
 	}
 	return false
 }
 
+// runeSequenceMatches 判断目标 rune 前缀是否与查询序列完全一致。
+func runeSequenceMatches(target, query []rune) bool {
+	for index, queryRune := range query {
+		if target[index] != queryRune {
+			return false
+		}
+	}
+	return true
+}
+
+// isWordBoundaryAt 判断指定位置是否位于分隔符或 CamelCase 边界之后。
+func isWordBoundaryAt(runes []rune, index int) bool {
+	previous := runes[index-1]
+	current := runes[index]
+	return isWordDelimiter(previous) || unicode.IsUpper(current) && unicode.IsLower(previous)
+}
+
+// isWordDelimiter 判断 rune 是否为 Smart Ranking 支持的单词分隔符。
 func isWordDelimiter(r rune) bool {
 	return r == '_' || r == '-' || r == '.' || r == ':' || r == '/' || r == '\\' || r == ' ' || r == '$' || r == '#'
 }
@@ -706,6 +758,7 @@ func countDocumentSymbolNodes(symbols []protocol.DocumentSymbol) int {
 	return total
 }
 
+// decodeSemanticTokenData 按 LSP 增量五元组解码语义 token 数据并应用结果上限。
 func decodeSemanticTokenData(result *protocol.SemanticTokensResult, legend protocol.SemanticTokensLegend, limit int) ([]protocol.DecodedSemanticToken, int, error) {
 	if len(legend.TokenTypes) == 0 {
 		return nil, 0, errors.New("semantic tokens legend tokenTypes is empty")

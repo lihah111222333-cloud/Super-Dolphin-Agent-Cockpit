@@ -650,57 +650,98 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPa
 	if len(items) == 0 {
 		return nil
 	}
+	changedSet := diagnosticChangedLineSet(changedLines)
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].URI < items[j].URI
+	})
+	tables := make([]diagnosticsTable, 0, len(items))
+	for _, item := range items {
+		if table, ok := buildDiagnosticsTable(item, displayPaths[item.URI], changedSet); ok {
+			tables = append(tables, table)
+		}
+	}
+	return tables
+}
+
+// diagnosticChangedLineSet 把有效的一基改动行转换为快速查询集合。
+func diagnosticChangedLineSet(changedLines []int) map[int]struct{} {
 	changedSet := make(map[int]struct{}, len(changedLines))
 	for _, line := range changedLines {
 		if line > 0 {
 			changedSet[line] = struct{}{}
 		}
 	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].URI < items[j].URI
-	})
-	tables := make([]diagnosticsTable, 0, len(items))
-	for _, item := range items {
-		if len(item.Diagnostics) == 0 {
-			continue
-		}
-		seen := make(map[string]struct{}, len(item.Diagnostics))
-		rows := make([][]any, 0, len(item.Diagnostics))
-		for _, diag := range item.Diagnostics {
-			if isMissingImportDiagnostic(diag) {
-				oneBasedLine := format.FromLSP(diag.Range.Start.Line)
-				if _, isChanged := changedSet[oneBasedLine]; !isChanged {
-					continue
-				}
-			}
-			key := fmt.Sprintf("%d:%d:%d:%s:%s", diag.Range.Start.Line, diag.Range.Start.Character, diag.Severity, diag.Message, diag.Source)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			rows = append(rows, []any{
-				format.FromLSP(diag.Range.Start.Line),
-				format.FromLSP(diag.Range.Start.Character),
-				diagnosticSeverity(diag),
-				diagnosticMessageSummary(diag.Message),
-				diag.Source,
-				diagnosticCode(diag.Code),
-			})
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		file := format.URIToPath(item.URI)
-		if displayPath := strings.TrimSpace(displayPaths[item.URI]); displayPath != "" {
-			file = displayPath
-		}
-		tables = append(tables, diagnosticsTable{
-			File: file,
-			Cols: []string{"L", "C", "sev", "msg", "src", "code"},
-			Rows: rows,
-		})
+	return changedSet
+}
+
+// buildDiagnosticsTable 构建单个 URI 的去重诊断表，无有效行时拒绝输出空表。
+func buildDiagnosticsTable(item protocol.PublishDiagnosticsParams, displayPath string, changedSet map[int]struct{}) (diagnosticsTable, bool) {
+	if len(item.Diagnostics) == 0 {
+		return diagnosticsTable{}, false
 	}
-	return tables
+	rows := buildDiagnosticRows(item.Diagnostics, changedSet)
+	if len(rows) == 0 {
+		return diagnosticsTable{}, false
+	}
+	file := format.URIToPath(item.URI)
+	if displayPath = strings.TrimSpace(displayPath); displayPath != "" {
+		file = displayPath
+	}
+	return diagnosticsTable{
+		File: file,
+		Cols: []string{"L", "C", "sev", "msg", "src", "code"},
+		Rows: rows,
+	}, true
+}
+
+// buildDiagnosticRows 过滤环境噪音并按稳定诊断键去重。
+func buildDiagnosticRows(diagnostics []protocol.Diagnostic, changedSet map[int]struct{}) [][]any {
+	seen := make(map[string]struct{}, len(diagnostics))
+	rows := make([][]any, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		if !includeDiagnosticRow(diagnostic, changedSet) {
+			continue
+		}
+		key := diagnosticDedupKey(diagnostic)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		rows = append(rows, diagnosticRow(diagnostic))
+	}
+	return rows
+}
+
+// includeDiagnosticRow 保留真实诊断，并仅在改动行保留缺少导入类环境诊断。
+func includeDiagnosticRow(diagnostic protocol.Diagnostic, changedSet map[int]struct{}) bool {
+	if !isMissingImportDiagnostic(diagnostic) {
+		return true
+	}
+	_, changed := changedSet[format.FromLSP(diagnostic.Range.Start.Line)]
+	return changed
+}
+
+// diagnosticDedupKey 生成与既有协议一致的位置、严重级别、消息和来源组合键。
+func diagnosticDedupKey(diagnostic protocol.Diagnostic) string {
+	return fmt.Sprintf("%d:%d:%d:%s:%s",
+		diagnostic.Range.Start.Line,
+		diagnostic.Range.Start.Character,
+		diagnostic.Severity,
+		diagnostic.Message,
+		diagnostic.Source,
+	)
+}
+
+// diagnosticRow 把单条 LSP 诊断转换为稳定的六列行。
+func diagnosticRow(diagnostic protocol.Diagnostic) []any {
+	return []any{
+		format.FromLSP(diagnostic.Range.Start.Line),
+		format.FromLSP(diagnostic.Range.Start.Character),
+		diagnosticSeverity(diagnostic),
+		diagnosticMessageSummary(diagnostic.Message),
+		diagnostic.Source,
+		diagnosticCode(diagnostic.Code),
+	}
 }
 
 // isMissingImportDiagnostic 判断诊断是否属于缺少 site-packages/模块导致的缺少导入伪报错。

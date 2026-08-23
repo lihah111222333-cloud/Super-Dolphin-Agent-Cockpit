@@ -4,20 +4,20 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:3c7a97c680cbe9bc6fd587e348fbc688435b42c1f560f71139e0253b1d3dac0a",
-    "source_sha256": "sha256:647f08a080002bb014d2c3f745a096623f9b334bf69683f87887cf96a93827da",
-    "entries_sha256": "sha256:b1862552f275916ab7420d0f97a1a772b4e8c4a8b9fec97fbabdd8c15121d0f8"
+    "source_sha256": "sha256:60797dac21d5515a401387817d4acec215f339e0a97f3d4356651ec76f330198",
+    "entries_sha256": "sha256:25a27137aadcf2ac8987ec92fb8d00b28e34ad89f0135ea71a32f72b1afdfdab"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5138,
+  "files": 5158,
   "domains": {
-    "other": 976,
-    "remote-ci": 188,
+    "other": 979,
+    "remote-ci": 190,
     "docs-agent": 99,
     "app-ui": 754,
-    "platform-provider": 1716,
+    "platform-provider": 1731,
     "orchestration": 410,
     "modules": 765,
     "store-sql": 230
@@ -50,8 +50,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1716,
-        "size_kb": 326.2,
+        "file_count": 1731,
+        "size_kb": 329.8,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -64,8 +64,8 @@
       {
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
-        "file_count": 188,
-        "size_kb": 42.6,
+        "file_count": 190,
+        "size_kb": 43.1,
         "desc": "独立 remote-ci validation、portable manifest 与异构节点契约"
       },
       {
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 976,
-        "size_kb": 196.1,
+        "file_count": 979,
+        "size_kb": 197,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -87,12 +87,12 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1223,
+    "cmd": 1233,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 2761,
+    "internal": 2768,
     "pkg": 30,
-    "scripts": 221,
+    "scripts": 224,
     "sql": 29,
     "test": 9,
     "tests": 1,

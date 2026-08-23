@@ -6,3 +6,8 @@ package main
 func trustedLauncherContractShells() []string {
 	return []string{"bash", "zsh"}
 }
+
+// trustedLauncherContractOSHomeResolver 返回 macOS 系统账户 home 查询夹具。
+func trustedLauncherContractOSHomeResolver(home string) (string, string) {
+	return "dscl", "#!/bin/sh\nprintf 'NFSHomeDirectory: " + home + "\\n'\n"
+}

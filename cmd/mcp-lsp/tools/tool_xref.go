@@ -70,41 +70,57 @@ func runReferences(
 		return nil, enrichIdentifierNotFoundError(filePath, position, err)
 	}
 	format.EnrichLocationResultsWithFuncRange(results, enricher)
-	var importedSource string
-	if manager != nil {
-		if defs, defErr := manager.Definition(ctx, filePath, position); defErr == nil && len(defs) > 0 {
-			if primary := defs[0].PrimaryLocation(); primary != nil && strings.TrimSpace(primary.URI) != "" {
-				currPath := format.URIToPath(filePath)
-				defPath := format.URIToPath(primary.URI)
-				if currPath != "" && defPath != "" && currPath != defPath {
-					importedSource = fmt.Sprintf("%s:%d:%d",
-						compactToolFilePath(ctx, primary.URI),
-						format.FromLSP(primary.Range.Start.Line),
-						format.FromLSP(primary.Range.Start.Character),
-					)
-				}
-			}
-		}
-	}
+	importedSource := referenceImportedSource(ctx, manager, filePath, position)
 	total := len(results)
 	results = limitSlice(results, limit)
 	grouped := groupLocationsByFile(ctx, results, total)
-	if total == 0 {
-		if importedSource != "" {
-			grouped.Hint = fmt.Sprintf("no references found; symbol is imported from %s, check usages in source module or use document_symbol", importedSource)
-		} else {
-			grouped.Hint = "no references found; check symbol declaration or position, or use document_symbol to locate the exact identifier"
-		}
-	} else if grouped.Truncated {
-		if importedSource != "" {
-			grouped.Hint = fmt.Sprintf("next: increase max_results; symbol imported from %s", importedSource)
-		} else {
-			grouped.Hint = "next: increase max_results or narrow query with file_path"
-		}
-	} else if importedSource != "" {
-		grouped.Hint = fmt.Sprintf("symbol imported from %s; references include cross-file usages", importedSource)
-	}
+	grouped.Hint = referenceResultHint(total, grouped.Truncated, importedSource)
 	return grouped, nil
+}
+
+// referenceImportedSource 尝试解析跨文件定义位置，用于可选的 imported source HINT。
+func referenceImportedSource(ctx context.Context, manager lspmanager.Manager, filePath string, position protocol.Position) string {
+	if manager == nil {
+		return ""
+	}
+	definitions, err := manager.Definition(ctx, filePath, position)
+	if err != nil || len(definitions) == 0 {
+		return ""
+	}
+	primary := definitions[0].PrimaryLocation()
+	if primary == nil || strings.TrimSpace(primary.URI) == "" {
+		return ""
+	}
+	currentPath := format.URIToPath(filePath)
+	definitionPath := format.URIToPath(primary.URI)
+	if currentPath == "" || definitionPath == "" || currentPath == definitionPath {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d:%d",
+		compactToolFilePath(ctx, primary.URI),
+		format.FromLSP(primary.Range.Start.Line),
+		format.FromLSP(primary.Range.Start.Character),
+	)
+}
+
+// referenceResultHint 根据结果总量、截断状态和跨文件来源生成稳定提示。
+func referenceResultHint(total int, truncated bool, importedSource string) string {
+	if total == 0 && importedSource != "" {
+		return fmt.Sprintf("no references found; symbol is imported from %s, check usages in source module or use document_symbol", importedSource)
+	}
+	if total == 0 {
+		return "no references found; check symbol declaration or position, or use document_symbol to locate the exact identifier"
+	}
+	if truncated {
+		if importedSource != "" {
+			return fmt.Sprintf("next: increase max_results; symbol imported from %s", importedSource)
+		}
+		return "next: increase max_results or narrow query with file_path"
+	}
+	if importedSource == "" {
+		return ""
+	}
+	return fmt.Sprintf("symbol imported from %s; references include cross-file usages", importedSource)
 }
 
 // runCallHierarchy 查询调用层级；对不支持该能力的语言返回标准空结果。

@@ -52,7 +52,7 @@ func TestMcpLSPGoplsDaemonE2EEntryPinsLongGoTestTimeout(t *testing.T) {
 }
 
 func TestMcpLSPRealGoplsE2EsFailFastWhenBinaryMissing(t *testing.T) {
-	daemon := readRepoFile(t, "../cmd/mcp-lsp/lsp_binary_gopls_daemon_e2e_test.go")
+	daemon := readRepoFile(t, "../cmd/mcp-lsp/lsp_binary_gopls_daemon_nonwindows_e2e_test.go")
 	assertScriptContains(t, daemon, `t.Skip("skipping real gopls daemon lifecycle e2e test in short mode")`)
 	assertScriptContains(t, daemon, `t.Fatalf("gopls is required for real daemon lifecycle e2e: %v", err)`)
 	if strings.Contains(daemon, `t.Skipf("gopls is not installed:`) {

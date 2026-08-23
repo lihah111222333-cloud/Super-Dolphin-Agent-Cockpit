@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -562,15 +561,6 @@ func (p diagnosticsPayload) FirstMessageForFile(t *testing.T, path string) strin
 	}
 	t.Fatalf("diagnostics missing %s: %#v", path, p.Data)
 	return ""
-}
-
-// diagnosticsPayloadPathEqual 遵循宿主文件系统语义，避免 Windows file URI
-// 归一化后的盘符大小写差异掩盖真实 binary 诊断结果。
-func diagnosticsPayloadPathEqual(left, right string) bool {
-	if runtime.GOOS != "windows" {
-		return left == right
-	}
-	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 }
 
 func writePythonDiagnosticsFixture(t *testing.T, root string) []string {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -78,7 +77,7 @@ func TestTrustedGateLauncherShellContract(t *testing.T) {
 	assertScriptContains(t, helper, `git -C "$repo_root" cat-file blob "${tree}:scripts/build-trusted-gate-launcher.sh"`)
 }
 
-// installTrustedLauncherContractOSHome 为无登录账户的 Linux worker 提供独立的系统 home 解析夹具。
+// installTrustedLauncherContractOSHome 为无登录账户的 worker 提供独立的系统 home 解析夹具。
 func installTrustedLauncherContractOSHome(t *testing.T) {
 	t.Helper()
 	cacheRoot := strings.TrimSpace(os.Getenv("GOCACHE"))
@@ -98,11 +97,7 @@ func installTrustedLauncherContractOSHome(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	fakeBin := t.TempDir()
-	resolver, body := "getent", "#!/bin/sh\nprintf 'fixture:x:0:0::"+home+":/bin/sh\\n'\n"
-	if runtime.GOOS == "darwin" {
-		resolver = "dscl"
-		body = "#!/bin/sh\nprintf 'NFSHomeDirectory: " + home + "\\n'\n"
-	}
+	resolver, body := trustedLauncherContractOSHomeResolver(home)
 	if err := os.WriteFile(filepath.Join(fakeBin, resolver), []byte(body), 0o700); err != nil {
 		t.Fatalf("write trusted launcher home resolver: %v", err)
 	}

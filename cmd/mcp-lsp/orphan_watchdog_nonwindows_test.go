@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestPOSIXIsParentOrphaned(t *testing.T) {
+func TestNonWindowsIsParentOrphaned(t *testing.T) {
 	t.Parallel()
 
 	t.Run("ppid <= 1 is orphaned", func(t *testing.T) {

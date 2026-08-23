@@ -184,7 +184,7 @@ func executeLocalHostCommand(repoRoot, workloadID string, hostCommand []string, 
 	if runErr != nil {
 		return fmt.Errorf("local host workload %q failed: %w", workloadID, runErr)
 	}
-	return fmt.Errorf("local host workload %q is LOCAL_NON_AUTHORITATIVE NOT_VERIFIED; trusted four-node Gate evidence is required", workloadID)
+	return fmt.Errorf("local host workload %q is LOCAL_NON_AUTHORITATIVE NOT_VERIFIED; trusted single Ubuntu physical host with Ubuntu/Wine logical runtimes evidence is required", workloadID)
 }
 
 func configureRunnerCommand(command *exec.Cmd, environment []string) error {
@@ -203,6 +203,7 @@ func runRunnerCommand(ctx context.Context, command *exec.Cmd) error {
 	return runErr
 }
 
+// localHostInvocationForPlatform 是纯映射：只按显式参数选择调用，无系统调用。
 func localHostInvocationForPlatform(goos string, hostCommand []string) (string, []string, error) {
 	if goos == "windows" {
 		return "", nil, errors.New("Windows local host workload is NOT_VERIFIED: the accepted host authority has no trusted Windows wrapper")
@@ -217,6 +218,7 @@ func canonicalRunnerEnvironment(environment []string) ([]string, error) {
 	return canonicalRunnerEnvironmentForPlatform(runtime.GOOS, environment)
 }
 
+// canonicalRunnerEnvironmentForPlatform 是纯映射：只按显式参数规范环境，无系统调用。
 func canonicalRunnerEnvironmentForPlatform(goos string, environment []string) ([]string, error) {
 	allowed := map[string]bool{
 		"HOME": true, "LANG": true, "LC_ALL": true, "LOGNAME": true, "PATH": true, "SHELL": true,

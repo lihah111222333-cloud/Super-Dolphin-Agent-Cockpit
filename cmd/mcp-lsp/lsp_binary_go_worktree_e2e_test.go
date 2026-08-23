@@ -16,7 +16,9 @@ import (
 
 func TestLSPBinaryGoDiagnosticsIgnoresUnrelatedAmbientGoWorkForWorktree(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
-	requireRealGopls(t)
+	if _, err := exec.LookPath("gopls"); err != nil {
+		t.Fatalf("gopls is required for real Go worktree diagnostics e2e: %v", err)
+	}
 
 	parent := canonicalToolTestRoot(t, t.TempDir())
 	mainModule := filepath.Join(parent, "main")

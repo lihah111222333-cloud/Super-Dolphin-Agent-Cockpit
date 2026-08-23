@@ -8,11 +8,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
-
 
 // sharedfilefs 提供 sharedfile 磁盘正文的 sandbox 和原子写入原语。
 //
@@ -366,9 +364,13 @@ func makeTempFile(dir, base string) (*os.File, error) {
 // sameFilesystemPath 按当前平台文件系统语义比较两个路径。
 // Windows 平台忽略大小写，非 Windows 平台严格区分大小写。
 func sameFilesystemPath(left, right string) bool {
-	if runtime.GOOS == "windows" {
+	return sameFilesystemPathWithCaseFold(left, right, filesystemPathCaseFold)
+}
+
+// sameFilesystemPathWithCaseFold 只按显式大小写语义比较清理后的路径，不读取宿主平台事实。
+func sameFilesystemPathWithCaseFold(left, right string, caseFold bool) bool {
+	if caseFold {
 		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 	}
 	return filepath.Clean(left) == filepath.Clean(right)
 }
-

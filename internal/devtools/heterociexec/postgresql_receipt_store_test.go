@@ -209,6 +209,12 @@ func validPostgreSQLTestAuthority(address string) postgreSQLTestAuthority {
 	return postgreSQLTestAuthority{currentUser: PostgreSQLReceiptWriterRole, readOnly: "off", synchronousCommit: "remote_apply", serverAddress: address, tableExists: true, schemaOwner: PostgreSQLReceiptWriterRole, tableOwner: PostgreSQLReceiptWriterRole}
 }
 
+func TestPostgreSQLReceiptAuthorityQueryNormalizesInetAddress(t *testing.T) {
+	if !strings.Contains(postgreSQLReceiptAuthorityQuery, "host(inet_server_addr())") || strings.Contains(postgreSQLReceiptAuthorityQuery, "inet_server_addr()::text") {
+		t.Fatalf("receipt authority query does not normalize PostgreSQL inet output: %q", postgreSQLReceiptAuthorityQuery)
+	}
+}
+
 func mutatePostgreSQLTestAuthority(mutate func(*postgreSQLTestAuthority)) postgreSQLTestAuthority {
 	value := validPostgreSQLTestAuthority("10.20.30.40")
 	mutate(&value)

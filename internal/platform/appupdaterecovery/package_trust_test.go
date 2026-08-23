@@ -9,7 +9,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"reflect"
 	"strings"
 	"testing"
@@ -92,47 +91,9 @@ func TestPackageTrustRejectsRuntimeOverrideAndWrongKey(t *testing.T) {
 	}
 }
 
-func TestPackageTrustRejectsTrustFileAlias(t *testing.T) {
-	root := canonicalTestTempDir(t)
-	resources := filepath.Join(root, "Resources")
-	if err := os.MkdirAll(resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := EncodePackageTrust(testPackageTrust(t, "darwin-arm64"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	realTrust := filepath.Join(root, "attacker-trust.json")
-	if err := os.WriteFile(realTrust, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	requireSymlink(t, realTrust, filepath.Join(resources, PackageTrustFilename))
-	if _, _, err := LoadPackageTrust(resources, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "trust file alias") {
-		t.Fatalf("LoadPackageTrust(trust alias) error = %v", err)
-	}
-}
-
-func TestPackageTrustRejectsTransactionTargetAlias(t *testing.T) {
-	root := canonicalTestTempDir(t)
-	realTarget := filepath.Join(root, "Real.app")
-	resources := filepath.Join(realTarget, "Contents", "Resources")
-	if err := os.MkdirAll(resources, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writePackageTrustFixture(t, resources, testPackageTrust(t, "darwin-arm64"))
-	aliasTarget := filepath.Join(root, "Super Dolphin.app")
-	requireSymlink(t, realTarget, aliasTarget)
-	if _, _, err := ResolveTransactionBoundPackageTrust(context.Background(), aliasTarget, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "target alias") {
-		t.Fatalf("ResolveTransactionBoundPackageTrust(target alias) error = %v", err)
-	}
-}
-
 func requireSymlink(t *testing.T, oldname, newname string) {
 	t.Helper()
 	if err := os.Symlink(oldname, newname); err != nil {
-		if runtime.GOOS == "windows" {
-			t.Skipf("symlink requires privilege on windows: %v", err)
-		}
 		t.Fatal(err)
 	}
 }

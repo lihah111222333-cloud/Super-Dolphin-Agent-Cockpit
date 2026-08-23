@@ -101,6 +101,7 @@ func writeFakeProtocolBundle(t *testing.T, binary, fakeServersBinDir, serverName
 
 func writeFakeWindowsGoplsProtocolBundle(t *testing.T, binary, languageID string) fakeProtocolBundleLayout {
 	t.Helper()
+	t.Log("mcp_lsp_short_idle_precheck status=NON_PASS_PRECHECK_ONLY")
 	productRoot := t.TempDir()
 	installDir := filepath.Join(productRoot, "bin", "LSP")
 	bundleDir := filepath.Join(installDir, "lsp")

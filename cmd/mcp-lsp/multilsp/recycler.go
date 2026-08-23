@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -726,25 +725,26 @@ func clientRSSBytes(current Client) (uint64, int, error) {
 
 // rssLimitBytesForLanguage 返回单进程树紧急回收阈值。
 func rssLimitBytesForLanguage(languageID string) uint64 {
-	return rssLimitBytesForLanguageOnOS(languageID, runtime.GOOS)
-}
-
-// rssLimitBytesForLanguageOnOS 只按显式目标 OS、语言和配置环境选择单进程树阈值。
-func rssLimitBytesForLanguageOnOS(languageID, goos string) uint64 {
 	lang := normalizeLanguageID(languageID)
 	if lang == "go" || lang == "gomod" || lang == "gosum" || lang == "gowork" {
 		if value, ok := rssLimitBytesFromEnv(lspGoRSSLimitEnv); ok {
 			return value
 		}
-		if goos == "windows" {
-			return defaultGoWindowsRSSLimitBytes
-		}
-		return defaultGoRSSLimitBytes
+		return defaultRSSLimitBytesForLanguage(lang, hostDefaultGoRSSLimitBytes, defaultCohortHardLimitBytes)
 	}
 	if value, ok := rssLimitBytesFromEnv(lspRSSLimitEnv); ok {
 		return value
 	}
-	return defaultCohortHardLimitBytes
+	return defaultRSSLimitBytesForLanguage(lang, hostDefaultGoRSSLimitBytes, defaultCohortHardLimitBytes)
+}
+
+// defaultRSSLimitBytesForLanguage 是只按显式参数选择默认阈值、无环境读取或系统调用的纯映射。
+func defaultRSSLimitBytesForLanguage(languageID string, goLimit, genericLimit uint64) uint64 {
+	lang := normalizeLanguageID(languageID)
+	if lang == "go" || lang == "gomod" || lang == "gosum" || lang == "gowork" {
+		return goLimit
+	}
+	return genericLimit
 }
 
 // goplsHeapLimitBytes 返回共享 gopls daemon 的 Go heap 软上限。

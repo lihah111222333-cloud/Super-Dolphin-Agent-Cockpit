@@ -1828,7 +1828,7 @@
       "codemap_line": 225,
       "target_path": "cmd/mcp-lsp/tools/tool_structure.go",
       "line_spec": "147",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "1f74dd041625d628938159283393210127b736f4e33c30c2182473551caa2087",
       "symbol": "semanticTokenListResponse.ToPlainText"
     },
     {
@@ -1875,8 +1875,7 @@
       "codemap_line": 243,
       "target_path": "cmd/mcp-lsp/tools/tool_structure.go",
       "line_spec": "160",
-      "content_sha256": "628fb391eaf5438c0a66f96425bf8ac2633882f767ab31284cd94cf24a10d830",
-      "symbol": "NewStructureHandler"
+      "content_sha256": "96bc564e58e11ac51f214240fe926d5b6ef347ead3ff7fe0ae7e5747587adf67"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",

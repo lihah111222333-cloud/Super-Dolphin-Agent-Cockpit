@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-func TestProjectPostgreSQLLifecycleFourNodeSuccess(t *testing.T) {
-	input := projectorFourNodeInput(t)
+func TestProjectPostgreSQLLifecycleSingleHostSuccess(t *testing.T) {
+	input := projectorSingleHostInput(t)
 	projection, err := ProjectPostgreSQLLifecycle(input)
 	if err != nil {
 		t.Fatalf("ProjectPostgreSQLLifecycle() error = %v", err)
@@ -18,20 +18,20 @@ func TestProjectPostgreSQLLifecycleFourNodeSuccess(t *testing.T) {
 		if index < 3 && len(event.Shards) != 0 {
 			t.Fatalf("event %d exposes shards before reservation: %#v", index+1, event.Shards)
 		}
-		if index >= 3 && len(event.Shards) != 4 {
-			t.Fatalf("event %d shard count = %d, want 4", index+1, len(event.Shards))
+		if index >= 3 && len(event.Shards) != 1 {
+			t.Fatalf("event %d shard count = %d, want 1", index+1, len(event.Shards))
 		}
 	}
 }
 
-func TestProjectPostgreSQLLifecycleFourNodeFailure(t *testing.T) {
-	input := projectorFourNodeInput(t)
+func TestProjectPostgreSQLLifecycleSingleHostFailure(t *testing.T) {
+	input := projectorSingleHostInput(t)
 	input.Status = PostgreSQLReceiptStatusFailed
 	input.ExitCode = 17
 	input.ErrorCode = "worker_failed"
-	input.TerminalShards[3].Status = PostgreSQLReceiptStatusFailed
-	input.TerminalShards[3].ExitCode = 17
-	input.TerminalShards[3].ErrorCode = input.ErrorCode
+	input.TerminalShards[0].Status = PostgreSQLReceiptStatusFailed
+	input.TerminalShards[0].ExitCode = 17
+	input.TerminalShards[0].ErrorCode = input.ErrorCode
 	projection, err := ProjectPostgreSQLLifecycle(input)
 	if err != nil {
 		t.Fatalf("ProjectPostgreSQLLifecycle(failed) error = %v", err)
@@ -40,7 +40,7 @@ func TestProjectPostgreSQLLifecycleFourNodeFailure(t *testing.T) {
 	if projection.Events[5].State != PostgreSQLReceiptEventStateFailed || projection.Events[5].Code != input.ErrorCode {
 		t.Fatalf("execute failure event = %#v", projection.Events[5])
 	}
-	if projection.Events[6].State != PostgreSQLReceiptEventStateCompleted || len(projection.Events[6].Shards) != 4 {
+	if projection.Events[6].State != PostgreSQLReceiptEventStateCompleted || len(projection.Events[6].Shards) != 1 {
 		t.Fatalf("cleanup failure event = %#v", projection.Events[6])
 	}
 	if projection.Events[7].State != PostgreSQLReceiptEventStateFailed || projection.Events[7].Code != input.ErrorCode {
@@ -48,8 +48,8 @@ func TestProjectPostgreSQLLifecycleFourNodeFailure(t *testing.T) {
 	}
 }
 
-func TestProjectPostgreSQLLifecycleFourNodeBlocked(t *testing.T) {
-	input := projectorFourNodeInput(t)
+func TestProjectPostgreSQLLifecycleSingleHostBlocked(t *testing.T) {
+	input := projectorSingleHostInput(t)
 	input.Status = PostgreSQLReceiptStatusBlocked
 	input.ExitCode = -1
 	input.ErrorCode = ""
@@ -77,19 +77,25 @@ func TestProjectPostgreSQLLifecycleFourNodeBlocked(t *testing.T) {
 }
 
 func TestProjectPostgreSQLLifecycleRejectsSortingAndMissingFacts(t *testing.T) {
-	input := projectorFourNodeInput(t)
-	input.TerminalShards[0], input.TerminalShards[1] = input.TerminalShards[1], input.TerminalShards[0]
+	input := projectorSingleHostInput(t)
+	// Append a lexicographically earlier synthetic host only as malformed input so the ordering guard remains covered.
+	unsorted := input.TerminalShards[0]
+	unsorted.NodeID = "malformed-extra-host"
+	unsorted.NodeIDDigest = testReceiptDigest(unsorted.NodeID)
+	unsorted.ChildOperationID = strings.Repeat("c", 64)
+	unsorted.ShardDigest = testReceiptDigest("shard-unsorted")
+	input.TerminalShards = append(input.TerminalShards, unsorted)
 	if _, err := ProjectPostgreSQLLifecycle(input); !errors.Is(err, ErrPostgreSQLReceiptStore) {
 		t.Fatalf("unsorted shards error = %v", err)
 	}
 
-	input = projectorFourNodeInput(t)
+	input = projectorSingleHostInput(t)
 	input.PlanDigest = ""
 	if _, err := ProjectPostgreSQLLifecycle(input); !errors.Is(err, ErrPostgreSQLReceiptStore) {
 		t.Fatalf("missing plan digest error = %v", err)
 	}
 
-	input = projectorFourNodeInput(t)
+	input = projectorSingleHostInput(t)
 	input.StageTimes = input.StageTimes[:7]
 	if _, err := ProjectPostgreSQLLifecycle(input); !errors.Is(err, ErrPostgreSQLReceiptStore) {
 		t.Fatalf("missing stage time error = %v", err)
@@ -146,11 +152,11 @@ func assertPostgreSQLLifecycleEvents(t *testing.T, events []PostgreSQLReceiptEve
 	}
 }
 
-func projectorFourNodeInput(t *testing.T) PostgreSQLLifecycleProjectionInput {
+func projectorSingleHostInput(t *testing.T) PostgreSQLLifecycleProjectionInput {
 	t.Helper()
 	base := time.Date(2026, 8, 22, 1, 2, 0, 0, time.UTC)
-	shards := make([]PostgreSQLTerminalShard, 0, 4)
-	for index, nodeID := range []string{"Ubuntu-01", "Ubuntu-02", "Windows-01", "Windows-02"} {
+	shards := make([]PostgreSQLTerminalShard, 0, 1)
+	for index, nodeID := range []string{"ubuntu-physical-host"} {
 		shards = append(shards, PostgreSQLTerminalShard{
 			ChildOperationID: testReceiptOperationID(index + 1),
 			NodeID:           nodeID,

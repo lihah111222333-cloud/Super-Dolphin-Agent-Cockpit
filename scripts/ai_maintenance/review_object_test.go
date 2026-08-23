@@ -529,9 +529,10 @@ func testMaterializedExecutionRootGuards(t *testing.T) {
 	}
 }
 
-func TestReviewObjectAndRequiredEvidenceCanCoexist(t *testing.T) {
+func TestExternalEvidenceControllerSurfaceIsRetired(t *testing.T) {
 	t.Run("CLI", testExternalEvidenceCLIIsRetired)
-	t.Run("plan fields", testReviewObjectAndRequiredEvidenceFields)
+	t.Run("plan fields", testExternalEvidencePlanFieldsAreRetired)
+	t.Run("parser", testExternalEvidenceParserIsRetired)
 }
 
 func testExternalEvidenceCLIIsRetired(t *testing.T) {
@@ -543,40 +544,42 @@ func testExternalEvidenceCLIIsRetired(t *testing.T) {
 	}
 }
 
-func testReviewObjectAndRequiredEvidenceFields(t *testing.T) {
-	repository := aiMaintenanceRepoRoot(t)
-	object := mustResolveReviewObject(t, repository, reviewObjectOptions{Base: "HEAD~1", Head: "HEAD"})
-	plan, err := buildGatePlanForReviewObject(repository, object, newGatePlanPolicy())
+func testExternalEvidencePlanFieldsAreRetired(t *testing.T) {
+	output, err := os.CreateTemp(t.TempDir(), "plan-*.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.ReviewObject != object {
-		t.Fatalf("review object changed while deriving evidence: got=%#v want=%#v", plan.ReviewObject, object)
+	defer output.Close()
+	if err := runPlan([]string{"--changed-file", "README.md"}, output); err != nil {
+		t.Fatal(err)
 	}
-	if !slices.Contains(plan.RequiredEvidence, "lsp:diagnostics") || !slices.Contains(plan.RequiredEvidence, "native:read") {
-		t.Fatalf("required evidence = %v, want diagnostics and native read", plan.RequiredEvidence)
+	if _, err := output.Seek(0, 0); err != nil {
+		t.Fatal(err)
 	}
-	if !plan.RequiresEvidenceDoc {
-		t.Fatal("source evidence did not require an evidence document")
+	var plan map[string]any
+	if err := json.NewDecoder(output).Decode(&plan); err != nil {
+		t.Fatal(err)
 	}
-	candidateTree := plan.ReviewObject.CandidateTree
-	encoded, err := json.Marshal(plan)
+	for _, retired := range []string{"required_evidence", "requires_evidence_doc"} {
+		if _, ok := plan[retired]; ok {
+			t.Errorf("plan retained external evidence field %q", retired)
+		}
+	}
+}
+
+func testExternalEvidenceParserIsRetired(t *testing.T) {
+	if _, err := os.Stat("evidence.go"); !os.IsNotExist(err) {
+		t.Errorf("external evidence parser still exists: %v", err)
+	}
+	if newGatePlanPolicy().mcpLSPWorkloadExactFiles["scripts/ai_maintenance/evidence.go"] {
+		t.Error("MCP LSP route still references retired evidence parser")
+	}
+	diagnosticsPlan, err := os.ReadFile("diagnostics_plan.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded struct {
-		ReviewObject        reviewObject `json:"review_object"`
-		RequiredEvidence    []string     `json:"required_evidence"`
-		RequiresEvidenceDoc bool         `json:"requires_evidence_doc"`
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		t.Fatal(err)
-	}
-	if decoded.ReviewObject.CandidateTree != candidateTree {
-		t.Fatalf("candidate tree was not preserved through plan encoding: got=%q want=%q", decoded.ReviewObject.CandidateTree, candidateTree)
-	}
-	if !slices.Equal(decoded.RequiredEvidence, plan.RequiredEvidence) || !decoded.RequiresEvidenceDoc {
-		t.Fatalf("evidence fields were not preserved with review object: decoded=%#v plan=%#v", decoded, plan)
+	if strings.Contains(string(diagnosticsPlan), "func sourceLike(") {
+		t.Error("external evidence source-like validator residue still exists")
 	}
 }
 

@@ -92,7 +92,7 @@ require_local_gate_execution() {
 
 轻量/中量开发测试必须通过 scripts/test_with_guard.sh --host-test <light|medium>
 并满足精确 selector、资源上限和实时宿主负载门禁。重型门禁、重型测试、
-race、benchmark、fuzz、整包和未知负载必须由受信四节点离线 Gate 编排；
+race、benchmark、fuzz、整包和未知负载必须由受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes 编排；
 本脚本不启动、不转发 remote/ECI workload，也不提供云端兼容入口。
 EOF_MSG
   return 2

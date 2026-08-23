@@ -83,7 +83,7 @@ func TestExactExecutorBinderSingleUbuntuWineCarriesTargetPlatformCGOAndDigests(t
 	if err != nil {
 		t.Fatalf("Bind() error = %v", err)
 	}
-	assertAdapterFourNodeExecution(t, bound, batches)
+	assertAdapterSingleUbuntuWineExecution(t, bound, batches)
 	assertAdapterRuntimeFacts(t, fake)
 	assertAdapterRuntimeRequests(t, fake)
 }
@@ -143,7 +143,7 @@ func TestAggregateBatchResourceBudgetIsCheckedAndDeterministic(t *testing.T) {
 	}
 }
 
-func assertAdapterFourNodeExecution(t *testing.T, bound map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, batches map[heterociworkflow.ExecutorKey]heterociworkflow.ExecutionBatch) {
+func assertAdapterSingleUbuntuWineExecution(t *testing.T, bound map[heterociworkflow.ExecutorKey]heterociworkflow.BatchExecutor, batches map[heterociworkflow.ExecutorKey]heterociworkflow.ExecutionBatch) {
 	t.Helper()
 	for key, batch := range batches {
 		executor := bound[key]

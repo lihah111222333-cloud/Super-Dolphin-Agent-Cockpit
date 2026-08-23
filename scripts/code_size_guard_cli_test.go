@@ -24,14 +24,14 @@ func TestGuardWrappersRefuseGeneratedBaselineDrift(t *testing.T) {
 	}
 }
 
-func TestGuardScriptsUseLocalGateAndOfflineHeavyGuidance(t *testing.T) {
+func TestGuardScriptsUseLocalGateAndSingleUbuntuWineGuidance(t *testing.T) {
 	for _, file := range []string{"test_with_guard.sh", "real_go_resolver.sh", "forbid_raw_go_test.sh", "activate_guard_env.sh", "test_with_guard.ps1"} {
 		script := readScript(t, file)
 		if strings.Contains(script, "--target=remote") || strings.Contains(script, "ECI coordinator") || strings.Contains(script, "remote-worker") {
 			t.Fatalf("%s retains a remote/ECI execution branch", file)
 		}
 	}
-	assertScriptContains(t, readScript(t, "test_with_guard.sh"), "trusted four-node offline Gate")
+	assertScriptContains(t, readScript(t, "test_with_guard.sh"), "受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes")
 }
 
 func TestHostTestWrappersRequireLocalGateAdmission(t *testing.T) {
@@ -48,7 +48,7 @@ func TestHostTestWrappersRequireLocalGateAdmission(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s unexpectedly admitted an unfiltered host test", command[0])
 		}
-		if !strings.Contains(string(output), "受信四节点离线 Gate") {
+		if !strings.Contains(string(output), "受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes") {
 			t.Fatalf("%s rejection omitted the local heavy-workload boundary:\n%s", command[0], output)
 		}
 		if strings.Contains(string(output), "--target=remote") || strings.Contains(string(output), "ECI coordinator") {
@@ -720,7 +720,7 @@ func assertTestWithGuardLocalGateRejection(t *testing.T, result testWithGuardFak
 	t.Helper()
 	assertTestWithGuardRejected(t, result,
 		reason,
-		"受信四节点离线 Gate",
+		"受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes",
 	)
 	if strings.Contains(result.output, "--target=remote") || strings.Contains(result.output, "ECI coordinator") || strings.Contains(result.invocations, "super-dolphin-gate") {
 		t.Fatalf("host admission rejection retained a remote execution suggestion:\noutput=%s\ninvocations=%s", result.output, result.invocations)
@@ -802,11 +802,20 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 func prepareTestWithGuardCandidateIndex(t *testing.T, fixtureRoot string) string {
 	t.Helper()
 	repositoryRoot := gitRevParseRequired(t, "--show-toplevel")
+	candidateTreeCommand := exec.Command("git", "-C", repositoryRoot, "write-tree")
+	candidateTreeOutput, err := candidateTreeCommand.Output()
+	if err != nil {
+		t.Fatalf("resolve host-test candidate tree: %v", err)
+	}
+	candidateTree := strings.TrimSpace(string(candidateTreeOutput))
+	if candidateTree == "" {
+		t.Fatal("host-test candidate tree is empty")
+	}
 	indexPath := filepath.Join(fixtureRoot, "candidate.index")
 	environment := upsertEnv(os.Environ(), "GIT_INDEX_FILE", indexPath)
 	for _, arguments := range [][]string{
-		{"read-tree", "HEAD"},
-		{"add", "--", "scripts/test_with_guard.sh", "scripts/code_size_guard_cli_test.go", "scripts/test_with_guard_remote_guidance_test.go"},
+		{"read-tree", candidateTree},
+		{"add", "--", "scripts/test_with_guard.sh", "scripts/code_size_guard_cli_test.go", "scripts/test_with_guard_local_guidance_test.go"},
 		{"update-index", "--refresh"},
 	} {
 		command := exec.Command("git", append([]string{"-C", repositoryRoot}, arguments...)...)

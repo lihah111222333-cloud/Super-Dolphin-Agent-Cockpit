@@ -714,7 +714,6 @@ func WorkloadConsumerPaths() []string {
 		"scripts/mcp_lsp_workload_runner/platform_nonwindows.go",
 		"scripts/mcp_lsp_workload_runner/platform_windows.go",
 		"scripts/ai_maintenance/owned_gate_execution.go",
-		"scripts/ai_maintenance/evidence.go",
 		"scripts/ai_maintenance/main.go",
 		"scripts/ai_maintenance/release_gate_rules.go",
 		"scripts/ai_maintenance/gate_execution.go",

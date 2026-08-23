@@ -325,33 +325,6 @@ func TestPortableManifestAllowsManualOrAutoOnlyInputs(t *testing.T) {
 	}
 }
 
-func TestPortableGoFileMatchesPlatformUsesExactGoFilenameSuffix(t *testing.T) {
-	cases := []struct {
-		name  string
-		linux bool
-		win   bool
-	}{
-		{name: "pkg.go", linux: true, win: true},
-		{name: "pkg_linux.go", linux: true, win: false},
-		{name: "pkg_windows_test.go", linux: false, win: true},
-		{name: "pkg_linuxish.go", linux: true, win: true},
-		{name: "pkg_plan9.go", linux: false, win: false},
-		{name: "pkg_windows_amd64.go", linux: false, win: true},
-		{name: "pkg_windows_arm64.go", linux: false, win: false},
-		{name: "pkg_unix.go", linux: true, win: false},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if got := portableGoFileMatchesPlatform(testCase.name, string(RepositoryWorkloadPlatformLinuxAMD64)); got != testCase.linux {
-				t.Fatalf("Linux match = %v, want %v", got, testCase.linux)
-			}
-			if got := portableGoFileMatchesPlatform(testCase.name, string(RepositoryWorkloadPlatformWindowsAMD64)); got != testCase.win {
-				t.Fatalf("Windows match = %v, want %v", got, testCase.win)
-			}
-		})
-	}
-}
-
 func topManifestFixture(t testing.TB) PortableManifest {
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
@@ -491,7 +464,7 @@ func TestBuildPortableGoWorkloadInventoryRootNestedDeclarationExclusionMatrix(t 
 func TestBuildPortableGoWorkloadInventorySkipsKnownV3WJExcludedSubtrees(t *testing.T) {
 	excluded := []string{"backend/.tmp-cgobench", "build/gate/runtime-proxy", "build/gate/runtime-tools", "third_party/kelindar-event"}
 	entries := make([]GitTreeEntry, 0, len(excluded)*2+2)
-	blobs := map[string][]byte{"go.mod": []byte("module example.invalid/root\n\ngo 1.24.0\n")}
+	blobs := map[string][]byte{"go.mod": []byte("module example.invalid/root\n\ngo 1.24.0\n"), "root.go": []byte("package root\n")}
 	for _, module := range excluded {
 		goMod := module + "/go.mod"
 		entries = append(entries, GitTreeEntry{Mode: "100644", Kind: "blob", Path: goMod}, GitTreeEntry{Mode: "100644", Kind: "blob", Path: module + "/main.go"})
@@ -510,16 +483,22 @@ func TestBuildPortableGoWorkloadInventorySkipsKnownV3WJExcludedSubtrees(t *testi
 func inventoryFixtureReader() inventoryTreeReader {
 	paths := []string{"go.mod", "rootpkg/root.go", "declared/go.mod", "declared/declared.go", "declared/sub/sub.go", "excluded/go.mod", "excluded/hidden.go", "unbound/go.mod", "unbound/hidden.go"}
 	entries := make([]GitTreeEntry, 0, len(paths))
+	blobs := map[string][]byte{
+		"go.mod":               []byte("module example.invalid/root\n\ngo 1.24.0\n"),
+		"declared/go.mod":      []byte("module example.invalid/declared\n\ngo 1.24.0\n"),
+		"excluded/go.mod":      []byte("module example.invalid/excluded\n\ngo 1.24.0\n"),
+		"unbound/go.mod":       []byte("module example.invalid/unbound\n\ngo 1.24.0\n"),
+		"rootpkg/root.go":      []byte("package rootpkg\n"),
+		"declared/declared.go": []byte("package declared\n"),
+		"declared/sub/sub.go":  []byte("package sub\n"),
+		"excluded/hidden.go":   []byte("package excluded\n"),
+		"unbound/hidden.go":    []byte("package unbound\n"),
+	}
 	for _, filePath := range paths {
 		entries = append(entries, GitTreeEntry{Mode: "100644", Kind: "blob", Path: filePath})
 	}
 	return inventoryTreeReader{
 		entries: entries,
-		blobs: map[string][]byte{
-			"go.mod":          []byte("module example.invalid/root\n\ngo 1.24.0\n"),
-			"declared/go.mod": []byte("module example.invalid/declared\n\ngo 1.24.0\n"),
-			"excluded/go.mod": []byte("module example.invalid/excluded\n\ngo 1.24.0\n"),
-			"unbound/go.mod":  []byte("module example.invalid/unbound\n\ngo 1.24.0\n"),
-		},
+		blobs:   blobs,
 	}
 }
