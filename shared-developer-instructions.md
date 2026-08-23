@@ -1,33 +1,39 @@
-# 共享开发者指令：原生工具与 LSP 三工具分工
+Produce one complete candidate production patch and validate it with public tests. Do not edit tests, benchmark instructions, generated version files, or hidden grader material.
 
-## 一级作战法则：轻武器优先
+## 1. Native Lightweight Tools First (Light Weapons)
+- Read and inspect files using native shell commands (`cat`, `head`, `sed`).
+- Search plain text within known files or directories strictly for string literals, config keys, error messages, and regexes using native `grep` / `rg`.
+- Modify code strictly using the agent's native patch editor (`apply_patch`).
+- For simple, local, single-file bugs with clear context, locate, edit, and verify directly using native shell tools. Do not start broad explorations.
 
-- 查看文件内容使用原生 `cat`、`head`；需要局部窗口时使用等价的原生命令。
-- 在单个文件或明确目录中定位文本使用原生 `grep`、`rg`。
-- 修改代码统一使用 Agent 原生 `apply_patch`；不得寻找或调用 LSP 编辑工具。
-- 局部、单文件、影响面明确的小 Bug，直接用原生工具完成定位、修改和局部验证。
+## 2. LSP Semantic Radar (Heavy Weapons: structure, xref, diagnostics)
+When the `lsp` namespace is exposed, it provides only three pure semantic tools: `structure`, `xref`, and `diagnostics`.
+- `structure`: Primary tool for locating AST symbol definitions (classes, functions, methods) and file outlines across the workspace. Prefer `structure` over `grep` when searching for symbol declarations:
+  * `structure(action="workspace_symbol", query="SymbolName", workspace_language="python")`
+  * `structure(action="document_symbol", file_path="relative/path.py")`
+- `xref`: Trace callers, references, or call hierarchy across files before modifying shared APIs, base classes, collectors, or AST visitor nodes:
+  * `xref(action="references", pos="relative/path.py:line:column")`
+  * `xref(action="call_hierarchy", pos="relative/path.py:line:column", direction="incoming")`
+- `diagnostics`: Immediately after editing production code, request syntax and static type diagnostics to catch errors before running heavy tests:
+  * `diagnostics(file_path="relative/changed.py")`
+  * `diagnostics(file_paths=["relative/file1.py", "relative/file2.py"])`
 
-## 二级作战法则：LSP 重武器
+## 3. Anti-Overkill Discipline & Investigation Guardrails
+- **Anti-Overkill Rule**: Do NOT initiate heavy cross-file explorations for trivial, single-file fixes.
+- **Root-Cause Minimality Priority**: When a bug originates in a utility, conversion, or helper function (e.g. `as_compatible_data`), ALWAYS fix the defect directly inside the root function. NEVER place defensive bypasses or workarounds in upstream callers (e.g. `Variable.__setitem__`) when the root function itself is flawed. Unit tests often evaluate root functions directly in isolation.
+- **Origin-over-Callsite Rule**: When a bug involves global configurations, cached variables (e.g. `DNS_NAME`), environment dictionaries, or shared inputs, NEVER place local workarounds solely at downstream consumer call sites (e.g. `message.py`). ALWAYS trace back to the origin definition site (e.g. `utils.py` or the variable initializer) using `structure` and normalize the data at its source.
+- **Polymorphic Hierarchy Completeness**: When modifying multi-backend drivers, schema editors, database clients, or AST visitor hierarchies (e.g. `BaseDatabase*`, `SchemaEditor`, `Visitor`), NEVER assume a defect is isolated to a single concrete subclass without verification. MUST inspect the base class contract first (patching at the base level if the behavior is shared), and verify all sibling subclasses (PostgreSQL, SQLite, Oracle) for polymorphic consistency.
+- **Framework Utility Coherence**: NEVER implement ad-hoc parsing/splitting logic (e.g. local `import csv` or ad-hoc regex slicers) inside leaf business modules. MUST use `structure(action="workspace_symbol")` to locate and reuse existing framework utilities (e.g. `django.utils.*`, `pylint.utils.*`, `sympy.core.*`) to maintain framework-wide architecture consistency.
+- **No Redundant Tools**: Tools such as `file`, `read_file`, `edit`, `patch_edit`, `inspect`, `grep`, or `completion` DO NOT exist in LSP. All file reading, text searching, and editing must use native shell/editor tools.
+- **Symbol Definition Priority**: When locating a class, method, or function declaration, MUST use `structure(action="workspace_symbol", query="<name>", workspace_language="python")` to get exact file:line locations without grep noise. Keep native `grep`/`rg` strictly for non-AST text (string literals, log text, config keys).
+- **Downstream Caller Guard**: When modifying shared base classes, collectors (e.g. deletion handlers), model fields, or AST visitor dispatchers, run `xref(action="references", pos="<exact_file>:<line>:<col>")` to verify downstream consumers (e.g. admin utilities, serializers). Do NOT trace generic/dunder methods (e.g. `__init__`) globally without file scope.
+- **Diff-Scoped Diagnostics Noise Shield**: `diagnostics` returns structured records (`ROW file=... line=... col=... severity=... message=...`). You must strictly filter diagnostics to line numbers intersecting with your active patch hunks (`git diff -U0`). Explicitly IGNORE pre-existing legacy warnings and type errors located outside your modified lines. Ensure your patch introduces ZERO new syntax/type errors within your diff hunks.
 
-MCP-LSP 对外只提供三个纯语义工具：`structure`、`xref`、`diagnostics`。
-
-- 找类、函数、方法或其他符号定义：使用 `structure`。
-- 查调用方、引用、调用层级或类型影响面：使用 `xref`。
-- 修改后检查语法、类型和语言服务器诊断：使用 `diagnostics`。
-
-`structure` 和 `xref` 只在需要跨文件语义、符号归属或真实影响面时使用。`diagnostics` 用于修改后的语义验证，不替代构建和测试。
-
-## 克制原则（Anti-Overkill）
-
-- 禁止为了局部单文件小 Bug 启动重型跨文件探索。
-- 已知文件、已知位置、已知修复边界时，先用轻武器直接解决；只有定义不明、调用关系不明或影响面跨文件时才升级到 LSP。
-- 不得把 `structure` 当文本搜索、不得把 `xref` 当目录扫描、不得把 `diagnostics` 当文件读取器。
-- 不存在 `file`、`read_file`、`inspect`、`grep`、`edit`、`patch_edit` 或 `completion` LSP 工具；文件读取、文本搜索和代码编辑必须回到原生工具。
-
-## 最小验证闭环
-
-1. 原生工具读取与定位。
-2. 原生 `apply_patch` 修改。
-3. 对改动文件运行 `diagnostics`。
-4. 运行与变更面匹配的格式化、构建和测试。
-5. 仅在影响面仍不明确时追加 `structure` / `xref`。
+## 4. Hard Test Gate & Verification Loop (Crucial)
+1. **Reproduce & Locate**: Run the reproduction or targeted test first to observe failure; locate exact cause.
+2. **Mandatory Inline Slice Verification**: When implementing string slicing (e.g. `[start:end]`), trim offsets, regex capture ranges, or AST line dedents, you MUST run a 1-line inline python verification script (`python -c "sample = ...; assert sample[...] == expected"`) against the issue's exact reproduction string before applying the patch. Never rely on mental index calculations, which notoriously drop boundary characters.
+3. **Edit**: Apply minimal necessary changes with `apply_patch`.
+4. **Quick Type Check**: Run `diagnostics` on modified files and verify no new errors on your changed lines.
+5. **Hard Test Gate**: Run the targeted test and broader affected public test suites.
+   - **MANDATORY**: The targeted test must PASS (0 failures, 0 errors, exit=0).
+   - **NEVER** submit a patch if public tests are failing (`exit != 0`). Never treat `git diff --check`, `py_compile`, or clean git status as a substitute for passing tests. If tests fail, run `diagnostics` again to catch subtle syntax errors, then fix the logic or revert breaking changes before completing.

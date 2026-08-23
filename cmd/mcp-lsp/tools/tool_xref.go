@@ -70,11 +70,37 @@ func runReferences(
 		return nil, enrichIdentifierNotFoundError(filePath, position, err)
 	}
 	format.EnrichLocationResultsWithFuncRange(results, enricher)
+	var importedSource string
+	if manager != nil {
+		if defs, defErr := manager.Definition(ctx, filePath, position); defErr == nil && len(defs) > 0 {
+			if primary := defs[0].PrimaryLocation(); primary != nil && strings.TrimSpace(primary.URI) != "" {
+				currPath := format.URIToPath(filePath)
+				defPath := format.URIToPath(primary.URI)
+				if currPath != "" && defPath != "" && currPath != defPath {
+					importedSource = fmt.Sprintf("%s:%d:%d",
+						compactToolFilePath(ctx, primary.URI),
+						format.FromLSP(primary.Range.Start.Line),
+						format.FromLSP(primary.Range.Start.Character),
+					)
+				}
+			}
+		}
+	}
 	total := len(results)
 	results = limitSlice(results, limit)
 	grouped := groupLocationsByFile(ctx, results, total)
 	if total == 0 {
-		grouped.Hint = "no references found"
+		if importedSource != "" {
+			grouped.Hint = fmt.Sprintf("no references found; symbol is imported from %s, check usages in source module or use document_symbol", importedSource)
+		} else {
+			grouped.Hint = "no references found; check symbol declaration or position, or use document_symbol to locate the exact identifier"
+		}
+	} else if importedSource != "" {
+		if grouped.Truncated {
+			grouped.Hint = fmt.Sprintf("next: increase max_results; symbol imported from %s", importedSource)
+		} else {
+			grouped.Hint = fmt.Sprintf("symbol imported from %s; references include cross-file usages", importedSource)
+		}
 	}
 	return grouped, nil
 }
@@ -134,7 +160,11 @@ func runTypeHierarchy(
 	limit := shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit)
 	supertypes, subtypes := compactTypeHierarchyEdges(ctx, results)
 	rows, total := selectTypeHierarchyEdges(supertypes, subtypes, direction, limit)
-	return hierarchyEdgeListResponse{Rows: rows, Total: total, Unit: "type_edge", Hint: "next: increase max_results or narrow the target position"}, nil
+	hint := "next: increase max_results or narrow the target position"
+	if total == 0 {
+		hint = "no type hierarchy found; verify cursor is on a class, struct, or interface type, or use document_symbol to locate type declaration"
+	}
+	return hierarchyEdgeListResponse{Rows: rows, Total: total, Unit: "type_edge", Hint: hint}, nil
 }
 
 func selectCallHierarchyEdges(incoming, outgoing []hierarchyEdgeRow, direction string, limit int) ([]hierarchyEdgeRow, int) {
@@ -202,7 +232,7 @@ func emptyCallHierarchyHint(filePath, languageID string) string {
 	if isJSTSCallHierarchyLanguage(languageIDForCallHierarchyHint(filePath, languageID)) {
 		return "no call hierarchy found; partial reason: JS/TS language server returned no prepare item after document bootstrap. next: retry with the cursor on a function or method identifier; if this persists, run diagnostics and verify package.json/tsconfig plus installed dependencies"
 	}
-	return "no call hierarchy found"
+	return "no call hierarchy found; verify cursor is on a function or method declaration/call, or use document_symbol to locate symbol position"
 }
 
 // languageIDForCallHierarchyHint 选择提示用语言 ID，优先使用调用方显式覆盖。

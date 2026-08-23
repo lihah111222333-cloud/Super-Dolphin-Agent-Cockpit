@@ -951,6 +951,37 @@
           "max_struct_fields": 8,
           "max_struct_methods": 1
         },
+        "cmd/mcp-lsp/tools/tool_structure.go": {
+          "lines": 574,
+          "max_func_len": 56,
+          "max_nesting": 3,
+          "max_complexity": 13,
+          "max_params": 5,
+          "max_returns": 3,
+          "max_underscore": 0,
+          "global_vars": 0,
+          "panic_count": 0,
+          "naked_returns": 0,
+          "empty_funcs": 0,
+          "todo_count": 0,
+          "max_struct_fields": 8,
+          "max_struct_methods": 1
+        },
+        "cmd/mcp-lsp/tools/tool_xref.go": {
+          "lines": 228,
+          "max_func_len": 52,
+          "max_nesting": 4,
+          "max_complexity": 15,
+          "max_params": 6,
+          "max_returns": 2,
+          "max_underscore": 0,
+          "global_vars": 0,
+          "panic_count": 0,
+          "naked_returns": 0,
+          "empty_funcs": 0,
+          "todo_count": 0,
+          "max_struct_fields": 6
+        },
         "cmd/mcp-orch/hook_subscription.go": {
           "lines": 35,
           "max_func_len": 16,
@@ -3217,6 +3248,22 @@
           "max_struct_fields": 10,
           "max_struct_methods": 8
         },
+        "cmd/mcp-lsp/tools/tool_topology_hints_test.go": {
+          "lines": 358,
+          "max_func_len": 56,
+          "max_nesting": 2,
+          "max_complexity": 14,
+          "max_params": 4,
+          "max_returns": 2,
+          "max_underscore": 0,
+          "global_vars": 0,
+          "panic_count": 0,
+          "naked_returns": 0,
+          "empty_funcs": 0,
+          "todo_count": 0,
+          "max_struct_fields": 3,
+          "max_struct_methods": 2
+        },
         "cmd/mcp-lsp/windows_arm64_process_arm64_csharp_mcp_36_soak_e2e_test.go": {
           "lines": 983,
           "max_func_len": 208,
@@ -5335,6 +5382,37 @@
         "todo_count": 0,
         "max_struct_fields": 8,
         "max_struct_methods": 1
+      },
+      "cmd/mcp-lsp/tools/tool_structure.go": {
+        "lines": 574,
+        "max_func_len": 56,
+        "max_nesting": 3,
+        "max_complexity": 13,
+        "max_params": 5,
+        "max_returns": 3,
+        "max_underscore": 0,
+        "global_vars": 0,
+        "panic_count": 0,
+        "naked_returns": 0,
+        "empty_funcs": 0,
+        "todo_count": 0,
+        "max_struct_fields": 8,
+        "max_struct_methods": 1
+      },
+      "cmd/mcp-lsp/tools/tool_xref.go": {
+        "lines": 228,
+        "max_func_len": 52,
+        "max_nesting": 4,
+        "max_complexity": 15,
+        "max_params": 6,
+        "max_returns": 2,
+        "max_underscore": 0,
+        "global_vars": 0,
+        "panic_count": 0,
+        "naked_returns": 0,
+        "empty_funcs": 0,
+        "todo_count": 0,
+        "max_struct_fields": 6
       },
       "cmd/mcp-orch/hook_subscription.go": {
         "lines": 35,
@@ -7601,6 +7679,22 @@
         "todo_count": 0,
         "max_struct_fields": 10,
         "max_struct_methods": 8
+      },
+      "cmd/mcp-lsp/tools/tool_topology_hints_test.go": {
+        "lines": 358,
+        "max_func_len": 56,
+        "max_nesting": 2,
+        "max_complexity": 14,
+        "max_params": 4,
+        "max_returns": 2,
+        "max_underscore": 0,
+        "global_vars": 0,
+        "panic_count": 0,
+        "naked_returns": 0,
+        "empty_funcs": 0,
+        "todo_count": 0,
+        "max_struct_fields": 3,
+        "max_struct_methods": 2
       },
       "cmd/mcp-lsp/windows_arm64_process_arm64_csharp_mcp_36_soak_e2e_test.go": {
         "lines": 983,
