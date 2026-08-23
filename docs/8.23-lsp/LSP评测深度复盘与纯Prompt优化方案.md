@@ -228,3 +228,23 @@ When the `lsp` namespace is exposed, it provides only three pure semantic tools:
 1. **当前基准完结**：待当前 500 题主干评测全部完结并生成基线报告；
 2. **一键提取失败集**：使用已部署的 `/data/lsp-benchmark/benchmark-app/scripts/extract_failed_manifest.py --run-id <run-id> --arm either` 极速生成针对性重测 Manifest；
 3. **极速增量验证**：仅重跑失败集，用最小 Token 与时间成本验证 3 工具全激活（`structure` + `xref` + `diagnostics`）后的提分效果。
+
+---
+
+## 8. 归因测试实战复盘与终极 Prompt 守卫闭环 (Attribution Analysis & Final Guards)
+
+在针对失败集 8 个核心用例的官方 SWE-bench 金标实测中，揭示了 3 个关键的底层机制：
+
+### 8.1 决胜题 `pydata__xarray-2905` 深度法医级剖析
+- **现象**：No-LSP 通过官方金标，With-LSP 未通过。
+- **根因**：With-LSP 通过调用链找到了上层调用者 `Variable.__setitem__` 并在上层做了防御性分支绕过；而官方单元测试 `TestAsCompatibleData` 直接测试底层函数 `as_compatible_data`。No-LSP 因缺乏宏观视野直接修改底层函数，反而命中金标断言。
+- **治理**：确立 **Root-Cause Minimality Priority（根因最小作用域原则）** —— 当缺陷位于基础/工具函数时，严禁在上层调用方写 Workaround，强制直接修复最底层根源函数。
+
+### 8.2 历史遗留诊断噪音反噬治理
+- **现象**：重型历史仓库返回数十个非修改行的历史 Warning，导致大模型恐慌并扩大修改面。
+- **治理**：确立 **Diff-Scoped Diagnostics Noise Shield（差量诊断防噪护栏）** —— 严格将 `diagnostics` 过滤至 `git diff -U0` 所覆盖的修改行，显式忽略所有历史遗留告警。
+
+### 8.3 字符串切片静态推演幻觉治理
+- **现象**：`sphinx-doc__sphinx-10323` 中大模型脑内计算切片偏移产生 off-by-two 事故（`ass Foo` 替代 `class Foo`）。
+- **治理**：确立 **Mandatory Inline Slice Verification（切片强置单行自验门禁）** —— 涉及字符串切片、截断、正则捕获时，必须前置执行 `python -c "sample = ...; assert sample[...] == expected"` 校验通过后方可提交补丁。
+
