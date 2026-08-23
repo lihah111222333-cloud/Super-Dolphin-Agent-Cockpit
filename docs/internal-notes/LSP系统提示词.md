@@ -96,41 +96,15 @@ MCP-LSP 仅暴露三个纯语义工具：
 - **触发场景**：涉及字符串切片、多重索引计算（如 `[a:b]`、`[start:end]`）、正则替换捕获组或 AST 文本过滤器时。
 - **动作要求**：在修改生产代码前，必须执行单行 Python 行内脚本（`python -c "..."`）针对 Issue 描述中的真实样例字符串验证边界索引与断言，杜绝脑内静态推演偏差（如误吞首尾字符）。
 
-### 3.5 根因修复与参数管道透传豁免 (Root-Cause vs Parameter Plumbing)
-- **根源状态与缺陷修复**：Bug 涉及全局配置、缓存变量（如 `DNS_NAME`）、环境字典或跨层共享输入时，严禁仅在末端消费者调用点（如 `message.py`）打局部防御补丁。必须使用 `structure` 向上追溯至变量定义或源头初始化位置（如 `utils.py`），在数据源头完成清洗与规范化。
-- **参数管道透传豁免 (Mandatory Plumbing)**：当 API 签名扩展或新增参数（如 `samesite`、`encoding`、`secure` 等）时，在各层调用方（如 `middleware`、`storage`、`session`、`views`）中逐层透传有效参数属于必须的管道流转（Mandatory Plumbing），严禁误判为下游打补丁而刻意漏改或回退。
+### 3.5 根因最小修复原则 (Root-Cause Minimality Priority)
+- **动作要求**：Bug 涉及工具函数、转换器或底层逻辑时，必须在根源函数内部直接修复，严禁在调用方堆砌防御性补丁。
 
-### 3.6 抽象基类与同族派生类继承全覆盖 (Polymorphic Hierarchy Completeness)
-- **触发场景**：修改多后端驱动、Schema 编辑器、数据库客户端或 AST 访问器派生树（如 `BaseDatabase*`、`SchemaEditor`）时。
-- **动作要求**：严禁在未核对基类的情况下假设 Bug 仅存在于单一具体派生类。必须先查验基类契约（若行为通用则在基类层修复），并遍历核验所有同族派生类（PostgreSQL、SQLite、MySQL 等）的多态一致性。
+### 3.6 抽象基类与同族派生类继承一致性 (Polymorphic Consistency)
+- **触发场景**：修改多后端驱动、Schema 编辑器、数据库客户端或 AST 访问器派生树时。
+- **动作要求**：核对基类契约与同族派生类，确保多态一致性。
 
-### 3.7 框架公共工具复用守卫 (Framework Utility Coherence)
-- **触发场景**：需要进行 CSV 切割、正则分词、参数校验或数学表达式分发等通用处理时。
-- **动作要求**：严禁在叶子业务模块内自行临时 `import csv` 或就地手写正则解析器。必须使用 `structure(action="workspace_symbol")` 查找并复用框架现有成熟工具（如 `django.utils.*`、`pylint.utils.*`、`sympy.core.*`），维持架构一致性。
-
-### 3.8 零构建文件污染红线守卫 (Zero Build File Pollution Guard)
-- **触发场景**：本地单测执行遇到环境报错、第三方库依赖冲突或包缺失时。
-- **动作要求**：严禁在补丁中触碰或修改包构建与安装配置文件（如 `pyproject.toml`、`setup.py`、`setup.cfg`、`tox.ini` 或 requirements）。此类文件被改动会导致官方沙箱在应用 Patch 时重新构建环境触发冲突判负。除非 Issue 题目显式要求修改构建配置，否则补丁必须 100% 局限于业务与应用源码文件。
-
-### 3.9 局部纯净辅助函数提取 (Clean Helper Extraction)
-- **触发场景**：跨文件调用或复杂 AST 访问需要通用可复用逻辑，且框架内无现有公共工具时。
-- **动作要求**：允许且鼓励在同包 `utils.py`（或局部辅助模块）中提取纯净、可复用的独立辅助函数，严禁在 Visitor/Inspector 等业务分派节点内部硬编码臃肿的内联逻辑。
-
-### 3.10 功能关闭调度层阻断原则 (Feature Disable & Dispatch Bypass)
-- **触发场景**：配置或参数显式要求关闭某项功能或设定阈值为 0 / False（如 `min_lines=0`、`enabled=False`）时。
-- **动作要求**：必须在最高层调度入口（如 `run()`、`process()`）直接短路拦截返回（Short-circuit Bypass），避免调用下游格式化、渲染或空展示逻辑导致多余空头标记或意外副作用。
-
-### 3.11 测试驱动的逆向溯源 (Test-Driven Backward Induction)
-- **触发场景**：诊断模糊问题时。
-- **动作要求**：优先定位并阅读 `tests/` 中的失败测试用例与断言，从断言差距逆向溯源执行流到源码缺陷点。
-
-### 3.12 运算符与多态完整性 (Holistic Polymorphic & Operator Completeness)
-- **触发场景**：修改类构造函数、工厂方法或返回签名时。
-- **动作要求**：强制检查并同步更新所有相关的运算符重载（如 `__add__`, `__mul__`, `__eq__` 等魔术方法）及继承链，确保多态完整性。
-
-### 3.13 当前工作树绝对聚焦 (Active Working-Tree Focus)
-- **触发场景**：推演问题与排查逻辑时。
-- **动作要求**：必须完全基于当前工作树（Active Working Tree）的实际代码逻辑和 AST 结构进行推演，严禁通过 `git log` / `git blame` 翻阅历史 commit 盲抄旧答案。
+### 3.7 零构建文件污染红线守卫 (Zero Build File Pollution Guard)
+- **动作要求**：严禁在补丁中触碰或修改包构建与安装配置文件（如 `pyproject.toml`、`setup.py`、`setup.cfg`、`tox.ini` 或 requirements）。
 
 ---
 
@@ -139,13 +113,8 @@ MCP-LSP 仅暴露三个纯语义工具：
 1. **复现与定位 (Reproduce & Locate)**：优先运行复现脚本或目标单测以观察红灯报错（RED），精准定位根本原因。
 2. **切片与边界行内自验 (Slice & Boundary Inline Verification)**：针对复杂字符串/正则逻辑，运行单行内联脚本（`python -c "..."`）针对 Issue 样例自验边界。
 3. **补丁修改 (Edit)**：使用原生 `apply_patch` 应用最小必要改动。
-4. **即时静态诊断与破除假绿幻觉 (Quick Type Check & Diagnostics Reality)**：立即对修改文件调用 `diagnostics`，验证修改行语法与静态类型无报错。
-   - **破除假绿幻觉**：明确静态分析 `diagnostics` 仅用于捕获语法与类型错误，**绝不能替代真实单测执行**。Diagnostics 0 错误（假绿）绝不代表业务逻辑正确。
-5. **强制测试门禁与环境自省 (Hard Test Gate & Environment Discovery)**：运行目标测试及受影响的公开测试套件。
-   - **环境自省与主动探测 (Environment Discovery)**：当容器默认 `python` 缺少测试依赖（如缺少 `pytest` 或测试框架依赖）时，必须主动探测环境路径（如 `/opt/miniconda3/envs/*/bin/python`、`/opt/conda/envs/*/bin/python` 或 `.venv/bin/python`）直接运行 `pytest` / `python tests/runtests.py`。
-   - **通过标准**：目标测试必须 100% 绿灯 PASS（`0 failures, 0 errors, exit=0`）。
-   - **反主观合理化防线 (Anti-Rationalization Discipline)**：严禁将单测失败主观合理化为“旧测试已过时 (stale expectations)”或“测试环境噪音”。测试失败即代表破坏了既有契约，必须修复。
-   - **红线禁令**：测试失败（`exit != 0`）时**绝不允许**提交补丁。绝不能将 `git diff --check`、`py_compile` 或 clean git status 视为测试通过的替代品。若测试失败，重新调用 `diagnostics` 排查语法细节并修复业务逻辑。
+4. **即时静态诊断 (Quick Type Check)**：立即对修改文件调用 `diagnostics`，验证修改行语法与静态类型无报错。
+5. **强制测试门禁 (Hard Test Gate)**：运行目标测试及受影响的公开测试套件。目标测试必须 100% 绿灯 PASS（`0 failures, 0 errors, exit=0`）后方可提交。
 
 ---
 
@@ -153,3 +122,4 @@ MCP-LSP 仅暴露三个纯语义工具：
 
 - **超时或负载过高**：若 `structure` 或 `xref` 超时，先收窄 `work_dir`、限制文件范围或调低 `max_results` 后重试。
 - **降级记录**：若重试后仍失败，应显式记录 tool 名称、目标位置、错误信息与已尝试的收窄手段，严禁将未取得 diagnostics 伪造成 PASS。
+

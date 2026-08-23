@@ -95,14 +95,14 @@ func runReferences(
 		} else {
 			grouped.Hint = "no references found; check symbol declaration or position, or use document_symbol to locate the exact identifier"
 		}
-	} else if grouped.Truncated && total > 15 {
-		grouped.Hint = "next: symbol has >15 references (truncated); narrow query with file_path or search specific call-sites with grep"
-	} else if importedSource != "" {
-		if grouped.Truncated {
+	} else if grouped.Truncated {
+		if importedSource != "" {
 			grouped.Hint = fmt.Sprintf("next: increase max_results; symbol imported from %s", importedSource)
 		} else {
-			grouped.Hint = fmt.Sprintf("symbol imported from %s; references include cross-file usages", importedSource)
+			grouped.Hint = "next: increase max_results or narrow query with file_path"
 		}
+	} else if importedSource != "" {
+		grouped.Hint = fmt.Sprintf("symbol imported from %s; references include cross-file usages", importedSource)
 	}
 	return grouped, nil
 }

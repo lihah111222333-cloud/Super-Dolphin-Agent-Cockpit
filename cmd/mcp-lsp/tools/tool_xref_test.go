@@ -213,7 +213,7 @@ func TestXRefReferencesTruncationHint(t *testing.T) {
 	if !grouped.Truncated {
 		t.Fatalf("expected truncated results")
 	}
-	if !strings.Contains(grouped.Hint, "symbol has >15 references (truncated)") {
-		t.Fatalf("truncated hint = %q, want 'symbol has >15 references (truncated)'", grouped.Hint)
+	if !strings.Contains(grouped.Hint, "next: increase max_results or narrow query with file_path") {
+		t.Fatalf("truncated hint = %q, want 'next: increase max_results or narrow query with file_path'", grouped.Hint)
 	}
 }
