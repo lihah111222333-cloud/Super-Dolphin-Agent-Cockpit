@@ -95,10 +95,11 @@ func newLSPDiagnosticsSchema() schema {
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"file_path":   map[string]any(stringProp("Single file path to diagnose. Pass exactly one of file_path or file_paths.")),
-			"file_paths":  map[string]any(arrayOfStringsProp("Files to diagnose. Pass exactly one of file_path or file_paths.")),
-			"language_id": map[string]any(stringProp("Optional language server override for extensionless or ambiguous files.")),
-			"work_dir":    map[string]any(lspWorkDirProp()),
+			"file_path":     map[string]any(stringProp("Single file path to diagnose. Pass exactly one of file_path or file_paths.")),
+			"file_paths":    map[string]any(arrayOfStringsProp("Files to diagnose. Pass exactly one of file_path or file_paths.")),
+			"language_id":   map[string]any(stringProp("Optional language server override for extensionless or ambiguous files.")),
+			"changed_lines": map[string]any(schema{"type": "array", "description": "Optional list of modified 1-based line numbers to preserve missing import diagnostics on edited lines.", "items": map[string]any{"type": "integer"}}),
+			"work_dir":      map[string]any(lspWorkDirProp()),
 		},
 		"oneOf": exactlyOneRequired("file_path", "file_paths"),
 	}
@@ -119,7 +120,7 @@ func newLSPXrefSchema() schema {
 	}
 	return withActionConditions(NewObjectSchema(map[string]schema{
 		"action":              enumProp("Action", "references", "call_hierarchy", "type_hierarchy"),
-		"pos":                 stringProp("Position as 'file_path:line:column' (example internal/foo.go:42:9)"),
+		"pos":                 stringProp("Position as 'file_path:line[:column]' (example internal/foo.go:42:9)"),
 		"direction":           enumProp("call_hierarchy: incoming/outgoing/both; type_hierarchy: supertypes/subtypes/both", "incoming", "outgoing", "both", "supertypes", "subtypes"),
 		"include_declaration": booleanProp("Include declaration (references only, default true)"),
 		"language_id":         stringProp("Optional language server override for extensionless or ambiguous files."),
@@ -154,7 +155,7 @@ func newLSPStructureSchema() schema {
 		"file_path":          stringProp("File path (absolute or relative, auto-resolved). Required for document_symbol, folding_range, and semantic_tokens. For workspace_symbol, pass exactly one of file_path or workspace_language. Path-only; no :line:column suffix."),
 		"query":              stringProp("Symbol query. Required for workspace_symbol; ignored by document_symbol, folding_range, and semantic_tokens."),
 		"workspace_language": stringProp("Registered LSP manager selector for workspace_symbol. Pass exactly one of workspace_language or file_path."),
-		"match_mode":         enumProp("Workspace symbol match mode; exact is the default and fuzzy must be explicit", "exact", "fuzzy"),
+		"match_mode":         enumProp("Workspace symbol match mode; exact or fuzzy (defaults to smart fuzzy ranking)", "exact", "fuzzy"),
 		"language_id":        stringProp("Optional language server override for extensionless or ambiguous file_path values; invalid without file_path."),
 		"max_results":        integerProp("Max results (default 20, cap 50)"),
 		"work_dir":           lspWorkDirProp(),

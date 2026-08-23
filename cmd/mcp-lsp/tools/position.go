@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
 
@@ -16,9 +17,14 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
-// ResolveLSPPosition 把用户传入的 1-based rune 列转换为 LSP UTF-16 Position。
+// ResolveLSPPosition 把用户传入的 1-based rune 列转换为 LSP UTF-16 Position，并自动吸附行内有效标识符。
 // LSP 协议的 character 是 UTF-16 code unit，不能直接使用人读列号减一。
 func ResolveLSPPosition(ctx context.Context, filePath string, line int, column int) (protocol.Position, error) {
+	return ResolveLSPPositionWithSnap(ctx, filePath, line, column, true)
+}
+
+// ResolveLSPPositionWithSnap 把用户传入的 1-based rune 列转换为 LSP UTF-16 Position，并应用 Auto-Snap。
+func ResolveLSPPositionWithSnap(ctx context.Context, filePath string, line int, column int, hasCol bool) (protocol.Position, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -29,7 +35,8 @@ func ResolveLSPPosition(ctx context.Context, filePath string, line int, column i
 	if err != nil {
 		return protocol.Position{}, err
 	}
-	return mapping.positionFromRuneColumn(column)
+	snappedCol := snapColumnToIdentifier(mapping.lineText, column, hasCol, mapping.runes)
+	return mapping.positionFromRuneColumn(snappedCol)
 }
 
 type linePositionMapping struct {
@@ -111,9 +118,9 @@ func (m linePositionMapping) runeIndexFromUTF16Character(character int) (int, er
 	return 0, fmt.Errorf("character %d is outside line UTF-16 length %d", character, m.utf16Offsets[len(m.utf16Offsets)-1])
 }
 
-// resolveFilePositionRequest 解析 pos 参数、解析路径、校验位置是否在文件范围内。
+// resolveFilePositionRequest 解析 pos 参数、解析路径、校验位置是否在文件范围内，并执行 Auto-Snap 校准。
 func resolveFilePositionRequest(ctx context.Context, params filePositionParams) (string, protocol.Position, error) {
-	filePathRaw, line, col, err := parsePos(params.Pos)
+	filePathRaw, line, col, hasCol, err := parseFilePos(params.Pos, false)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
@@ -121,21 +128,18 @@ func resolveFilePositionRequest(ctx context.Context, params filePositionParams) 
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
-	position, err := ResolveLSPPosition(ctx, filePath, line, col)
+	position, err := ResolveLSPPositionWithSnap(ctx, filePath, line, col, hasCol)
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
 	return filePath, position, nil
 }
 
-// parsePos 解析三段式 pos（file:line:column），缺少 column 时报错。
+// parsePos 解析 pos（file:line 或 file:line:column），允许两段式并支持自动吸附。
 func parsePos(pos string) (string, int, int, error) {
-	filePath, line, col, hasCol, err := parseFilePos(pos, true)
+	filePath, line, col, _, err := parseFilePos(pos, false)
 	if err != nil {
 		return "", 0, 0, err
-	}
-	if !hasCol {
-		return "", 0, 0, fmt.Errorf("invalid pos format %q; expected 'file_path:line:column' (example internal/foo.go:42:9)", pos)
 	}
 	return filePath, line, col, nil
 }
@@ -376,4 +380,170 @@ func lineDistance(a int, b int) int {
 		return a - b
 	}
 	return b - a
+}
+
+var (
+	declFuncPythonRE = regexp.MustCompile(`(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	declClassRE      = regexp.MustCompile(`class\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	declFuncGoRE     = regexp.MustCompile(`func\s+(?:\([^)]+\)\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
+	declFuncJSRE     = regexp.MustCompile(`(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	declFuncRustRE   = regexp.MustCompile(`(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	declTypeRE       = regexp.MustCompile(`(?:type|struct|enum|interface|trait)\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	declVarRE        = regexp.MustCompile(`(?:const|let|var|val)\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	declAssignRE     = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)`)
+)
+
+var commonLanguageKeywords = map[string]bool{
+	"def": true, "class": true, "func": true, "fn": true, "function": true,
+	"var": true, "let": true, "const": true, "val": true, "type": true,
+	"struct": true, "interface": true, "enum": true, "trait": true, "impl": true,
+	"package": true, "namespace": true, "module": true, "import": true, "from": true, "export": true, "as": true,
+	"async": true, "await": true, "public": true, "private": true, "protected": true,
+	"static": true, "final": true, "override": true, "mut": true, "pub": true,
+	"inline": true, "virtual": true, "abstract": true, "extern": true, "default": true,
+	"return": true, "yield": true, "if": true, "else": true, "elif": true,
+	"for": true, "while": true, "loop": true, "match": true, "switch": true,
+	"case": true, "break": true, "continue": true, "goto": true, "throw": true,
+	"try": true, "catch": true, "finally": true, "except": true, "raise": true,
+	"with": true, "defer": true, "go": true, "select": true,
+	"nil": true, "null": true, "true": true, "false": true, "none": true,
+	"self": true, "this": true, "super": true,
+	"new": true, "delete": true, "sizeof": true, "typeof": true, "instanceof": true,
+	"in": true, "is": true, "not": true, "and": true, "or": true,
+}
+
+type identifierInfo struct {
+	name     string
+	startCol int
+	endCol   int
+}
+
+func findCommentStartColumn(lineText string, runes []rune) int {
+	inSingleQuote := false
+	inDoubleQuote := false
+	for i, r := range runes {
+		if r == '\'' && !inDoubleQuote && (i == 0 || runes[i-1] != '\\') {
+			inSingleQuote = !inSingleQuote
+			continue
+		}
+		if r == '"' && !inSingleQuote && (i == 0 || runes[i-1] != '\\') {
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+		if inSingleQuote || inDoubleQuote {
+			continue
+		}
+		if r == '#' {
+			return i + 1
+		}
+		if r == '/' && i+1 < len(runes) && (runes[i+1] == '/' || runes[i+1] == '*') {
+			return i + 1
+		}
+		if r == '-' && i+1 < len(runes) && runes[i+1] == '-' {
+			return i + 1
+		}
+	}
+	return -1
+}
+
+func findPrimaryIdentifier(lineText string, candidates []identifierInfo) (identifierInfo, bool) {
+	if len(candidates) == 0 {
+		return identifierInfo{}, false
+	}
+	regexes := []*regexp.Regexp{
+		declFuncPythonRE,
+		declClassRE,
+		declFuncGoRE,
+		declFuncJSRE,
+		declFuncRustRE,
+		declTypeRE,
+		declVarRE,
+		declAssignRE,
+	}
+	for _, re := range regexes {
+		if sub := re.FindStringSubmatch(lineText); len(sub) > 1 {
+			targetName := sub[1]
+			for _, cand := range candidates {
+				if cand.name == targetName {
+					return cand, true
+				}
+			}
+		}
+	}
+	return candidates[0], true
+}
+
+// snapColumnToIdentifier 根据行文本、传入列号和是否存在显式列号，自动吸附到有效标识符的 1-based rune 列号。
+func snapColumnToIdentifier(lineText string, requestedCol int, hasCol bool, runes []rune) int {
+	if len(runes) == 0 {
+		return max(requestedCol, 1)
+	}
+	if hasCol && requestedCol > len(runes)+1 {
+		return requestedCol
+	}
+
+	commentStartCol := findCommentStartColumn(lineText, runes)
+
+	matches := positionIdentifierRE.FindAllStringIndex(lineText, -1)
+	var allIdentifiers []identifierInfo
+	var validCandidates []identifierInfo
+
+	for _, match := range matches {
+		idName := lineText[match[0]:match[1]]
+		startCol := utf8.RuneCountInString(lineText[:match[0]]) + 1
+		endCol := utf8.RuneCountInString(lineText[:match[1]]) + 1
+		info := identifierInfo{name: idName, startCol: startCol, endCol: endCol}
+		allIdentifiers = append(allIdentifiers, info)
+
+		inComment := commentStartCol > 0 && startCol >= commentStartCol
+		isKeyword := commonLanguageKeywords[strings.ToLower(idName)]
+		if !inComment && !isKeyword {
+			validCandidates = append(validCandidates, info)
+		}
+	}
+
+	primary, hasPrimary := findPrimaryIdentifier(lineText, validCandidates)
+
+	if !hasCol || requestedCol <= 0 {
+		if hasPrimary {
+			return primary.startCol
+		}
+		for i, r := range runes {
+			if !unicode.IsSpace(r) {
+				return i + 1
+			}
+		}
+		return 1
+	}
+
+	for _, cand := range validCandidates {
+		if requestedCol >= cand.startCol && requestedCol <= cand.endCol {
+			return requestedCol
+		}
+	}
+
+	if hasPrimary {
+		if commentStartCol > 0 && requestedCol >= commentStartCol {
+			return primary.startCol
+		}
+		for _, id := range allIdentifiers {
+			if requestedCol >= id.startCol && requestedCol <= id.endCol {
+				if commonLanguageKeywords[strings.ToLower(id.name)] {
+					return primary.startCol
+				}
+			}
+		}
+		firstNonSpace := len(runes) + 1
+		for i, r := range runes {
+			if !unicode.IsSpace(r) {
+				firstNonSpace = i + 1
+				break
+			}
+		}
+		if requestedCol <= firstNonSpace {
+			return primary.startCol
+		}
+	}
+
+	return requestedCol
 }

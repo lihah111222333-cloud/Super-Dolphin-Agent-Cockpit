@@ -16,10 +16,14 @@ import (
 type xrefReferencesManager struct {
 	structureTestManager
 	gotIncludeDeclaration bool
+	gotPosition           protocol.Position
+	gotFilePath           string
 }
 
-func (m *xrefReferencesManager) References(_ context.Context, _ string, _ protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
+func (m *xrefReferencesManager) References(_ context.Context, filePath string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
 	m.gotIncludeDeclaration = includeDeclaration
+	m.gotPosition = position
+	m.gotFilePath = filePath
 	return nil, nil
 }
 
@@ -113,4 +117,58 @@ func writeXRefFixture(t *testing.T) (string, string) {
 		t.Fatalf("write xref fixture: %v", err)
 	}
 	return dir, filePath
+}
+
+func TestXRefReferencesAutoSnapTwoPartPos(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "app.go")
+	if err := os.WriteFile(filePath, []byte("package app\nfunc CalculateSum() int { return 0 }\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &xrefReferencesManager{}
+	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
+	input, err := json.Marshal(xrefParams{
+		Action: "references",
+		Pos:    filePath + ":2",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), input); err != nil {
+		t.Fatalf("references with two-part pos error: %v", err)
+	}
+	// "func CalculateSum() int" -> "CalculateSum" starts at char 5
+	want := protocol.Position{Line: 1, Character: 5}
+	if manager.gotPosition != want {
+		t.Fatalf("manager position = %#v, want %#v (auto-snapped from two-part pos)", manager.gotPosition, want)
+	}
+}
+
+func TestXRefReferencesAutoSnapIndentationAndKeywords(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "service.py")
+	if err := os.WriteFile(filePath, []byte("    def process_order(order_id):\n        pass\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	manager := &xrefReferencesManager{}
+	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
+
+	// Pass pos pointing to line 1 col 1 (leading indentation)
+	input, err := json.Marshal(xrefParams{
+		Action: "references",
+		Pos:    filePath + ":1:1",
+	})
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: dir}), input); err != nil {
+		t.Fatalf("references error: %v", err)
+	}
+	// "    def process_order" -> "process_order" starts at char 8
+	want := protocol.Position{Line: 0, Character: 8}
+	if manager.gotPosition != want {
+		t.Fatalf("manager position = %#v, want %#v (auto-snapped from indentation)", manager.gotPosition, want)
+	}
 }

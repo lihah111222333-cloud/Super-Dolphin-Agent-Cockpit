@@ -27,9 +27,11 @@ const diagnosticsStartupRetryBaseDelay = 300 * time.Millisecond
 // diagnosticsInput 是一级 diagnostics 工具的唯一外部入参。
 // 文件读取和 action 分发已经从 MCP-LSP 工具面删除，内部诊断流程只接收目标路径。
 type diagnosticsInput struct {
-	FilePath   string   `json:"file_path,omitempty"`
-	FilePaths  []string `json:"file_paths,omitempty"`
-	LanguageID string   `json:"language_id,omitempty"`
+	FilePath     string   `json:"file_path,omitempty"`
+	FilePaths    []string `json:"file_paths,omitempty"`
+	LanguageID   string   `json:"language_id,omitempty"`
+	ChangedLines []int    `json:"changed_lines,omitempty"`
+	Lines        []int    `json:"lines,omitempty"`
 }
 
 // NewDiagnosticsHandler 创建一级 diagnostics 工具处理器。
@@ -48,10 +50,15 @@ func NewDiagnosticsHandler(cfg Config) Handler {
 			if err := validateDiagnosticsInput(input); err != nil {
 				return nil, err
 			}
+			changedLines := input.ChangedLines
+			if len(changedLines) == 0 && len(input.Lines) > 0 {
+				changedLines = input.Lines
+			}
 			return handler.handleDiagnostics(ctx, fileToolInput{
-				FilePath:   input.FilePath,
-				FilePaths:  input.FilePaths,
-				LanguageID: input.LanguageID,
+				FilePath:     input.FilePath,
+				FilePaths:    input.FilePaths,
+				LanguageID:   input.LanguageID,
+				ChangedLines: changedLines,
 			})
 		},
 	)
@@ -315,7 +322,7 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	if err != nil {
 		return nil, rustDetachedWorkspaceError(uris, "diagnostics", err)
 	}
-	tables := buildDiagnosticsTables(items, displayPaths)
+	tables := buildDiagnosticsTables(items, displayPaths, input.ChangedLines)
 	total := countDiagnosticRows(tables)
 	if len(tables) == 0 {
 		baseMessage := diagnosticsCheckedScopeMessage(input, targets)
@@ -638,9 +645,16 @@ func diagnosticMessageSummary(message string) string {
 
 // buildDiagnosticsTables 将 LSP 诊断整理为工具响应表。
 // 同一文件内相同位置/严重级别/消息的重复诊断会去重，消息会裁剪到摘要长度。
-func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPaths map[string]string) []diagnosticsTable {
+// 过滤环境缺失（site-packages）引发的 reportMissingImports / reportMissingModuleSource 伪报错（除非该行在 changed_lines 范围内）。
+func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPaths map[string]string, changedLines []int) []diagnosticsTable {
 	if len(items) == 0 {
 		return nil
+	}
+	changedSet := make(map[int]struct{}, len(changedLines))
+	for _, line := range changedLines {
+		if line > 0 {
+			changedSet[line] = struct{}{}
+		}
 	}
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].URI < items[j].URI
@@ -653,6 +667,12 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPa
 		seen := make(map[string]struct{}, len(item.Diagnostics))
 		rows := make([][]any, 0, len(item.Diagnostics))
 		for _, diag := range item.Diagnostics {
+			if isMissingImportDiagnostic(diag) {
+				oneBasedLine := format.FromLSP(diag.Range.Start.Line)
+				if _, isChanged := changedSet[oneBasedLine]; !isChanged {
+					continue
+				}
+			}
 			key := fmt.Sprintf("%d:%d:%d:%s:%s", diag.Range.Start.Line, diag.Range.Start.Character, diag.Severity, diag.Message, diag.Source)
 			if _, ok := seen[key]; ok {
 				continue
@@ -681,6 +701,25 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPa
 		})
 	}
 	return tables
+}
+
+// isMissingImportDiagnostic 判断诊断是否属于缺少 site-packages/模块导致的缺少导入伪报错。
+func isMissingImportDiagnostic(diag protocol.Diagnostic) bool {
+	code := strings.ToLower(diagnosticCode(diag.Code))
+	if code == "reportmissingimports" || code == "reportmissingmodulesource" {
+		return true
+	}
+	msg := diag.Message
+	if strings.Contains(msg, "reportMissingImports") || strings.Contains(msg, "reportMissingModuleSource") {
+		return true
+	}
+	if strings.Contains(msg, "could not be resolved") {
+		src := strings.ToLower(diag.Source)
+		if src == "pyright" || src == "pylance" || src == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // diagnosticsMessageAfterFetch 在 partial 提示已被实际诊断覆盖时清空提示。

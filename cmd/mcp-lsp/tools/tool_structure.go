@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
 	lspmanager "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/manager"
@@ -374,21 +376,19 @@ func runWorkspaceSymbols(
 		if matchMode == workspaceSymbolMatchFuzzy {
 			response.Hint = "next: workspace_symbol results truncated; narrow query with container/class prefix, use match_mode=exact, or increase max_results"
 		} else {
-			response.Hint = "next: workspace_symbol results truncated; narrow query with container/class prefix or file_path, or increase max_results (retry with match_mode=fuzzy to broaden search)"
+			response.Hint = "next: workspace_symbol results truncated; narrow query with container/class prefix or file_path, or increase max_results"
 		}
-	} else if matchMode == workspaceSymbolMatchExact {
-		response.Hint = "next: retry with match_mode=fuzzy to include non-exact symbol names"
 	}
 	return response, nil
 }
 
-// normalizeWorkspaceSymbolMatchMode 收敛 workspace_symbol 匹配模式，未知值立即失败。
+// normalizeWorkspaceSymbolMatchMode 收敛 workspace_symbol 匹配模式，未知值立即失败。缺省时默认使用 fuzzy/smart ranking。
 func normalizeWorkspaceSymbolMatchMode(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", workspaceSymbolMatchExact:
-		return workspaceSymbolMatchExact, nil
-	case workspaceSymbolMatchFuzzy:
+	case "", workspaceSymbolMatchFuzzy:
 		return workspaceSymbolMatchFuzzy, nil
+	case workspaceSymbolMatchExact:
+		return workspaceSymbolMatchExact, nil
 	default:
 		return "", errors.New("match_mode must be exact or fuzzy")
 	}
@@ -410,21 +410,162 @@ func filterWorkspaceSymbolsForFile(ctx context.Context, items []format.CompactWo
 	return filtered, nil
 }
 
-// selectWorkspaceSymbolMatches 默认只返回精确名称；fuzzy 模式把精确项稳定排在前面。
+// selectWorkspaceSymbolMatches 按照 Smart Ranking（Exact 100 > Prefix 80 > WordBoundary/CamelCase 60 > Substring 40）排序。
+// matchMode=exact 仅保留 Exact 100 分匹配项；默认和 fuzzy 模式按权重降序排列所有候选项。
 func selectWorkspaceSymbolMatches(items []format.CompactWorkspaceSymbol, query, matchMode string) []format.CompactWorkspaceSymbol {
-	exact := make([]format.CompactWorkspaceSymbol, 0, len(items))
-	fuzzy := make([]format.CompactWorkspaceSymbol, 0, len(items))
-	for _, item := range items {
-		if item.Name == query {
-			exact = append(exact, item)
-			continue
-		}
-		fuzzy = append(fuzzy, item)
-	}
 	if matchMode == workspaceSymbolMatchExact {
+		exact := make([]format.CompactWorkspaceSymbol, 0, len(items))
+		for _, item := range items {
+			if scoreWorkspaceSymbol(item.Name, item.Container, query) == 100 {
+				exact = append(exact, item)
+			}
+		}
 		return exact
 	}
-	return append(exact, fuzzy...)
+
+	type scoredSymbol struct {
+		symbol format.CompactWorkspaceSymbol
+		score  int
+	}
+	scored := make([]scoredSymbol, 0, len(items))
+	for _, item := range items {
+		score := scoreWorkspaceSymbol(item.Name, item.Container, query)
+		if score > 0 {
+			scored = append(scored, scoredSymbol{symbol: item, score: score})
+		}
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	result := make([]format.CompactWorkspaceSymbol, len(scored))
+	for i, s := range scored {
+		result[i] = s.symbol
+	}
+	return result
+}
+
+// scoreWorkspaceSymbol 计算符号与 query 的 Smart Ranking 权重得分。
+// 权重降序：Exact 100 > Prefix 80 > WordBoundary/CamelCase 60 > Substring 40 > Server Fuzzy 20.
+func scoreWorkspaceSymbol(name, container, query string) int {
+	nameTrim := strings.TrimSpace(name)
+	queryTrim := strings.TrimSpace(query)
+	if nameTrim == "" || queryTrim == "" {
+		return 0
+	}
+
+	// 1. Exact Match (100)
+	if nameTrim == queryTrim || strings.EqualFold(nameTrim, queryTrim) {
+		return 100
+	}
+	if container != "" {
+		fullDot := container + "." + nameTrim
+		fullColon := container + "::" + nameTrim
+		if fullDot == queryTrim || strings.EqualFold(fullDot, queryTrim) ||
+			fullColon == queryTrim || strings.EqualFold(fullColon, queryTrim) {
+			return 100
+		}
+	}
+	leafName := extractLeafSymbol(nameTrim)
+	if leafName != nameTrim && (leafName == queryTrim || strings.EqualFold(leafName, queryTrim)) {
+		return 100
+	}
+
+	lowerName := strings.ToLower(nameTrim)
+	lowerQuery := strings.ToLower(queryTrim)
+	lowerLeaf := strings.ToLower(leafName)
+
+	// 2. Prefix Match (80)
+	if strings.HasPrefix(lowerName, lowerQuery) || strings.HasPrefix(lowerLeaf, lowerQuery) {
+		return 80
+	}
+
+	// 3. WordBoundary / CamelCase Match (60)
+	if isWordBoundaryMatch(nameTrim, lowerQuery) || isWordBoundaryMatch(leafName, lowerQuery) ||
+		isCamelCaseAcronymMatch(nameTrim, lowerQuery) || isCamelCaseAcronymMatch(leafName, lowerQuery) {
+		return 60
+	}
+
+	// 4. Substring Match (40)
+	if strings.Contains(lowerName, lowerQuery) || strings.Contains(lowerLeaf, lowerQuery) {
+		return 40
+	}
+	if container != "" && strings.Contains(strings.ToLower(container), lowerQuery) {
+		return 40
+	}
+
+	// 5. Server-Returned Fuzzy (20)
+	return 20
+}
+
+func extractLeafSymbol(name string) string {
+	lastDot := strings.LastIndex(name, ".")
+	lastColon := strings.LastIndex(name, "::")
+	lastSlash := strings.LastIndex(name, "/")
+	idx := max(lastDot, lastColon, lastSlash)
+	if idx >= 0 && idx+1 < len(name) {
+		if lastColon == idx && idx+2 < len(name) {
+			return name[idx+2:]
+		}
+		return name[idx+1:]
+	}
+	return name
+}
+
+// isWordBoundaryMatch 检查 query 是否在 word boundary（分隔符后或 CamelCase 大写处）匹配。
+func isWordBoundaryMatch(name, lowerQuery string) bool {
+	lowerName := strings.ToLower(name)
+	runes := []rune(name)
+	lowerRunes := []rune(lowerName)
+	queryRunes := []rune(lowerQuery)
+	if len(queryRunes) == 0 || len(runes) < len(queryRunes) {
+		return false
+	}
+
+	for i := 0; i <= len(runes)-len(queryRunes); i++ {
+		if i == 0 {
+			continue // index 0 is prefix match (score 80)
+		}
+		matches := true
+		for k := 0; k < len(queryRunes); k++ {
+			if lowerRunes[i+k] != queryRunes[k] {
+				matches = false
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		prevRune := runes[i-1]
+		currRune := runes[i]
+		if isWordDelimiter(prevRune) {
+			return true
+		}
+		if unicode.IsUpper(currRune) && unicode.IsLower(prevRune) {
+			return true
+		}
+	}
+	return false
+}
+
+func isWordDelimiter(r rune) bool {
+	return r == '_' || r == '-' || r == '.' || r == ':' || r == '/' || r == '\\' || r == ' ' || r == '$' || r == '#'
+}
+
+// isCamelCaseAcronymMatch 检查 query 是否为 CamelCase 缩写（如 WS 匹配 WorkspaceSymbol）。
+func isCamelCaseAcronymMatch(name, lowerQuery string) bool {
+	var initials []rune
+	for i, r := range name {
+		if i == 0 && unicode.IsLetter(r) {
+			initials = append(initials, unicode.ToLower(r))
+		} else if unicode.IsUpper(r) {
+			initials = append(initials, unicode.ToLower(r))
+		}
+	}
+	if len(initials) == 0 {
+		return false
+	}
+	return string(initials) == lowerQuery
 }
 
 // runFoldingRanges 返回文件折叠范围，供调用方理解大文件结构。

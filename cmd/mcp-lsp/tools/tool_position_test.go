@@ -282,3 +282,99 @@ func writePositionFixture(t *testing.T, dir string, name string, content string)
 		t.Fatalf("write fixture %s: %v", name, err)
 	}
 }
+
+func TestAutoSnapTwoPartPosPythonDef(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "service.py", "    def calculate_total(a, b):\n        pass\n")
+
+	_, position, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "service.py:1",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest with two-part pos error: %v", err)
+	}
+	// "    def calculate_total(a, b):" -> "calculate_total" starts at 0-indexed char 8
+	want := protocol.Position{Line: 0, Character: 8}
+	if position != want {
+		t.Fatalf("position = %#v, want %#v (auto-snapped to function name)", position, want)
+	}
+}
+
+func TestAutoSnapTwoPartPosGoMethod(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "service.go", "package s\nfunc (s *Service) HandleRequest(ctx context.Context) error {\n\treturn nil\n}\n")
+
+	_, position, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "service.go:2",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest with two-part pos error: %v", err)
+	}
+	// "func (s *Service) HandleRequest(ctx context.Context) error {" -> "HandleRequest" starts at char 18
+	want := protocol.Position{Line: 1, Character: 18}
+	if position != want {
+		t.Fatalf("position = %#v, want %#v (auto-snapped to method name)", position, want)
+	}
+}
+
+func TestAutoSnapLeadingIndentationAndKeyword(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "app.py", "    def process_data(data):\n        pass\n")
+
+	// Col 1 is leading whitespace (column 1)
+	_, posIndented, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "app.py:1:1",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest error: %v", err)
+	}
+	want := protocol.Position{Line: 0, Character: 8}
+	if posIndented != want {
+		t.Fatalf("from indentation position = %#v, want %#v", posIndented, want)
+	}
+
+	// Col 5 is on "def" keyword
+	_, posKeyword, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "app.py:1:5",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest error: %v", err)
+	}
+	if posKeyword != want {
+		t.Fatalf("from keyword position = %#v, want %#v", posKeyword, want)
+	}
+}
+
+func TestAutoSnapOnCommentSnapsToIdentifier(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "config.py", "timeout = 30  # config timeout\n")
+
+	// Col 16 is in "# config timeout"
+	_, position, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "config.py:1:16",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest error: %v", err)
+	}
+	want := protocol.Position{Line: 0, Character: 0}
+	if position != want {
+		t.Fatalf("position = %#v, want %#v (snapped to timeout)", position, want)
+	}
+}
+
+func TestAutoSnapExistingIdentifierPreserved(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "app.py", "    def process_data(data):\n        pass\n")
+
+	// Col 12 is on "process_data"
+	_, position, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "app.py:1:12",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest error: %v", err)
+	}
+	want := protocol.Position{Line: 0, Character: 11}
+	if position != want {
+		t.Fatalf("position = %#v, want %#v (preserved column inside identifier)", position, want)
+	}
+}

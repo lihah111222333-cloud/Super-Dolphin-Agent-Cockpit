@@ -47,10 +47,11 @@ type emptyListEnvelope struct {
 
 // fileToolInput 仅是 diagnostics 内部路径路由载体，不属于 MCP 输入 schema。
 type fileToolInput struct {
-	Action     string
-	FilePath   string
-	FilePaths  []string
-	LanguageID string
+	Action       string
+	FilePath     string
+	FilePaths    []string
+	LanguageID   string
+	ChangedLines []int
 }
 
 func shouldUseLanguageOverrideDiagnostics(input fileToolInput, targets []diagnosticTarget) bool {
