@@ -2597,6 +2597,7 @@
     "internal/devtools/remotecicli/portable_go_catalog.go",
     "internal/devtools/remotecicli/portable_go_catalog_test.go",
     "internal/devtools/remotecicli/portable_validate.go",
+    "internal/devtools/remotecicli/portable_validate_batch_test.go",
     "internal/devtools/remotecicli/portable_validate_test.go",
     "internal/devtools/remotecicli/postgresql_authority.go",
     "internal/devtools/remotecicli/postgresql_authority_test.go",
@@ -5003,6 +5004,6 @@
     "scripts/mcp_lsp_workload_catalog/remote_test_tree.go",
     "scripts/mcp_lsp_workload_catalog/tree_argument.go"
   ],
-  "source_snapshot_input_count": 7323,
-  "source_snapshot_paths_sha256": "sha256:1312d1d8763d6d12af8f731cc49a341377337705dacae4ca3a1559d8a095a17c"
+  "source_snapshot_input_count": 7324,
+  "source_snapshot_paths_sha256": "sha256:51d943159c9bfcc69f58455b236e8e6aa573c2c08ad362f0ebda5a0e3aea426a"
 }

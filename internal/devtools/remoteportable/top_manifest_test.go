@@ -270,7 +270,7 @@ func TestPortableManifestCatalogPoliciesAreSortedDualPlatformAndExplicit(t *test
 		name   string
 		mutate func(*PortableManifest)
 	}{
-		{name: "empty both", mutate: func(manifest *PortableManifest) { manifest.CatalogPolicies = nil; manifest.Workloads = nil }},
+		{name: "missing policies", mutate: func(manifest *PortableManifest) { manifest.CatalogPolicies = nil }},
 		{name: "unsorted policy", mutate: func(manifest *PortableManifest) {
 			manifest.CatalogPolicies[0], manifest.CatalogPolicies[1] = manifest.CatalogPolicies[1], manifest.CatalogPolicies[0]
 		}},
@@ -290,29 +290,20 @@ func TestPortableManifestCatalogPoliciesAreSortedDualPlatformAndExplicit(t *test
 	}
 }
 
-func TestPortableManifestAllowsManualOrAutoOnlyInputs(t *testing.T) {
+func TestPortableManifestRequiresAutoCatalogAndAllowsNoManualWorkloads(t *testing.T) {
 	manualOnly := topManifestFixture(t)
 	manualOnly.CatalogPolicies = nil
-	manualOnly.CapacityPolicyDigest = ""
-	capacityDigest, err := DerivePortableCapacityPolicyDigest(manualOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manualOnly.CapacityPolicyDigest = capacityDigest
-	encoded, err := PortableManifestCanonicalEncode(manualOnly)
-	if err != nil {
-		t.Fatalf("manual-only manifest rejected: %v", err)
-	}
-	if !bytes.Contains(encoded, []byte(`"catalog_policies":[]`)) {
-		t.Fatalf("manual-only manifest did not canonicalize empty catalog policies: %s", encoded)
+	if _, err := PortableManifestCanonicalEncode(manualOnly); err == nil || !strings.Contains(err.Error(), "exactly two platforms") {
+		t.Fatalf("manual-only manifest error = %v", err)
 	}
 	autoOnly := topManifestFixture(t)
 	autoOnly.Workloads = nil
 	autoOnly.CapacityPolicyDigest = ""
-	autoOnly.CapacityPolicyDigest, err = DerivePortableCapacityPolicyDigest(autoOnly)
+	capacityDigest, err := DerivePortableCapacityPolicyDigest(autoOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
+	autoOnly.CapacityPolicyDigest = capacityDigest
 	autoEncoded, err := PortableManifestCanonicalEncode(autoOnly)
 	if err != nil {
 		t.Fatalf("auto-only manifest rejected: %v", err)

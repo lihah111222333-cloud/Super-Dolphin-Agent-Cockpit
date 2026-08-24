@@ -2,6 +2,7 @@
 package remotecicli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -319,6 +321,163 @@ func (resolver gitObjectResolver) ReadBlob(ctx context.Context, treeSHA, repoRel
 		return nil, err
 	}
 	return blob.Data, nil
+}
+
+const gitBatchHeaderMaxBytes = 64 << 10
+
+type gitObjectBlobBatch struct {
+	repositoryRoot     string
+	repositoryIdentity string
+	treeSHA            string
+	command            *exec.Cmd
+	stdin              io.WriteCloser
+	stdout             *bufio.Reader
+	closed             bool
+}
+
+// newListedBlobBatch 启动单个 NUL framed Git 进程，供 exact-tree catalog 顺序读取全部 blob。
+func (resolver gitObjectResolver) newListedBlobBatch(ctx context.Context, treeSHA string) (portableCatalogBlobBatch, error) {
+	if err := validateBoundedGitInputs(ctx, resolver.repositoryRoot, gitObjectOutputMaxBytes, []string{"cat-file", "--batch", "-Z"}); err != nil {
+		return nil, err
+	}
+	if treeSHA == "" || strings.TrimSpace(treeSHA) != treeSHA || strings.ContainsAny(treeSHA, "\x00\r\n") {
+		return nil, errors.New("Git blob batch tree is invalid")
+	}
+	identity, err := repositoryRootIdentity(resolver.repositoryRoot)
+	if err != nil {
+		return nil, err
+	}
+	command := exec.CommandContext(ctx, "git", "-C", resolver.repositoryRoot, "cat-file", "--batch", "-Z")
+	if err := remoteportable.ConfigureBoundedCommand(command); err != nil {
+		return nil, err
+	}
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := command.Start(); err != nil {
+		return nil, err
+	}
+	return &gitObjectBlobBatch{
+		repositoryRoot: resolver.repositoryRoot, repositoryIdentity: identity, treeSHA: treeSHA,
+		command: command, stdin: stdin, stdout: bufio.NewReaderSize(stdout, gitBatchHeaderMaxBytes+1),
+	}, nil
+}
+
+// ReadBlob 读取一个 batch 响应，并对 header、类型、单 blob 字节数和 NUL framing 做 fail-fast 校验。
+func (batch *gitObjectBlobBatch) ReadBlob(ctx context.Context, treeSHA, repoRelativePath string) ([]byte, error) {
+	if err := batch.validateReadAvailability(ctx); err != nil {
+		return nil, err
+	}
+	if err := batch.validateReadRequest(treeSHA, repoRelativePath); err != nil {
+		return nil, batch.fail(err)
+	}
+	if err := batch.writeReadRequest(treeSHA, repoRelativePath); err != nil {
+		return nil, batch.fail(err)
+	}
+	fields, err := batch.readBlobHeader()
+	if err != nil {
+		return nil, batch.fail(err)
+	}
+	size, err := parseBlobResponseSize(fields)
+	if err != nil {
+		return nil, batch.fail(err)
+	}
+	body, err := batch.readBlobBody(size)
+	if err != nil {
+		return nil, batch.fail(err)
+	}
+	return body, nil
+}
+
+// validateReadAvailability 校验 batch 与调用 context 仍可继续同一顺序会话。
+func (batch *gitObjectBlobBatch) validateReadAvailability(ctx context.Context) error {
+	if batch == nil || batch.closed || ctx == nil || ctx.Err() != nil {
+		return errors.New("Git blob batch is unavailable")
+	}
+	return nil
+}
+
+// validateReadRequest 校验请求仍绑定 batch 的 exact tree 且不破坏 NUL framing。
+func (batch *gitObjectBlobBatch) validateReadRequest(treeSHA, repoRelativePath string) error {
+	if treeSHA != batch.treeSHA || repoRelativePath == "" || strings.ContainsRune(repoRelativePath, '\x00') {
+		return errors.New("Git blob batch request is invalid")
+	}
+	return nil
+}
+
+// writeReadRequest 写入 git cat-file --batch -Z 要求的单个 NUL 终止对象表达式。
+func (batch *gitObjectBlobBatch) writeReadRequest(treeSHA, repoRelativePath string) error {
+	request := treeSHA + ":" + repoRelativePath + "\x00"
+	written, err := io.WriteString(batch.stdin, request)
+	if err != nil || written != len(request) {
+		return errors.New("Git blob batch request write failed")
+	}
+	return nil
+}
+
+// readBlobHeader 读取并校验 NUL 终止的 blob 响应 header。
+func (batch *gitObjectBlobBatch) readBlobHeader() ([]string, error) {
+	header, err := batch.stdout.ReadSlice(0)
+	if err != nil || len(header) == 0 || len(header) > gitBatchHeaderMaxBytes || header[len(header)-1] != 0 {
+		return nil, errors.New("Git blob batch response header is invalid")
+	}
+	fields := strings.Fields(string(header[:len(header)-1]))
+	if len(fields) != 3 || fields[1] != "blob" {
+		return nil, errors.New("Git blob batch response is not a blob")
+	}
+	return fields, nil
+}
+
+// parseBlobResponseSize 解析并限制单 blob 响应字节数。
+func parseBlobResponseSize(fields []string) (int64, error) {
+	size, err := strconv.ParseInt(fields[2], 10, 64)
+	if err != nil || size < 0 || size > gitObjectOutputMaxBytes {
+		return 0, errors.New("Git blob batch response exceeds limit")
+	}
+	return size, nil
+}
+
+// readBlobBody 读取精确长度的 blob 内容并消费末尾 NUL framing。
+func (batch *gitObjectBlobBatch) readBlobBody(size int64) ([]byte, error) {
+	framed := make([]byte, size+1)
+	if _, err := io.ReadFull(batch.stdout, framed); err != nil || framed[len(framed)-1] != 0 {
+		return nil, errors.New("Git blob batch response body is invalid")
+	}
+	return framed[:len(framed)-1], nil
+}
+
+func (batch *gitObjectBlobBatch) fail(cause error) error {
+	if batch == nil || batch.closed {
+		return cause
+	}
+	cancelErr := batch.command.Cancel()
+	_ = batch.command.Wait()
+	batch.closed = true
+	identityErr := verifyRepositoryRootIdentity(batch.repositoryRoot, batch.repositoryIdentity)
+	if cancelErr != nil && !errors.Is(cancelErr, os.ErrProcessDone) {
+		return errors.Join(cause, errors.New("Git blob batch termination failed"), identityErr)
+	}
+	return errors.Join(cause, identityErr)
+}
+
+// Close 关闭 batch stdin、回收进程并再次核对仓库根与 object storage 身份。
+func (batch *gitObjectBlobBatch) Close() error {
+	if batch == nil || batch.closed {
+		return nil
+	}
+	closeErr := batch.stdin.Close()
+	waitErr := batch.command.Wait()
+	batch.closed = true
+	identityErr := verifyRepositoryRootIdentity(batch.repositoryRoot, batch.repositoryIdentity)
+	if closeErr != nil || waitErr != nil || identityErr != nil {
+		return errors.Join(errors.New("Git blob batch close failed"), closeErr, waitErr, identityErr)
+	}
+	return nil
 }
 
 // parseGitTreeEntry 严格解析单个 NUL 终止的 git ls-tree 记录。

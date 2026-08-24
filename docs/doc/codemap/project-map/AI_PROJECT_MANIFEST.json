@@ -4,17 +4,17 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:3c7a97c680cbe9bc6fd587e348fbc688435b42c1f560f71139e0253b1d3dac0a",
-    "source_sha256": "sha256:8996a9603fb8fd9ae99ac43c1fc0c062deb4606057cf4197c4aab4b3830008b4",
-    "entries_sha256": "sha256:d6f732a38e8c9a117f5dee909bbac3509af4ba55d038eee516f42f89901417db"
+    "source_sha256": "sha256:d3c4db10ea8f842d2266991cdc1169ca2bc09b04e943ca8d3dc40bf9bde9956f",
+    "entries_sha256": "sha256:8d383d25e7761d6055c977a7004d160c980831d1cda3782fa4d237e24eceb82a"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5158,
+  "files": 5159,
   "domains": {
     "other": 979,
-    "remote-ci": 190,
+    "remote-ci": 191,
     "docs-agent": 99,
     "app-ui": 754,
     "platform-provider": 1731,
@@ -64,8 +64,8 @@
       {
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
-        "file_count": 190,
-        "size_kb": 43.1,
+        "file_count": 191,
+        "size_kb": 43.3,
         "desc": "独立 remote-ci validation、portable manifest 与异构节点契约"
       },
       {
@@ -90,7 +90,7 @@
     "cmd": 1233,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 2768,
+    "internal": 2769,
     "pkg": 30,
     "scripts": 224,
     "sql": 29,
