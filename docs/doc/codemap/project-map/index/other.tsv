@@ -524,7 +524,7 @@ internal/devtools/mcplspguardcore/guard_test.go	internal	other	go-test	28306	开
 internal/devtools/mcplspguardcore/receipt_ast_helpers.go	internal	other	go-source	11127	开发工具与生成器辅助包	internal,devtools,mcplspguardcore,receipt,ast,helpers,开发工具与生成器辅助包
 internal/devtools/mcplspguardcore/scheduler_validation.go	internal	other	go-source	11136	开发工具与生成器辅助包	internal,devtools,mcplspguardcore,scheduler,validation,开发工具与生成器辅助包
 internal/devtools/nilnessrunner/runner.go	internal	other	go-source	360	开发工具与生成器辅助包	internal,devtools,nilnessrunner,runner,开发工具与生成器辅助包
-internal/devtools/projectmaptrusted/assets/generate_ai_project_map.mjs.gz	internal	other	gz	16821	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,assets,generate,ai,project,map,mjs,开发工具与生成器辅助包
+internal/devtools/projectmaptrusted/assets/generate_ai_project_map.mjs.gz	internal	other	gz	16854	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,assets,generate,ai,project,map,mjs,开发工具与生成器辅助包
 internal/devtools/projectmaptrusted/generator_asset.go	internal	other	go-source	1249	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,generator,asset,开发工具与生成器辅助包
 internal/devtools/projectmaptrusted/generator_asset_sync_test.go	internal	other	go-test	2106	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,generator,asset,sync,test,开发工具与生成器辅助包
 internal/devtools/projectmaptrusted/project_map.go	internal	other	go-source	31328	开发工具与生成器辅助包	internal,devtools,projectmaptrusted,project,map,开发工具与生成器辅助包

@@ -26,7 +26,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/modules.tsv` | 765 | 149.2 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1731 | 329.8 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 230 | 36.0 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 191 | 43.3 KB | 独立 remote-ci validation、portable manifest 与异构节点契约 |
+| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 191 | 43.4 KB | 独立 remote-ci validation、portable manifest 与异构节点契约 |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 99 | 14.8 KB | 代码地图、ADR、契约与 docs 项目知识 |
 | `docs/doc/codemap/project-map/index/other.tsv` | 979 | 197.0 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
@@ -68,7 +68,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | MCP orchestration peer | `cmd/mcp-orch/main.go` | stdio / managed peer | Agent lifecycle, DAG, wakeup, workspace and shared file tools |
 | MCP LSP peer | `cmd/mcp-lsp/main.go` | stdio / managed peer | Generic multi-language LSP peer and code intelligence tools |
 | Trusted local Gate | `cmd/super-dolphin-gate/main.go` | Git hooks / local validation | Exact-tree project-map, closure, and local code-guard checks |
-| Portable validation peer | `cmd/super-dolphin-remote-ci/main.go` | standalone validation binary | Strict portable manifest binding; execute remains fail-fast retired |
+| Remote CI engine | `cmd/super-dolphin-remote-ci/main.go` | standalone validation and execute binary | Strict portable binding plus the single Ubuntu/Wine PostgreSQL production lifecycle |
 | React UI | `frontend-app/src/main.jsx` | 5175 dev server | Current React/Vite frontend entry |
 | macOS dev runner | `run-new-ui-desktop.sh` | 5175 dev UI + local desktop host | Desktop host plus Vite dev flow |
 | Windows dev runner | `run-new-ui-desktop.ps1` | 5175 dev UI + local desktop host | PowerShell desktop host plus Vite dev flow |
@@ -169,7 +169,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
 | `cmd/super-dolphin-gate` | 16 | trusted local Gate、project-map 与 closure worker CLI |
-| `cmd/super-dolphin-remote-ci` | 2 | 独立 portable descriptor validation CLI |
+| `cmd/super-dolphin-remote-ci` | 2 | 独立 portable validation 与 production execute CLI |
 | `internal/devtools/heteroci` | 64 | 通用异构节点、容量规划与本地非权威路由 |
 | `internal/devtools/remoteportable` | 22 | portable manifest 与 cross-repository target binding |
 | `internal/devtools/remotecicli` | 17 | 独立 remote-ci validation composition root |

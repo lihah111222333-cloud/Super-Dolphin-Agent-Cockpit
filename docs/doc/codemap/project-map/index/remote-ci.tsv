@@ -18,9 +18,9 @@ cmd/super-dolphin-gate/project_map_cli.go	cmd	remote-ci	go-source	3521	trusted l
 cmd/super-dolphin-gate/project_map_cli_test.go	cmd	remote-ci	go-test	8501	trusted local Gate、project-map、closure 与 worker 入口	cmd,super,dolphin,gate,project,map,cli,test,trusted,local,Gate,project-map,closure,与,worker,入口
 cmd/super-dolphin-gate/project_map_cli_test_helpers_test.go	cmd	remote-ci	go-test	1119	trusted local Gate、project-map、closure 与 worker 入口	cmd,super,dolphin,gate,project,map,cli,test,helpers,trusted,local,Gate,project-map,closure,与,worker
 cmd/super-dolphin-gate/worker_cli_test.go	cmd	remote-ci	go-test	1477	trusted local Gate、project-map、closure 与 worker 入口	cmd,super,dolphin,gate,worker,cli,test,trusted,local,Gate,project-map,closure,与,入口
-cmd/super-dolphin-remote-ci/main.go	cmd	remote-ci	go-source	336	独立 remote-ci portable descriptor validation 入口	cmd,super,dolphin,remote,ci,main,独立,remote-ci,portable,descriptor,validation,入口
-cmd/super-dolphin-remote-ci/main_test.go	cmd	remote-ci	go-test	1662	独立 remote-ci portable descriptor validation 入口	cmd,super,dolphin,remote,ci,main,test,独立,remote-ci,portable,descriptor,validation,入口
-docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	16714	独立 portable remote-ci 四节点/PG/observable validation Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,独立,portable,remote-ci,四节点,PG,observable,validation,Accepted
+cmd/super-dolphin-remote-ci/main.go	cmd	remote-ci	go-source	336	独立 remote-ci portable validation 与 production execute 入口	cmd,super,dolphin,remote,ci,main,独立,remote-ci,portable,validation,与,production,execute,入口
+cmd/super-dolphin-remote-ci/main_test.go	cmd	remote-ci	go-test	1662	独立 remote-ci portable validation 与 production execute 入口	cmd,super,dolphin,remote,ci,main,test,独立,remote-ci,portable,validation,与,production,execute,入口
+docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	16714	独立 portable remote-ci 单 Ubuntu/Wine/PG/observable execute Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,独立,portable,remote-ci,单,Ubuntu,Wine,PG,observable,execute
 internal/devtools/heteroci/anchor_wave.go	internal	remote-ci	go-source	14107	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,anchor,wave,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/anchor_wave_test.go	internal	remote-ci	go-test	14856	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,anchor,wave,test,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/execution_unit.go	internal	remote-ci	go-source	4258	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,execution,unit,通用异构节点,容量规划与本地非权威路由契约

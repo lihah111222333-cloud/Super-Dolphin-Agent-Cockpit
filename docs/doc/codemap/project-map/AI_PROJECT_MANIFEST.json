@@ -3,9 +3,9 @@
   "generator": "node:scripts/generate_ai_project_map.mjs",
   "input_fingerprint": {
     "schema": "project-map-input/v1",
-    "generator_rules_sha256": "sha256:3c7a97c680cbe9bc6fd587e348fbc688435b42c1f560f71139e0253b1d3dac0a",
-    "source_sha256": "sha256:d3c4db10ea8f842d2266991cdc1169ca2bc09b04e943ca8d3dc40bf9bde9956f",
-    "entries_sha256": "sha256:8d383d25e7761d6055c977a7004d160c980831d1cda3782fa4d237e24eceb82a"
+    "generator_rules_sha256": "sha256:435832c14ba1f5fe47ed617e593d21252c0663d60ed903033b12c12bab00b32f",
+    "source_sha256": "sha256:904b94885c54c23683ff7f284b47702ddee9c15f814aa56441a1bee537472dba",
+    "entries_sha256": "sha256:838d6d75a03e4d28fc0216e241923610e2181c9dff9a8a4b055b3163463f837c"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
@@ -65,7 +65,7 @@
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
         "file_count": 191,
-        "size_kb": 43.3,
+        "size_kb": 43.4,
         "desc": "独立 remote-ci validation、portable manifest 与异构节点契约"
       },
       {
@@ -246,10 +246,10 @@
       "desc": "Exact-tree project-map, closure, and local code-guard checks"
     },
     {
-      "unit": "Portable validation peer",
+      "unit": "Remote CI engine",
       "entry": "cmd/super-dolphin-remote-ci/main.go",
-      "endpoint": "standalone validation binary",
-      "desc": "Strict portable manifest binding; execute remains fail-fast retired"
+      "endpoint": "standalone validation and execute binary",
+      "desc": "Strict portable binding plus the single Ubuntu/Wine PostgreSQL production lifecycle"
     },
     {
       "unit": "React UI",
