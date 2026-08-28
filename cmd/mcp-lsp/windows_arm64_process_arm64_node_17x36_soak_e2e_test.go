@@ -150,7 +150,7 @@ func TestNode17x36ReusableProductRoot(t *testing.T) {
 	})
 
 	t.Run("existing absolute root is reused", func(t *testing.T) {
-		productRoot := t.TempDir()
+		productRoot := node17x36ReusableProductRootFixture(t)
 		sentinel := filepath.Join(productRoot, "reuse-sentinel")
 		if err := os.WriteFile(sentinel, []byte("must remain"), 0o600); err != nil {
 			t.Fatalf("write reuse sentinel: %v", err)

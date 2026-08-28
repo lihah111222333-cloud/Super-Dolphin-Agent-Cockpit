@@ -18,10 +18,7 @@ import (
 func writeHelperPackageFixture(t *testing.T, dir, content string, identity HelperIdentity) (string, string) {
 	t.Helper()
 	helper := filepath.Join(dir, HelperFileName(identity.GOOS))
-	image := []byte(content)
-	if identity.GOOS == "windows" {
-		image = append([]byte{'M', 'Z'}, image...)
-	}
+	image := helperFixtureImage(identity.GOOS, []byte(content))
 	if err := os.WriteFile(helper, image, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -35,11 +32,16 @@ func writeHelperPackageFixture(t *testing.T, dir, content string, identity Helpe
 func requireSymlink(t *testing.T, oldname, newname string) {
 	t.Helper()
 	if err := os.Symlink(oldname, newname); err != nil {
-		if runtime.GOOS == "windows" {
-			t.Skipf("symlink requires privilege on windows: %v", err)
-		}
 		t.Fatal(err)
 	}
+}
+
+// helperFixtureImage 只按显式 helper 目标 GOOS 构造测试镜像，不读取宿主平台事实。
+func helperFixtureImage(helperGOOS string, content []byte) []byte {
+	if helperGOOS == "windows" {
+		return append([]byte{'M', 'Z'}, content...)
+	}
+	return append([]byte(nil), content...)
 }
 
 func TestHelperPackageRejectsMissingMixedAndTamperedArtifacts(t *testing.T) {
@@ -275,11 +277,8 @@ func verifyIdentityMappingCoverage(t *testing.T, coverage map[string]helperIdent
 	base := helperManifestGuardIdentity()
 	for identityField, fieldCoverage := range coverage {
 		t.Run("mapping_"+identityField, func(t *testing.T) {
-			if runtime.GOOS == "windows" && identityField == "GOOS" {
-				t.Skip("GOOS mutation exercises non-windows executable policy on windows")
-			}
 			identity := base
-			marker := "field-guard-" + strings.ToLower(identityField)
+			marker := helperIdentityMappingValue(identityField, base)
 			reflect.ValueOf(&identity).Elem().FieldByName(identityField).SetString(marker)
 			_, manifest := writeHelperPackageFixture(t, t.TempDir(), "#!/bin/sh\nexit 0\n", identity)
 			if got := readManifestDocument(t, manifest)[fieldCoverage.manifestField]; got != marker {
@@ -305,6 +304,14 @@ func verifyIdentityMappingCoverage(t *testing.T, coverage map[string]helperIdent
 			}
 		})
 	}
+}
+
+// helperIdentityMappingValue 保留宿主 GOOS 的可执行策略，只对其余字段注入独立映射标记。
+func helperIdentityMappingValue(identityField string, base HelperIdentity) string {
+	if identityField == "GOOS" {
+		return base.GOOS
+	}
+	return "field-guard-" + strings.ToLower(identityField)
 }
 
 func helperManifestGuardIdentity() HelperIdentity {

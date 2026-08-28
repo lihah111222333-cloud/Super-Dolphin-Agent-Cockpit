@@ -3,11 +3,53 @@
 package appupdaterecovery
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
+	"sync"
 	"testing"
+	"time"
 )
+
+func TestRollbackRestartReadinessRetriesRefusedPublishedEndpoint(t *testing.T) {
+	endpoint := newRefusedRollbackRestartEndpoint(t)
+	token := "rollback-restart-readiness"
+	exact := currentRollbackRestartExactProcess(t, endpoint, token)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	result := make(chan rollbackEndpointWaitResult, 1)
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		identity, err := waitRollbackRestartEndpoint(ctx, exact)
+		result <- rollbackEndpointWaitResult{endpoint: identity, err: err}
+	})
+	t.Cleanup(func() {
+		cancel()
+		workers.Wait()
+	})
+	select {
+	case early := <-result:
+		t.Fatalf("wait returned before listener became ready: %v", early.err)
+	case <-time.After(3 * rollbackRestartEndpointPoll):
+	}
+	startReadyRollbackRestartEndpoint(t, endpoint, token)
+	assertRollbackRestartEndpointReady(t, ctx, result, endpoint)
+}
+
+func TestRollbackRestartReadinessRefusedEndpointHonorsDeadline(t *testing.T) {
+	endpoint := newRefusedRollbackRestartEndpoint(t)
+	exact := currentRollbackRestartExactProcess(t, endpoint, "rollback-restart-deadline")
+	ctx, cancel := context.WithTimeout(t.Context(), 3*rollbackRestartEndpointPoll)
+	defer cancel()
+	started := time.Now()
+	_, err := waitRollbackRestartEndpoint(ctx, exact)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("deadline wait elapsed = %v, want <= 1s", elapsed)
+	}
+}
 
 func newRefusedRollbackRestartEndpoint(t *testing.T) string {
 	t.Helper()

@@ -242,7 +242,6 @@ var lspScriptRuntimePlatformControlExemptions = map[string]string{
 	"scripts/mcp_lsp_workload_catalog/catalog_test.go":      "catalog symlink fixture 与宿主回执测试",
 	"scripts/mcp_lsp_workload_catalog_guard_test.go":        "workload catalog 宿主 gate 测试",
 	"scripts/package_guard_helpers_test.go":                 "package guard 宿主 helper",
-	"scripts/remote_ci_imagecache_refresh_dispatch_test.go": "macOS hook 调度 fixture",
 	"scripts/trusted_launcher_test_helpers_test.go":         "系统账户 launcher fixture",
 }
 
@@ -784,6 +783,9 @@ func TestLSPWindowsARM64E2EProofContracts(t *testing.T) {
 		requireNonPass bool
 	}{
 		{path: "cmd/mcp-lsp/installer/host_platform_windows_arm64_e2e_test.go", requireNonPass: true},
+		{path: "cmd/mcp-lsp/lsp_binary_cached_ruby_semantic_windows_arm64_e2e_test.go", requireNonPass: true},
+		{path: "cmd/mcp-lsp/lsp_binary_windows_arm64_emmylua_helpers_e2e_test.go", requireNonPass: true},
+		{path: "cmd/mcp-lsp/node_17x36_product_root_windows_arm64_e2e_test.go", requireNonPass: true},
 		{path: "cmd/mcp-lsp/lsp_binary_real_prisma_windows_arm64_raw_protocol_matrix_e2e_test.go", requireNonPass: true},
 		{path: "cmd/mcp-lsp/lsp_binary_windows_arm64_emmylua_e2e_test.go", formal: true, requireNonPass: true},
 		{path: "cmd/mcp-lsp/windows_arm64_process_arm64_csharp_mcp_36_soak_e2e_test.go", formal: true, requireNonPass: true},
@@ -805,9 +807,6 @@ func TestLSPWindowsARM64E2EProofContracts(t *testing.T) {
 	knownContracts := make(map[string]struct{}, len(contracts))
 	for _, contract := range contracts {
 		knownContracts[contract.path] = struct{}{}
-	}
-	for _, contract := range contracts {
-		contract := contract
 		t.Run(contract.path, func(t *testing.T) {
 			source := readRepoFile(t, filepath.Join("..", filepath.FromSlash(contract.path)))
 			base := strings.ToLower(filepath.Base(contract.path))
@@ -2448,7 +2447,7 @@ func lspPlatformFileConstraint(base string) (platform, requiredTag string, dedic
 // lspGoBuildTag 读取 package 声明前的显式 Go build constraint。
 func lspGoBuildTag(source string) string {
 	for _, line := range strings.Split(source, "\n") {
-		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(strings.TrimSpace(line), "\uFEFF")
 		if strings.HasPrefix(line, "//go:build ") {
 			return strings.TrimSpace(strings.TrimPrefix(line, "//go:build "))
 		}
@@ -2464,7 +2463,7 @@ func lspGoBuildTag(source string) string {
 func lspHasLegacyBuildConstraintWithoutGoBuild(source string) bool {
 	hasLegacy, hasGoBuild := false, false
 	for _, line := range strings.Split(source, "\n") {
-		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(strings.TrimSpace(line), "\uFEFF")
 		if strings.HasPrefix(line, "package ") {
 			break
 		}
@@ -2659,9 +2658,9 @@ func TestLSPBuildConstraintDeclarationRequiresModernTag(t *testing.T) {
 	if !lspHasLegacyBuildConstraintWithoutGoBuild(legacyOnly) {
 		t.Fatal("legacy-only // +build declaration was not rejected")
 	}
-	modernWithCompatibility := "//go:build windows\n// +build windows\n\npackage fixture\n"
-	if lspHasLegacyBuildConstraintWithoutGoBuild(modernWithCompatibility) {
-		t.Fatal("modern //go:build plus compatibility // +build was rejected")
+	modernWithCompatibility := "\uFEFF//go:build windows\n// +build windows\n\npackage fixture\n"
+	if got := lspGoBuildTag(modernWithCompatibility); got != "windows" || lspHasLegacyBuildConstraintWithoutGoBuild(modernWithCompatibility) {
+		t.Fatalf("UTF-8 BOM modern build constraint = %q/legacy, want windows/modern", got)
 	}
 }
 

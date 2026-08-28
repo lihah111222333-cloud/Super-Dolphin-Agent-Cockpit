@@ -270,7 +270,7 @@ func TestPortableManifestCatalogPoliciesAreSortedDualPlatformAndExplicit(t *test
 		name   string
 		mutate func(*PortableManifest)
 	}{
-		{name: "empty both", mutate: func(manifest *PortableManifest) { manifest.CatalogPolicies = nil; manifest.Workloads = nil }},
+		{name: "missing policies", mutate: func(manifest *PortableManifest) { manifest.CatalogPolicies = nil }},
 		{name: "unsorted policy", mutate: func(manifest *PortableManifest) {
 			manifest.CatalogPolicies[0], manifest.CatalogPolicies[1] = manifest.CatalogPolicies[1], manifest.CatalogPolicies[0]
 		}},
@@ -290,29 +290,20 @@ func TestPortableManifestCatalogPoliciesAreSortedDualPlatformAndExplicit(t *test
 	}
 }
 
-func TestPortableManifestAllowsManualOrAutoOnlyInputs(t *testing.T) {
+func TestPortableManifestRequiresAutoCatalogAndAllowsNoManualWorkloads(t *testing.T) {
 	manualOnly := topManifestFixture(t)
 	manualOnly.CatalogPolicies = nil
-	manualOnly.CapacityPolicyDigest = ""
-	capacityDigest, err := DerivePortableCapacityPolicyDigest(manualOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manualOnly.CapacityPolicyDigest = capacityDigest
-	encoded, err := PortableManifestCanonicalEncode(manualOnly)
-	if err != nil {
-		t.Fatalf("manual-only manifest rejected: %v", err)
-	}
-	if !bytes.Contains(encoded, []byte(`"catalog_policies":[]`)) {
-		t.Fatalf("manual-only manifest did not canonicalize empty catalog policies: %s", encoded)
+	if _, err := PortableManifestCanonicalEncode(manualOnly); err == nil || !strings.Contains(err.Error(), "exactly two platforms") {
+		t.Fatalf("manual-only manifest error = %v", err)
 	}
 	autoOnly := topManifestFixture(t)
 	autoOnly.Workloads = nil
 	autoOnly.CapacityPolicyDigest = ""
-	autoOnly.CapacityPolicyDigest, err = DerivePortableCapacityPolicyDigest(autoOnly)
+	capacityDigest, err := DerivePortableCapacityPolicyDigest(autoOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
+	autoOnly.CapacityPolicyDigest = capacityDigest
 	autoEncoded, err := PortableManifestCanonicalEncode(autoOnly)
 	if err != nil {
 		t.Fatalf("auto-only manifest rejected: %v", err)
@@ -322,33 +313,6 @@ func TestPortableManifestAllowsManualOrAutoOnlyInputs(t *testing.T) {
 	}
 	if _, err := DecodePortableManifest(autoEncoded); err != nil {
 		t.Fatalf("auto-only manifest failed strict round-trip: %v", err)
-	}
-}
-
-func TestPortableGoFileMatchesPlatformUsesExactGoFilenameSuffix(t *testing.T) {
-	cases := []struct {
-		name  string
-		linux bool
-		win   bool
-	}{
-		{name: "pkg.go", linux: true, win: true},
-		{name: "pkg_linux.go", linux: true, win: false},
-		{name: "pkg_windows_test.go", linux: false, win: true},
-		{name: "pkg_linuxish.go", linux: true, win: true},
-		{name: "pkg_plan9.go", linux: false, win: false},
-		{name: "pkg_windows_amd64.go", linux: false, win: true},
-		{name: "pkg_windows_arm64.go", linux: false, win: false},
-		{name: "pkg_unix.go", linux: true, win: false},
-	}
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			if got := portableGoFileMatchesPlatform(testCase.name, string(RepositoryWorkloadPlatformLinuxAMD64)); got != testCase.linux {
-				t.Fatalf("Linux match = %v, want %v", got, testCase.linux)
-			}
-			if got := portableGoFileMatchesPlatform(testCase.name, string(RepositoryWorkloadPlatformWindowsAMD64)); got != testCase.win {
-				t.Fatalf("Windows match = %v, want %v", got, testCase.win)
-			}
-		})
 	}
 }
 
@@ -491,7 +455,7 @@ func TestBuildPortableGoWorkloadInventoryRootNestedDeclarationExclusionMatrix(t 
 func TestBuildPortableGoWorkloadInventorySkipsKnownV3WJExcludedSubtrees(t *testing.T) {
 	excluded := []string{"backend/.tmp-cgobench", "build/gate/runtime-proxy", "build/gate/runtime-tools", "third_party/kelindar-event"}
 	entries := make([]GitTreeEntry, 0, len(excluded)*2+2)
-	blobs := map[string][]byte{"go.mod": []byte("module example.invalid/root\n\ngo 1.24.0\n")}
+	blobs := map[string][]byte{"go.mod": []byte("module example.invalid/root\n\ngo 1.24.0\n"), "root.go": []byte("package root\n")}
 	for _, module := range excluded {
 		goMod := module + "/go.mod"
 		entries = append(entries, GitTreeEntry{Mode: "100644", Kind: "blob", Path: goMod}, GitTreeEntry{Mode: "100644", Kind: "blob", Path: module + "/main.go"})
@@ -510,16 +474,22 @@ func TestBuildPortableGoWorkloadInventorySkipsKnownV3WJExcludedSubtrees(t *testi
 func inventoryFixtureReader() inventoryTreeReader {
 	paths := []string{"go.mod", "rootpkg/root.go", "declared/go.mod", "declared/declared.go", "declared/sub/sub.go", "excluded/go.mod", "excluded/hidden.go", "unbound/go.mod", "unbound/hidden.go"}
 	entries := make([]GitTreeEntry, 0, len(paths))
+	blobs := map[string][]byte{
+		"go.mod":               []byte("module example.invalid/root\n\ngo 1.24.0\n"),
+		"declared/go.mod":      []byte("module example.invalid/declared\n\ngo 1.24.0\n"),
+		"excluded/go.mod":      []byte("module example.invalid/excluded\n\ngo 1.24.0\n"),
+		"unbound/go.mod":       []byte("module example.invalid/unbound\n\ngo 1.24.0\n"),
+		"rootpkg/root.go":      []byte("package rootpkg\n"),
+		"declared/declared.go": []byte("package declared\n"),
+		"declared/sub/sub.go":  []byte("package sub\n"),
+		"excluded/hidden.go":   []byte("package excluded\n"),
+		"unbound/hidden.go":    []byte("package unbound\n"),
+	}
 	for _, filePath := range paths {
 		entries = append(entries, GitTreeEntry{Mode: "100644", Kind: "blob", Path: filePath})
 	}
 	return inventoryTreeReader{
 		entries: entries,
-		blobs: map[string][]byte{
-			"go.mod":          []byte("module example.invalid/root\n\ngo 1.24.0\n"),
-			"declared/go.mod": []byte("module example.invalid/declared\n\ngo 1.24.0\n"),
-			"excluded/go.mod": []byte("module example.invalid/excluded\n\ngo 1.24.0\n"),
-			"unbound/go.mod":  []byte("module example.invalid/unbound\n\ngo 1.24.0\n"),
-		},
+		blobs:   blobs,
 	}
 }

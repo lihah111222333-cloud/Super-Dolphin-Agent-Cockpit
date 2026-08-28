@@ -11,6 +11,84 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/remoteportable"
 )
 
+type countingPortableCatalogReader struct {
+	listCalls   int
+	blobCalls   int
+	batchStarts int
+	batchReads  int
+	batchCloses int
+	entries     []remoteportable.GitTreeEntry
+	blob        []byte
+}
+
+type countingPortableCatalogBatch struct {
+	owner *countingPortableCatalogReader
+}
+
+func (reader *countingPortableCatalogReader) newListedBlobBatch(context.Context, string) (portableCatalogBlobBatch, error) {
+	reader.batchStarts++
+	return &countingPortableCatalogBatch{owner: reader}, nil
+}
+
+func (batch *countingPortableCatalogBatch) ReadBlob(context.Context, string, string) ([]byte, error) {
+	batch.owner.batchReads++
+	return slices.Clone(batch.owner.blob), nil
+}
+
+func (batch *countingPortableCatalogBatch) Close() error {
+	batch.owner.batchCloses++
+	return nil
+}
+
+func (reader *countingPortableCatalogReader) ListTree(context.Context, string) ([]remoteportable.GitTreeEntry, error) {
+	reader.listCalls++
+	return slices.Clone(reader.entries), nil
+}
+
+func (reader *countingPortableCatalogReader) ReadBlob(context.Context, string, string) ([]byte, error) {
+	reader.blobCalls++
+	return slices.Clone(reader.blob), nil
+}
+
+func TestPortableCatalogCachedReaderReusesExactTreeAndBatchProcess(t *testing.T) {
+	upstream := &countingPortableCatalogReader{
+		entries: []remoteportable.GitTreeEntry{{Mode: "100644", Kind: "blob", Path: "go.mod"}},
+		blob:    []byte("module example.invalid/cache\n"),
+	}
+	reader := newPortableCatalogCachedReader(upstream)
+	firstEntries, err := reader.ListTree(context.Background(), "tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEntries[0].Path = "mutated"
+	secondEntries, err := reader.ListTree(context.Background(), "tree")
+	assertPortableCatalogCachedListing(t, secondEntries, upstream.listCalls, err)
+	firstBlob, err := reader.ReadBlob(context.Background(), "tree", "go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBlob[0] = 'X'
+	secondBlob, err := reader.ReadBlob(context.Background(), "tree", "go.mod")
+	assertPortableCatalogBatchReads(t, secondBlob, upstream, err)
+	if err := reader.Close(); err != nil || upstream.batchCloses != 1 {
+		t.Fatalf("Close() calls=%d err=%v", upstream.batchCloses, err)
+	}
+}
+
+func assertPortableCatalogCachedListing(t *testing.T, entries []remoteportable.GitTreeEntry, calls int, err error) {
+	t.Helper()
+	if err != nil || len(entries) != 1 || entries[0].Path != "go.mod" || calls != 1 {
+		t.Fatalf("cached listing = %#v calls=%d err=%v", entries, calls, err)
+	}
+}
+
+func assertPortableCatalogBatchReads(t *testing.T, blob []byte, upstream *countingPortableCatalogReader, err error) {
+	t.Helper()
+	if err != nil || string(blob) != "module example.invalid/cache\n" || upstream.blobCalls != 0 || upstream.batchStarts != 1 || upstream.batchReads != 2 {
+		t.Fatalf("batch blob = %q verified_calls=%d starts=%d reads=%d err=%v", blob, upstream.blobCalls, upstream.batchStarts, upstream.batchReads, err)
+	}
+}
+
 func TestExpandDetectedRepositoryGoCatalogExternalRepository(t *testing.T) {
 	root := os.Getenv("REMOTE_CI_TEST_REPOSITORY")
 	if root == "" {
@@ -83,24 +161,15 @@ func TestExpandDetectedRepositoryGoCatalogBindsDualPlatformPoliciesAndStableDige
 	}
 }
 
-func TestExpandDetectedRepositoryGoCatalogSupportsExplicitWorkloadOnlyManifest(t *testing.T) {
+func TestExpandDetectedRepositoryGoCatalogRejectsExplicitWorkloadOnlyManifest(t *testing.T) {
 	root := newDetectedRepositoryFixture(t, "portable-explicit-only")
 	detected, err := DetectRepository(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	detected.Manifest.CatalogPolicies = nil
-	detected.Manifest.CapacityPolicyDigest, err = remoteportable.DerivePortableCapacityPolicyDigest(detected.Manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := append([]remoteportable.PortableManifestWorkload(nil), detected.Workloads...)
-	expanded, err := expandDetectedRepositoryGoCatalog(context.Background(), detected)
-	if err != nil {
-		t.Fatalf("expand explicit-only manifest: %v", err)
-	}
-	if !slices.Equal(expanded.Workloads, want) {
-		t.Fatalf("explicit-only workloads changed: got=%#v want=%#v", expanded.Workloads, want)
+	if _, err := expandDetectedRepositoryGoCatalog(context.Background(), detected); err == nil || !strings.Contains(err.Error(), "exactly two platforms") {
+		t.Fatalf("explicit-only manifest error = %v", err)
 	}
 }
 

@@ -58,7 +58,7 @@ current_user::text,
 current_setting('transaction_read_only'),
 current_setting('synchronous_commit'),
 pg_is_in_recovery(),
-COALESCE(inet_server_addr()::text, ''),
+COALESCE(host(inet_server_addr()), ''),
 to_regclass('heteroci_receipt.batch_receipts') IS NOT NULL,
 COALESCE((SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'heteroci_receipt'), ''),
 COALESCE((SELECT pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'heteroci_receipt' AND c.relname = 'batch_receipts'), '')`

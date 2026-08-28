@@ -10,10 +10,17 @@ import (
 
 // anchorNodeState 保存单个节点的确定性波次规划状态。
 type anchorNodeState struct {
-	snapshot NodeSnapshot
-	waves    []ExecutionWave
-	makespan int64
-	assigned int
+	snapshot       NodeSnapshot
+	waves          []ExecutionWave
+	waveIdentities []anchorWaveIdentity
+	makespan       int64
+	assigned       int
+}
+
+// anchorWaveIdentity 固定一个 wave 的目标平台与执行运行时。
+type anchorWaveIdentity struct {
+	targetPlatform  Platform
+	requiredRuntime RuntimeKind
 }
 
 // anchorCandidate 是一次装箱候选及其完整的确定性比较键。
@@ -107,7 +114,11 @@ func newAnchorNodeStates(nodes []NodeSnapshot) []anchorNodeState {
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].NodeID < ordered[j].NodeID })
 	states := make([]anchorNodeState, len(ordered))
 	for index, node := range ordered {
-		states[index] = anchorNodeState{snapshot: node, waves: make([]ExecutionWave, 0)}
+		states[index] = anchorNodeState{
+			snapshot:       node,
+			waves:          make([]ExecutionWave, 0),
+			waveIdentities: make([]anchorWaveIdentity, 0),
+		}
 	}
 	return states
 }
@@ -171,6 +182,9 @@ func collectAnchorNodeCandidates(state anchorNodeState, nodeIndex int, unit Exec
 // existingAnchorCandidate 构造加入既有波次的候选，算术溢出时跳过该候选。
 func existingAnchorCandidate(state anchorNodeState, nodeIndex, waveIndex int, unit ExecutionUnit, globalMakespan int64) (anchorCandidate, bool, bool) {
 	wave := state.waves[waveIndex]
+	if waveIndex >= len(state.waveIdentities) || state.waveIdentities[waveIndex] != anchorWaveIdentityForUnit(unit) {
+		return anchorCandidate{}, false, false
+	}
 	if !anchorWaveFits(wave, unit, state.snapshot.Available) {
 		return anchorCandidate{}, false, false
 	}
@@ -285,10 +299,16 @@ func applyAnchorCandidate(states []anchorNodeState, candidate anchorCandidate, u
 			CPUMilli: unit.CPUMilli, MemoryBytes: unit.MemoryBytes,
 			Concurrency: 1, EstimatedDurationMS: unit.EstimatedDurationMS,
 		})
+		state.waveIdentities = append(state.waveIdentities, anchorWaveIdentityForUnit(unit))
 	}
 	state.makespan = candidate.projectedNode
 	state.assigned = candidate.projectedAssigned
 	return nil
+}
+
+// anchorWaveIdentityForUnit 返回工作单元对应的 wave 身份。
+func anchorWaveIdentityForUnit(unit ExecutionUnit) anchorWaveIdentity {
+	return anchorWaveIdentity{targetPlatform: unit.TargetPlatform, requiredRuntime: unit.RequiredRuntime}
 }
 
 // anchorPlanFromStates 生成固定 schema 的 plan，并显式初始化所有 slice。

@@ -167,7 +167,7 @@ func (node NodeConfig) validate(index int) error {
 	return validateNodeCapabilities(node)
 }
 
-// ValidateNodeConfig 校验单个 probe 配置节点的通用动态能力，不执行固定四节点池约束。
+// ValidateNodeConfig 校验单个 Ubuntu physical host probe 配置节点的通用动态能力，不执行整套路由池约束。
 func ValidateNodeConfig(node NodeConfig) error {
 	return node.validate(0)
 }

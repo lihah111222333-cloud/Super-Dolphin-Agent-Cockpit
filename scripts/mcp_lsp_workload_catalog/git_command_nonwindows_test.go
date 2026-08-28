@@ -1,19 +1,17 @@
+//go:build !windows
+
 package catalog
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestBoundedGitOutputIgnoresAmbientGitAndRepositoryRedirectors(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixed POSIX trusted Git owner")
-	}
 	repo := t.TempDir()
 	for _, args := range [][]string{{"init", "--quiet"}, {"config", "user.name", "catalog-test"}, {"config", "user.email", "catalog-test@example.invalid"}} {
 		if output, err := exec.Command("/usr/bin/git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {

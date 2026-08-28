@@ -1,16 +1,8 @@
 package main
 
-import (
-	"runtime"
-	"strings"
-	"testing"
-)
+import "testing"
 
-// skipIfSymlinkPrivilegeNotHeld 只识别 Windows 测试夹具创建符号链接时的宿主权限缺口；
-// 产品 ACL 失败仍由 typed authorization_required 与宿主 ApprovalRequester 处理。
-func skipIfSymlinkPrivilegeNotHeld(t *testing.T, err error) {
+// skipIfSymlinkPrivilegeNotHeld 不再按宿主平台隐藏失败；调用方随后报告原始符号链接错误。
+func skipIfSymlinkPrivilegeNotHeld(t *testing.T, _ error) {
 	t.Helper()
-	if runtime.GOOS == "windows" && err != nil && strings.Contains(err.Error(), "A required privilege is not held") {
-		t.Skipf("skipping symlink test without Windows symlink privilege: %v", err)
-	}
 }

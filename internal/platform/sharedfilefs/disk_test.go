@@ -5,11 +5,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
-
 
 func TestConfigEnabledAndThreshold(t *testing.T) {
 	t.Parallel()
@@ -193,17 +191,13 @@ func TestRemoveDiskExistingFile(t *testing.T) {
 	}
 }
 
-func TestSameFilesystemPath(t *testing.T) {
+func TestSameFilesystemPathWithCaseFold(t *testing.T) {
 	t.Parallel()
 
-	if runtime.GOOS == "windows" {
-		if !sameFilesystemPath(`C:\Work\Trace.JSONL`, `c:\work\trace.jsonl`) {
-			t.Fatal("Windows path comparison unexpectedly treated case-only difference as distinct")
-		}
-	} else {
-		if sameFilesystemPath("/work/Trace.jsonl", "/work/trace.jsonl") {
-			t.Fatal("non-Windows path comparison unexpectedly ignored case")
-		}
+	if !sameFilesystemPathWithCaseFold("/work/Trace.JSONL", "/work/trace.jsonl", true) {
+		t.Fatal("case-folding path comparison unexpectedly treated case-only difference as distinct")
+	}
+	if sameFilesystemPathWithCaseFold("/work/Trace.jsonl", "/work/trace.jsonl", false) {
+		t.Fatal("case-sensitive path comparison unexpectedly ignored case")
 	}
 }
-

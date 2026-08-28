@@ -116,40 +116,13 @@ func bindCandidateWorkloadGateInputs(repoRoot string, policy gatePlanPolicy) (ga
 }
 
 type gatePlan struct {
-	ReviewObject        reviewObject `json:"review_object"`
-	ChangedFiles        []string     `json:"changed_files"`
-	RequiredGates       []string     `json:"required_gates"`
-	RequiredEvidence    []string     `json:"required_evidence"`
-	GeneratedFiles      []string     `json:"generated_files"`
-	AffectedGoPackages  []string     `json:"affected_go_packages,omitempty"`
-	DiagnosticFiles     []string     `json:"diagnostic_files,omitempty"`
-	RequiresEvidenceDoc bool         `json:"requires_evidence_doc"`
-	executionRoot       string
-}
-
-type evidenceDoc struct {
-	Package                      string
-	Status                       string
-	AgentID                      string
-	BaseHead                     string
-	OwnedFilesChanged            []string
-	UnrelatedDirtyFilesPreserved []string
-	LSPEvidence                  map[string]string
-	NativeEvidence               map[string]string
-	CommandsRun                  []evidenceCommand
-	GeneratedFiles               []evidenceGeneratedFile
-	Blockers                     []string
-}
-
-type evidenceCommand struct {
-	Cmd  string
-	Exit *int
-}
-
-type evidenceGeneratedFile struct {
-	Path          string
-	SourceCommand string
-	Precheck      string
+	ReviewObject       reviewObject `json:"review_object"`
+	ChangedFiles       []string     `json:"changed_files"`
+	RequiredGates      []string     `json:"required_gates"`
+	GeneratedFiles     []string     `json:"generated_files"`
+	AffectedGoPackages []string     `json:"affected_go_packages,omitempty"`
+	DiagnosticFiles    []string     `json:"diagnostic_files,omitempty"`
+	executionRoot      string
 }
 
 func main() {
@@ -341,14 +314,12 @@ func buildGatePlanForRepoAndObject(repoRoot string, files []string, object revie
 	}
 	plan := gatePlan{ReviewObject: object, ChangedFiles: normalized}
 	gates := map[string]bool{"diff:whitespace": true}
-	evidence := map[string]bool{}
 	generated := map[string]bool{}
 	backendChanged, err := applyChangedFileGateRules(
 		normalized,
 		capabilityRules,
 		turnContractPaths,
 		gates,
-		evidence,
 		generated,
 		policy,
 		criticalRouteContext,
@@ -362,9 +333,7 @@ func buildGatePlanForRepoAndObject(repoRoot string, files []string, object revie
 		gates["lsp:changed-diagnostics"] = true
 	}
 	plan.RequiredGates = orderedGates(gates)
-	plan.RequiredEvidence = sortedKeys(evidence)
 	plan.GeneratedFiles = sortedKeys(generated)
-	plan.RequiresEvidenceDoc = len(plan.RequiredEvidence) > 0
 	if backendChanged {
 		plan.AffectedGoPackages, err = affectedGoPackages(repoRoot, normalized, policy)
 		if err != nil {
@@ -391,13 +360,13 @@ func loadGatePlanRules(repoRoot string, policy gatePlanPolicy) (capcontract.Path
 func applyChangedFileGateRules(
 	files []string,
 	capabilityRules capcontract.PathRules,
-	turnContractPaths, gates, evidence, generated map[string]bool,
+	turnContractPaths, gates, generated map[string]bool,
 	policy gatePlanPolicy,
 	criticalTypecheckContext criticalTypecheckPlanContext,
 ) (bool, error) {
 	backendChanged := false
 	for _, file := range files {
-		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, evidence, generated, policy, criticalTypecheckContext)
+		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, generated, policy, criticalTypecheckContext)
 		if err != nil {
 			return false, err
 		}
@@ -422,12 +391,12 @@ func applyBackendGateRules(files []string, gates map[string]bool, backendChanged
 }
 
 // applyFileGateRules 汇总单个路径触发的命令 gate，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool, policy gatePlanPolicy, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
-	backendChanged, err := applySourceGateRules(file, gates, evidence, criticalTypecheckContext)
+func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, generated map[string]bool, policy gatePlanPolicy, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
+	backendChanged, err := applySourceGateRules(file, gates, criticalTypecheckContext)
 	if err != nil {
 		return false, err
 	}
-	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, evidence, generated); err != nil {
+	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, generated); err != nil {
 		return false, err
 	}
 	policy.applyOwnedGateRules(file, gates)
@@ -452,20 +421,19 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turn
 	if projectMapRelevant(file) {
 		gates["project-map:check"] = true
 	}
-	applyGeneratedFileRoute(file, evidence, generated)
+	applyGeneratedFileRoute(file, generated)
 	return backendChanged, nil
 }
 
-func applyGeneratedFileRoute(file string, evidence, generated map[string]bool) {
+func applyGeneratedFileRoute(file string, generated map[string]bool) {
 	if !generatedCodemapFile(file) {
 		return
 	}
 	generated[file] = true
-	evidence["generated:source"] = true
 }
 
 // applyCapabilityContractGateRules 统一能力清单生成输入与检查路由，并在路径规则解析失败时阻断。
-func applyCapabilityContractGateRules(file string, capabilityRules capcontract.PathRules, gates, evidence, generated map[string]bool) error {
+func applyCapabilityContractGateRules(file string, capabilityRules capcontract.PathRules, gates, generated map[string]bool) error {
 	capabilityChanged, err := capabilityRules.Match(file)
 	if err != nil {
 		return fmt.Errorf("match capability-contract path %q: %w", file, err)
@@ -475,7 +443,6 @@ func applyCapabilityContractGateRules(file string, capabilityRules capcontract.P
 	}
 	if capabilityContractProducerInput(file) {
 		generated[capabilityContractManifest] = true
-		evidence["generated:source"] = true
 	}
 	return nil
 }
@@ -581,16 +548,16 @@ func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
 	return false
 }
 
-// applySourceGateRules 根据生产源码路径补充必须执行的门禁和证据要求。
-func applySourceGateRules(file string, gates, evidence map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
+// applySourceGateRules 根据生产源码路径补充必须执行的门禁。
+func applySourceGateRules(file string, gates map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
 	if strings.HasPrefix(file, "frontend-app/") {
-		return applyFrontendSourceGateRules(file, gates, evidence, criticalTypecheckContext)
+		return applyFrontendSourceGateRules(file, gates, criticalTypecheckContext)
 	}
-	return applyBackendSourceGateRules(file, evidence)
+	return applyBackendSourceGateRules(file)
 }
 
-// applyFrontendSourceGateRules 为前端路径应用严格类型检查、lint、变更测试和 diagnostics 证据路由。
-func applyFrontendSourceGateRules(file string, gates, evidence map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
+// applyFrontendSourceGateRules 为前端路径应用严格类型检查、lint、变更测试和 diagnostics gate。
+func applyFrontendSourceGateRules(file string, gates map[string]bool, criticalTypecheckContext criticalTypecheckPlanContext) (bool, error) {
 	critical, err := criticalTypecheckContext.relevant(file)
 	if err != nil {
 		return false, fmt.Errorf("route critical typecheck path %q: %w", file, err)
@@ -604,41 +571,18 @@ func applyFrontendSourceGateRules(file string, gates, evidence map[string]bool, 
 	if frontendChangedTestRelevant(file) {
 		gates["frontend:changed-tests"] = true
 	}
-	if frontendDiagnosticsRelevant(file) {
-		requireToolEvidence(file, evidence)
-	}
 	return false, nil
 }
 
-// applyBackendSourceGateRules 为 Go 生产源码补充证据并标记后端验证面。
-func applyBackendSourceGateRules(file string, evidence map[string]bool) (bool, error) {
+// applyBackendSourceGateRules 标记 Go 生产源码的后端验证面。
+func applyBackendSourceGateRules(file string) (bool, error) {
 	if strings.HasSuffix(file, ".go") && (strings.HasPrefix(file, "cmd/") || strings.HasPrefix(file, "internal/") || strings.HasPrefix(file, "pkg/")) {
-		requireToolEvidence(file, evidence)
 		return true, nil
 	}
 	if strings.HasPrefix(file, "scripts/") && strings.HasSuffix(file, ".go") {
-		requireToolEvidence(file, evidence)
 		return true, nil
 	}
 	return false, nil
-}
-
-func requireToolEvidence(file string, evidence map[string]bool) {
-	evidence["lsp:diagnostics"] = true
-	if sourceLike(file) {
-		evidence["native:search"] = true
-		evidence["native:read"] = true
-		evidence["native:apply_patch"] = true
-	}
-}
-
-func sourceLike(file string) bool {
-	for _, suffix := range []string{".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".sql"} {
-		if strings.HasSuffix(file, suffix) {
-			return true
-		}
-	}
-	return false
 }
 
 func runCommand(dir, name string, args ...string) error {

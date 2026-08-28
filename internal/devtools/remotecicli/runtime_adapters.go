@@ -36,7 +36,7 @@ var (
 
 // RuntimeProbeClient 是 runtime probe adapter 的 provider-neutral 注入端口。
 type RuntimeProbeClient interface {
-	// Config 返回已验证的 runtime 四节点配置。
+	// Config 返回已验证的单 Ubuntu/Wine runtime 配置。
 	Config() remoteruntime.RuntimeConfig
 	// Probe 在显式 target/node binding 下执行一次 probe。
 	Probe(context.Context, remoteruntime.TargetFacts, string, []byte) (remoteruntime.NodeResult, error)
@@ -44,7 +44,7 @@ type RuntimeProbeClient interface {
 
 // RuntimeBatchClient 是 runtime batch runner 的 provider-neutral 注入端口。
 type RuntimeBatchClient interface {
-	// Config 返回已验证的 runtime 四节点配置。
+	// Config 返回已验证的单 Ubuntu/Wine runtime 配置。
 	Config() remoteruntime.RuntimeConfig
 	// Run 在显式 target、execution facts 和 node binding 下执行一次 batch。
 	Run(context.Context, remoteruntime.TargetFacts, remoteruntime.ExecutionFacts, string, []byte) (remoteruntime.NodeResult, error)
@@ -196,7 +196,7 @@ type ExactExecutorBinder struct {
 
 var _ heterociworkflow.ExecutorBinder = (*ExactExecutorBinder)(nil)
 
-// NewExactExecutorBinder 构造 provider-neutral 四节点 binder；所有 workload、target、module 和 receipt port 必须显式注入。
+// NewExactExecutorBinder 构造 provider-neutral 单 Ubuntu/Wine binder；所有 workload、target、module 和 receipt port 必须显式注入。
 func NewExactExecutorBinder(runtime RuntimeBatchClient, portable remoteportable.BoundPortableRun, workloads []remoteportable.PortableManifestWorkload, moduleIdentity string, receipts ReceiptStoreFactory) (*ExactExecutorBinder, error) {
 	if err := validateExactBinderDependencies(runtime, moduleIdentity, receipts, workloads); err != nil {
 		return nil, err

@@ -303,9 +303,6 @@ func (manifest PortableManifest) validateTopLevel() error {
 	if err := validatePortableManifestCatalogPolicies(manifest.CatalogPolicies); err != nil {
 		return err
 	}
-	if len(manifest.Workloads) == 0 && len(manifest.CatalogPolicies) == 0 {
-		return errors.New("portable manifest must declare workloads or catalog_policies")
-	}
 	return validatePortableManifestWorkloads(manifest.Workloads)
 }
 
@@ -443,9 +440,6 @@ func validatePortableWorkloadMaterial(workload PortableManifestWorkload) error {
 
 // validatePortableManifestCatalogPolicies 校验 Linux/Windows 双平台策略的排序与完整性。
 func validatePortableManifestCatalogPolicies(policies []PortableManifestCatalogPolicy) error {
-	if len(policies) == 0 {
-		return nil
-	}
 	if len(policies) != 2 {
 		return errors.New("portable manifest catalog_policies must contain exactly two platforms")
 	}

@@ -6,50 +6,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 	"go.uber.org/goleak"
 )
-
-func TestRollbackRestartLauncherReapsEveryPostStartFailure(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("rollback child bounded wait is unsupported on windows")
-	}
-	for _, failure := range []string{"capture", "validation"} {
-		t.Run(failure, func(t *testing.T) { runRollbackRestartLauncherFailure(t, failure) })
-	}
-}
-
-func TestRollbackRestartReadinessRetriesRefusedPublishedEndpoint(t *testing.T) {
-	// readiness/identity 轮询跨平台共享；拒绝态 endpoint 仅由 Darwin companion 创建。
-	endpoint := newRefusedRollbackRestartEndpoint(t)
-	token := "rollback-restart-readiness"
-	exact := currentRollbackRestartExactProcess(t, endpoint, token)
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	result := make(chan rollbackEndpointWaitResult, 1)
-	var workers sync.WaitGroup
-	workers.Go(func() {
-		identity, err := waitRollbackRestartEndpoint(ctx, exact)
-		result <- rollbackEndpointWaitResult{endpoint: identity, err: err}
-	})
-	t.Cleanup(func() {
-		cancel()
-		workers.Wait()
-	})
-	select {
-	case early := <-result:
-		t.Fatalf("wait returned before listener became ready: %v", early.err)
-	case <-time.After(3 * rollbackRestartEndpointPoll):
-	}
-	startReadyRollbackRestartEndpoint(t, endpoint, token)
-	assertRollbackRestartEndpointReady(t, ctx, result, endpoint)
-}
 
 func TestRollbackRestartReadinessRetriesEndpointIdentityTransition(t *testing.T) {
 	first := pidregistry.CooperativeEndpointIdentity{Device: 1, Inode: 1, UID: 1, Mode: 0o600}
@@ -148,22 +111,6 @@ func assertRollbackRestartEndpointReady(
 		}
 	case <-ctx.Done():
 		t.Fatalf("wait for ready rollback endpoint: %v", context.Cause(ctx))
-	}
-}
-
-func TestRollbackRestartReadinessRefusedEndpointHonorsDeadline(t *testing.T) {
-	// deadline 断言跨平台共享；拒绝态 endpoint 仅由 Darwin companion 创建。
-	endpoint := newRefusedRollbackRestartEndpoint(t)
-	exact := currentRollbackRestartExactProcess(t, endpoint, "rollback-restart-deadline")
-	ctx, cancel := context.WithTimeout(t.Context(), 3*rollbackRestartEndpointPoll)
-	defer cancel()
-	started := time.Now()
-	_, err := waitRollbackRestartEndpoint(ctx, exact)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("wait error = %v, want deadline exceeded", err)
-	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("deadline wait elapsed = %v, want <= 1s", elapsed)
 	}
 }
 
@@ -312,59 +259,6 @@ func (fixture *rollbackRuntimeFailureFixture) waitChild(ctx context.Context, chi
 		fixture.reaped.Store(true)
 	}
 	return errors.Join(err, fixture.waitFailure)
-}
-
-func TestRollbackRestartCleanupReturnsWhenTerminationAndKillDoNotRespond(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("bounded rollback child wait is unsupported on windows")
-	}
-	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
-	cmd := startRollbackRuntimeChild(t)
-	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	primary := errors.New("primary failure")
-	terminationFailure := errors.New("termination did not respond")
-	killFailure := errors.New("kill had no effect")
-	runtime := rollbackRestartRuntime{
-		cleanupLimits: rollbackRestartCleanupLimits{total: 80 * time.Millisecond, terminate: 20 * time.Millisecond, firstWait: 20 * time.Millisecond},
-		capture:       func(context.Context, int) (pidregistry.StableProcessIdentity, error) { return stable, nil },
-		release:       func(*os.Process) error { return nil },
-		requestTerminate: func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
-			return terminationFailure
-		},
-		kill:            func(*os.Process) error { return killFailure },
-		cleanupEndpoint: func(string, pidregistry.CooperativeEndpointIdentity) error { return nil },
-		waitChild: func(ctx context.Context, _ int) error {
-			<-ctx.Done()
-			return context.Cause(ctx)
-		},
-	}
-	contract := runtimeenv.RecoveryLaunch{
-		TerminationEndpoint: filepath.Join(t.TempDir(), "unused.sock"),
-		TerminationToken:    testLowerHex("cleanup-token"), ContractPresent: true,
-	}
-	startedAt := time.Now()
-	cleanupErr := cleanupStartedRollbackProcess(
-		runtime, cmd, cmd.Process.Pid, stable, fixtureCooperativeEndpointIdentity(), contract, primary,
-	)
-	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
-		t.Fatalf("bounded cleanup elapsed %s", elapsed)
-	}
-	for _, want := range []error{primary, terminationFailure, killFailure, errRollbackRestartCleanupTimeout} {
-		if !errors.Is(cleanupErr, want) {
-			t.Fatalf("cleanup error %v does not retain %v", cleanupErr, want)
-		}
-	}
-	current, err := pidregistry.CaptureStableProcessIdentity(stable.PID)
-	if err != nil {
-		t.Fatalf("sentinel process disappeared unexpectedly: %v", err)
-	}
-	if current.ProcessStartToken != stable.ProcessStartToken || current.ExecutableIdentity != stable.ExecutableIdentity {
-		t.Fatal("cleanup targeted a reused or different PID")
-	}
-	boundedKillAndReapRollbackChild(t, cmd)
 }
 
 func TestRollbackRestartResolverCleanupUsesFrozenExactContract(t *testing.T) {

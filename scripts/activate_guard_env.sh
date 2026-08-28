@@ -35,7 +35,7 @@ cat <<EOF_MSG
   - go vet ...
 - 正确做法:
   - 轻量/中量精确 Go 测试使用 scripts/test_with_guard.sh --host-test <light|medium>
-  - race、benchmark、fuzz、整包、重型门禁和未知耗时测试交由受信四节点离线 Gate 编排；本脚本不启动 remote/ECI workload
+  - race、benchmark、fuzz、整包、重型门禁和未知耗时测试交由受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes 编排；本脚本不启动 remote/ECI workload
   - guarded build / vet 通过受信 CI gate 执行
 - 退出当前 shell 或手动移除 PATH 前缀后，拦截失效
 EOF_MSG

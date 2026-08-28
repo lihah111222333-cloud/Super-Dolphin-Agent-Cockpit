@@ -47,9 +47,9 @@ func TestLinuxWineQualificationUsesWritableProbePrefixAndRegular64BitBinaries(t 
 		"export WINESERVER=/usr/lib/wine/wineserver64",
 		"$(/usr/bin/dpkg-query -W -f='${Version}' wine64)",
 		linuxWineExpectedPackageVersion,
-		"/usr/lib/wine/wine64 /opt/super-dolphin/smoke/wine-smoke.exe 2>/dev/null",
-		"/usr/lib/wine/wineserver64 -w 2>/dev/null",
-		"/usr/lib/wine/wineserver64 -k 2>/dev/null",
+		"/usr/lib/wine/wine64 /opt/super-dolphin/smoke/wine-smoke.exe >/dev/null 2>&1",
+		"/usr/lib/wine/wineserver64 -w >/dev/null 2>&1",
+		"/usr/lib/wine/wineserver64 -k >/dev/null 2>&1",
 	} {
 		if !strings.Contains(linuxWineQualificationScript, required) {
 			t.Fatalf("Wine qualification script is missing %q: %s", required, linuxWineQualificationScript)
@@ -82,8 +82,8 @@ func TestLinuxWineQualificationRedirectsFakeNoiseBeforeStrictStdout(t *testing.T
 			t.Fatalf("qualification command %q is missing: %s", command, linuxWineQualificationScript)
 		}
 		end := strings.Index(linuxWineQualificationScript[start:], ";")
-		if end < 0 || !strings.Contains(linuxWineQualificationScript[start:start+end], "2>/dev/null") {
-			t.Fatalf("fake stderr noise from %q is not redirected: %s", command, linuxWineQualificationScript)
+		if end < 0 || !strings.Contains(linuxWineQualificationScript[start:start+end], ">/dev/null 2>&1") {
+			t.Fatalf("fake stdout/stderr noise from %q is not redirected: %s", command, linuxWineQualificationScript)
 		}
 	}
 	printfIndex := strings.LastIndex(linuxWineQualificationScript, "printf '%s")

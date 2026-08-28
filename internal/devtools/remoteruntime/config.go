@@ -1,4 +1,4 @@
-// Package remoteruntime 提供 provider-neutral 的四节点 runtime 配置与 SSH 传输边界。
+// Package remoteruntime 提供 provider-neutral 的单 Ubuntu/Wine runtime 配置与 SSH 传输边界。
 package remoteruntime
 
 import (
@@ -348,7 +348,7 @@ func rejectConfigSymlinkComponents(path string, lstat func(string) (os.FileInfo,
 	return nil
 }
 
-// Validate 校验 runtime config 的 ABI、调用方字段、四节点拓扑和隔离根。
+// Validate 校验 runtime config 的 ABI、调用方字段、单 Ubuntu/Wine 拓扑和隔离根。
 func (config RuntimeConfig) Validate() error {
 	if config.SchemaVersion != ConfigSchemaVersion {
 		return fmt.Errorf("runtime config schema_version must equal %q", ConfigSchemaVersion)

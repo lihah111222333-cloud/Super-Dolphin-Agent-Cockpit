@@ -178,8 +178,8 @@ func TestValidateOutputDeclaresMacOSNonExecutor(t *testing.T) {
 	}
 }
 
-// TestPrepareExecuteInputsBindsExactFourNodeRunWithoutNetwork 验证 execute 的纯离线 preflight。
-func TestPrepareExecuteInputsBindsExactFourNodeRunWithoutNetwork(t *testing.T) {
+// TestPrepareExecuteInputsBindsSingleUbuntuWineRunWithoutNetwork 验证 execute 的纯离线 preflight。
+func TestPrepareExecuteInputsBindsSingleUbuntuWineRunWithoutNetwork(t *testing.T) {
 	descriptorPath := portableCLIRealDescriptor(t)
 	repositoryRoot := filepath.Dir(descriptorPath)
 	runtimePath, topology := writeExecuteRuntimeFixture(t, repositoryRoot)
@@ -191,6 +191,19 @@ func TestPrepareExecuteInputsBindsExactFourNodeRunWithoutNetwork(t *testing.T) {
 	assertPreparedExecutePlatforms(t, prepared)
 	assertPreparedExecuteRequestDigest(t, prepared)
 	assertExecuteTopologyRejectsDrift(t, prepared.Runtime, topology)
+}
+
+func TestExecuteOpenComponentsFailureLeavesOutputChannelsEmpty(t *testing.T) {
+	descriptorPath := portableCLIRealDescriptor(t)
+	repositoryRoot := filepath.Dir(descriptorPath)
+	runtimePath, _ := writeExecuteRuntimeFixture(t, repositoryRoot)
+	t.Setenv("REMOTE_CI_OWNER_DSN", "")
+	t.Setenv("REMOTE_CI_RECEIPT_DSN", "")
+
+	code, stdout, stderr := executeCLI([]string{"execute", "--request", descriptorPath, "--repository", repositoryRoot, "--runtime-config", runtimePath})
+	if code != 1 || stdout != "" || stderr != "" {
+		t.Fatalf("execute open-components failure = code %d stdout %q stderr %q, want nonzero with empty output channels", code, stdout, stderr)
+	}
 }
 
 // TestExecutePreflightDeadlineStopsBeforeComponentsOpen 锁定 preflight 与组件打开共享同一 request context。

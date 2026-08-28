@@ -62,6 +62,66 @@ func TestBuildAnchorWavePlanUsesTwoLinuxNodes(t *testing.T) {
 	anchorWaveAssertCoverage(t, plan, units)
 }
 
+func TestBuildAnchorWavePlanKeepsMixedRuntimeWavesHomogeneous(t *testing.T) {
+	now := snapshotTestNow()
+	manifest := testSingleUbuntuWineManifest()
+	snapshot := snapshotForManifest(manifest, now)
+	snapshot.Nodes[0].Total = ResourceCapacity{CPUMilli: 2_000, MemoryBytes: 2 * 1024 * 1024 * 1024, MaxConcurrency: 4}
+	snapshot.Nodes[0].Available = snapshot.Nodes[0].Total
+	units := []ExecutionUnit{
+		anchorWaveUnit("ubuntu-a", RuntimeUbuntuContainer, PlatformLinuxAMD64),
+		anchorWaveUnit("ubuntu-b", RuntimeUbuntuContainer, PlatformLinuxAMD64),
+		anchorWaveUnit("wine-a", RuntimeUbuntuWineContainer, PlatformWindowsAMD64),
+		anchorWaveUnit("wine-b", RuntimeUbuntuWineContainer, PlatformWindowsAMD64),
+	}
+
+	want := anchorWaveBuild(t, manifest, snapshot, units, now)
+	anchorWaveAssertMixedRuntimePlan(t, want, units)
+
+	shuffled := append([]ExecutionUnit(nil), units...)
+	shuffled[0], shuffled[3] = shuffled[3], shuffled[0]
+	shuffled[1], shuffled[2] = shuffled[2], shuffled[1]
+	got := anchorWaveBuild(t, manifest, snapshot, shuffled, now)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mixed runtime plan changed with input order:\nwant=%#v\ngot=%#v", want, got)
+	}
+}
+
+// anchorWaveAssertMixedRuntimePlan 验证单物理节点的 Linux/Wine wave 同质性与资源聚合。
+func anchorWaveAssertMixedRuntimePlan(t *testing.T, plan PackingPlan, units []ExecutionUnit) {
+	t.Helper()
+	want := plan
+	if len(want.NodeShards) != 1 || len(want.NodeShards[0].Waves) != 2 {
+		t.Fatalf("mixed runtime plan = %#v, want one node with two homogeneous waves", want)
+	}
+	wantWaveIDs := [][]string{{"ubuntu-a", "ubuntu-b"}, {"wine-a", "wine-b"}}
+	unitByID := make(map[string]ExecutionUnit, len(units))
+	for _, unit := range units {
+		unitByID[unit.UnitID] = unit
+	}
+	for waveIndex, wave := range want.NodeShards[0].Waves {
+		anchorWaveAssertRuntimeLane(t, waveIndex, wave, wantWaveIDs[waveIndex], unitByID)
+		if wave.CPUMilli != 1_000 || wave.MemoryBytes != 512*1024*1024 || wave.Concurrency != 2 {
+			t.Fatalf("wave %d resource aggregate = %#v, want two-unit shared-capacity aggregate", waveIndex, wave)
+		}
+	}
+}
+
+// anchorWaveAssertRuntimeLane 验证单个 wave 的单 runtime/platform lane 身份。
+func anchorWaveAssertRuntimeLane(t *testing.T, waveIndex int, wave ExecutionWave, wantIDs []string, unitByID map[string]ExecutionUnit) {
+	t.Helper()
+	if !reflect.DeepEqual(wave.UnitIDs, wantIDs) {
+		t.Fatalf("wave %d unit IDs = %v, want %v", waveIndex, wave.UnitIDs, wantIDs)
+	}
+	first := unitByID[wave.UnitIDs[0]]
+	for _, unitID := range wave.UnitIDs[1:] {
+		unit := unitByID[unitID]
+		if unit.TargetPlatform != first.TargetPlatform || unit.RequiredRuntime != first.RequiredRuntime {
+			t.Fatalf("wave %d mixes target platform/runtime: %v/%v and %v/%v", waveIndex, first.TargetPlatform, first.RequiredRuntime, unit.TargetPlatform, unit.RequiredRuntime)
+		}
+	}
+}
+
 func TestBuildAnchorWavePlanHonorsTwoDimensionalResourcesAndSerialMakespan(t *testing.T) {
 	tests := []struct {
 		name       string

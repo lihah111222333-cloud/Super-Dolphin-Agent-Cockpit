@@ -6,3 +6,8 @@ package main
 func trustedLauncherContractShells() []string {
 	return []string{"bash"}
 }
+
+// trustedLauncherContractOSHomeResolver 保留 Git Bash 提供的账户查询夹具。
+func trustedLauncherContractOSHomeResolver(home string) (string, string) {
+	return "getent", "#!/bin/sh\nprintf 'fixture:x:0:0::" + home + ":/bin/sh\\n'\n"
+}

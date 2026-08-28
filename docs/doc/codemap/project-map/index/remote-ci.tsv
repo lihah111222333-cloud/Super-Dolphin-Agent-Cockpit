@@ -18,17 +18,17 @@ cmd/super-dolphin-gate/project_map_cli.go	cmd	remote-ci	go-source	3521	trusted l
 cmd/super-dolphin-gate/project_map_cli_test.go	cmd	remote-ci	go-test	8501	trusted local Gate、project-map、closure 与 worker 入口	cmd,super,dolphin,gate,project,map,cli,test,trusted,local,Gate,project-map,closure,与,worker,入口
 cmd/super-dolphin-gate/project_map_cli_test_helpers_test.go	cmd	remote-ci	go-test	1119	trusted local Gate、project-map、closure 与 worker 入口	cmd,super,dolphin,gate,project,map,cli,test,helpers,trusted,local,Gate,project-map,closure,与,worker
 cmd/super-dolphin-gate/worker_cli_test.go	cmd	remote-ci	go-test	1477	trusted local Gate、project-map、closure 与 worker 入口	cmd,super,dolphin,gate,worker,cli,test,trusted,local,Gate,project-map,closure,与,入口
-cmd/super-dolphin-remote-ci/main.go	cmd	remote-ci	go-source	336	独立 remote-ci portable descriptor validation 入口	cmd,super,dolphin,remote,ci,main,独立,remote-ci,portable,descriptor,validation,入口
-cmd/super-dolphin-remote-ci/main_test.go	cmd	remote-ci	go-test	1662	独立 remote-ci portable descriptor validation 入口	cmd,super,dolphin,remote,ci,main,test,独立,remote-ci,portable,descriptor,validation,入口
-docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	16714	独立 portable remote-ci 四节点/PG/observable validation Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,独立,portable,remote-ci,四节点,PG,observable,validation,Accepted
-internal/devtools/heteroci/anchor_wave.go	internal	remote-ci	go-source	13306	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,anchor,wave,通用异构节点,容量规划与本地非权威路由契约
-internal/devtools/heteroci/anchor_wave_test.go	internal	remote-ci	go-test	12009	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,anchor,wave,test,通用异构节点,容量规划与本地非权威路由契约
+cmd/super-dolphin-remote-ci/main.go	cmd	remote-ci	go-source	336	独立 remote-ci portable validation 与 production execute 入口	cmd,super,dolphin,remote,ci,main,独立,remote-ci,portable,validation,与,production,execute,入口
+cmd/super-dolphin-remote-ci/main_test.go	cmd	remote-ci	go-test	1662	独立 remote-ci portable validation 与 production execute 入口	cmd,super,dolphin,remote,ci,main,test,独立,remote-ci,portable,validation,与,production,execute,入口
+docs/契约/remote-ci-eci-imagecache-contract.md	docs	remote-ci	doc	16714	独立 portable remote-ci 单 Ubuntu/Wine/PG/observable execute Accepted 契约	docs,契约,remote,ci,eci,imagecache,contract,独立,portable,remote-ci,单,Ubuntu,Wine,PG,observable,execute
+internal/devtools/heteroci/anchor_wave.go	internal	remote-ci	go-source	14107	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,anchor,wave,通用异构节点,容量规划与本地非权威路由契约
+internal/devtools/heteroci/anchor_wave_test.go	internal	remote-ci	go-test	14856	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,anchor,wave,test,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/execution_unit.go	internal	remote-ci	go-source	4258	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,execution,unit,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/execution_unit_test.go	internal	remote-ci	go-test	8322	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,execution,unit,test,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/executor_binding.go	internal	remote-ci	go-source	13699	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,executor,binding,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/linux_capacity.go	internal	remote-ci	go-source	6968	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,linux,capacity,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/linux_capacity_test.go	internal	remote-ci	go-test	6803	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,linux,capacity,test,通用异构节点,容量规划与本地非权威路由契约
-internal/devtools/heteroci/manifest.go	internal	remote-ci	go-source	16435	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,manifest,通用异构节点,容量规划与本地非权威路由契约
+internal/devtools/heteroci/manifest.go	internal	remote-ci	go-source	16453	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,manifest,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/manifest_file.go	internal	remote-ci	go-source	4310	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,manifest,file,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/manifest_file_close_test.go	internal	remote-ci	go-test	4774	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,manifest,file,close,test,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/manifest_file_external_test.go	internal	remote-ci	go-test	5884	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,manifest,file,external,test,通用异构节点,容量规划与本地非权威路由契约
@@ -55,7 +55,7 @@ internal/devtools/heteroci/probe_request_codec.go	internal	remote-ci	go-source	2
 internal/devtools/heteroci/probe_request_codec_test.go	internal	remote-ci	go-test	2568	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,probe,request,codec,test,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/probe_types.go	internal	remote-ci	go-source	7372	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,probe,types,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/probe_types_test.go	internal	remote-ci	go-test	8414	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,probe,types,test,通用异构节点,容量规划与本地非权威路由契约
-internal/devtools/heteroci/router.go	internal	remote-ci	go-source	6004	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,router,通用异构节点,容量规划与本地非权威路由契约
+internal/devtools/heteroci/router.go	internal	remote-ci	go-source	6050	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,router,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/router_test.go	internal	remote-ci	go-test	18014	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,router,test,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/routing_digest.go	internal	remote-ci	go-source	542	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,routing,digest,通用异构节点,容量规划与本地非权威路由契约
 internal/devtools/heteroci/routing_digest_test.go	internal	remote-ci	go-test	9135	通用异构节点、容量规划与本地非权威路由契约	internal,devtools,heteroci,routing,digest,test,通用异构节点,容量规划与本地非权威路由契约
@@ -89,16 +89,16 @@ internal/devtools/heterociexec/command.go	internal	remote-ci	go-source	3094	开�
 internal/devtools/heterociexec/command_executor.go	internal	remote-ci	go-source	27786	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,开发工具与生成器辅助包
 internal/devtools/heterociexec/command_executor_test.go	internal	remote-ci	go-test	29462	开发工具与生成器辅助包	internal,devtools,heterociexec,command,executor,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_lifecycle_projector.go	internal	remote-ci	go-source	13450	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,lifecycle,projector,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_lifecycle_projector_test.go	internal	remote-ci	go-test	8136	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,lifecycle,projector,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_lifecycle_projector_test.go	internal	remote-ci	go-test	8457	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,lifecycle,projector,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_schema.go	internal	remote-ci	go-source	7118	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_receipt_store.go	internal	remote-ci	go-source	13253	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_receipt_store_test.go	internal	remote-ci	go-test	17258	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_receipt_store_test.go	internal	remote-ci	go-test	17625	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,receipt,store,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt.go	internal	remote-ci	go-source	24370	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_fake_test.go	internal	remote-ci	go-test	21482	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,fake,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_rows.go	internal	remote-ci	go-source	17890	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,rows,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_schema.go	internal	remote-ci	go-source	10220	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,schema,开发工具与生成器辅助包
 internal/devtools/heterociexec/postgresql_terminal_receipt_store.go	internal	remote-ci	go-source	27469	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,store,开发工具与生成器辅助包
-internal/devtools/heterociexec/postgresql_terminal_receipt_test.go	internal	remote-ci	go-test	27694	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,test,开发工具与生成器辅助包
+internal/devtools/heterociexec/postgresql_terminal_receipt_test.go	internal	remote-ci	go-test	27047	开发工具与生成器辅助包	internal,devtools,heterociexec,postgresql,terminal,receipt,test,开发工具与生成器辅助包
 internal/devtools/heterociexec/receipt_common.go	internal	remote-ci	go-source	10755	开发工具与生成器辅助包	internal,devtools,heterociexec,receipt,common,开发工具与生成器辅助包
 internal/devtools/heterociexec/registry.go	internal	remote-ci	go-source	14615	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,开发工具与生成器辅助包
 internal/devtools/heterociexec/registry_test.go	internal	remote-ci	go-test	12396	开发工具与生成器辅助包	internal,devtools,heterociexec,registry,test,开发工具与生成器辅助包
@@ -108,12 +108,12 @@ internal/devtools/heterocinode/batch_process_windows_unsupported.go	internal	rem
 internal/devtools/heterocinode/batch_process_windows_unsupported_test.go	internal	remote-ci	go-test	844	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,process,windows,unsupported,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/batch_test.go	internal	remote-ci	go-test	21026	开发工具与生成器辅助包	internal,devtools,heterocinode,batch,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/linux_attestation.go	internal	remote-ci	go-source	7418	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,attestation,开发工具与生成器辅助包
-internal/devtools/heterocinode/linux_facts.go	internal	remote-ci	go-source	17200	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,开发工具与生成器辅助包
-internal/devtools/heterocinode/linux_facts_test.go	internal	remote-ci	go-test	15098	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,test,开发工具与生成器辅助包
+internal/devtools/heterocinode/linux_facts.go	internal	remote-ci	go-source	17212	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,开发工具与生成器辅助包
+internal/devtools/heterocinode/linux_facts_test.go	internal	remote-ci	go-test	15121	开发工具与生成器辅助包	internal,devtools,heterocinode,linux,facts,test,开发工具与生成器辅助包
 internal/devtools/heterocinode/probe.go	internal	remote-ci	go-source	5607	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,开发工具与生成器辅助包
 internal/devtools/heterocinode/probe_test.go	internal	remote-ci	go-test	4790	开发工具与生成器辅助包	internal,devtools,heterocinode,probe,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_index_explain_pg14_test.sql	internal	remote-ci	sql	3848	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,index,explain,pg14,test,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner.go	internal	remote-ci	go-source	13165	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner.go	internal	remote-ci	go-source	13242	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_adapter.go	internal	remote-ci	go-source	4575	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,adapter,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_binding.go	internal	remote-ci	go-source	13012	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,binding,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_binding_test.go	internal	remote-ci	go-test	18727	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,binding,test,开发工具与生成器辅助包
@@ -123,7 +123,7 @@ internal/devtools/heterociowner/postgresql_owner_plan.go	internal	remote-ci	go-s
 internal/devtools/heterociowner/postgresql_owner_plan_test.go	internal	remote-ci	go-test	11558	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,plan,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_read.go	internal	remote-ci	go-source	27161	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,read,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_reservations.go	internal	remote-ci	go-source	3573	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,reservations,开发工具与生成器辅助包
-internal/devtools/heterociowner/postgresql_owner_runtime_test.go	internal	remote-ci	go-test	30781	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,runtime,test,开发工具与生成器辅助包
+internal/devtools/heterociowner/postgresql_owner_runtime_test.go	internal	remote-ci	go-test	31123	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,runtime,test,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_schema.go	internal	remote-ci	go-source	9116	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,schema,开发工具与生成器辅助包
 internal/devtools/heterociowner/postgresql_owner_test_driver_test.go	internal	remote-ci	go-test	24192	开发工具与生成器辅助包	internal,devtools,heterociowner,postgresql,owner,test,driver,开发工具与生成器辅助包
 internal/devtools/heterociowner/storage_neutral.go	internal	remote-ci	go-source	20505	开发工具与生成器辅助包	internal,devtools,heterociowner,storage,neutral,开发工具与生成器辅助包
@@ -152,11 +152,12 @@ internal/devtools/heterociworkflow/workflow_concurrency_test.go	internal	remote-
 internal/devtools/heterociworkflow/workflow_integrity_test.go	internal	remote-ci	go-test	12952	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,integrity,test,开发工具与生成器辅助包
 internal/devtools/heterociworkflow/workflow_test.go	internal	remote-ci	go-test	11218	开发工具与生成器辅助包	internal,devtools,heterociworkflow,workflow,test,开发工具与生成器辅助包
 internal/devtools/remotecicli/engine_facts_test.go	internal	remote-ci	go-test	2566	独立 remote-ci validation composition root	internal,devtools,remotecicli,engine,facts,test,独立,remote-ci,validation,composition,root
-internal/devtools/remotecicli/execute.go	internal	remote-ci	go-source	24786	独立 remote-ci validation composition root	internal,devtools,remotecicli,execute,独立,remote-ci,validation,composition,root
-internal/devtools/remotecicli/portable_go_catalog.go	internal	remote-ci	go-source	8719	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,go,catalog,独立,remote-ci,validation,composition,root
-internal/devtools/remotecicli/portable_go_catalog_test.go	internal	remote-ci	go-test	8599	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,go,catalog,test,独立,remote-ci,validation,composition,root
-internal/devtools/remotecicli/portable_validate.go	internal	remote-ci	go-source	23746	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,validate,独立,remote-ci,validation,composition,root
-internal/devtools/remotecicli/portable_validate_test.go	internal	remote-ci	go-test	34290	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,validate,test,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/execute.go	internal	remote-ci	go-source	24798	独立 remote-ci validation composition root	internal,devtools,remotecicli,execute,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/portable_go_catalog.go	internal	remote-ci	go-source	12211	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,go,catalog,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/portable_go_catalog_test.go	internal	remote-ci	go-test	11136	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,go,catalog,test,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/portable_validate.go	internal	remote-ci	go-source	29616	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,validate,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/portable_validate_batch_test.go	internal	remote-ci	go-test	5559	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,validate,batch,test,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/portable_validate_test.go	internal	remote-ci	go-test	34957	独立 remote-ci validation composition root	internal,devtools,remotecicli,portable,validate,test,独立,remote-ci,validation,composition,root
 internal/devtools/remotecicli/postgresql_authority.go	internal	remote-ci	go-source	32758	独立 remote-ci validation composition root	internal,devtools,remotecicli,postgresql,authority,独立,remote-ci,validation,composition,root
 internal/devtools/remotecicli/postgresql_authority_test.go	internal	remote-ci	go-test	11125	独立 remote-ci validation composition root	internal,devtools,remotecicli,postgresql,authority,test,独立,remote-ci,validation,composition,root
 internal/devtools/remotecicli/repository_detect.go	internal	remote-ci	go-source	5900	独立 remote-ci validation composition root	internal,devtools,remotecicli,repository,detect,独立,remote-ci,validation,composition,root
@@ -164,14 +165,16 @@ internal/devtools/remotecicli/repository_detect_test.go	internal	remote-ci	go-te
 internal/devtools/remotecicli/repository_identity_test.go	internal	remote-ci	go-test	2400	独立 remote-ci validation composition root	internal,devtools,remotecicli,repository,identity,test,独立,remote-ci,validation,composition,root
 internal/devtools/remotecicli/repository_module_identity.go	internal	remote-ci	go-source	2800	独立 remote-ci validation composition root	internal,devtools,remotecicli,repository,module,identity,独立,remote-ci,validation,composition,root
 internal/devtools/remotecicli/repository_module_identity_test.go	internal	remote-ci	go-test	1911	独立 remote-ci validation composition root	internal,devtools,remotecicli,repository,module,identity,test,独立,remote-ci,validation,composition,root
-internal/devtools/remotecicli/runtime_adapters.go	internal	remote-ci	go-source	28816	独立 remote-ci validation composition root	internal,devtools,remotecicli,runtime,adapters,独立,remote-ci,validation,composition,root
-internal/devtools/remotecicli/runtime_adapters_test.go	internal	remote-ci	go-test	35699	独立 remote-ci validation composition root	internal,devtools,remotecicli,runtime,adapters,test,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/runtime_adapters.go	internal	remote-ci	go-source	28834	独立 remote-ci validation composition root	internal,devtools,remotecicli,runtime,adapters,独立,remote-ci,validation,composition,root
+internal/devtools/remotecicli/runtime_adapters_test.go	internal	remote-ci	go-test	35715	独立 remote-ci validation composition root	internal,devtools,remotecicli,runtime,adapters,test,独立,remote-ci,validation,composition,root
 internal/devtools/remotecicli/validation_event.go	internal	remote-ci	go-source	10264	独立 remote-ci validation composition root	internal,devtools,remotecicli,validation,event,独立,remote-ci,composition,root
 internal/devtools/remoteportable/binding_abi.go	internal	remote-ci	go-source	1565	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,binding,abi,portable,manifest,与跨仓,target,identity
 internal/devtools/remoteportable/codec_helpers.go	internal	remote-ci	go-source	6222	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,codec,helpers,portable,manifest,binding,与跨仓,target,identity
 internal/devtools/remoteportable/core_types.go	internal	remote-ci	go-source	1106	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,core,types,portable,manifest,binding,与跨仓,target,identity
-internal/devtools/remoteportable/inventory.go	internal	remote-ci	go-source	14599	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,inventory,portable,manifest,binding,与跨仓,target,identity
-internal/devtools/remoteportable/manifest_top.go	internal	remote-ci	go-source	25722	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,manifest,top,portable,binding,与跨仓,target,identity
+internal/devtools/remoteportable/inventory.go	internal	remote-ci	go-source	15000	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,inventory,portable,manifest,binding,与跨仓,target,identity
+internal/devtools/remoteportable/inventory_buildable.go	internal	remote-ci	go-source	8500	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,inventory,buildable,portable,manifest,binding,与跨仓,target,identity
+internal/devtools/remoteportable/inventory_buildable_test.go	internal	remote-ci	go-test	7817	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,inventory,buildable,test,portable,manifest,binding,与跨仓,target,identity
+internal/devtools/remoteportable/manifest_top.go	internal	remote-ci	go-source	25521	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,manifest,top,portable,binding,与跨仓,target,identity
 internal/devtools/remoteportable/portable_descriptor.go	internal	remote-ci	go-source	4580	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,portable,descriptor,manifest,binding,与跨仓,target,identity
 internal/devtools/remoteportable/portable_descriptor_codec.go	internal	remote-ci	go-source	9134	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,portable,descriptor,codec,manifest,binding,与跨仓,target,identity
 internal/devtools/remoteportable/portable_descriptor_test.go	internal	remote-ci	go-test	13785	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,portable,descriptor,test,manifest,binding,与跨仓,target,identity
@@ -182,7 +185,7 @@ internal/devtools/remoteportable/process_unix_test.go	internal	remote-ci	go-test
 internal/devtools/remoteportable/process_windows.go	internal	remote-ci	go-source	441	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,process,windows,portable,manifest,binding,与跨仓,target,identity
 internal/devtools/remoteportable/process_windows_test.go	internal	remote-ci	go-test	527	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,process,windows,test,portable,manifest,binding,与跨仓,target,identity
 internal/devtools/remoteportable/routing_top.go	internal	remote-ci	go-source	2566	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,routing,top,portable,manifest,binding,与跨仓,target,identity
-internal/devtools/remoteportable/top_manifest_test.go	internal	remote-ci	go-test	26008	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,top,manifest,test,portable,binding,与跨仓,target,identity
+internal/devtools/remoteportable/top_manifest_test.go	internal	remote-ci	go-test	25021	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,top,manifest,test,portable,binding,与跨仓,target,identity
 internal/devtools/remoteportable/tree_reader.go	internal	remote-ci	go-source	1347	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,tree,reader,portable,manifest,binding,与跨仓,target,identity
 internal/devtools/remoteportable/workload_catalog.go	internal	remote-ci	go-source	4422	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,workload,catalog,portable,manifest,binding,与跨仓,target,identity
 internal/devtools/remoteportable/workload_catalog_test.go	internal	remote-ci	go-test	2750	portable manifest、binding 与跨仓 target identity	internal,devtools,remoteportable,workload,catalog,test,portable,manifest,binding,与跨仓,target,identity

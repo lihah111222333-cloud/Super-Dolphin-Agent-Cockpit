@@ -69,10 +69,10 @@ func TestMcpLSPBinaryRealMarkdownCompletionRegistration_E2E(t *testing.T) {
 func callMarkdownCompletionWithDeadline(t *testing.T, client *mcpLSPBinaryClient, args map[string]any) (mcpLSPBinaryResponse, bool) {
 	t.Helper()
 	result := make(chan mcpLSPBinaryResponse, 1)
-	go func() {
+	newTestGoroutineGroup(t).Go(func() {
 		path := strings.Split(fmt.Sprint(args["pos"]), ":")[0]
 		result <- client.callTool(t, "structure", map[string]any{"action": "document_symbol", "file_path": path})
-	}()
+	})
 	select {
 	case response := <-result:
 		return response, true

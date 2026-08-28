@@ -43,7 +43,7 @@ function Assert-LocalGateExecution {
     Write-Stderr @'
 Unclassified host test execution is forbidden.
 Light/medium tests must use --host-test with exact selectors and live resource admission.
-Heavy, race, benchmark, fuzz, full-package, and unknown workloads require the trusted four-node offline Gate.
+Heavy, race, benchmark, fuzz, full-package, and unknown workloads require the trusted single Ubuntu physical host with Ubuntu/Wine logical runtimes.
 This script never starts or forwards remote/ECI workloads.
 '@
     exit 2

@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**5138**
+> 已索引文件：**5159**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/plans/**, docs/superpowers/**, docs/archive/**, docs/before/**, docs/迁移/**, docs/ai01-docs/**, docs/cc/**, docs/li/**, docs/pians/**, docs/调研/**, docs/healthy-check/**, docs/decisions/**, docs/reviews/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -24,11 +24,11 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/app-ui.tsv` | 754 | 154.0 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 410 | 93.0 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
 | `docs/doc/codemap/project-map/index/modules.tsv` | 765 | 149.2 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1716 | 326.2 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1731 | 329.8 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 230 | 36.0 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 188 | 42.6 KB | 独立 remote-ci validation、portable manifest 与异构节点契约 |
+| `docs/doc/codemap/project-map/index/remote-ci.tsv` | 191 | 43.4 KB | 独立 remote-ci validation、portable manifest 与异构节点契约 |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 99 | 14.8 KB | 代码地图、ADR、契约与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 976 | 196.1 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 979 | 197.0 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -47,10 +47,10 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2761 | 应用内部模块、平台、provider、store 与守卫 |
-| `cmd` | 1223 | 可执行入口与 MCP peer |
+| `internal` | 2769 | 应用内部模块、平台、provider、store 与守卫 |
+| `cmd` | 1233 | 可执行入口与 MCP peer |
 | `frontend-app` | 746 | 当前 React/Vite 新 UI |
-| `scripts` | 221 | 工程自动化脚本 |
+| `scripts` | 224 | 工程自动化脚本 |
 | `docs` | 92 | 当前文档、生成索引、开发中材料与历史证据 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
@@ -68,7 +68,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | MCP orchestration peer | `cmd/mcp-orch/main.go` | stdio / managed peer | Agent lifecycle, DAG, wakeup, workspace and shared file tools |
 | MCP LSP peer | `cmd/mcp-lsp/main.go` | stdio / managed peer | Generic multi-language LSP peer and code intelligence tools |
 | Trusted local Gate | `cmd/super-dolphin-gate/main.go` | Git hooks / local validation | Exact-tree project-map, closure, and local code-guard checks |
-| Portable validation peer | `cmd/super-dolphin-remote-ci/main.go` | standalone validation binary | Strict portable manifest binding; execute remains fail-fast retired |
+| Remote CI engine | `cmd/super-dolphin-remote-ci/main.go` | standalone validation and execute binary | Strict portable binding plus the single Ubuntu/Wine PostgreSQL production lifecycle |
 | React UI | `frontend-app/src/main.jsx` | 5175 dev server | Current React/Vite frontend entry |
 | macOS dev runner | `run-new-ui-desktop.sh` | 5175 dev UI + local desktop host | Desktop host plus Vite dev flow |
 | Windows dev runner | `run-new-ui-desktop.ps1` | 5175 dev UI + local desktop host | PowerShell desktop host plus Vite dev flow |
@@ -144,7 +144,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `internal/platform/mcpcontrol` | 46 | MCP 控制平面与 peer 注册 |
 | `internal/platform/toolbridge` | 126 | provider 与 MCP tools 桥接 |
 | `internal/platform/hooks` | 33 | hook 配置、执行与三阶段拦截 |
-| `internal/platform/config` | 18 | 运行配置、env、provider 与超时策略 |
+| `internal/platform/config` | 21 | 运行配置、env、provider 与超时策略 |
 
 ### internal/provider
 
@@ -161,18 +161,18 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 |---|---:|---|
 | `cmd/mcp-orch/tools` | 77 | mcp-orch MCP tool schema、registry 与 handler |
 | `cmd/mcp-orch/orchestration` | 186 | agent 生命周期、DAG、wakeup、report 与 hook 消费 |
-| `cmd/mcp-lsp/tools` | 58 | LSP MCP tools 实现 |
-| `cmd/mcp-lsp/multilsp` | 163 | 多语言 LSP manager、transport 与缓存 |
+| `cmd/mcp-lsp/tools` | 59 | LSP MCP tools 实现 |
+| `cmd/mcp-lsp/multilsp` | 165 | 多语言 LSP manager、transport 与缓存 |
 
 ### remote CI
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
 | `cmd/super-dolphin-gate` | 16 | trusted local Gate、project-map 与 closure worker CLI |
-| `cmd/super-dolphin-remote-ci` | 2 | 独立 portable descriptor validation CLI |
+| `cmd/super-dolphin-remote-ci` | 2 | 独立 portable validation 与 production execute CLI |
 | `internal/devtools/heteroci` | 64 | 通用异构节点、容量规划与本地非权威路由 |
-| `internal/devtools/remoteportable` | 20 | portable manifest 与 cross-repository target binding |
-| `internal/devtools/remotecicli` | 16 | 独立 remote-ci validation composition root |
+| `internal/devtools/remoteportable` | 22 | portable manifest 与 cross-repository target binding |
+| `internal/devtools/remotecicli` | 17 | 独立 remote-ci validation composition root |
 
 ## 8. 文档与知识地图
 

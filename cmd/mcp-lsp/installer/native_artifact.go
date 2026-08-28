@@ -15,7 +15,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -257,7 +256,7 @@ func validateExistingNativeExecutable(label, target string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("%s is not a regular file", label)
 	}
-	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+	if !nativeArtifactExecutableModeValid(info.Mode()) {
 		return fmt.Errorf("%s is not executable", label)
 	}
 	return nil

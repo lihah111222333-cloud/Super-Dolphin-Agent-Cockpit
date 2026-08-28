@@ -3,21 +3,21 @@
   "generator": "node:scripts/generate_ai_project_map.mjs",
   "input_fingerprint": {
     "schema": "project-map-input/v1",
-    "generator_rules_sha256": "sha256:3c7a97c680cbe9bc6fd587e348fbc688435b42c1f560f71139e0253b1d3dac0a",
-    "source_sha256": "sha256:647f08a080002bb014d2c3f745a096623f9b334bf69683f87887cf96a93827da",
-    "entries_sha256": "sha256:b1862552f275916ab7420d0f97a1a772b4e8c4a8b9fec97fbabdd8c15121d0f8"
+    "generator_rules_sha256": "sha256:435832c14ba1f5fe47ed617e593d21252c0663d60ed903033b12c12bab00b32f",
+    "source_sha256": "sha256:930ee79767a0a889bd11f34ce5f6fe31f43890acf9c2ac3eb02f4749736b16f3",
+    "entries_sha256": "sha256:63631358233dc51e95d9a973cecd283d90d6c8da7826135f784956510f450e8f"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5138,
+  "files": 5159,
   "domains": {
-    "other": 976,
-    "remote-ci": 188,
+    "other": 979,
+    "remote-ci": 191,
     "docs-agent": 99,
     "app-ui": 754,
-    "platform-provider": 1716,
+    "platform-provider": 1731,
     "orchestration": 410,
     "modules": 765,
     "store-sql": 230
@@ -50,8 +50,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1716,
-        "size_kb": 326.2,
+        "file_count": 1731,
+        "size_kb": 329.8,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -64,8 +64,8 @@
       {
         "key": "remote-ci",
         "file": "docs/doc/codemap/project-map/index/remote-ci.tsv",
-        "file_count": 188,
-        "size_kb": 42.6,
+        "file_count": 191,
+        "size_kb": 43.4,
         "desc": "独立 remote-ci validation、portable manifest 与异构节点契约"
       },
       {
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 976,
-        "size_kb": 196.1,
+        "file_count": 979,
+        "size_kb": 197,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -87,12 +87,12 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1223,
+    "cmd": 1233,
     "docs": 92,
     "frontend-app": 746,
-    "internal": 2761,
+    "internal": 2769,
     "pkg": 30,
-    "scripts": 221,
+    "scripts": 224,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -246,10 +246,10 @@
       "desc": "Exact-tree project-map, closure, and local code-guard checks"
     },
     {
-      "unit": "Portable validation peer",
+      "unit": "Remote CI engine",
       "entry": "cmd/super-dolphin-remote-ci/main.go",
-      "endpoint": "standalone validation binary",
-      "desc": "Strict portable manifest binding; execute remains fail-fast retired"
+      "endpoint": "standalone validation and execute binary",
+      "desc": "Strict portable binding plus the single Ubuntu/Wine PostgreSQL production lifecycle"
     },
     {
       "unit": "React UI",

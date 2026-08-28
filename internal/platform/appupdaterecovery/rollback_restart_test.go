@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -194,56 +192,6 @@ func TestRollbackRestartActivationResponseLossThenDeathLaunchesReplacement(t *te
 	}
 }
 
-func TestRollbackRestartDeadACKReplacementWriteFailureCleansNewHelper(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod-based rollback restart write failure is unsupported on windows")
-	}
-	t.Parallel()
-	store, identity, _ := createProbationTransaction(t)
-	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture := &rollbackHelperLifecycle{t: t}
-	first, err := store.ConvergeRollbackRestart(t.Context(), identity, fixture.resolve, fixture.launch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.live = false
-	journalDir := filepath.Dir(store.journalPath(identity.TransactionID))
-	replacement := first.RollbackRestart.ACK.Process
-	replacement.StartToken = "replacement-write-failure"
-	replacementLive := false
-	cleanups := 0
-	control := func() RollbackRestartControl {
-		return RollbackRestartControl{
-			Process: replacement,
-			Cleanup: func() error {
-				cleanups++
-				replacementLive = false
-				return os.Chmod(journalDir, 0o700)
-			},
-			Prepare:  func(context.Context) error { return os.Chmod(journalDir, 0o500) },
-			Activate: func(context.Context) error { t.Fatal("replacement activated without durable ACK"); return nil },
-		}
-	}
-	t.Cleanup(func() { _ = os.Chmod(journalDir, 0o700) })
-	_, convergeErr := store.ConvergeRollbackRestart(
-		t.Context(), transaction.Identity,
-		func(context.Context, string) (RollbackRestartControl, bool, error) {
-			return control(), replacementLive, nil
-		},
-		func(context.Context, string) (RollbackRestartControl, error) {
-			replacementLive = true
-			return control(), nil
-		},
-	)
-	got := loadTransaction(t, store, identity)
-	if convergeErr == nil || cleanups != 1 || replacementLive || got.RollbackRestart.ACK.Process != first.RollbackRestart.ACK.Process {
-		t.Fatalf("replacement write failure error=%v cleanups=%d live=%t ACK=%+v", convergeErr, cleanups, replacementLive, got.RollbackRestart.ACK)
-	}
-}
-
 func TestRollbackRestartDeadACKResolverErrorDoesNotLaunch(t *testing.T) {
 	t.Parallel()
 	store, identity, _ := createProbationTransaction(t)
@@ -298,57 +246,6 @@ func TestRollbackRestartDeadACKReplacementValidationFailureCleansLaunch(t *testi
 	got := loadTransaction(t, store, identity)
 	if convergeErr == nil || cleanups != 1 || got.RollbackRestart.ACK.Process != first.RollbackRestart.ACK.Process {
 		t.Fatalf("replacement validation error=%v cleanups=%d ACK=%+v", convergeErr, cleanups, got.RollbackRestart.ACK)
-	}
-}
-
-func TestRollbackRestartACKWriteFailureCleansParkedHelper(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("chmod-based rollback restart write failure is unsupported on windows")
-	}
-	t.Parallel()
-	store, identity, _ := createProbationTransaction(t)
-	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	journalDir := filepath.Dir(store.journalPath(identity.TransactionID))
-	permissionRestored := false
-	cleanups := 0
-	activations := 0
-	process := fixtureRollbackRestartProcess()
-	live := true
-	control := func() RollbackRestartControl {
-		return RollbackRestartControl{
-			Process: process,
-			Cleanup: func() error {
-				cleanups++
-				live = false
-				permissionRestored = true
-				return os.Chmod(journalDir, 0o700)
-			},
-			Prepare: func(context.Context) error { return os.Chmod(journalDir, 0o500) },
-			Activate: func(context.Context) error {
-				activations++
-				return nil
-			},
-		}
-	}
-	t.Cleanup(func() { _ = os.Chmod(journalDir, 0o700) })
-	_, convergeErr := store.ConvergeRollbackRestart(
-		t.Context(), transaction.Identity,
-		func(context.Context, string) (RollbackRestartControl, bool, error) {
-			return control(), live, nil
-		},
-		func(context.Context, string) (RollbackRestartControl, error) {
-			t.Fatal("launcher called despite live parked helper")
-			return RollbackRestartControl{}, nil
-		},
-	)
-	if convergeErr == nil || cleanups != 1 || activations != 0 || !permissionRestored || live {
-		t.Fatalf("ACK write failure error=%v cleanups=%d activations=%d restored=%t live=%t", convergeErr, cleanups, activations, permissionRestored, live)
-	}
-	if got := loadTransaction(t, store, identity); got.RollbackRestart.ACKPresent {
-		t.Fatalf("ACK write failure persisted dead ACK: %+v", got.RollbackRestart.ACK)
 	}
 }
 

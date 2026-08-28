@@ -138,7 +138,7 @@ validate_host_test_args() {
         continue
         ;;
       -*)
-        echo "host test rejects unclassified flag $arg; use the trusted four-node offline Gate for heavy or unknown workloads" >&2
+        echo "host test rejects unclassified flag $arg; use 受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes for heavy or unknown workloads" >&2
         return 2
         ;;
       *)
@@ -198,7 +198,7 @@ validate_host_test_args() {
 
 host_test_local_gate_guidance() {
   local package_name="" test_selector="" previous="" arg
-  local candidate_parent candidate_tree parent_tree worktree_status untracked_state
+  local candidate_parent worktree_status untracked_state
   for arg in "$@"; do
     if [[ "$previous" == "-run" ]]; then
       test_selector="$arg"
@@ -247,11 +247,11 @@ host_test_local_gate_guidance() {
 		echo "host test could not capture the exact parent commit" >&2
     return 2
   }
-  candidate_tree="$(git write-tree)" || {
+	git write-tree >/dev/null || {
 		echo "host test could not capture the exact staged tree" >&2
     return 2
   }
-  parent_tree="$(git rev-parse --verify "${candidate_parent}^{tree}")" || {
+	git rev-parse --verify "${candidate_parent}^{tree}" >/dev/null || {
 		echo "host test could not resolve the parent tree" >&2
     return 2
   }
@@ -280,7 +280,7 @@ host_test_cpu_busy_percent() {
       return
     fi
   fi
-  echo "host CPU utilization evidence is unavailable; use the trusted four-node offline Gate" >&2
+  echo "host CPU utilization evidence is unavailable; use 受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes" >&2
   return 2
 }
 
@@ -345,7 +345,7 @@ host_test_resource_snapshot() {
   case "$platform" in
     windows|wsl)
       if ! windows_snapshot="$(host_test_windows_resource_snapshot)"; then
-        echo "host resource evidence is unavailable; use the trusted four-node offline Gate" >&2
+        echo "host resource evidence is unavailable; use 受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes" >&2
         return 2
       fi
       windows_snapshot="${windows_snapshot//$'\r'/}"
@@ -373,7 +373,7 @@ host_test_resource_snapshot() {
       fi
       ;;
     *)
-      echo "unsupported host resource platform: $platform; route this test to ECI" >&2
+      echo "unsupported host resource platform: $platform; route this test to 受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes" >&2
       return 2
       ;;
   esac
@@ -381,7 +381,7 @@ host_test_resource_snapshot() {
     [[ ! "$cpu_busy_percent" =~ ^[0-9]+([.][0-9]+)?$ ]] ||
     ! awk -v cpu="$cpu_busy_percent" 'BEGIN {exit !(cpu >= 0 && cpu <= 100)}' ||
     [[ ! "$memory_free_percent" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    echo "host resource evidence is unavailable; use the trusted four-node offline Gate" >&2
+    echo "host resource evidence is unavailable; use 受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes" >&2
     return 2
   fi
   tier="$(host_test_resource_tier "$cpu_busy_percent" "$memory_free_percent")"
@@ -397,7 +397,7 @@ admit_host_test_load() {
   fi
   read -r tier cpu_busy_percent logical_cpus memory_free_percent <<<"$snapshot"
   if [[ "$tier" == "high" ]]; then
-    echo "host test admission rejected: class=$load_class host_tier=$tier cpu_busy_percent=$cpu_busy_percent memory_free_percent=$memory_free_percent" >&2
+    echo "host test admission rejected: class=$load_class host_tier=$tier cpu_busy_percent=$cpu_busy_percent memory_free_percent=$memory_free_percent; use 受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes" >&2
 		host_test_local_gate_guidance "$@"
     return 2
   fi
@@ -411,7 +411,7 @@ run_host_test() {
   shift 2
   validate_host_test_args "$load_class" "$@"
   admit_host_test_load "$load_class" "$@"
-  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE class=$load_class; trusted four-node Gate evidence remains required"
+  echo "[test-with-guard] LOCAL_NON_AUTHORITATIVE class=$load_class; 受信单 Ubuntu physical host + Ubuntu/Wine logical runtimes evidence remains required"
   run_guard "$real_go" quick
   admit_host_test_load "$load_class" "$@"
   run_copylocks_guard "$real_go" "$@"

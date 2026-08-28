@@ -1,10 +1,10 @@
 {
   "version": 3,
   "acceptance": {
-    "owner": "repository-maintainers",
-    "reason": "合并main既有LSP债务并接纳单Ubuntu Wine远程CI文件，复审前禁止继续恶化",
-    "reviewed_at": "2026-08-23T04:48:29Z",
-    "review_by": "2026-09-22"
+    "owner": "codex-remote-ci-maintenance",
+    "reason": "远程CI全流程修复后下调复杂度冻结上限",
+    "reviewed_at": "2026-08-23T22:57:15Z",
+    "review_by": "2026-11-21"
   },
   "approved": {
     "metrics": {
@@ -74,7 +74,7 @@
           "max_struct_methods": 4
         },
         "cmd/mcp-lsp/installer/native_artifact.go": {
-          "lines": 866,
+          "lines": 865,
           "max_func_len": 41,
           "max_nesting": 2,
           "max_complexity": 10,
@@ -950,37 +950,6 @@
           "todo_count": 0,
           "max_struct_fields": 8,
           "max_struct_methods": 1
-        },
-        "cmd/mcp-lsp/tools/tool_structure.go": {
-          "lines": 574,
-          "max_func_len": 56,
-          "max_nesting": 3,
-          "max_complexity": 13,
-          "max_params": 5,
-          "max_returns": 3,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 8,
-          "max_struct_methods": 1
-        },
-        "cmd/mcp-lsp/tools/tool_xref.go": {
-          "lines": 228,
-          "max_func_len": 52,
-          "max_nesting": 4,
-          "max_complexity": 15,
-          "max_params": 6,
-          "max_returns": 2,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "max_struct_fields": 6
         },
         "cmd/mcp-orch/hook_subscription.go": {
           "lines": 35,
@@ -2725,7 +2694,7 @@
           "max_struct_fields": 4
         },
         "cmd/mcp-lsp/lsp_binary_multilang_fake_bundle_windows_e2e_test.go": {
-          "lines": 208,
+          "lines": 209,
           "max_func_len": 76,
           "max_nesting": 2,
           "max_complexity": 17,
@@ -2781,22 +2750,6 @@
           "naked_returns": 0,
           "empty_funcs": 0,
           "todo_count": 0
-        },
-        "cmd/mcp-lsp/lsp_binary_real_markdown_completion_e2e_test.go": {
-          "lines": 96,
-          "max_func_len": 46,
-          "max_nesting": 1,
-          "max_complexity": 6,
-          "max_params": 3,
-          "max_returns": 2,
-          "max_underscore": 1,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "naked_goroutines": 1,
-          "raw_goroutines": 1
         },
         "cmd/mcp-lsp/lsp_binary_real_node_all_languages_windows_e2e_test.go": {
           "lines": 4970,
@@ -2883,10 +2836,10 @@
           "todo_count": 0
         },
         "cmd/mcp-lsp/lsp_binary_windows_arm64_emmylua_e2e_test.go": {
-          "lines": 1265,
-          "max_func_len": 277,
+          "lines": 1257,
+          "max_func_len": 274,
           "max_nesting": 3,
-          "max_complexity": 74,
+          "max_complexity": 73,
           "max_params": 24,
           "max_returns": 3,
           "max_underscore": 0,
@@ -3475,22 +3428,6 @@
           "naked_returns": 0,
           "empty_funcs": 0,
           "todo_count": 0
-        },
-        "cmd/mcp-lsp/zz_graphql_real_90s_probe_e2e_test.go": {
-          "lines": 111,
-          "max_func_len": 59,
-          "max_nesting": 4,
-          "max_complexity": 16,
-          "max_params": 4,
-          "max_returns": 0,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0,
-          "naked_goroutines": 3,
-          "raw_goroutines": 3
         },
         "cmd/mcp-orch/notify/resolve_test.go": {
           "lines": 134,
@@ -4259,20 +4196,6 @@
           "empty_funcs": 0,
           "todo_count": 0
         },
-        "internal/platform/toolbridge/schema/schema_red_test.go": {
-          "lines": 722,
-          "max_func_len": 62,
-          "max_nesting": 3,
-          "max_complexity": 11,
-          "max_params": 3,
-          "max_returns": 1,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0
-        },
         "internal/provider/codexapp/forcecomplete_approval_race_test.go": {
           "lines": 533,
           "max_func_len": 35,
@@ -4362,34 +4285,6 @@
           "empty_funcs": 0,
           "todo_count": 0
         },
-        "scripts/ai_maintenance/owner_evidence_test.go": {
-          "lines": 483,
-          "max_func_len": 72,
-          "max_nesting": 5,
-          "max_complexity": 7,
-          "max_params": 5,
-          "max_returns": 1,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0
-        },
-        "scripts/ai_maintenance/review_object_test.go": {
-          "lines": 782,
-          "max_func_len": 36,
-          "max_nesting": 3,
-          "max_complexity": 11,
-          "max_params": 6,
-          "max_returns": 2,
-          "max_underscore": 0,
-          "global_vars": 0,
-          "panic_count": 0,
-          "naked_returns": 0,
-          "empty_funcs": 0,
-          "todo_count": 0
-        },
         "scripts/extract_jsonrpc_methods_main_guardrail_test.go": {
           "lines": 425,
           "max_func_len": 61,
@@ -4421,7 +4316,7 @@
           "max_struct_fields": 3
         },
         "scripts/lsp_windows_platform_delivery_docs_guard_test.go": {
-          "lines": 2887,
+          "lines": 2886,
           "max_func_len": 188,
           "max_nesting": 5,
           "max_complexity": 65,
@@ -4506,7 +4401,7 @@
         "max_struct_methods": 4
       },
       "cmd/mcp-lsp/installer/native_artifact.go": {
-        "lines": 866,
+        "lines": 865,
         "max_func_len": 41,
         "max_nesting": 2,
         "max_complexity": 10,
@@ -5382,37 +5277,6 @@
         "todo_count": 0,
         "max_struct_fields": 8,
         "max_struct_methods": 1
-      },
-      "cmd/mcp-lsp/tools/tool_structure.go": {
-        "lines": 574,
-        "max_func_len": 56,
-        "max_nesting": 3,
-        "max_complexity": 13,
-        "max_params": 5,
-        "max_returns": 3,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 8,
-        "max_struct_methods": 1
-      },
-      "cmd/mcp-lsp/tools/tool_xref.go": {
-        "lines": 228,
-        "max_func_len": 52,
-        "max_nesting": 4,
-        "max_complexity": 15,
-        "max_params": 6,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "max_struct_fields": 6
       },
       "cmd/mcp-orch/hook_subscription.go": {
         "lines": 35,
@@ -7157,7 +7021,7 @@
         "max_struct_fields": 4
       },
       "cmd/mcp-lsp/lsp_binary_multilang_fake_bundle_windows_e2e_test.go": {
-        "lines": 208,
+        "lines": 209,
         "max_func_len": 76,
         "max_nesting": 2,
         "max_complexity": 17,
@@ -7213,22 +7077,6 @@
         "naked_returns": 0,
         "empty_funcs": 0,
         "todo_count": 0
-      },
-      "cmd/mcp-lsp/lsp_binary_real_markdown_completion_e2e_test.go": {
-        "lines": 96,
-        "max_func_len": 46,
-        "max_nesting": 1,
-        "max_complexity": 6,
-        "max_params": 3,
-        "max_returns": 2,
-        "max_underscore": 1,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "naked_goroutines": 1,
-        "raw_goroutines": 1
       },
       "cmd/mcp-lsp/lsp_binary_real_node_all_languages_windows_e2e_test.go": {
         "lines": 4970,
@@ -7315,10 +7163,10 @@
         "todo_count": 0
       },
       "cmd/mcp-lsp/lsp_binary_windows_arm64_emmylua_e2e_test.go": {
-        "lines": 1265,
-        "max_func_len": 277,
+        "lines": 1257,
+        "max_func_len": 274,
         "max_nesting": 3,
-        "max_complexity": 74,
+        "max_complexity": 73,
         "max_params": 24,
         "max_returns": 3,
         "max_underscore": 0,
@@ -7907,22 +7755,6 @@
         "naked_returns": 0,
         "empty_funcs": 0,
         "todo_count": 0
-      },
-      "cmd/mcp-lsp/zz_graphql_real_90s_probe_e2e_test.go": {
-        "lines": 111,
-        "max_func_len": 59,
-        "max_nesting": 4,
-        "max_complexity": 16,
-        "max_params": 4,
-        "max_returns": 0,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0,
-        "naked_goroutines": 3,
-        "raw_goroutines": 3
       },
       "cmd/mcp-orch/notify/resolve_test.go": {
         "lines": 134,
@@ -8691,20 +8523,6 @@
         "empty_funcs": 0,
         "todo_count": 0
       },
-      "internal/platform/toolbridge/schema/schema_red_test.go": {
-        "lines": 722,
-        "max_func_len": 62,
-        "max_nesting": 3,
-        "max_complexity": 11,
-        "max_params": 3,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
       "internal/provider/codexapp/forcecomplete_approval_race_test.go": {
         "lines": 533,
         "max_func_len": 35,
@@ -8794,34 +8612,6 @@
         "empty_funcs": 0,
         "todo_count": 0
       },
-      "scripts/ai_maintenance/owner_evidence_test.go": {
-        "lines": 483,
-        "max_func_len": 72,
-        "max_nesting": 5,
-        "max_complexity": 7,
-        "max_params": 5,
-        "max_returns": 1,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
-      "scripts/ai_maintenance/review_object_test.go": {
-        "lines": 782,
-        "max_func_len": 36,
-        "max_nesting": 3,
-        "max_complexity": 11,
-        "max_params": 6,
-        "max_returns": 2,
-        "max_underscore": 0,
-        "global_vars": 0,
-        "panic_count": 0,
-        "naked_returns": 0,
-        "empty_funcs": 0,
-        "todo_count": 0
-      },
       "scripts/extract_jsonrpc_methods_main_guardrail_test.go": {
         "lines": 425,
         "max_func_len": 61,
@@ -8853,7 +8643,7 @@
         "max_struct_fields": 3
       },
       "scripts/lsp_windows_platform_delivery_docs_guard_test.go": {
-        "lines": 2887,
+        "lines": 2886,
         "max_func_len": 188,
         "max_nesting": 5,
         "max_complexity": 65,

@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -183,24 +182,7 @@ func aiMaintenanceRepoRoot(t *testing.T) string {
 
 func runAIMaintenanceBashOutput(t *testing.T, repoRoot string, args ...string) []byte {
 	t.Helper()
-	bashBinary := "bash"
-	if runtime.GOOS == "windows" {
-		if path, err := exec.LookPath("bash"); err == nil {
-			bashBinary = path
-		} else if gitPath, err := exec.LookPath("git"); err == nil {
-			gitDir := filepath.Dir(gitPath)
-			for _, probe := range []string{
-				filepath.Join(gitDir, "bash.exe"),
-				filepath.Join(filepath.Dir(gitDir), "bin", "bash.exe"),
-				filepath.Join(filepath.Dir(gitDir), "usr", "bin", "bash.exe"),
-			} {
-				if _, err := os.Stat(probe); err == nil {
-					bashBinary = probe
-					break
-				}
-			}
-		}
-	}
+	bashBinary := aiMaintenanceBashBinary()
 	command := exec.Command(bashBinary, args...)
 	command.Dir = repoRoot
 	output, err := command.CombinedOutput()
@@ -208,6 +190,28 @@ func runAIMaintenanceBashOutput(t *testing.T, repoRoot string, args ...string) [
 		t.Fatalf("run bash %v: %v\n%s", args, err, output)
 	}
 	return output
+}
+
+// aiMaintenanceBashBinary 解析 PATH 中的 bash，并兼容 Git 安装目录提供的同一可执行入口。
+func aiMaintenanceBashBinary() string {
+	if path, err := exec.LookPath("bash"); err == nil {
+		return path
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return "bash"
+	}
+	gitDir := filepath.Dir(gitPath)
+	for _, probe := range []string{
+		filepath.Join(gitDir, "bash.exe"),
+		filepath.Join(filepath.Dir(gitDir), "bin", "bash.exe"),
+		filepath.Join(filepath.Dir(gitDir), "usr", "bin", "bash.exe"),
+	} {
+		if _, err := os.Stat(probe); err == nil {
+			return probe
+		}
+	}
+	return "bash"
 }
 
 func TestGeneratedCodemapClassificationMatchesRefreshOwnerOutputs(t *testing.T) {
@@ -234,230 +238,6 @@ func TestGeneratedCodemapClassificationMatchesRefreshOwnerOutputs(t *testing.T) 
 			t.Fatalf("unknown generated output kind %q", kind)
 		}
 	}
-}
-
-func TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands(t *testing.T) {
-	plan := mustBuildGatePlan(t, []string{"frontend-app/src/App.jsx"})
-	path := writeEvidence(t, `
-STATUS: DONE_WITH_EVIDENCE
-OWNED_FILES_CHANGED:
-  - frontend-app/src/App.jsx
-LSP_EVIDENCE:
-  locate: PASS
-  inspect: PASS
-  xref: PASS
-  read_file: PASS
-  diagnostics:
-COMMANDS_RUN:
-`)
-
-	err := validateEvidenceFile(path, plan)
-	if err == nil {
-		t.Fatal("missing evidence was accepted")
-	}
-	out := err.Error()
-	for _, want := range []string{
-		"missing AGENTID",
-		"missing or non-pass LSP evidence diagnostics",
-		"DONE_WITH_EVIDENCE requires COMMANDS_RUN",
-		"missing command evidence for frontend:lint",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("error missing %q\n%s", want, out)
-		}
-	}
-}
-
-func TestValidateEvidenceBlocksMissingNativeEvidence(t *testing.T) {
-	plan := gatePlan{ChangedFiles: []string{"internal/app/modules.go"}, RequiredEvidence: []string{"native:read", "native:search", "native:apply_patch"}}
-	path := writeEvidence(t, `
-STATUS: DONE_WITH_EVIDENCE
-AGENTID: 12345678-1234-1234-1234-123456789abc
-OWNED_FILES_CHANGED: [internal/app/modules.go]
-COMMANDS_RUN:
-  - cmd: go test ./internal/app
-    exit: 0
-NATIVE_EVIDENCE:
-  read: PASS
-  search: RED
-`)
-	err := validateEvidenceFile(path, plan)
-	if err == nil {
-		t.Fatal("missing and RED native evidence was accepted")
-	}
-	for _, want := range []string{"missing or non-pass native evidence search", "missing or non-pass native evidence apply_patch"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("error missing %q: %v", want, err)
-		}
-	}
-}
-
-func TestValidateEvidenceRejectsForgedNativeEvidenceOutsideSection(t *testing.T) {
-	plan := gatePlan{ChangedFiles: []string{"internal/app/modules.go"}, RequiredEvidence: []string{"native:read"}}
-	path := writeEvidence(t, `
-STATUS: DONE_WITH_EVIDENCE
-AGENTID: 12345678-1234-1234-1234-123456789abc
-OWNED_FILES_CHANGED: [internal/app/modules.go]
-native:read: PASS
-COMMANDS_RUN:
-  - cmd: go test ./internal/app
-    exit: 0
-`)
-	if err := validateEvidenceFile(path, plan); err == nil || !strings.Contains(err.Error(), "missing or non-pass native evidence read") {
-		t.Fatalf("forged native evidence error = %v, want missing native proof", err)
-	}
-}
-
-func TestValidateEvidenceAcceptsBlockedReportWithoutGreenEvidence(t *testing.T) {
-	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
-	path := writeEvidence(t, `
-STATUS: BLOCKED
-AGENTID: 019f0000-0000-7000-8000-000000000000
-BLOCKERS:
-  - LSP diagnostics unavailable after narrowed retry
-`)
-
-	if err := validateEvidenceFile(path, plan); err != nil {
-		t.Fatalf("blocked evidence rejected: %v", err)
-	}
-}
-
-func TestValidateEvidenceBlocksDoneWithBlockersAndLooseAgentID(t *testing.T) {
-	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
-	path := writeEvidence(t, `
-STATUS: DONE_WITH_EVIDENCE
-AGENTID: worker-1
-OWNED_FILES_CHANGED:
-  - internal/app/modules.go
-LSP_EVIDENCE:
-  locate: PASS
-  inspect: PASS
-  xref: PASS
-  read_file: PASS
-  diagnostics: PASS
-NATIVE_EVIDENCE:
-  read: PASS
-  search: PASS
-  apply_patch: PASS
-COMMANDS_RUN:
-  - cmd: ./scripts/test_with_guard.sh ./internal/app -count=1
-    exit: 0
-  - cmd: make guard
-    exit: 0
-BLOCKERS:
-  - still blocked
-`)
-
-	err := validateEvidenceFile(path, plan)
-	if err == nil {
-		t.Fatal("bad DONE_WITH_EVIDENCE accepted")
-	}
-	assertErrorContainsAll(t, err,
-		"AGENTID must be exact platform UUID",
-		"DONE_WITH_EVIDENCE must not include BLOCKERS",
-	)
-}
-
-func TestValidateEvidenceAcceptsCompleteFrontendAndGeneratedEvidence(t *testing.T) {
-	plan := mustBuildGatePlan(t, []string{
-		"frontend-app/src/App.jsx",
-		"docs/doc/codemap/ai-index.json",
-	})
-	path := writeEvidence(t, `
-PACKAGE: B1-frontend-surface
-STATUS: DONE_WITH_EVIDENCE
-AGENTID: 019f0000-0000-7000-8000-000000000000
-BASE_HEAD: abc123
-OWNED_FILES_CHANGED:
-  - frontend-app/src/App.jsx
-  - docs/doc/codemap/ai-index.json
-UNRELATED_DIRTY_FILES_PRESERVED: []
-LSP_EVIDENCE:
-  locate: PASS
-  inspect: PASS
-  xref: PASS
-  read_file: PASS
-  diagnostics: PASS
-NATIVE_EVIDENCE:
-  read: PASS
-  search: PASS
-  apply_patch: PASS
-COMMANDS_RUN:
-  - cmd: go run ./scripts/lsp_diagnostics_gate --file frontend-app/src/App.jsx
-    exit: 0
-  - cmd: ./scripts/test_with_guard.sh --archtest-only
-    exit: 0
-  - cmd: cd frontend-app && npm run guard:critical-skip
-    exit: 0
-  - cmd: cd frontend-app && npm run lint
-    exit: 0
-  - cmd: cd frontend-app && npm run typecheck:contracts
-    exit: 0
-  - cmd: cd frontend-app && npx vitest run src/App.test.jsx
-    exit: 0
-  - cmd: cd frontend-app && npm run build
-    exit: 0
-  - cmd: cd frontend-app && npm run verify:embed:isolated
-    exit: 0
-  - cmd: make codemap-check
-    exit: 0
-  - cmd: make project-map-check
-    exit: 0
-GENERATED_FILES:
-  - path: docs/doc/codemap/ai-index.json
-    precheck_failed: make codemap-check
-    source_command: make codemap-refresh
-BLOCKERS: []
-`)
-
-	if err := validateEvidenceFile(path, plan); err != nil {
-		t.Fatalf("complete evidence rejected: %v", err)
-	}
-}
-
-func assertErrorContainsAll(t *testing.T, err error, wants ...string) {
-	t.Helper()
-	out := err.Error()
-	for _, want := range wants {
-		if !strings.Contains(out, want) {
-			t.Fatalf("error missing %q\n%s", want, out)
-		}
-	}
-}
-
-func TestValidateEvidenceBlocksDiffScopeMismatch(t *testing.T) {
-	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
-	path := writeEvidence(t, `
-STATUS: DONE_WITH_EVIDENCE
-AGENTID: 019f0000-0000-7000-8000-000000000000
-OWNED_FILES_CHANGED:
-  - internal/app/other.go
-LSP_EVIDENCE:
-  locate: PASS
-  inspect: PASS
-  xref: PASS
-  read_file: PASS
-  diagnostics: PASS
-COMMANDS_RUN:
-  - cmd: ./scripts/test_with_guard.sh ./internal/app -count=1
-    exit: 0
-  - cmd: make guard
-    exit: 0
-`)
-
-	err := validateEvidenceFile(path, plan)
-	if err == nil || !strings.Contains(err.Error(), "OWNED_FILES_CHANGED does not match changed files") {
-		t.Fatalf("diff scope mismatch not blocked: %v", err)
-	}
-}
-
-func writeEvidence(t *testing.T, body string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "evidence.md")
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatalf("write evidence: %v", err)
-	}
-	return path
 }
 
 func assertStringSetContains(t *testing.T, values []string, wants ...string) {
