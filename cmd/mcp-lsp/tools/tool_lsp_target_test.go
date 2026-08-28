@@ -117,6 +117,60 @@ func TestXRefTypeHierarchyCorrectTypeTargetsReturnHierarchy(t *testing.T) {
 	}
 }
 
+func TestXRefTypeHierarchyTruncationProvidesContinuation(t *testing.T) {
+	root := t.TempDir()
+	target := writeReproFile(t, root, "auditlog.go", "package auditlog\n\ntype Logger interface{}\n\ntype FileAuditLogger struct{}\n")
+	manager := &targetReproManager{
+		typeHierarchyResults: []protocol.TypeHierarchyResult{{
+			Item: reproTypeHierarchyItem("FileAuditLogger", target, 4),
+			Supertypes: []protocol.TypeHierarchyItem{
+				reproTypeHierarchyItem("Logger", target, 2),
+				reproTypeHierarchyItem("Named", target, 3),
+			},
+		}},
+	}
+	handler := NewXRefHandler(&structureTestRegistry{fileManager: manager})
+	input := marshalReproParams(t, xrefParams{
+		Action: "type_hierarchy", Pos: target + ":5:6", Direction: "supertypes", MaxResults: 1,
+	})
+
+	got, err := handler(testToolContext(root), input)
+	if err != nil {
+		t.Fatalf("type_hierarchy returned error = %v, want truncated hierarchy", err)
+	}
+	response := requireHierarchyEdges(t, got)
+	assertTypeHierarchyContinuation(t, response, target)
+}
+
+func requireHierarchyEdges(t *testing.T, got any) hierarchyEdgeListResponse {
+	t.Helper()
+	response, ok := got.(hierarchyEdgeListResponse)
+	if !ok {
+		t.Fatalf("type hierarchy result = %T, want hierarchyEdgeListResponse", got)
+	}
+	return response
+}
+
+func assertTypeHierarchyContinuation(t *testing.T, response hierarchyEdgeListResponse, target string) {
+	t.Helper()
+	if response.Continuation == nil {
+		t.Fatal("type hierarchy continuation = nil, want stable continuation")
+	}
+	if response.Continuation.Token == "" || response.Continuation.Reason != "max_results" {
+		t.Fatalf("type hierarchy continuation = %#v, want stable token and max_results reason", response.Continuation)
+	}
+	if got := response.Continuation.NextArgs["action"]; got != "type_hierarchy" {
+		t.Fatalf("type hierarchy continuation action = %#v, want type_hierarchy", got)
+	}
+	if got := response.Continuation.NextArgs["pos"]; got != target+":5:6" {
+		t.Fatalf("type hierarchy continuation pos = %#v, want original position", got)
+	}
+	plainText, handled := FormatToPlainText(response)
+	if !handled || !strings.Contains(plainText, "CONTINUATION") || !strings.Contains(plainText, response.Continuation.Token) {
+		t.Fatalf("type hierarchy continuation missing from plain text: handled=%t text=%q", handled, plainText)
+	}
+}
+
 type targetReproManager struct {
 	structureTestManager
 

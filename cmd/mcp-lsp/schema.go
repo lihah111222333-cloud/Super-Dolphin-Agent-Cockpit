@@ -98,8 +98,22 @@ func newLSPDiagnosticsSchema() schema {
 			"file_path":     map[string]any(stringProp("Single file path to diagnose. Pass exactly one of file_path or file_paths.")),
 			"file_paths":    map[string]any(arrayOfStringsProp("Files to diagnose. Pass exactly one of file_path or file_paths.")),
 			"language_id":   map[string]any(stringProp("Optional language server override for extensionless or ambiguous files.")),
-			"changed_lines": map[string]any(schema{"type": "array", "description": "Optional list of modified 1-based line numbers to preserve missing import diagnostics on edited lines.", "items": map[string]any{"type": "integer"}}),
-			"work_dir":      map[string]any(lspWorkDirProp()),
+			"changed_lines": map[string]any(schema{"type": "array", "description": "Single-file shorthand for explicit diff_filter mode; 1-based lines. For multiple files use diff_filter.changed_lines keyed by file path.", "items": map[string]any{"type": "integer", "minimum": 1}, "minItems": 1}),
+			"diff_filter": map[string]any(schema{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"mode": map[string]any(enumProp("Explicit diagnostics filtering mode.", "changed_lines")),
+					"changed_lines": map[string]any(schema{
+						"type":                 "object",
+						"description":          "Map each requested file path to its own 1-based changed-line list.",
+						"additionalProperties": map[string]any{"type": "array", "minItems": 1, "items": map[string]any{"type": "integer", "minimum": 1}},
+						"minProperties":        1,
+					}),
+				},
+				"required": []string{"mode", "changed_lines"},
+			}),
+			"work_dir": map[string]any(lspWorkDirProp()),
 		},
 		"oneOf": exactlyOneRequired("file_path", "file_paths"),
 	}

@@ -52,6 +52,7 @@ type registryToolProvider struct {
 	defs                   []toolDefinition
 	semanticToolsAvailable func(context.Context) bool
 	ensureReady            func() error
+	receiptSink            *lspToolReceiptSink
 }
 
 // run 组装并启动 mcp-lsp sidecar 自身的 fx 应用。
@@ -60,19 +61,24 @@ func run(stdout *os.File, logRuntime *pkglogger.Runtime, loggerGate *sidecarFile
 	if loggerGate == nil {
 		return errors.New("mcp-lsp file logger gate is required")
 	}
+	receiptSink, err := newLSPToolReceiptSinkFromEnv()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = receiptSink.Close() }()
 	// MCP stdio 协议把 stdout 当作 JSON-RPC 通道；日志必须固定写 stderr。
 	// 如果这里回到 stdout，客户端会把普通日志当作协议帧解析而失败。
 
 	app := fx.New(
 		fx.NopLogger,
-		fx.Supply(stdout, logRuntime, loggerGate),
+		fx.Supply(stdout, logRuntime, loggerGate, receiptSink),
 		fx.Provide(
-			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager, metrics *platformmetrics.BootstrapMetrics, loggerGate *sidecarFileLoggerGate) bootstrap.Config {
+			func(shutdowner fx.Shutdowner, handlers ToolHandlers, runtimeManager *Manager, metrics *platformmetrics.BootstrapMetrics, loggerGate *sidecarFileLoggerGate, receiptSink *lspToolReceiptSink) bootstrap.Config {
 				cfg := bootstrap.ReadBootConfig()
 				cfg.AgentID = ""
 				cfg.Metrics = metrics
 				cfg.Capabilities = []string{"tools/lsp"}
-				tp := registryToolProvider{defs: toolDefinitions(handlers), ensureReady: loggerGate.Ensure}
+				tp := registryToolProvider{defs: toolDefinitions(handlers), ensureReady: loggerGate.Ensure, receiptSink: receiptSink}
 				cfg.OnToolsList = func(ctx context.Context) (any, error) {
 					tools, err := tp.ListTools(ctx)
 					if err != nil {
@@ -107,10 +113,14 @@ func run(stdout *os.File, logRuntime *pkglogger.Runtime, loggerGate *sidecarFile
 			bootstrap.New,
 			newManager,
 			newToolHandlers,
-			newServer,
+			func(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Runtime, loggerGate *sidecarFileLoggerGate, receiptSink *lspToolReceiptSink) (*common.Server, error) {
+				return newServerWithReceiptSink(stdout, handlers, logRuntime, loggerGate, receiptSink)
+			},
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
-			fx.Annotate(newHTTPRunner, fx.ResultTags(`group:"runners"`)),
+			fx.Annotate(func(handlers ToolHandlers, logRuntime *pkglogger.Runtime, loggerGate *sidecarFileLoggerGate, receiptSink *lspToolReceiptSink) (platformrunner.Runner, error) {
+				return newHTTPRunnerWithReceiptSink(handlers, logRuntime, loggerGate, receiptSink)
+			}, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newOrphanWatchdogRunner, fx.ResultTags(`group:"runners"`)),
 			// 每种语言 ManagerPool 的后台 recycler 由根运行组托管，构造函数只负责建模。
 			// flatten 会把 runner 切片拆成独立成员，确保 fx 生命周期统一启动和停止。
@@ -137,8 +147,23 @@ func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Run
 	if stdout == nil {
 		return nil, errors.New("mcp-lsp: stdout is nil; program assembly order is broken")
 	}
+	receiptSink, err := newLSPToolReceiptSinkFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return newServerWithReceiptSink(stdout, handlers, logRuntime, loggerGate, receiptSink)
+}
+
+// newServerWithReceiptSink 创建共享显式回执 sink 的 stdio MCP server。
+func newServerWithReceiptSink(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Runtime, loggerGate *sidecarFileLoggerGate, receiptSink *lspToolReceiptSink) (*common.Server, error) {
+	if stdout == nil {
+		return nil, errors.New("mcp-lsp: stdout is nil; program assembly order is broken")
+	}
 	if loggerGate == nil {
 		return nil, errors.New("mcp-lsp file logger gate is required")
+	}
+	if receiptSink == nil {
+		return nil, errors.New("mcp-lsp signed receipt sink is required")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
 	// ToolErrorClassifier 是共享传输契约：它只识别显式 typed Windows 错误，
@@ -146,6 +171,7 @@ func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Run
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
 		defs:        toolDefinitions(handlers),
 		ensureReady: loggerGate.Ensure,
+		receiptSink: receiptSink,
 	}, common.WithLoggerRuntime(logRuntime), common.WithToolCallResultPolicy(lspToolCallResultPolicy()), common.WithToolErrorClassifier(tools.ToolErrorClassifier)), nil
 }
 
@@ -269,21 +295,6 @@ func runtimeSemanticLSPServerBinaries() ([]string, error) {
 		binaries = append(binaries, binary)
 	}
 	return binaries, nil
-}
-
-// CallTool 调用当前 peer 暴露的工具，先补全工作区作用域后分发到具体处理器。
-func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
-	if p.ensureReady != nil {
-		if err := p.ensureReady(); err != nil {
-			return nil, err
-		}
-	}
-	var err error
-	ctx, err = withRuntimeWorkspaceScopeFallback(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return handleToolCall(ctx, p.defs, name, args)
 }
 
 // withRuntimeWorkspaceScopeFallback 将 sidecar 配置的运行时 roots 合并进工具作用域。
@@ -750,10 +761,10 @@ func validateToolCallArguments(def toolDefinition, args json.RawMessage) error {
 		return common.NewCodedToolError("invalid_params", fmt.Errorf("arguments are not valid JSON: %w", err), false, "Pass a JSON object matching the tool input schema.")
 	}
 	if unknown := firstUnknownManifestField(def.Manifest.Schema, value); unknown != "" {
-		return common.NewCodedToolError("invalid_params", fmt.Errorf("unknown field %q", unknown), false, "Remove fields not declared by the tool input schema.")
+		return stableToolSchemaPreflightError(def, value, fmt.Errorf("unknown field %q", unknown))
 	}
 	if err := validator.Validate(value); err != nil {
-		return common.NewCodedToolError("invalid_params", fmt.Errorf("tool %q arguments do not match its input schema: %w", def.Manifest.Name, err), false, "Fix the arguments to match the advertised tool schema.")
+		return stableToolSchemaPreflightError(def, value, fmt.Errorf("tool %q arguments do not match its input schema: %w", def.Manifest.Name, err))
 	}
 	return nil
 }

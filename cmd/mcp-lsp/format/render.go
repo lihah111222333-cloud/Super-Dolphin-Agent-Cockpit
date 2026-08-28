@@ -77,6 +77,25 @@ func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 			lines = append(lines, lineprotocol.FieldsRecord("ROW", fields...))
 		}
 	}
+	if len(result.SampledFiles) > 0 {
+		sampled := append([]string(nil), result.SampledFiles...)
+		sort.Strings(sampled)
+		lines = append(lines, lineprotocol.FieldsRecord("ATTR",
+			lineprotocol.Field{Key: "sampled_files", Value: strings.Join(sampled, ",")},
+		))
+	}
+	if result.Continuation != nil {
+		nextArgs, err := json.Marshal(result.Continuation.NextArgs)
+		if err != nil {
+			return "ERROR code=continuation_encode_failed retryable=0"
+		}
+		lines = append(lines, lineprotocol.FieldsRecord("CONTINUATION",
+			lineprotocol.Field{Key: "token", Value: result.Continuation.Token},
+			lineprotocol.Field{Key: "reason", Value: result.Continuation.Reason},
+			lineprotocol.Field{Key: "next_args", Value: string(nextArgs)},
+			lineprotocol.Field{Key: "truncated", Value: "true"},
+		))
+	}
 	if hint := strings.TrimSpace(result.Hint); hint != "" {
 		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
 	}
@@ -117,6 +136,7 @@ func compactListUnit[T any]() string {
 	}
 }
 
+// compactListRecord 将通用紧凑列表项转换为稳定的 ROW 行协议记录。
 func compactListRecord(item any) string {
 	value := reflect.ValueOf(item)
 	for value.IsValid() && value.Kind() == reflect.Pointer {

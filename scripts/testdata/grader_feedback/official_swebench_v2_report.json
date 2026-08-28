@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "instance_id": "astropy__astropy-13398",
+  "resolved_ids": [],
+  "unresolved_ids": ["astropy__astropy-13398"],
+  "error_ids": [],
+  "completed_ids": ["astropy__astropy-13398"],
+  "source_artifact": "candidate.patch",
+  "source_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

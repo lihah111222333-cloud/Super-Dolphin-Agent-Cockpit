@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"redacted-thread"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 5/5 (request timed out)"}
+{"type":"item.completed","item":{"type":"error","message":"Falling back from WebSockets to HTTPS transport. request timed out"}}
+{"type":"turn.failed","error":{"message":"stream disconnected before completion: failed to lookup address information: Try again"}}

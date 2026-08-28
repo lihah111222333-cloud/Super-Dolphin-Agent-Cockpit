@@ -1,38 +1,58 @@
-# LSP 高级工具链使用指南（子 Agent 必读）
+# With-LSP 语义工作流（仅三个工具同时可用时注入）
 
-> 当前契约：`grep`、`file`、`structure`、`inspect`、`xref`、`patch_edit`、`completion` + `exec_command`。
-> 每个任务至少组合 4 种 LSP 工具；不要只用 `grep + file`。
-> `exec_command` 只用于构建、测试、脚本和必要 shell，不替代 LSP 导航、读取、诊断和编辑。
+**Mandatory With-LSP gate / With-LSP 强制门禁:** 只有 `structure`、`xref`、`diagnostics` 全部暴露时注入本段；No-LSP 或工具不完整时零注入 LSP 名称、schema、示例和 workflow。
 
----
+工具契约：
 
-## 一、5 个组合技
+- `structure` 定位 AST/document symbol：`{"action":"workspace_symbol","query":"Name","workspace_language":"python"}` 或 `{"action":"document_symbol","file_path":"path.py"}`。
+- `xref` 查询真实引用/调用/类型关系：`{"action":"references","pos":"path:line:column"}`；`xref.pos` 必须逐字来自当前 `structure` 返回，不得猜测。
+- `diagnostics` 检查变更生产文件；`OK` 只表示请求成功。逐条审阅 `ROW` 的 `Error`、`Warning`、`Information`、`Hint`。
 
-- A：AST 搜索 -> 精确读取：`grep(ast_search)` -> 用 `func_start/func_end` 调 `file(read_file)`。
-- B：符号定位 -> 跳转定义 -> 读实现：`structure(workspace_symbol)` -> `inspect(definition)` -> `file(read_file)`。
-- C：引用分析 -> 调用层级 -> 影响面：`xref(references)` -> `xref(call_hierarchy, incoming)` -> `xref(call_hierarchy, outgoing)`。
-- D：接口 -> 实现 -> 引用：`inspect(definition)` -> `inspect(implementation)` -> `xref(references)`。
-- E：文件大纲对比：`structure(document_symbol, file_path="v3/file.go")` -> `structure(document_symbol, file_path="v2/file.go")`。
+LSP 是可选语义能力，不是调用配额。工具可用但任务无需调用时允许零调用；不得为了生成 receipt 而调用。`diagnostics` 用于提高修改质量，但不能替代目标测试或官方 grader。
 
-## 二、强制工作流
+## 任务边界、语义定位与触发矩阵
 
-审查类：`grep` 定位 -> `inspect` 理解 -> `xref` 影响面 -> `file(read_file)` 精读 -> 输出判定。
+| 信号 | 动作 | 边界 |
+| --- | --- | --- |
+| 单生产文件、局部符号、无共享/导出契约且无跨文件失败 | 原生读取、修改和定向测试；可跳过 `structure`/`xref` | 不为凑调用次数使用语义工具 |
+| 多生产文件，但定义位置和完整消费者集合均已明确 | 直接修改，随后一次逐文件差量 `diagnostics` | 文件数量本身不触发语义探索 |
+| 定义位置未知或有歧义 | 只调用一次窄范围 `structure`，定位后用原生工具精读 | 不因多文件自动调用 `xref` |
+| imported symbol、共享基类、注册器、dispatcher、parser、transform graph 或公共 helper 的消费者/影响面未知 | `structure` → 当前真实位置 → 一次 `xref(references)` | 只追踪未知的消费边界 |
+| 跨文件失败、重命名、重名符号或无法解释的调用方失败 | 重新 `structure` 和 `xref` | 失败后改变假设并停止扩散 |
 
-修复类：`grep` 定位 -> `xref` 影响面 -> `file(read_file)` 读取 -> `patch_edit` 修改 -> `file(diagnostics)` 检查 -> `exec_command` 验证。
+## 差量验证
 
-## 三、最新契约要点
+从 `git diff -U0` 的新文件侧 hunk 取得 1-based 行号；每个文件独立映射：
 
-- `pos` 使用 `file:line:column`；`line/column` 都是 1-based。
-- `file(read_file, pos=<file>:<line>)` 默认读函数窗口；固定行窗口加 `scope=lines`。
-- 拿到 `func_start/func_end` 后直接读：`file(action=read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)`。
-- `structure(workspace_symbol)` 必须带 `query`；`language` 与 `file_path` 二选一。
-- 所有 LSP 工具都支持 `work_dir`，但必须在可信 workspace roots 内。
-- `max_results` 只裁剪返回结果；超时要收窄路径、查询或语言。
+```json
+{
+  "file_paths": ["internal/pkg/collector.go", "internal/pkg/admin.go"],
+  "diff_filter": {
+    "mode": "changed_lines",
+    "changed_lines": {
+      "internal/pkg/collector.go": [42, 43, 44],
+      "internal/pkg/admin.go": [18, 19]
+    }
+  }
+}
+```
 
-## 四、禁止
+禁止多个文件共享行号、使用旧文件行号、漏映射或退回未过滤全文件请求；每个变更生产文件必须覆盖，generated 文件需覆盖或明确 `diagnostics_unsupported` 豁免。changed-line 问题、存量问题和环境/工具链问题必须分别说明，未覆盖不能结束。
 
-1. 不要只用 `grep + file` 两个工具。
-2. 不要用 `exec_command` 执行可由 LSP 完成的 `grep/cat/sed/find`。
-3. 不要不做 `xref` 影响面分析就改共享代码。
-4. 不要不跑 `file(diagnostics)` 就说类型/编译层面干净。
-5. 不要把 diagnostics 当测试；运行时行为必须用 `exec_command` 跑对应测试。
+## 失败分类与 compact round-state
+
+`MODEL_TEST_FAILURE` 才进入下一质量轮；`PATCH_APPLY_FAILURE`、`TIMEOUT`、`INFRASTRUCTURE_ERROR` 留在当前质量轮做有界重试；`FEEDBACK_UNAVAILABLE` 或 `UNRESOLVED` 终止为 unverified。`PASSED` 由 runner 权威结果确认。多轮语义失败必须走失败恢复；相同 patch/hash、无 `file_change` 或 contract failure 属于 no-progress：不重复 patch、已通过测试或 grader，先改变假设再定位。
+
+多轮只传以下字段，禁止粘贴 transcript/full log：
+
+```json
+{"round":2,"patch_hash":"sha256:...","latest_failure":"...","unresolved_evidence":["..."],"cache_key":"...","previous_hypothesis":"..."}
+```
+
+退出前输出 self-check：
+
+```json
+{"lsp_self_check":{"changed_production_files":["..."],"structure_evidence":[{"tool":"structure","pos":"path:line:column"}],"xref_evidence":[{"tool":"xref","action":"references","pos":"path:line:column"}],"diagnostics_coverage":["path.py"],"exemptions":[]}}
+```
+
+`runner` 是最终硬守卫；prompt 或 diagnostics 不能替代权威验收。

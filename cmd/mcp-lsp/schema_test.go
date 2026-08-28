@@ -19,6 +19,7 @@ func TestPublicToolSchemasAcceptCanonicalArguments(t *testing.T) {
 		{name: "xref call hierarchy", toolSchema: newLSPXrefSchema(), arguments: map[string]any{"action": "call_hierarchy", "pos": "main.go:1:1", "direction": "both"}},
 		{name: "diagnostics single", toolSchema: newLSPDiagnosticsSchema(), arguments: map[string]any{"file_path": "main.go"}},
 		{name: "diagnostics batch", toolSchema: newLSPDiagnosticsSchema(), arguments: map[string]any{"file_paths": []any{"main.go", "other.go"}, "language_id": "go"}},
+		{name: "diagnostics explicit diff filter", toolSchema: newLSPDiagnosticsSchema(), arguments: map[string]any{"file_paths": []any{"main.go", "other.go"}, "diff_filter": map[string]any{"mode": "changed_lines", "changed_lines": map[string]any{"main.go": []any{1}, "other.go": []any{2}}}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -56,7 +57,7 @@ func TestDiagnosticsSchemaContainsOnlySemanticInputs(t *testing.T) {
 	if !ok {
 		t.Fatalf("diagnostics properties type = %T", newLSPDiagnosticsSchema()["properties"])
 	}
-	for _, want := range []string{"file_path", "file_paths", "language_id", "work_dir"} {
+	for _, want := range []string{"file_path", "file_paths", "language_id", "changed_lines", "diff_filter", "work_dir"} {
 		if _, ok := properties[want]; !ok {
 			t.Fatalf("diagnostics schema missing %q", want)
 		}

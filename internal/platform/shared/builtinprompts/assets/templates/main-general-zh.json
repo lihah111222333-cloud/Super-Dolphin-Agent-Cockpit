@@ -9,7 +9,7 @@
   "priority": 160,
   "match_when": {},
   "when_to_use": "",
-  "description": "Super-Dolphin 默认系统提示词中文版。由 builtin registry 管理，基于 provider-neutral main/general-zh 生产 seed，包含工程约束、工具偏好、LSP 工具链和 recall packs。",
+  "description": "Super-Dolphin 默认系统提示词中文版。由 builtin registry 管理，基于 provider-neutral main/general-zh 生产 seed，包含工程约束、原生工具偏好和按能力条件注入的 LSP addendum 与 recall packs。",
   "tags": ["builtin:system", "main", "default", "zh"],
   "sections": [
     {
@@ -60,8 +60,16 @@
       "region": "static",
       "ordinal": 55,
       "trigger_type": "always",
-      "enable_when": {"enabled_tools_has": ["grep", "structure", "inspect", "xref", "file", "patch_edit", "completion"]},
+      "enable_when": {"enabled_tools_all": ["structure", "xref", "diagnostics"]},
       "body_file": "sections/main-general-zh/55-lsp-basics.md"
+    },
+    {
+      "section_key": "round_state",
+      "region": "dynamic",
+      "ordinal": 56,
+      "trigger_type": "always",
+      "enable_when": {"sessionFlags.round_state": true},
+      "body_file": "sections/main-general-zh/56-round-state.md"
     },
     {
       "section_key": "style",
@@ -83,8 +91,8 @@
       "ordinal": 80,
       "trigger_type": "always",
       "enable_when": {
-        "tags_has": ["refactor", "rename", "trace", "call hierarchy", "type hierarchy", "find references", "implementations", "bug", "重构", "重写", "改名", "重命名", "调用链", "被谁调用", "谁调用", "调用关系", "哪里调用", "类型层次", "继承体系", "接口的实现", "有几个实现", "影响面", "影响哪", "会不会影响", "牵一发", "排查", "追查", "追踪", "调试", "根因", "定位问题", "找引用", "查引用", "哪里用到", "哪里引用", "找用法", "用法", "报错", "编译错", "编译失败", "修 bug", "修复"],
-        "enabled_tools_has": ["grep", "structure", "inspect", "xref", "file", "patch_edit", "completion"]
+        "tags_has": ["refactor", "rename", "trace", "call hierarchy", "type hierarchy", "find references", "implementations", "bug", "multiple files", "multi-file", "cross-file", "shared base", "base class", "registry", "dispatcher", "parser", "transform graph", "public helper", "重构", "重写", "改名", "重命名", "调用链", "被谁调用", "谁调用", "调用关系", "哪里调用", "类型层次", "继承体系", "接口的实现", "有几个实现", "影响面", "影响哪", "会不会影响", "牵一发", "多生产文件", "多文件", "跨文件", "共享基类", "基类", "注册器", "注册表", "分派器", "调度器", "解析器", "转换图", "公共 helper", "公共辅助", "排查", "追查", "追踪", "调试", "根因", "定位问题", "找引用", "查引用", "哪里用到", "哪里引用", "找用法", "用法", "报错", "编译错", "编译失败", "跨文件失败", "修 bug", "修复"],
+        "enabled_tools_all": ["structure", "xref", "diagnostics"]
       },
       "body_file": "sections/main-general-zh/80-lsp-advanced.md"
     },
@@ -94,6 +102,7 @@
       "ordinal": 0,
       "trigger_type": "recall",
       "recall_topic": "lsp-basics",
+      "enable_when": {"enabled_tools_all": ["structure", "xref", "diagnostics"]},
       "body_file": "sections/main-general-zh/90-recall-lsp-basics.md"
     },
     {
@@ -102,6 +111,7 @@
       "ordinal": 0,
       "trigger_type": "recall",
       "recall_topic": "lsp-advanced",
+      "enable_when": {"enabled_tools_all": ["structure", "xref", "diagnostics"]},
       "body_file": "sections/main-general-zh/91-recall-lsp-advanced.md"
     },
     {

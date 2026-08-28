@@ -68,6 +68,73 @@ func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestStrictSchemaErrorEnvelopeExposesUnknownAndAllowedFields(t *testing.T) {
+	type input struct {
+		Action   string `json:"action"`
+		FilePath string `json:"file_path"`
+	}
+	envelope := strictSchemaErrorEnvelope(t, input{})
+	assertStrictSchemaEnvelopeMeta(t, envelope)
+	assertStrictSchemaEnvelopeText(t, envelope)
+	assertStrictSchemaEnvelopeJSON(t, envelope)
+}
+
+func strictSchemaErrorEnvelope[T any](t *testing.T, _ T) common.ToolErrorEnvelope {
+	t.Helper()
+	_, err := decodeToolParams[T](json.RawMessage(`{"z_bad":true,"a_bad":true}`), decodeStrict)
+	if err == nil {
+		t.Fatal("decodeToolParams() error = nil, want strict schema error")
+	}
+	return newToolErrorEnvelope("structure", "python", err)
+}
+
+func assertStrictSchemaEnvelopeMeta(t *testing.T, envelope common.ToolErrorEnvelope) {
+	t.Helper()
+	if envelope.Code != "schema_invalid" || envelope.Retryable {
+		t.Fatalf("schema envelope = %+v, want non-retryable schema_invalid", envelope)
+	}
+	unknown, ok := envelope.Meta["unknown_fields"].([]string)
+	if !ok || !slices.Equal(unknown, []string{"a_bad", "z_bad"}) {
+		t.Fatalf("unknown_fields = %#v, want sorted unknown fields", envelope.Meta["unknown_fields"])
+	}
+	allowed, ok := envelope.Meta["allowed_fields"].([]string)
+	if !ok || !slices.Equal(allowed, []string{"action", "file_path"}) {
+		t.Fatalf("allowed_fields = %#v, want sorted allowed fields", envelope.Meta["allowed_fields"])
+	}
+	if retryable, ok := envelope.Meta["retryable"].(bool); !ok || retryable {
+		t.Fatalf("meta retryable = %#v, want false", envelope.Meta["retryable"])
+	}
+}
+
+func assertStrictSchemaEnvelopeText(t *testing.T, envelope common.ToolErrorEnvelope) {
+	t.Helper()
+	text, handled := FormatToPlainText(envelope)
+	if !handled {
+		t.Fatal("FormatToPlainText() handled = false, want schema envelope")
+	}
+	for _, want := range []string{
+		"ERROR code=schema_invalid retryable=0",
+		"unknown_fields=a_bad,z_bad",
+		"allowed_fields=action,file_path",
+		"retryable=false",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("schema envelope text = %q, want %q", text, want)
+		}
+	}
+}
+
+func assertStrictSchemaEnvelopeJSON(t *testing.T, envelope common.ToolErrorEnvelope) {
+	t.Helper()
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatalf("marshal schema envelope: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"unknown_fields"`) || !strings.Contains(string(encoded), `"allowed_fields"`) {
+		t.Fatalf("encoded schema envelope = %s, want machine-readable field metadata", encoded)
+	}
+}
+
 // TestWrapperRejectsEmptyWorkDir ensures wrapper-owned work_dir cannot be silently stripped when empty.
 func TestWrapperRejectsEmptyWorkDir(t *testing.T) {
 	root := t.TempDir()

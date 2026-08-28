@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/format"
@@ -100,17 +101,43 @@ func formatToolErrorEnvelope(result any) (string, bool) {
 }
 
 func appendToolErrorAttribution(lines []string, meta map[string]any) []string {
-	fields := make([]lineprotocol.Field, 0, 2)
+	fields := make([]lineprotocol.Field, 0, 5)
 	if tool, ok := meta["tool"].(string); ok && strings.TrimSpace(tool) != "" {
 		fields = append(fields, lineprotocol.Field{Key: "tool", Value: strings.TrimSpace(tool)})
 	}
 	if languageID, ok := meta["language_id"].(string); ok && strings.TrimSpace(languageID) != "" {
 		fields = append(fields, lineprotocol.Field{Key: "language_id", Value: strings.TrimSpace(languageID)})
 	}
+	for _, key := range []string{"unknown_fields", "allowed_fields"} {
+		if value := schemaFieldList(meta[key]); value != "" {
+			fields = append(fields, lineprotocol.Field{Key: key, Value: value})
+		}
+	}
+	if retryable, ok := meta["retryable"].(bool); ok {
+		fields = append(fields, lineprotocol.Field{Key: "retryable", Value: strconv.FormatBool(retryable)})
+	}
 	if len(fields) > 0 {
 		lines = append(lines, lineprotocol.FieldsRecord("ATTR", fields...))
 	}
 	return lines
+}
+
+// schemaFieldList 把错误 envelope 中的 schema 字段数组渲染成稳定逗号分隔值。
+func schemaFieldList(value any) string {
+	switch fields := value.(type) {
+	case []string:
+		return strings.Join(fields, ",")
+	case []any:
+		values := make([]string, 0, len(fields))
+		for _, field := range fields {
+			if text, ok := field.(string); ok && strings.TrimSpace(text) != "" {
+				values = append(values, strings.TrimSpace(text))
+			}
+		}
+		return strings.Join(values, ",")
+	default:
+		return ""
+	}
 }
 
 // formatBudgetOverflow 将 result_too_large 信封转成人类可读提示。

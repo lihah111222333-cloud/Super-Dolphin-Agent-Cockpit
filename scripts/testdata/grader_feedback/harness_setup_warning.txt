@@ -1,0 +1,7 @@
+============================= test session starts =============================
+collected 67 items
+ERROR at setup of TestHeaderFunctions.test_card_from_bytes
+E   pytest.PytestRemovedIn8Warning: Support for nose tests is deprecated and will be removed in a future release.
+E   astropy/io/fits/tests/test_header.py::TestHeaderFunctions::test_card_from_bytes is using nose-specific method: setup(self)
+=========================== short test summary info ============================
+======================== 4 passed, 148 errors in 22.50s ========================

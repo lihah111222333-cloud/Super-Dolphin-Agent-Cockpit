@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 )
 
 const maxReactiveBootstrap = 30
@@ -24,88 +21,32 @@ const typeScriptDeprecatedDiagnosticCode = "6385"
 const diagnosticsStartupRetryCount = 5
 const diagnosticsStartupRetryBaseDelay = 300 * time.Millisecond
 
-// diagnosticsInput 是一级 diagnostics 工具的唯一外部入参。
-// 文件读取和 action 分发已经从 MCP-LSP 工具面删除，内部诊断流程只接收目标路径。
-type diagnosticsInput struct {
-	FilePath     string   `json:"file_path,omitempty"`
-	FilePaths    []string `json:"file_paths,omitempty"`
-	LanguageID   string   `json:"language_id,omitempty"`
-	ChangedLines []int    `json:"changed_lines,omitempty"`
-	Lines        []int    `json:"lines,omitempty"`
-}
-
 // NewDiagnosticsHandler 创建一级 diagnostics 工具处理器。
 // 诊断启动、恢复和批量收敛各有自己的 deadline，因此不再共享工具层总 deadline。
 func NewDiagnosticsHandler(cfg Config) Handler {
 	handler := handlerBase{
-		root:     resolveRoot(cfg.WorkspaceRoot),
-		registry: cfg.Registry,
+		root:             resolveRoot(cfg.WorkspaceRoot),
+		registry:         cfg.Registry,
+		diagnosticsCache: newDiagnosticsResultCache(),
 	}
-	return newManagerToolWithoutOuterTimeout(
+	toolHandler := newManagerToolWithoutOuterTimeout(
 		"diagnostics",
 		middleware.TierNormal,
 		cfg.Registry,
 		decodeStrict,
 		func(ctx context.Context, _ lspmanager.Registry, input diagnosticsInput) (any, error) {
-			if err := validateDiagnosticsInput(input); err != nil {
+			filterRequest, err := validateDiagnosticsInput(input)
+			if err != nil {
 				return nil, err
 			}
-			changedLines := input.ChangedLines
-			if len(changedLines) == 0 && len(input.Lines) > 0 {
-				changedLines = input.Lines
-			}
 			return handler.handleDiagnostics(ctx, fileToolInput{
-				FilePath:     input.FilePath,
-				FilePaths:    input.FilePaths,
-				LanguageID:   input.LanguageID,
-				ChangedLines: changedLines,
-			})
+				FilePath:   input.FilePath,
+				FilePaths:  input.FilePaths,
+				LanguageID: input.LanguageID,
+			}, filterRequest)
 		},
 	)
-}
-
-func validateDiagnosticsInput(input diagnosticsInput) error {
-	hasSingle := strings.TrimSpace(input.FilePath) != ""
-	hasBatch := len(input.FilePaths) > 0
-	if hasSingle == hasBatch {
-		return errors.New("diagnostics requires exactly one of file_path or file_paths")
-	}
-	if len(collectDiagnosticTargetPaths(fileToolInput{FilePath: input.FilePath, FilePaths: input.FilePaths})) == 0 {
-		return errors.New("diagnostics requires at least one non-empty file path")
-	}
-	return nil
-}
-
-type diagnosticsTable struct {
-	File string   `json:"file"`
-	Cols []string `json:"cols"`
-	Rows [][]any  `json:"rows"`
-}
-
-type diagnosticsMeta struct {
-	Message string `json:"message,omitempty"`
-}
-
-type diagnosticsResponse struct {
-	Success   bool               `json:"success"`
-	Data      []diagnosticsTable `json:"data"`
-	Total     int                `json:"total"`
-	Showing   int                `json:"showing"`
-	Truncated bool               `json:"truncated,omitempty"`
-	Hint      string             `json:"hint,omitempty"`
-	Meta      diagnosticsMeta    `json:"meta"`
-}
-
-type diagnosticsWaitResult struct {
-	recovered bool
-	partial   bool
-	message   string
-}
-
-type diagnosticTarget struct {
-	URI         string
-	AbsPath     string
-	DisplayPath string
+	return deduplicateSemanticToolHandler("diagnostics", cfg.Registry, toolHandler)
 }
 
 // fetchDiagnosticsWithRetry 获取诊断并在启动未就绪时执行一次恢复流程。
@@ -308,7 +249,7 @@ func (h handlerBase) waitDiagnosticsTargetsIndividually(ctx context.Context, uri
 
 // handleDiagnostics 执行一级 diagnostics 工具的内部诊断流程。
 // 它先把输入路径限制在可信 workspace roots 内，再返回按文件分组的诊断表。
-func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
+func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput, filterRequest *diagnosticsFilterRequest) (any, error) {
 	if h.registry == nil {
 		return nil, errManagerUnavailable
 	}
@@ -317,13 +258,22 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		return nil, err
 	}
 	uris := diagnosticTargetURIs(targets)
-
-	items, message, err := h.fetchDiagnosticsBySQLDialect(ctx, input, targets)
+	filterSpec, err := resolveDiagnosticsFilter(ctx, targets, filterRequest)
 	if err != nil {
-		return nil, rustDetachedWorkspaceError(uris, "diagnostics", err)
+		return nil, err
 	}
-	tables := buildDiagnosticsTables(items, displayPaths, input.ChangedLines)
+
+	items, message, err := h.loadDiagnosticsResult(ctx, input, targets, filterSpec, uris)
+	if err != nil {
+		return nil, err
+	}
+	tables, filterMeta, err := buildDiagnosticsTables(items, displayPaths, filterSpec)
+	if err != nil {
+		return nil, err
+	}
 	total := countDiagnosticRows(tables)
+	hint := diagnosticsResponseHintForResult(total, filterMeta)
+
 	if len(tables) == 0 {
 		baseMessage := diagnosticsCheckedScopeMessage(input, targets)
 		return diagnosticsResponse{
@@ -331,7 +281,11 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 			Data:    []diagnosticsTable{},
 			Total:   0,
 			Showing: 0,
-			Meta:    diagnosticsMeta{Message: rustDetachedWorkspaceMessageForURIs(uris, "diagnostics", appendMessage(baseMessage, message))},
+			Hint:    hint,
+			Meta: diagnosticsMeta{
+				Message:    rustDetachedWorkspaceMessageForURIs(uris, "diagnostics", appendMessage(baseMessage, message)),
+				DiffFilter: filterMeta,
+			},
 		}, nil
 	}
 	return diagnosticsResponse{
@@ -339,9 +293,101 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		Data:    tables,
 		Total:   total,
 		Showing: total,
-		Hint:    "next: focus on diagnostics intersecting active diff/patch hunks; inspect reported locations with native file tools, apply a native apply_patch edit, then rerun diagnostics",
-		Meta:    diagnosticsMeta{Message: message},
+		Hint:    hint,
+		Meta: diagnosticsMeta{
+			Message:    message,
+			DiffFilter: filterMeta,
+		},
 	}, nil
+}
+
+// loadDiagnosticsResult 统一处理 diagnostics 的缓存命中、失效和真实抓取。
+func (h handlerBase) loadDiagnosticsResult(ctx context.Context, input fileToolInput, targets []diagnosticTarget, filter *diagnosticsFilterSpec, uris []string) ([]protocol.PublishDiagnosticsParams, string, error) {
+	if h.diagnosticsCache == nil || len(targets) == 0 {
+		return h.fetchDiagnosticsUncached(ctx, input, targets, uris)
+	}
+	return h.fetchDiagnosticsCached(ctx, input, targets, filter, uris)
+}
+
+func (h handlerBase) fetchDiagnosticsUncached(ctx context.Context, input fileToolInput, targets []diagnosticTarget, uris []string) ([]protocol.PublishDiagnosticsParams, string, error) {
+	items, message, err := h.fetchDiagnosticsBySQLDialect(ctx, input, targets)
+	if err != nil {
+		return nil, "", rustDetachedWorkspaceError(uris, "diagnostics", err)
+	}
+	return items, message, nil
+}
+
+func (h handlerBase) fetchDiagnosticsCached(ctx context.Context, input fileToolInput, targets []diagnosticTarget, filter *diagnosticsFilterSpec, uris []string) ([]protocol.PublishDiagnosticsParams, string, error) {
+	cacheKey, err := h.buildDiagnosticsCacheKey(ctx, input, targets, filter)
+	if err != nil {
+		return nil, "", err
+	}
+	if cached, ok := h.diagnosticsCache.get(cacheKey); ok {
+		return cached.Items, cached.Message, nil
+	}
+	items, message, err := h.fetchDiagnosticsUncached(ctx, input, targets, uris)
+	if err != nil {
+		return nil, "", err
+	}
+	finalKey, err := h.buildDiagnosticsCacheKey(ctx, input, targets, filter)
+	if err != nil {
+		return nil, "", err
+	}
+	h.diagnosticsCache.put(finalKey, diagnosticsCacheValue{Items: items, Message: message})
+	return items, message, nil
+}
+
+func (h handlerBase) buildDiagnosticsCacheKey(
+	ctx context.Context,
+	input fileToolInput,
+	targets []diagnosticTarget,
+	filter *diagnosticsFilterSpec,
+) (DiagnosticsCacheKey, error) {
+	digest, err := diagnosticsTargetFileDigest(targets)
+	if err != nil {
+		return DiagnosticsCacheKey{}, err
+	}
+	return BuildDiagnosticsCacheKey(
+		diagnosticsCacheArguments(ctx, input, targets, filter),
+		digest,
+		diagnosticsServerGeneration(h.registry),
+	)
+}
+
+// diagnosticsResponseHintForResult 按返回诊断数量和过滤状态生成可执行且不误报 clean 的提示。
+// 空结果只表示本次调用没有返回诊断，不能继续给出针对诊断行的修复动作。
+func diagnosticsResponseHintForResult(total int, filterMeta *diagnosticsFilterMeta) string {
+	if total == 0 {
+		if filterMeta != nil && filterMeta.Filtered > 0 {
+			return fmt.Sprintf(
+				"no diagnostics reported for returned changed lines; FILTERED records audit %d diagnostics outside those lines; filtered is not clean; continue focused tests",
+				filterMeta.Filtered,
+			)
+		}
+		return "no diagnostics reported; continue focused tests"
+	}
+
+	const nextStep = "next: focus on diagnostics intersecting active diff/patch hunks; inspect reported locations with native file tools, apply a native apply_patch edit, then rerun diagnostics"
+	const triageStep = "process changed-line findings; classify findings as pre-existing or environment errors; rerun focused tests; diagnostics are not clean"
+	if filterMeta == nil {
+		return nextStep + "; " + triageStep
+	}
+	if filterMeta.Filtered == 0 {
+		return fmt.Sprintf(
+			"%s; returned rows are changed-line findings; %s; FILTERED records audit mode=%s filtered=0 (all diagnostics retained)",
+			nextStep,
+			triageStep,
+			filterMeta.Mode,
+		)
+	}
+	return fmt.Sprintf(
+		"%s; returned rows are changed-line findings; %s; FILTERED records audit %d non-Error diagnostics outside changed lines (mode=%s filtered=%d); filtered is not clean",
+		nextStep,
+		triageStep,
+		filterMeta.Filtered,
+		filterMeta.Mode,
+		filterMeta.Filtered,
+	)
 }
 
 // diagnosticsCheckedScopeMessage 描述空诊断实际检查过的文件范围，避免被误解为全仓检查。
@@ -618,202 +664,4 @@ func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int,
 		return count, errors.Join(errs...)
 	}
 	return count, nil
-}
-
-func diagnosticDisplayPath(raw string, fallback string) string {
-	trimmed := strings.TrimSpace(raw)
-	if filepath.IsAbs(trimmed) {
-		absolute, err := filepath.Abs(filepath.Clean(trimmed))
-		if err == nil {
-			return absolute
-		}
-		return filepath.Clean(trimmed)
-	}
-	return fallback
-}
-
-func diagnosticMessageSummary(message string) string {
-	normalized := strings.ReplaceAll(strings.TrimSpace(message), "\r\n", "\n")
-	firstLine, _, _ := strings.Cut(normalized, "\n")
-	firstLine = strings.TrimSpace(firstLine)
-	runes := []rune(firstLine)
-	if len(runes) <= maxDiagnosticSummaryRunes {
-		return firstLine
-	}
-	return string(runes[:maxDiagnosticSummaryRunes]) + "…"
-}
-
-// buildDiagnosticsTables 将 LSP 诊断整理为工具响应表。
-// 同一文件内相同位置/严重级别/消息的重复诊断会去重，消息会裁剪到摘要长度。
-// 过滤环境缺失（site-packages）引发的 reportMissingImports / reportMissingModuleSource 伪报错（除非该行在 changed_lines 范围内）。
-func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPaths map[string]string, changedLines []int) []diagnosticsTable {
-	if len(items) == 0 {
-		return nil
-	}
-	changedSet := make(map[int]struct{}, len(changedLines))
-	for _, line := range changedLines {
-		if line > 0 {
-			changedSet[line] = struct{}{}
-		}
-	}
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].URI < items[j].URI
-	})
-	tables := make([]diagnosticsTable, 0, len(items))
-	for _, item := range items {
-		if len(item.Diagnostics) == 0 {
-			continue
-		}
-		seen := make(map[string]struct{}, len(item.Diagnostics))
-		rows := make([][]any, 0, len(item.Diagnostics))
-		for _, diag := range item.Diagnostics {
-			if isMissingImportDiagnostic(diag) {
-				oneBasedLine := format.FromLSP(diag.Range.Start.Line)
-				if _, isChanged := changedSet[oneBasedLine]; !isChanged {
-					continue
-				}
-			}
-			key := fmt.Sprintf("%d:%d:%d:%s:%s", diag.Range.Start.Line, diag.Range.Start.Character, diag.Severity, diag.Message, diag.Source)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			rows = append(rows, []any{
-				format.FromLSP(diag.Range.Start.Line),
-				format.FromLSP(diag.Range.Start.Character),
-				diagnosticSeverity(diag),
-				diagnosticMessageSummary(diag.Message),
-				diag.Source,
-				diagnosticCode(diag.Code),
-			})
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		file := format.URIToPath(item.URI)
-		if displayPath := strings.TrimSpace(displayPaths[item.URI]); displayPath != "" {
-			file = displayPath
-		}
-		tables = append(tables, diagnosticsTable{
-			File: file,
-			Cols: []string{"L", "C", "sev", "msg", "src", "code"},
-			Rows: rows,
-		})
-	}
-	return tables
-}
-
-// isMissingImportDiagnostic 判断诊断是否属于缺少 site-packages/模块导致的缺少导入伪报错。
-func isMissingImportDiagnostic(diag protocol.Diagnostic) bool {
-	code := strings.ToLower(diagnosticCode(diag.Code))
-	if code == "reportmissingimports" || code == "reportmissingmodulesource" {
-		return true
-	}
-	msg := diag.Message
-	if strings.Contains(msg, "reportMissingImports") || strings.Contains(msg, "reportMissingModuleSource") {
-		return true
-	}
-	if strings.Contains(msg, "could not be resolved") {
-		src := strings.ToLower(diag.Source)
-		if src == "pyright" || src == "pylance" || src == "" {
-			return true
-		}
-	}
-	return false
-}
-
-// diagnosticsMessageAfterFetch 在 partial 提示已被实际诊断覆盖时清空提示。
-// 如果仍有请求目标没有诊断行，则保留原提示帮助调用方判断缺口。
-func diagnosticsMessageAfterFetch(message string, uris []string, items []protocol.PublishDiagnosticsParams) string {
-	if !strings.Contains(message, "partial diagnostics") || len(uris) == 0 {
-		return message
-	}
-	withRows := make(map[string]struct{}, len(items))
-	for _, item := range items {
-		uri := strings.TrimSpace(item.URI)
-		if uri == "" || len(item.Diagnostics) == 0 {
-			continue
-		}
-		withRows[uri] = struct{}{}
-	}
-	if len(withRows) == 0 {
-		return message
-	}
-	for _, uri := range uris {
-		uri = strings.TrimSpace(uri)
-		if uri == "" {
-			continue
-		}
-		if _, ok := withRows[uri]; !ok {
-			return message
-		}
-	}
-	return ""
-}
-
-func countDiagnosticRows(tables []diagnosticsTable) int {
-	total := 0
-	for _, table := range tables {
-		total += len(table.Rows)
-	}
-	return total
-}
-
-func diagnosticCode(code any) string {
-	switch value := code.(type) {
-	case nil:
-		return ""
-	case string:
-		return value
-	default:
-		return fmt.Sprint(value)
-	}
-}
-
-func diagnosticSeverity(diag protocol.Diagnostic) string {
-	if diagnosticCode(diag.Code) == typeScriptDeprecatedDiagnosticCode {
-		return protocol.SeverityHint.String()
-	}
-	return diag.Severity.String()
-}
-
-// ToPlainText 按稳定行协议渲染 diagnostics producer，供 gate 和模型共用同一文本真值。
-func (r diagnosticsResponse) ToPlainText() string {
-	if !r.Success {
-		return "ERROR code=diagnostics_failed retryable=0\n" + lineprotocol.TextRecord("MESSAGE", "diagnostics retrieval failed")
-	}
-	lines := []string{lineprotocol.HeaderLine(r.Total, r.Showing, r.Truncated, "diagnostic")}
-	if message := strings.TrimSpace(r.Meta.Message); message != "" {
-		lines = append(lines, lineprotocol.TextRecord("MESSAGE", message))
-	}
-	for _, table := range r.Data {
-		for _, row := range table.Rows {
-			if fields := diagnosticTextFields(table.File, row); fields != nil {
-				lines = append(lines, lineprotocol.FieldsRecord("ROW", fields...))
-			}
-		}
-	}
-	if hint := strings.TrimSpace(r.Hint); hint != "" {
-		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func diagnosticTextFields(file string, row []any) []lineprotocol.Field {
-	if len(row) < 4 {
-		return nil
-	}
-	fields := []lineprotocol.Field{
-		{Key: "file", Value: file},
-		{Key: "line", Value: fmt.Sprint(numericRowValue(row[0]))},
-		{Key: "col", Value: fmt.Sprint(numericRowValue(row[1]))},
-		{Key: "severity", Value: fmt.Sprint(row[2])},
-		{Key: "message", Value: fmt.Sprint(row[3])},
-	}
-	for index, key := range []string{"source", "code"} {
-		if position := index + 4; position < len(row) && fmt.Sprint(row[position]) != "" {
-			fields = append(fields, lineprotocol.Field{Key: key, Value: fmt.Sprint(row[position])})
-		}
-	}
-	return fields
 }

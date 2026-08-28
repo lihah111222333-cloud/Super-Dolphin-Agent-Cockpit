@@ -1,6 +1,7 @@
 package builtinprompts
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ var mainGeneralZhSectionKeys = []string{
 	"actions",
 	"tool_preferences",
 	"lsp_basics",
+	"round_state",
 	"style",
 	"output_efficiency",
 	"lsp_advanced",
@@ -38,6 +40,7 @@ var mainGeneralZhSectionShapes = []sectionShape{
 	{key: "actions", region: "static", ordinal: 40, triggerType: "always"},
 	{key: "tool_preferences", region: "static", ordinal: 50, triggerType: "always"},
 	{key: "lsp_basics", region: "static", ordinal: 55, triggerType: "always"},
+	{key: "round_state", region: "dynamic", ordinal: 56, triggerType: "always"},
 	{key: "style", region: "static", ordinal: 60, triggerType: "always"},
 	{key: "output_efficiency", region: "static", ordinal: 70, triggerType: "always"},
 	{key: "lsp_advanced", region: "dynamic", ordinal: 80, triggerType: "always"},
@@ -135,13 +138,20 @@ func TestRegistryLoadsMainGeneralZhWithProductionParity(t *testing.T) {
 	require.Contains(t, body, "command_ref")
 
 	lspBasics := requireSection(t, sections, "lsp_basics")
-	require.Contains(t, string(lspBasics.EnableWhen), "enabled_tools_has")
-	require.NotContains(t, string(lspBasics.EnableWhen), "language")
+	require.JSONEq(t, `{"enabled_tools_all":["structure","xref","diagnostics"]}`, string(lspBasics.EnableWhen))
+	roundState := requireSection(t, sections, "round_state")
+	require.Equal(t, "dynamic", roundState.Region)
+	require.JSONEq(t, `{"sessionFlags.round_state":true}`, string(roundState.EnableWhen))
+	require.Contains(t, roundState.Body, "patch_hash")
+	require.Contains(t, roundState.Body, "previous_hypothesis")
 
 	lspAdvanced := requireSection(t, sections, "lsp_advanced")
-	require.Contains(t, string(lspAdvanced.EnableWhen), "enabled_tools_has")
+	require.Contains(t, string(lspAdvanced.EnableWhen), "enabled_tools_all")
 	require.Contains(t, string(lspAdvanced.EnableWhen), "tags_has")
 	require.NotContains(t, string(lspAdvanced.EnableWhen), "language")
+	for _, key := range []string{"recall_lsp_basics", "recall_lsp_advanced"} {
+		require.JSONEq(t, `{"enabled_tools_all":["structure","xref","diagnostics"]}`, string(requireSection(t, sections, key).EnableWhen))
+	}
 
 	worktreeHint := requireSection(t, sections, "worktree_hint")
 	require.JSONEq(t, `{"isWorktree": true}`, string(worktreeHint.EnableWhen))
@@ -261,7 +271,7 @@ func TestRegistryCorePromptsAvoidExternalIdentityToolAndHostLeaks(t *testing.T) 
 	}
 }
 
-func TestMainGeneralZhLSPSectionsUseLatestShortContract(t *testing.T) {
+func TestMainGeneralZhLSPSectionsUseWithLSPContract(t *testing.T) {
 	t.Parallel()
 
 	reg, err := NewDefaultRegistry()
@@ -270,12 +280,17 @@ func TestMainGeneralZhLSPSectionsUseLatestShortContract(t *testing.T) {
 	template, ok := reg.GetTemplate("main/general-zh")
 	require.True(t, ok)
 	sections := reg.SectionsByTemplateID(template.ID)
+	requireLSPSectionBodies(t, sections)
+	requireLSPContractText(t, sections)
+}
 
+func requireLSPSectionBodies(t *testing.T, sections []contract.BuiltinPromptSection) {
+	t.Helper()
 	lspBasics := sectionBodyByKey(sections, "lsp_basics")
 	recallLSPBasics := sectionBodyByKey(sections, "recall_lsp_basics")
 	lspAdvanced := sectionBodyByKey(sections, "lsp_advanced")
 	recallLSPAdvanced := sectionBodyByKey(sections, "recall_lsp_advanced")
-	require.Contains(t, string(requireSection(t, sections, "lsp_advanced").EnableWhen), "tags_has")
+	require.NotContains(t, sectionBodyByKey(sections, "tool_preferences"), "LSP")
 
 	lspBodies := map[string]string{
 		"lsp_basics":          lspBasics,
@@ -284,43 +299,125 @@ func TestMainGeneralZhLSPSectionsUseLatestShortContract(t *testing.T) {
 		"recall_lsp_advanced": recallLSPAdvanced,
 	}
 	for name, body := range lspBodies {
-		require.LessOrEqual(t, nonBlankLineCount(body), 42, name)
-		require.Contains(t, body, "当前契约", name)
-		require.Contains(t, body, "每个任务至少组合 4 种 LSP 工具", name)
-		require.Contains(t, body, "不要只用 `grep + file`", name)
-		require.Contains(t, body, "`grep`、`file`、`structure`、`inspect`、`xref`、`patch_edit`、`completion`", name)
-		require.Contains(t, body, "`grep(ast_search)`", name)
-		require.Contains(t, body, "`file(read_file)`", name)
-		require.Contains(t, body, "file(action=read_file, pos=<file>:<func_start>", name)
-		require.Contains(t, body, "`scope=lines`", name)
-		require.Contains(t, body, "`work_dir`", name)
-		require.Contains(t, body, "`max_results`", name)
-		require.Contains(t, body, "`exec_command`", name)
+		require.LessOrEqual(t, nonBlankLineCount(body), 40, name)
+		require.Contains(t, body, "structure", name)
+		require.Contains(t, body, "xref", name)
+		require.Contains(t, body, "diagnostics", name)
+		require.Contains(t, body, "真实", name)
+		require.Contains(t, body, "patch/hash", name)
 	}
+}
 
+func requireLSPContractText(t *testing.T, sections []contract.BuiltinPromptSection) {
+	t.Helper()
 	body := strings.Join([]string{
-		lspBasics,
-		lspAdvanced,
-		recallLSPBasics,
-		recallLSPAdvanced,
+		sectionBodyByKey(sections, "lsp_basics"),
+		sectionBodyByKey(sections, "lsp_advanced"),
+		sectionBodyByKey(sections, "recall_lsp_basics"),
+		sectionBodyByKey(sections, "recall_lsp_advanced"),
 	}, "\n")
 	for _, stale := range []string{
-		"11 个仓库感知工具",
-		"7 个仓库感知 LSP 工具",
-		"verbosity",
-		"offset=",
-		"line/end_line",
-		"new_text",
-		"persist_to_disk",
-		"force",
-		"replace_range",
-		"code_action",
-		"folding_range",
-		"semantic_tokens",
-		"`patch_edit(rename)",
-		"`patch_edit(format)",
+		"inspect",
+		"patch_edit",
+		"completion",
+		"read_file",
+		"file(diagnostics",
+		"grep(ast_search",
+		"`file`",
+		"`grep`、`file`",
 	} {
 		require.NotContains(t, body, stale)
+	}
+	for _, want := range []string{
+		"任务边界",
+		"语义定位",
+		"修改",
+		"验证",
+		"失败恢复",
+		"xref.pos",
+		"OK` 只表示",
+		"Error",
+		"Warning",
+		"Information",
+		"Hint",
+		"多轮语义失败",
+	} {
+		require.Contains(t, body, want)
+	}
+	for _, want := range []string{
+		"触发矩阵",
+		"多生产文件",
+		"共享基类",
+		"注册器",
+		"dispatcher",
+		"parser",
+		"transform graph",
+		"公共 helper",
+		"跨文件失败",
+		"单文件局部",
+		"git diff -U0",
+		"新文件侧",
+		"1-based",
+		`"file_paths"`,
+		`"mode": "changed_lines"`,
+		`"changed_lines": {`,
+		`"internal/pkg/collector.go": [42, 43, 44]`,
+		`"internal/pkg/admin.go": [18, 19]`,
+		"禁止多个文件共享",
+		"漏映射",
+		"未过滤全文件",
+		"changed-line",
+		"环境/工具链",
+		"未覆盖不能结束",
+		"no-progress",
+		"无 `file_change`",
+		"不重复 grader",
+		"runner",
+		"Mandatory With-LSP gate",
+		"最终硬守卫",
+	} {
+		require.Contains(t, body, want)
+	}
+}
+
+func TestMainGeneralZhDiffFilterExampleMatchesDiagnosticsSchema(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	require.NoError(t, err)
+	template, ok := reg.GetTemplate("main/general-zh")
+	require.True(t, ok)
+	body := sectionBodyByKey(reg.SectionsByTemplateID(template.ID), "lsp_basics")
+
+	const opening = "```json\n"
+	start := strings.Index(body, opening)
+	require.NotEqual(t, -1, start, "LSP prompt must contain a JSON diagnostics request example")
+	start += len(opening)
+	endOffset := strings.Index(body[start:], "\n```")
+	require.NotEqual(t, -1, endOffset, "LSP diagnostics JSON example must close its fenced block")
+
+	var request struct {
+		FilePaths  []string `json:"file_paths"`
+		DiffFilter struct {
+			Mode         string           `json:"mode"`
+			ChangedLines map[string][]int `json:"changed_lines"`
+		} `json:"diff_filter"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body[start:start+endOffset]), &request))
+	require.Equal(t, []string{"internal/pkg/collector.go", "internal/pkg/admin.go"}, request.FilePaths)
+	require.Equal(t, "changed_lines", request.DiffFilter.Mode)
+	require.Equal(t, map[string][]int{
+		"internal/pkg/collector.go": {42, 43, 44},
+		"internal/pkg/admin.go":     {18, 19},
+	}, request.DiffFilter.ChangedLines)
+	require.Len(t, request.DiffFilter.ChangedLines, len(request.FilePaths), "diff_filter must map every requested file")
+	for _, path := range request.FilePaths {
+		lines, exists := request.DiffFilter.ChangedLines[path]
+		require.True(t, exists, "diff_filter.changed_lines missing %s", path)
+		require.NotEmpty(t, lines)
+		for _, line := range lines {
+			require.GreaterOrEqual(t, line, 1, "diff_filter lines are 1-based")
+		}
 	}
 }
 

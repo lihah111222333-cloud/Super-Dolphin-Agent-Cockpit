@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -16,7 +15,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/middleware"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/lineprotocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -37,129 +35,9 @@ const (
 	workspaceSymbolMatchFuzzy = "fuzzy"
 )
 
-// documentSymbolListResponse 是 document_symbol 的分页响应。
-type documentSymbolListResponse struct {
-	Data           []protocol.DocumentSymbol `json:"data"`
-	Total          int                       `json:"total"`
-	Showing        int                       `json:"showing"`
-	Truncated      bool                      `json:"truncated,omitempty"`
-	FailureReason  string                    `json:"failure_reason,omitempty"`
-	EffectiveLimit int                       `json:"effective_limit,omitempty"`
-	NextStep       string                    `json:"next_step,omitempty"`
-	Hint           string                    `json:"hint,omitempty"`
-}
-
-type workspaceSymbolListResponse struct {
-	Data      []format.CompactWorkspaceSymbol
-	Total     int
-	Showing   int
-	Truncated bool
-	Hint      string
-}
-
-type foldingRangeListResponse struct {
-	Data      []protocol.FoldingRange
-	Total     int
-	Showing   int
-	Truncated bool
-	Hint      string
-}
-
-type semanticTokenListResponse struct {
-	Legend    protocol.SemanticTokensLegend
-	Data      []protocol.DecodedSemanticToken
-	Total     int
-	Truncated bool
-	Hint      string
-}
-
-// ToPlainText 把递归符号树扁平为稳定的前序 ROW。
-func (response documentSymbolListResponse) ToPlainText() string {
-	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "symbol")}
-	if response.FailureReason != "" {
-		lines = append(lines, lineprotocol.FieldsRecord("ATTR",
-			lineprotocol.Field{Key: "failure_reason", Value: response.FailureReason},
-			lineprotocol.Field{Key: "effective_limit", Value: strconv.Itoa(response.EffectiveLimit)},
-			lineprotocol.Field{Key: "next_step", Value: response.NextStep},
-		))
-	}
-	appendDocumentSymbolRows(&lines, response.Data, 0)
-	return appendStructureHint(lines, response.Hint)
-}
-
-func appendDocumentSymbolRows(lines *[]string, symbols []protocol.DocumentSymbol, depth int) {
-	for _, symbol := range symbols {
-		*lines = append(*lines, lineprotocol.FieldsRecord("ROW",
-			lineprotocol.Field{Key: "name", Value: symbol.Name},
-			lineprotocol.Field{Key: "kind", Value: strconv.Itoa(int(symbol.Kind))},
-			lineprotocol.Field{Key: "depth", Value: strconv.Itoa(depth)},
-			lineprotocol.Field{Key: "start_line", Value: strconv.Itoa(format.FromLSP(symbol.Range.Start.Line))},
-			lineprotocol.Field{Key: "start_col", Value: strconv.Itoa(format.FromLSP(symbol.Range.Start.Character))},
-			lineprotocol.Field{Key: "end_line", Value: strconv.Itoa(format.FromLSP(symbol.Range.End.Line))},
-			lineprotocol.Field{Key: "end_col", Value: strconv.Itoa(format.FromLSP(symbol.Range.End.Character))},
-		))
-		appendDocumentSymbolRows(lines, symbol.Children, depth+1)
-	}
-}
-
-// ToPlainText 把 workspace symbol 列表渲染为紧凑 ROW。
-func (response workspaceSymbolListResponse) ToPlainText() string {
-	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "symbol")}
-	for _, symbol := range response.Data {
-		lines = append(lines, lineprotocol.FieldsRecord("ROW",
-			lineprotocol.Field{Key: "name", Value: symbol.Name},
-			lineprotocol.Field{Key: "kind", Value: strconv.Itoa(symbol.Kind)},
-			lineprotocol.Field{Key: "file", Value: symbol.File},
-			lineprotocol.Field{Key: "line", Value: strconv.Itoa(symbol.Line)},
-			lineprotocol.Field{Key: "col", Value: strconv.Itoa(symbol.Col)},
-			lineprotocol.Field{Key: "container", Value: symbol.Container},
-		))
-	}
-	return appendStructureHint(lines, response.Hint)
-}
-
-// ToPlainText 把 folding ranges 渲染为紧凑 ROW。
-func (response foldingRangeListResponse) ToPlainText() string {
-	lines := []string{lineprotocol.HeaderLine(response.Total, response.Showing, response.Truncated, "range")}
-	for _, item := range response.Data {
-		lines = append(lines, lineprotocol.FieldsRecord("ROW",
-			lineprotocol.Field{Key: "start_line", Value: strconv.Itoa(format.FromLSP(item.StartLine))},
-			lineprotocol.Field{Key: "end_line", Value: strconv.Itoa(format.FromLSP(item.EndLine))},
-			lineprotocol.Field{Key: "kind", Value: item.Kind},
-		))
-	}
-	return appendStructureHint(lines, response.Hint)
-}
-
-// ToPlainText 输出 initialize legend 和已解码 token，不重复原始整数数组。
-func (response semanticTokenListResponse) ToPlainText() string {
-	lines := []string{lineprotocol.HeaderLine(response.Total, len(response.Data), response.Truncated, "token")}
-	lines = append(lines, lineprotocol.FieldsRecord("LEGEND",
-		lineprotocol.Field{Key: "token_types", Value: strings.Join(response.Legend.TokenTypes, ",")},
-		lineprotocol.Field{Key: "token_modifiers", Value: strings.Join(response.Legend.TokenModifiers, ",")},
-	))
-	for _, token := range response.Data {
-		lines = append(lines, lineprotocol.FieldsRecord("ROW",
-			lineprotocol.Field{Key: "line", Value: strconv.Itoa(token.Line)},
-			lineprotocol.Field{Key: "col", Value: strconv.Itoa(token.StartCharacter)},
-			lineprotocol.Field{Key: "length", Value: strconv.Itoa(token.Length)},
-			lineprotocol.Field{Key: "type", Value: token.TokenType},
-			lineprotocol.Field{Key: "modifiers", Value: strings.Join(token.TokenModifiers, ",")},
-		))
-	}
-	return appendStructureHint(lines, response.Hint)
-}
-
-func appendStructureHint(lines []string, hint string) string {
-	if hint = strings.TrimSpace(hint); hint != "" {
-		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
-	}
-	return strings.Join(lines, "\n")
-}
-
 // NewStructureHandler 创建 structure 工具处理器，按 action 延迟选择文件或语言级 manager。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerToolWithWindowsColdInstallTimeoutAndDecodeError("structure", middleware.TierSlow, registry, decodeStrict, invalidStructureParams, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+	handler := newManagerToolWithWindowsColdInstallTimeoutAndDecodeError("structure", middleware.TierSlow, registry, decodeStrict, invalidStructureParams, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		if err := validateStructureLanguageParameters(req); err != nil {
 			return nil, err
 		}
@@ -196,6 +74,7 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 			},
 		})
 	})
+	return deduplicateSemanticToolHandler("structure", registry, handler)
 }
 
 // runDocumentSymbolAction 分阶段记录 manager 解析与 LSP 请求耗时，定位冷启动阻塞。
@@ -284,6 +163,13 @@ func resolveWorkspaceFileManager(ctx context.Context, registry lspmanager.Regist
 
 // invalidStructureParams 将 structure 入参错误映射为稳定的不可重试错误。
 func invalidStructureParams(err error) error {
+	if recoded := recodeStrictSchemaError(
+		err,
+		"invalid_params",
+		"choose-file_path-or-workspace_language; use-language_id-only-as-a-file_path-server-override",
+	); recoded != nil {
+		return recoded
+	}
 	return common.NewCodedToolError("invalid_params", err, false,
 		"choose-file_path-or-workspace_language; use-language_id-only-as-a-file_path-server-override")
 }
@@ -302,6 +188,10 @@ func runDocumentSymbols(
 	if err != nil {
 		return nil, err
 	}
+	// The structured response and its plain-text projection must share one
+	// displayable symbol tree. Filter/promote first so hidden nodes cannot
+	// consume the result budget or inflate total/showing in either projection.
+	results = filterDocumentSymbols(results)
 	total := countDocumentSymbolNodes(results)
 	limit := format.DocumentSymbolLimit(req.MaxResults)
 	results = limitDocumentSymbols(results, limit)
@@ -322,6 +212,11 @@ func runDocumentSymbols(
 			resp.NextStep = "narrow_file_or_symbol_scope"
 			resp.Hint = fmt.Sprintf("next: document_symbol reached the protocol hard limit (%d); narrow the file/symbol scope", limit)
 		}
+		continuation, continuationErr := documentSymbolContinuation(req, total, showing, limit)
+		if continuationErr != nil {
+			return nil, continuationErr
+		}
+		resp.Continuation = continuation
 	}
 	return resp, nil
 }
@@ -353,33 +248,56 @@ func runWorkspaceSymbols(
 		return nil, err
 	}
 	items := format.CompactWorkspaceSymbols(results)
+	items, err = prepareWorkspaceSymbolItems(ctx, items, req, query, matchMode)
+	if err != nil {
+		return nil, err
+	}
+	return renderWorkspaceSymbolResponse(req, items, matchMode, limit)
+}
+
+func prepareWorkspaceSymbolItems(ctx context.Context, items []format.CompactWorkspaceSymbol, req structureParams, query, matchMode string) ([]format.CompactWorkspaceSymbol, error) {
 	if strings.TrimSpace(req.FilePath) != "" {
-		items, err = filterWorkspaceSymbolsForFile(ctx, items, req.FilePath)
+		filtered, err := filterWorkspaceSymbolsForFile(ctx, items, req.FilePath)
 		if err != nil {
 			return nil, err
 		}
+		items = filtered
 	}
-	items = selectWorkspaceSymbolMatches(items, query, matchMode)
+	return selectWorkspaceSymbolMatches(items, query, matchMode), nil
+}
+
+func renderWorkspaceSymbolResponse(req structureParams, items []format.CompactWorkspaceSymbol, matchMode string, limit int) (workspaceSymbolListResponse, error) {
 	total := len(items)
 	items = limitSlice(items, limit)
-	truncated := len(items) < total
-	response := workspaceSymbolListResponse{
-		Data: items, Total: total, Showing: len(items), Truncated: truncated,
-	}
+	response := workspaceSymbolListResponse{Data: items, Total: total, Showing: len(items), Truncated: len(items) < total}
 	if total == 0 {
-		if matchMode == workspaceSymbolMatchExact {
-			response.Hint = "no symbols found matching exact query; check symbol casing, retry with match_mode=fuzzy, or use document_symbol for exact file-level inspection"
-		} else {
-			response.Hint = "no symbols found; check symbol name or casing, or use document_symbol on target file"
-		}
-	} else if truncated {
-		if matchMode == workspaceSymbolMatchFuzzy {
-			response.Hint = "next: workspace_symbol results truncated; narrow query with container prefix, use match_mode=exact, or increase max_results"
-		} else {
-			response.Hint = "next: workspace_symbol results truncated; narrow query with container prefix or file_path, or increase max_results"
-		}
+		response.Hint = workspaceSymbolEmptyHint(matchMode)
+		return response, nil
 	}
+	if !response.Truncated {
+		return response, nil
+	}
+	response.Hint = workspaceSymbolTruncatedHint(matchMode)
+	continuation, err := workspaceSymbolContinuation(req, matchMode, total, len(items), limit)
+	if err != nil {
+		return workspaceSymbolListResponse{}, err
+	}
+	response.Continuation = continuation
 	return response, nil
+}
+
+func workspaceSymbolEmptyHint(matchMode string) string {
+	if matchMode == workspaceSymbolMatchExact {
+		return "no symbols found matching exact query; check symbol casing, retry with match_mode=fuzzy, or use document_symbol for exact file-level inspection"
+	}
+	return "no symbols found; check symbol name or casing, or use document_symbol on target file"
+}
+
+func workspaceSymbolTruncatedHint(matchMode string) string {
+	if matchMode == workspaceSymbolMatchFuzzy {
+		return "next: workspace_symbol results truncated; narrow query with container prefix, use match_mode=exact, or increase max_results"
+	}
+	return "next: workspace_symbol results truncated; narrow query with container prefix or file_path, or increase max_results"
 }
 
 // normalizeWorkspaceSymbolMatchMode 收敛 workspace_symbol 匹配模式，未知值立即失败。缺省时默认使用 fuzzy/smart ranking。
@@ -453,49 +371,56 @@ func scoreWorkspaceSymbol(name, container, query string) int {
 	if nameTrim == "" || queryTrim == "" {
 		return 0
 	}
-
-	// 1. Exact Match (100)
-	if nameTrim == queryTrim || strings.EqualFold(nameTrim, queryTrim) {
-		return 100
-	}
-	if container != "" {
-		fullDot := container + "." + nameTrim
-		fullColon := container + "::" + nameTrim
-		if fullDot == queryTrim || strings.EqualFold(fullDot, queryTrim) ||
-			fullColon == queryTrim || strings.EqualFold(fullColon, queryTrim) {
-			return 100
-		}
-	}
 	leafName := extractLeafSymbol(nameTrim)
-	if leafName != nameTrim && (leafName == queryTrim || strings.EqualFold(leafName, queryTrim)) {
+	if exactWorkspaceSymbolMatch(nameTrim, container, leafName, queryTrim) {
 		return 100
 	}
-
 	lowerName := strings.ToLower(nameTrim)
 	lowerQuery := strings.ToLower(queryTrim)
 	lowerLeaf := strings.ToLower(leafName)
-
-	// 2. Prefix Match (80)
-	if strings.HasPrefix(lowerName, lowerQuery) || strings.HasPrefix(lowerLeaf, lowerQuery) {
+	if prefixWorkspaceSymbolMatch(lowerName, lowerLeaf, lowerQuery) {
 		return 80
 	}
-
-	// 3. WordBoundary / CamelCase Match (60)
-	if isWordBoundaryMatch(nameTrim, lowerQuery) || isWordBoundaryMatch(leafName, lowerQuery) ||
-		isCamelCaseAcronymMatch(nameTrim, lowerQuery) || isCamelCaseAcronymMatch(leafName, lowerQuery) {
+	if boundaryWorkspaceSymbolMatch(nameTrim, leafName, lowerQuery) {
 		return 60
 	}
-
-	// 4. Substring Match (40)
-	if strings.Contains(lowerName, lowerQuery) || strings.Contains(lowerLeaf, lowerQuery) {
+	if substringWorkspaceSymbolMatch(lowerName, lowerLeaf, container, lowerQuery) {
 		return 40
 	}
-	if container != "" && strings.Contains(strings.ToLower(container), lowerQuery) {
-		return 40
-	}
-
-	// 5. Server-Returned Fuzzy (20)
 	return 20
+}
+
+// exactWorkspaceSymbolMatch 判断完整名称、容器限定名和叶名称的精确匹配。
+func exactWorkspaceSymbolMatch(name, container, leaf, query string) bool {
+	if name == query || strings.EqualFold(name, query) {
+		return true
+	}
+	if container != "" {
+		fullDot := container + "." + name
+		fullColon := container + "::" + name
+		if fullDot == query || strings.EqualFold(fullDot, query) ||
+			fullColon == query || strings.EqualFold(fullColon, query) {
+			return true
+		}
+	}
+	return leaf != name && (leaf == query || strings.EqualFold(leaf, query))
+}
+
+// prefixWorkspaceSymbolMatch 判断名称和叶名称的前缀匹配。
+func prefixWorkspaceSymbolMatch(name, leaf, query string) bool {
+	return strings.HasPrefix(name, query) || strings.HasPrefix(leaf, query)
+}
+
+// boundaryWorkspaceSymbolMatch 判断分隔符、CamelCase 和缩写匹配。
+func boundaryWorkspaceSymbolMatch(name, leaf, query string) bool {
+	return isWordBoundaryMatch(name, query) || isWordBoundaryMatch(leaf, query) ||
+		isCamelCaseAcronymMatch(name, query) || isCamelCaseAcronymMatch(leaf, query)
+}
+
+// substringWorkspaceSymbolMatch 判断名称、叶名称和容器的子串匹配。
+func substringWorkspaceSymbolMatch(name, leaf, container, query string) bool {
+	return strings.Contains(name, query) || strings.Contains(leaf, query) ||
+		(container != "" && strings.Contains(strings.ToLower(container), query))
 }
 
 func extractLeafSymbol(name string) string {
@@ -522,32 +447,25 @@ func isWordBoundaryMatch(name, lowerQuery string) bool {
 		return false
 	}
 
-	for i := 0; i <= len(runes)-len(queryRunes); i++ {
-		if i == 0 {
-			continue // index 0 is prefix match (score 80)
-		}
-		matches := true
-		for k := 0; k < len(queryRunes); k++ {
-			if lowerRunes[i+k] != queryRunes[k] {
-				matches = false
-				break
-			}
-		}
-		if !matches {
-			continue
-		}
-		prevRune := runes[i-1]
-		currRune := runes[i]
-		if isWordDelimiter(prevRune) {
-			return true
-		}
-		if unicode.IsUpper(currRune) && unicode.IsLower(prevRune) {
+	for i := range len(runes) - len(queryRunes) + 1 {
+		if i > 0 && workspaceSymbolBoundaryAt(runes, lowerRunes, queryRunes, i) {
 			return true
 		}
 	}
 	return false
 }
 
+func workspaceSymbolBoundaryAt(runes, lowerRunes, queryRunes []rune, index int) bool {
+	for offset := range len(queryRunes) {
+		if lowerRunes[index+offset] != queryRunes[offset] {
+			return false
+		}
+	}
+	prevRune, currentRune := runes[index-1], runes[index]
+	return isWordDelimiter(prevRune) || unicode.IsUpper(currentRune) && unicode.IsLower(prevRune)
+}
+
+// isWordDelimiter 判断字符是否是符号名称中的词边界分隔符。
 func isWordDelimiter(r rune) bool {
 	return r == '_' || r == '-' || r == '.' || r == ':' || r == '/' || r == '\\' || r == ' ' || r == '$' || r == '#'
 }
@@ -583,12 +501,20 @@ func runFoldingRanges(
 		return nil, err
 	}
 	total := len(results)
-	items := limitSlice(results, shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit))
+	limit := shared.ClampLimit(req.MaxResults, 1, protocol.XRefResultLimit, protocol.XRefResultLimit)
+	items := limitSlice(results, limit)
 	response := foldingRangeListResponse{
 		Data: items, Total: total, Showing: len(items), Truncated: len(items) < total,
 	}
 	if response.Truncated {
 		response.Hint = "next: increase max_results or narrow file scope"
+		continuation, continuationErr := fileStructureContinuation(
+			"folding_range", req.FilePath, total, len(items), limit, protocol.XRefResultLimit,
+		)
+		if continuationErr != nil {
+			return nil, continuationErr
+		}
+		response.Continuation = continuation
 	} else if total == 0 {
 		response.Hint = "no folding ranges found in file"
 	}
@@ -630,6 +556,13 @@ func runSemanticTokens(
 	response := semanticTokenListResponse{Legend: legend, Data: data, Total: total, Truncated: len(data) < total}
 	if response.Truncated {
 		response.Hint = "next: increase max_results or narrow file scope"
+		continuation, continuationErr := fileStructureContinuation(
+			"semantic_tokens", req.FilePath, total, len(data), limit, protocol.SemanticTokenResultLimit,
+		)
+		if continuationErr != nil {
+			return nil, continuationErr
+		}
+		response.Continuation = continuation
 	} else if total == 0 {
 		response.Hint = "no semantic tokens found in file"
 	}
@@ -664,6 +597,42 @@ func workspaceSymbolPathForValidation(path string) string {
 		}
 	}
 	return path
+}
+
+// filterDocumentSymbols 保留可用于文件骨架的符号，并提升被过滤节点的可见子节点。
+//
+// LSP servers may return local variables and expression-like nodes alongside
+// declarations. The plain-text outline intentionally omits those nodes. Do
+// that transformation before counting or limiting so structured Data and ROW
+// records expose exactly the same set of symbols.
+func filterDocumentSymbols(symbols []protocol.DocumentSymbol) []protocol.DocumentSymbol {
+	return filterDocumentSymbolNodes(symbols, false)
+}
+
+// filterDocumentSymbolNodes 递归过滤符号并保持被过滤包装节点的可见子节点。
+func filterDocumentSymbolNodes(symbols []protocol.DocumentSymbol, inFunction bool) []protocol.DocumentSymbol {
+	if len(symbols) == 0 {
+		return nil
+	}
+
+	filtered := make([]protocol.DocumentSymbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		visible := isCoreStructureSymbol(symbol.Kind, inFunction)
+		nextInFunction := inFunction
+		if visible {
+			nextInFunction = inFunction || isFunctionKind(symbol.Kind)
+		}
+		children := filterDocumentSymbolNodes(symbol.Children, nextInFunction)
+		if visible {
+			symbol.Children = children
+			filtered = append(filtered, symbol)
+			continue
+		}
+		// Keep the same depth the plain-text skeleton used when it skipped this
+		// node. A declaration nested under an unknown wrapper remains useful.
+		filtered = append(filtered, children...)
+	}
+	return filtered
 }
 
 // limitDocumentSymbols 按节点数量上限裁剪 document symbol 树。
@@ -706,6 +675,7 @@ func countDocumentSymbolNodes(symbols []protocol.DocumentSymbol) int {
 	return total
 }
 
+// decodeSemanticTokenData 校验并解码 LSP 返回的相对语义 token 数据。
 func decodeSemanticTokenData(result *protocol.SemanticTokensResult, legend protocol.SemanticTokensLegend, limit int) ([]protocol.DecodedSemanticToken, int, error) {
 	if len(legend.TokenTypes) == 0 {
 		return nil, 0, errors.New("semantic tokens legend tokenTypes is empty")

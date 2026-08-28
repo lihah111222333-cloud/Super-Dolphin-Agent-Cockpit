@@ -154,6 +154,13 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 
 // invalidGrepParams 统一返回不可重试的参数错误，并提示唯一 paths 契约。
 func invalidGrepParams(err error) error {
+	if recoded := recodeStrictSchemaError(
+		err,
+		"invalid_params",
+		"pass search roots only as paths=[\"dir\"]; a single root is a one-element array",
+	); recoded != nil {
+		return recoded
+	}
 	return common.NewCodedToolError(
 		"invalid_params",
 		err,
@@ -164,6 +171,13 @@ func invalidGrepParams(err error) error {
 
 // invalidGrepASTLanguageParams 返回 AST alias 值域或明确 glob 冲突的参数错误。
 func invalidGrepASTLanguageParams(err error) error {
+	if recoded := recodeStrictSchemaError(
+		err,
+		"invalid_params",
+		"use a registered ast_language alias and align it with any unambiguous glob",
+	); recoded != nil {
+		return recoded
+	}
 	return common.NewCodedToolError(
 		"invalid_params",
 		err,

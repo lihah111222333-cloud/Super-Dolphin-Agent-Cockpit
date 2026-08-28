@@ -118,7 +118,7 @@ func TestStructureWorkspaceSymbolTruncationNarrowingHint(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	symbols := make([]protocol.WorkspaceSymbolResult, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		symbols[i] = protocol.WorkspaceSymbolResult{
 			SymbolInformation: &protocol.SymbolInformation{
 				Name: fmt.Sprintf("TargetSymbol%d", i),
@@ -270,7 +270,7 @@ func TestXRefReferencesImportedSymbolTopologyHint(t *testing.T) {
 	if !strings.Contains(grouped.Hint, "symbol imported from") || !strings.Contains(grouped.Hint, "dep.go") {
 		t.Fatalf("imported symbol hint = %q, want 'symbol imported from ... dep.go'", grouped.Hint)
 	}
-	plainText := formatGroupedLocationsContract(grouped)
+	plainText, _ := FormatToPlainText(grouped)
 	if !strings.Contains(plainText, "HINT\tsymbol imported from") {
 		t.Fatalf("plain text missing imported symbol HINT: %q", plainText)
 	}
@@ -379,9 +379,4 @@ func TestDiagnosticsDiffHunkFocusHint(t *testing.T) {
 	if !strings.Contains(hintVal, "active diff/patch hunks") || !strings.Contains(hintVal, "apply_patch") {
 		t.Fatalf("diagnostics record HINT = %q, want diff hunk and apply_patch guidance", hintVal)
 	}
-}
-
-func formatGroupedLocationsContract(result protocol.GroupedLocationResult) string {
-	text, _ := FormatToPlainText(result)
-	return text
 }

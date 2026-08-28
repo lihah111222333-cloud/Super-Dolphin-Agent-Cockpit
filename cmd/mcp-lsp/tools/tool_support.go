@@ -28,9 +28,10 @@ type Config struct {
 }
 
 type handlerBase struct {
-	root          string
-	registry      lspmanager.Registry
-	ensureASTGrep func(context.Context) (string, error)
+	root             string
+	registry         lspmanager.Registry
+	ensureASTGrep    func(context.Context) (string, error)
+	diagnosticsCache *diagnosticsResultCache
 }
 
 type resultMeta struct {

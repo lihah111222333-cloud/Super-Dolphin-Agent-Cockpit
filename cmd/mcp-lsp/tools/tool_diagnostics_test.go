@@ -27,12 +27,14 @@ type diagnosticsTestRegistry struct {
 	scopeOK           bool
 	bootstrapErrByURI map[string]error
 	diagnosticsByURI  map[string][]protocol.Diagnostic
+	diagnosticsCalls  int
 	manager           lspmanager.Manager
 	waitErrs          []error
 	waitFn            func(call int, uris []string) error
 	waitURIs          [][]string
 	waitCalls         int
 	reopenURIs        [][]string
+	generation        uint64
 }
 
 func (r *diagnosticsTestRegistry) ReopenDocumentsForDiagnostics(_ context.Context, uris []string) error {
@@ -93,6 +95,7 @@ func (r *diagnosticsTestRegistry) GetManagerForLanguage(context.Context, string)
 
 func (r *diagnosticsTestRegistry) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	r.callOrder = append(r.callOrder, "diagnostics")
+	r.diagnosticsCalls++
 	r.lastURIs = append([]string(nil), uris...)
 	r.lastScope, r.scopeOK = common.ToolScopeFromContext(ctx)
 	items := make([]protocol.PublishDiagnosticsParams, 0, len(uris))
@@ -116,7 +119,10 @@ func (r *diagnosticsTestRegistry) WaitDiagnosticsStable(_ context.Context, uris 
 	return nil
 }
 
-func (*diagnosticsTestRegistry) CurrentDiagnosticGeneration() uint64 {
+func (r *diagnosticsTestRegistry) CurrentDiagnosticGeneration() uint64 {
+	if r.generation > 0 {
+		return r.generation
+	}
 	return 1
 }
 
@@ -479,86 +485,6 @@ func diagnosticErrorMentionsPath(err error, target string) bool {
 	return strings.Contains(normalize(err.Error()), normalize(target))
 }
 
-func TestDiagnosticsResponseUsesTopLevelMetaFields(t *testing.T) {
-	root := t.TempDir()
-	target := writeDiagnosticsFixture(t, root, "broken.go")
-	targetURI := canonicalFileURI(t, target)
-	duplicate := protocol.Diagnostic{
-		Range: protocol.Range{
-			Start: protocol.Position{Line: 2, Character: 4},
-			End:   protocol.Position{Line: 2, Character: 8},
-		},
-		Severity: protocol.SeverityError,
-		Source:   "gopls",
-		Message:  "undefined: missing",
-	}
-	registry := &diagnosticsTestRegistry{
-		diagnosticsByURI: map[string][]protocol.Diagnostic{
-			targetURI: {
-				duplicate,
-				duplicate,
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 3, Character: 1},
-						End:   protocol.Position{Line: 3, Character: 5},
-					},
-					Severity: protocol.SeverityWarning,
-					Source:   "gopls",
-					Message:  "unused value",
-				},
-			},
-		},
-	}
-	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
-	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: "broken.go"})
-
-	result, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), req)
-	if err != nil {
-		t.Fatalf("diagnostics returned error: %v", err)
-	}
-	payload := mustMarshalObject(t, result)
-	if payload["total"] != float64(2) || payload["showing"] != float64(2) {
-		t.Fatalf("diagnostics total/showing = %#v/%#v, want 2/2", payload["total"], payload["showing"])
-	}
-	if hint, _ := payload["hint"].(string); !strings.Contains(hint, "native file tools") || !strings.Contains(hint, "apply_patch") {
-		t.Fatalf("diagnostics hint = %q, want repair guidance", hint)
-	}
-	meta, ok := payload["meta"].(map[string]any)
-	if !ok {
-		t.Fatalf("diagnostics meta = %#v, want object", payload["meta"])
-	}
-	if _, ok := meta["count"]; ok {
-		t.Fatalf("diagnostics meta contains legacy count: %#v", meta)
-	}
-	text := result.(diagnosticsResponse).ToPlainText()
-	if !strings.HasPrefix(text, "OK total=2 showing=2 truncated=0 unit=diagnostic\n") || strings.Count(text, "\nROW\t") != 2 {
-		t.Fatalf("diagnostics text protocol = %q, want exact header and two ROW records", text)
-	}
-}
-
-func TestDiagnosticsRendersTypeScriptDeprecatedSuggestionsAsHint(t *testing.T) {
-	tables := buildDiagnosticsTables([]protocol.PublishDiagnosticsParams{{
-		URI: "file:///workspace/form.tsx",
-		Diagnostics: []protocol.Diagnostic{{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 9, Character: 17},
-				End:   protocol.Position{Line: 9, Character: 26},
-			},
-			Severity: protocol.SeverityWarning,
-			Source:   "typescript",
-			Code:     float64(6385),
-			Message:  "'FormEvent' is deprecated.",
-		}},
-	}}, nil, nil)
-
-	if len(tables) != 1 || len(tables[0].Rows) != 1 {
-		t.Fatalf("diagnostics tables = %#v, want one row", tables)
-	}
-	if got := tables[0].Rows[0][2]; got != "hint" {
-		t.Fatalf("deprecated TypeScript diagnostic severity = %#v, want hint", got)
-	}
-}
-
 func TestDiagnosticsWithoutMetaCWDRejectsExternalAbsolutePath(t *testing.T) {
 	mainRoot := t.TempDir()
 	externalRoot := t.TempDir()
@@ -796,15 +722,6 @@ func canonicalFileURI(t *testing.T, path string) string {
 	return fileURI(filepath.Join(parent, filepath.Base(path)))
 }
 
-func canonicalDeletedFileURI(t *testing.T, path string) string {
-	t.Helper()
-	parent, err := lspplatform.CanonicalDirectoryPath(filepath.Dir(path))
-	if err != nil {
-		t.Fatalf("resolve fixture parent: %v", err)
-	}
-	return fileURI(filepath.Join(parent, filepath.Base(path)))
-}
-
 func assertDiagnosticURIs(t *testing.T, got, want []string) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -817,170 +734,116 @@ func assertDiagnosticURIs(t *testing.T, got, want []string) {
 	}
 }
 
-func TestDiagnosticsFiltersMissingImportsNoiseByDefault(t *testing.T) {
-	dir := t.TempDir()
-	filePath := writeDiagnosticsFixture(t, dir, "script.py")
-	targetURI := canonicalFileURI(t, filePath)
-
-	registry := &diagnosticsTestRegistry{
-		diagnosticsByURI: map[string][]protocol.Diagnostic{
-			targetURI: {
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 0, Character: 0},
-						End:   protocol.Position{Line: 0, Character: 12},
-					},
-					Severity: protocol.SeverityError,
-					Source:   "Pyright",
-					Code:     "reportMissingImports",
-					Message:  "Import \"numpy\" could not be resolved (reportMissingImports)",
-				},
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 1, Character: 0},
-						End:   protocol.Position{Line: 1, Character: 13},
-					},
-					Severity: protocol.SeverityError,
-					Source:   "Pyright",
-					Code:     "reportMissingModuleSource",
-					Message:  "Import \"pandas\" could not be resolved from source",
-				},
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 9, Character: 4},
-						End:   protocol.Position{Line: 9, Character: 10},
-					},
-					Severity: protocol.SeverityError,
-					Source:   "Pyright",
-					Code:     "reportGeneralTypeIssues",
-					Message:  "Operator \"+\" not supported for types \"int\" and \"str\"",
-				},
-			},
+func TestDiagnosticsExplicitDiffFilterAuditsFilteredEntries(t *testing.T) {
+	root := t.TempDir()
+	target := writeDiagnosticsFixture(t, root, "script.py")
+	targetURI := canonicalFileURI(t, target)
+	registry := &diagnosticsTestRegistry{diagnosticsByURI: map[string][]protocol.Diagnostic{
+		targetURI: {
+			{Range: protocol.Range{Start: protocol.Position{Line: 0, Character: 0}}, Severity: protocol.SeverityError, Source: "Pyright", Code: "reportMissingImports", Message: "Import could not be resolved"},
+			{Range: protocol.Range{Start: protocol.Position{Line: 4, Character: 1}}, Severity: protocol.SeverityError, Source: "pyright", Code: "error-outside-changed-lines", Message: "error outside changed lines"},
+			{Range: protocol.Range{Start: protocol.Position{Line: 8, Character: 1}}, Severity: protocol.SeverityWarning, Source: "pyright", Code: "reportUnusedImport", Message: "unused import"},
+			{Range: protocol.Range{Start: protocol.Position{Line: 9, Character: 1}}, Severity: protocol.SeverityInformation, Source: "pyright", Code: "info-code", Message: "informational note"},
+			{Range: protocol.Range{Start: protocol.Position{Line: 10, Character: 1}}, Severity: protocol.SeverityHint, Source: "pyright", Code: "hint-code", Message: "hint note"},
 		},
-	}
-	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: dir, Registry: registry})
-	req := marshalDiagnosticsInput(t, fileToolInput{FilePath: "script.py"})
-
-	got, err := handler(testToolContext(dir), req)
-	if err != nil {
-		t.Fatalf("diagnostics handler returned error: %v", err)
-	}
-	resp, ok := got.(diagnosticsResponse)
-	if !ok {
-		t.Fatalf("result type = %T, want diagnosticsResponse", got)
-	}
-	if resp.Total != 1 {
-		t.Fatalf("resp.Total = %d, want 1 (missing imports filtered out)", resp.Total)
-	}
-	if len(resp.Data) != 1 || len(resp.Data[0].Rows) != 1 {
-		t.Fatalf("resp.Data = %#v, want 1 table with 1 row", resp.Data)
-	}
-	row := resp.Data[0].Rows[0]
-	// Row should be line 10 reportGeneralTypeIssues
-	if row[0] != 10 || row[5] != "reportGeneralTypeIssues" {
-		t.Fatalf("preserved row = %#v, want line 10 reportGeneralTypeIssues", row)
-	}
-}
-
-func TestDiagnosticsPreservesMissingImportsOnChangedLines(t *testing.T) {
-	dir := t.TempDir()
-	filePath := writeDiagnosticsFixture(t, dir, "script.py")
-	targetURI := canonicalFileURI(t, filePath)
-
-	registry := &diagnosticsTestRegistry{
-		diagnosticsByURI: map[string][]protocol.Diagnostic{
-			targetURI: {
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 0, Character: 0},
-						End:   protocol.Position{Line: 0, Character: 12},
-					},
-					Severity: protocol.SeverityError,
-					Source:   "Pyright",
-					Code:     "reportMissingImports",
-					Message:  "Import \"numpy\" could not be resolved (reportMissingImports)",
-				},
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 1, Character: 0},
-						End:   protocol.Position{Line: 1, Character: 13},
-					},
-					Severity: protocol.SeverityError,
-					Source:   "Pyright",
-					Code:     "reportMissingModuleSource",
-					Message:  "Import \"pandas\" could not be resolved from source",
-				},
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 9, Character: 4},
-						End:   protocol.Position{Line: 9, Character: 10},
-					},
-					Severity: protocol.SeverityError,
-					Source:   "Pyright",
-					Code:     "reportGeneralTypeIssues",
-					Message:  "Operator \"+\" not supported for types \"int\" and \"str\"",
-				},
-			},
+	}}
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
+	request, err := json.Marshal(diagnosticsInput{
+		FilePath: "script.py",
+		DiffFilter: &diagnosticsDiffFilterInput{
+			Mode:         "changed_lines",
+			ChangedLines: map[string][]int{"script.py": {1}},
 		},
-	}
-	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: dir, Registry: registry})
-	// Line 1 is modified: changed_lines=[1]
-	req := marshalDiagnosticsInput(t, fileToolInput{
-		FilePath:     "script.py",
-		ChangedLines: []int{1},
 	})
-
-	got, err := handler(testToolContext(dir), req)
 	if err != nil {
-		t.Fatalf("diagnostics handler returned error: %v", err)
+		t.Fatalf("marshal explicit diff filter: %v", err)
 	}
-	resp := got.(diagnosticsResponse)
-	if resp.Total != 2 {
-		t.Fatalf("resp.Total = %d, want 2 (line 1 missing import preserved + line 10 type error)", resp.Total)
+	result, err := handler(testToolContext(root), request)
+	if err != nil {
+		t.Fatalf("explicit diff filter diagnostics: %v", err)
 	}
-	rows := resp.Data[0].Rows
-	if rows[0][0] != 1 || rows[0][5] != "reportMissingImports" {
-		t.Fatalf("first row = %#v, want line 1 reportMissingImports", rows[0])
+	response := result.(diagnosticsResponse)
+	if response.Total != 2 || response.Meta.DiffFilter == nil || response.Meta.DiffFilter.Filtered != 3 {
+		t.Fatalf("response = %#v, want both Errors and three audited filtered diagnostics", response)
 	}
-	if rows[1][0] != 10 || rows[1][5] != "reportGeneralTypeIssues" {
-		t.Fatalf("second row = %#v, want line 10 reportGeneralTypeIssues", rows[1])
+	if len(response.Meta.DiffFilter.FilteredDiagnostics) != 3 {
+		t.Fatalf("filtered diagnostics = %#v, want three entries", response.Meta.DiffFilter.FilteredDiagnostics)
+	}
+	plainText := response.ToPlainText()
+	for _, want := range []string{
+		"FILTERED\tmode=changed_lines\tcount=3",
+		"code=error-outside-changed-lines",
+		"code=reportUnusedImport",
+		"severity=information",
+		"code=hint-code",
+		"returned rows are changed-line findings",
+		"FILTERED records audit",
+		"filtered is not clean",
+	} {
+		if !strings.Contains(plainText, want) {
+			t.Fatalf("plain text = %q, want audit field %q", plainText, want)
+		}
 	}
 }
 
-func TestDiagnosticsAllMissingImportsFilteredReturnsCleanZeroResult(t *testing.T) {
-	dir := t.TempDir()
-	filePath := writeDiagnosticsFixture(t, dir, "script.py")
-	targetURI := canonicalFileURI(t, filePath)
-
-	registry := &diagnosticsTestRegistry{
-		diagnosticsByURI: map[string][]protocol.Diagnostic{
-			targetURI: {
-				{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 0, Character: 0},
-						End:   protocol.Position{Line: 0, Character: 12},
-					},
-					Severity: protocol.SeverityError,
-					Source:   "Pyright",
-					Code:     "reportMissingImports",
-					Message:  "Import \"numpy\" could not be resolved (reportMissingImports)",
-				},
+func TestDiagnosticsExplicitDiffFilterMapsChangedLinesPerFile(t *testing.T) {
+	root := t.TempDir()
+	first := writeDiagnosticsFixture(t, root, "first.go")
+	second := writeDiagnosticsFixture(t, root, "second.go")
+	firstURI, secondURI := canonicalFileURI(t, first), canonicalFileURI(t, second)
+	registry := &diagnosticsTestRegistry{diagnosticsByURI: map[string][]protocol.Diagnostic{
+		firstURI:  {{Range: protocol.Range{Start: protocol.Position{Line: 1}}, Severity: protocol.SeverityWarning, Code: "first-warning", Message: "first warning"}},
+		secondURI: {{Range: protocol.Range{Start: protocol.Position{Line: 8}}, Severity: protocol.SeverityWarning, Code: "second-warning", Message: "second warning"}},
+	}}
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: registry})
+	request, err := json.Marshal(diagnosticsInput{
+		FilePaths: []string{"first.go", "second.go"},
+		DiffFilter: &diagnosticsDiffFilterInput{
+			Mode: "changed_lines",
+			ChangedLines: map[string][]int{
+				"first.go":  {2},
+				"second.go": {9},
 			},
 		},
-	}
-	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: dir, Registry: registry})
-	req := marshalDiagnosticsInput(t, fileToolInput{FilePath: "script.py"})
-
-	got, err := handler(testToolContext(dir), req)
+	})
 	if err != nil {
-		t.Fatalf("diagnostics handler returned error: %v", err)
+		t.Fatalf("marshal per-file diff filter: %v", err)
 	}
-	resp := got.(diagnosticsResponse)
-	if resp.Total != 0 || len(resp.Data) != 0 {
-		t.Fatalf("resp = %#v, want 0 total and empty data", resp)
+	result, err := handler(testToolContext(root), request)
+	if err != nil {
+		t.Fatalf("per-file diff filter diagnostics: %v", err)
 	}
-	plainText := resp.ToPlainText()
-	if !strings.Contains(plainText, "OK total=0 showing=0 truncated=0 unit=diagnostic") {
-		t.Fatalf("plainText = %q, want 'OK total=0' header", plainText)
+	response := result.(diagnosticsResponse)
+	if response.Total != 2 || response.Meta.DiffFilter == nil || response.Meta.DiffFilter.Filtered != 0 {
+		t.Fatalf("response = %#v, want both per-file changed lines retained", response)
+	}
+}
+
+func TestDiagnosticsDiffFilterRejectsMissingFileMapping(t *testing.T) {
+	root := t.TempDir()
+	first := writeDiagnosticsFixture(t, root, "first.go")
+	second := writeDiagnosticsFixture(t, root, "second.go")
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: &diagnosticsTestRegistry{}})
+	request, err := json.Marshal(diagnosticsInput{
+		FilePaths:  []string{first, second},
+		DiffFilter: &diagnosticsDiffFilterInput{Mode: "changed_lines", ChangedLines: map[string][]int{first: {1}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal incomplete diff filter: %v", err)
+	}
+	_, err = handler(testToolContext(root), request)
+	if err == nil || !strings.Contains(err.Error(), "must map every diagnostics target") {
+		t.Fatalf("error = %v, want fail-fast per-file mapping error", err)
+	}
+}
+
+func TestDiagnosticsStrictDecoderRejectsDroppedDiffFilterField(t *testing.T) {
+	root := t.TempDir()
+	writeDiagnosticsFixture(t, root, "main.go")
+	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: root, Registry: &diagnosticsTestRegistry{}})
+	request := []byte(`{"file_path":"main.go","diff_filter":{"mode":"changed_lines","changed_lines":{"main.go":[1]},"dropped_field":true}}`)
+	_, err := handler(testToolContext(root), request)
+	if err == nil || !strings.Contains(err.Error(), `unknown field "dropped_field"`) {
+		t.Fatalf("error = %v, want strict unknown nested diff_filter field", err)
 	}
 }

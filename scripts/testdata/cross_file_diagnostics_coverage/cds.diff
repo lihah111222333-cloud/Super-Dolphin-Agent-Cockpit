@@ -1,0 +1,19 @@
+diff --git a/cds.py b/cds.py
+index 1111111..2222222 100644
+--- a/cds.py
++++ b/cds.py
+@@ -1,0 +1,2 @@
++"""Tiny SQL parser fixture used by diagnostics coverage tests."""
++
+@@ -4,1 +6,3 @@
+-    return source.strip()
++    source = source.strip()
++    if not source:
++        raise ValueError("source is empty")
+diff --git a/cds_parsetab.py b/cds_parsetab.py
+new file mode 100644
+--- /dev/null
++++ b/cds_parsetab.py
+@@ -0,0 +1,2 @@
++# generated parser table fixture
++_lr_action = {}

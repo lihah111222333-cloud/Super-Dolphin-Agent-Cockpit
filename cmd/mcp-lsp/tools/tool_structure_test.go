@@ -352,6 +352,11 @@ func TestStructureDocumentSymbolReportsTotalShowingAndTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("document_symbol returned error: %v", err)
 	}
+	assertDocumentSymbolTruncation(t, got, target)
+}
+
+func assertDocumentSymbolTruncation(t *testing.T, got any, target string) {
+	t.Helper()
 	payload := mustMarshalObject(t, got)
 	data, ok := payload["data"].([]any)
 	if !ok {
@@ -360,10 +365,37 @@ func TestStructureDocumentSymbolReportsTotalShowingAndTruncation(t *testing.T) {
 	if len(data) != 2 {
 		t.Fatalf("data length = %d, want 2", len(data))
 	}
+	assertDocumentSymbolCounts(t, payload)
+	assertDocumentSymbolContinuation(t, got, target)
+}
+
+func assertDocumentSymbolCounts(t *testing.T, payload map[string]any) {
+	t.Helper()
 	requireNumberField(t, payload, "total", 3)
 	requireNumberField(t, payload, "showing", 2)
 	requireBoolField(t, payload, "truncated", true)
 	requireStringFieldContains(t, payload, "hint", "max_results")
+}
+
+func assertDocumentSymbolContinuation(t *testing.T, got any, target string) {
+	t.Helper()
+	response := got.(documentSymbolListResponse)
+	if response.Continuation == nil {
+		t.Fatal("document_symbol continuation = nil, want stable continuation")
+	}
+	if response.Continuation.Token == "" || response.Continuation.Reason != "max_results" {
+		t.Fatalf("document_symbol continuation = %#v, want stable token and max_results reason", response.Continuation)
+	}
+	if got := response.Continuation.NextArgs["action"]; got != "document_symbol" {
+		t.Fatalf("document_symbol continuation action = %#v, want document_symbol", got)
+	}
+	if got := response.Continuation.NextArgs["file_path"]; got != target {
+		t.Fatalf("document_symbol continuation file_path = %#v, want %q", got, target)
+	}
+	plainText, handled := FormatToPlainText(response)
+	if !handled || !strings.Contains(plainText, "CONTINUATION") || !strings.Contains(plainText, response.Continuation.Token) {
+		t.Fatalf("document_symbol continuation missing from plain text: handled=%t text=%q", handled, plainText)
+	}
 }
 
 func reproDocumentSymbol(name string) protocol.DocumentSymbol {
@@ -775,112 +807,4 @@ func collectDocumentSymbolPayloadNames(items []any) []string {
 	}
 	walk(items)
 	return names
-}
-
-func TestStructureWorkspaceSymbolSmartRankingWeights(t *testing.T) {
-	root := t.TempDir()
-	target := writeStructureTestFile(t, root, "app.py", "def target(): pass\n")
-	manager := &structureTestManager{
-		workspaceSymbols: []protocol.WorkspaceSymbolResult{
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "nontargetable", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "sub_target", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "target_handler", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "target", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-		},
-	}
-	registry := &structureTestRegistry{fileManager: manager}
-	handler := NewStructureHandler(registry)
-
-	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
-		Action:   "workspace_symbol",
-		FilePath: target,
-		Query:    "target",
-	}))
-	if err != nil {
-		t.Fatalf("workspace_symbol returned error: %v", err)
-	}
-	resp, ok := got.(workspaceSymbolListResponse)
-	if !ok {
-		t.Fatalf("result type = %T, want workspaceSymbolListResponse", got)
-	}
-	if len(resp.Data) != 4 {
-		t.Fatalf("got %d symbols, want 4", len(resp.Data))
-	}
-	wantOrder := []string{"target", "target_handler", "sub_target", "nontargetable"}
-	for i, want := range wantOrder {
-		if resp.Data[i].Name != want {
-			t.Errorf("symbol[%d] = %q, want %q (smart ranking order)", i, resp.Data[i].Name, want)
-		}
-	}
-	// Non-truncated result must not contain redundant hint
-	if resp.Hint != "" {
-		t.Fatalf("resp.Hint = %q, want empty for non-truncated matching results", resp.Hint)
-	}
-}
-
-func TestStructureWorkspaceSymbolPyrightPrefixedLeafSmartRanking(t *testing.T) {
-	root := t.TempDir()
-	target := writeStructureTestFile(t, root, "service.py", "class Service:\n  def calculate_total(self): pass\n")
-	manager := &structureTestManager{
-		workspaceSymbols: []protocol.WorkspaceSymbolResult{
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "do_calculate_total", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "Service.calculate_total", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "calculate_total_helper", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-		},
-	}
-	registry := &structureTestRegistry{fileManager: manager}
-	handler := NewStructureHandler(registry)
-
-	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
-		Action:   "workspace_symbol",
-		FilePath: target,
-		Query:    "calculate_total",
-	}))
-	if err != nil {
-		t.Fatalf("workspace_symbol returned error: %v", err)
-	}
-	resp := got.(workspaceSymbolListResponse)
-	if len(resp.Data) != 3 {
-		t.Fatalf("got %d symbols, want 3", len(resp.Data))
-	}
-	// Service.calculate_total has exact leaf symbol "calculate_total" -> score 100, must be first
-	if resp.Data[0].Name != "Service.calculate_total" {
-		t.Fatalf("first symbol = %q, want Service.calculate_total", resp.Data[0].Name)
-	}
-	if resp.Data[1].Name != "calculate_total_helper" {
-		t.Fatalf("second symbol = %q, want calculate_total_helper", resp.Data[1].Name)
-	}
-	if resp.Data[2].Name != "do_calculate_total" {
-		t.Fatalf("third symbol = %q, want do_calculate_total", resp.Data[2].Name)
-	}
-}
-
-func TestStructureWorkspaceSymbolExactModeFiltersNonExact(t *testing.T) {
-	root := t.TempDir()
-	target := writeStructureTestFile(t, root, "app.go", "package app\nfunc Target() {}\n")
-	manager := &structureTestManager{
-		workspaceSymbols: []protocol.WorkspaceSymbolResult{
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "Target", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-			{WorkspaceSymbol: &protocol.WorkspaceSymbol{Name: "TargetHelper", Location: protocol.WorkspaceSymbolLocation{URI: fileURI(target)}}},
-		},
-	}
-	registry := &structureTestRegistry{fileManager: manager}
-	handler := NewStructureHandler(registry)
-
-	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
-		Action:    "workspace_symbol",
-		FilePath:  target,
-		Query:     "Target",
-		MatchMode: "exact",
-	}))
-	if err != nil {
-		t.Fatalf("workspace_symbol exact returned error: %v", err)
-	}
-	resp := got.(workspaceSymbolListResponse)
-	if len(resp.Data) != 1 || resp.Data[0].Name != "Target" {
-		t.Fatalf("exact mode data = %#v, want only Target", resp.Data)
-	}
-	if resp.Hint != "" {
-		t.Fatalf("exact mode non-truncated hint = %q, want empty", resp.Hint)
-	}
 }

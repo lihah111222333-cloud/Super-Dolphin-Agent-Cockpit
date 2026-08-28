@@ -1,0 +1,37 @@
+{
+  "schema": "super-dolphin/grader-feedback/v1",
+  "schema_version": 1,
+  "status": "failed",
+  "identity": {
+    "question_id": "sphinx-doc__sphinx-10323",
+    "arm_id": "with-lsp",
+    "session_id": "session-10323",
+    "thread_id": "thread-10323",
+    "patch_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "tests": {
+    "failing_test_ids": [
+      "tests/test_directive_code.py::test_LiteralIncludeReader_dedent_and_append_and_prepend"
+    ],
+    "summary": "1 failed, 40 passed"
+  },
+  "failure": {
+    "kind": "MODEL_TEST_FAILURE",
+    "test_id": "tests/test_directive_code.py::test_LiteralIncludeReader_dedent_and_append_and_prepend",
+    "file": "tests/test_directive_code.py",
+    "line": 255,
+    "exception": "AssertionError",
+    "message": "normalized output differs",
+    "actual": "'ass Foo:'",
+    "expected": "'class Foo:'",
+    "traceback_tail": [
+      "Traceback (most recent call last):",
+      "  File \"tests/test_directive_code.py\", line 255, in test_LiteralIncludeReader_dedent_and_append_and_prepend",
+      "AssertionError: normalized output differs"
+    ]
+  },
+  "evidence": [
+    "Requirement already satisfied: exceptiongroup>=1.0.0rc8",
+    "official failure evidence retained"
+  ]
+}

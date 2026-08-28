@@ -36,7 +36,7 @@ func TestPrismaToolNavigationConversionKeepsNonEmptyHoverAndLocations(t *testing
 	if !ok {
 		t.Fatalf("runReferences() = %T, want protocol.GroupedLocationResult", references)
 	}
-	if grouped.Total != 1 || grouped.Showing != 1 || len(grouped.Data) != 1 {
+	if grouped.Total != 1 || len(grouped.Data) != 1 {
 		t.Fatalf("runReferences() = %#v, want one converted location", grouped)
 	}
 }

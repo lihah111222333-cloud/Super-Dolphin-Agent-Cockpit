@@ -1,0 +1,4 @@
+============================= test session starts =============================
+collected 1 item
+tests/test_cds.py::test_cds_grammar_fail PASSED                              [100%]
+============================== 1 passed in 0.08s ===============================

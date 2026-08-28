@@ -120,6 +120,91 @@ func TestResolveRoutedPrompt_MainDefaultOrchestratorSectionsGateIndependently(t 
 	}
 }
 
+func TestResolveRoutedPrompt_MainGeneralZhLSPSectionsOnlyWithCanonicalTools(t *testing.T) {
+	t.Parallel()
+	requireNoLSPSections(t)
+	requireCanonicalLSPSections(t)
+	requireLSPAdvancedTriggers(t)
+	requireCompactRoundState(t)
+}
+
+func requireNoLSPSections(t *testing.T) {
+	t.Helper()
+	for _, tools := range [][]string{
+		nil,
+		{"structure"},
+		{"structure", "xref"},
+		{"structure", "diagnostics"},
+		{"xref", "diagnostics"},
+	} {
+		withoutLSP := resolveBuiltinPromptForToolsAllowEmpty(t, "main/general-zh", tools)
+		withoutKeys := baseInstructionBlockKeys(withoutLSP.BaseInstructionBlocks)
+		for _, key := range []string{"lsp_basics", "lsp_advanced"} {
+			if withoutKeys[key] {
+				t.Fatalf("No-LSP request with tools=%v injected %q: %#v", tools, key, withoutLSP.BaseInstructionBlocks)
+			}
+		}
+		body := contract.TextFromBaseInstructionBlocks(withoutLSP.BaseInstructionBlocks)
+		for _, token := range []string{"MCP-LSP", "structure", "xref", "diagnostics", "diff_filter", "changed_lines", "lsp_self_check"} {
+			if strings.Contains(body, token) {
+				t.Fatalf("No-LSP request with tools=%v contains LSP token %q: %q", tools, token, body)
+			}
+		}
+	}
+}
+
+func requireCanonicalLSPSections(t *testing.T) {
+	t.Helper()
+	withLSP := resolveBuiltinPromptForToolsAllowEmpty(t, "main/general-zh", []string{"structure", "xref", "diagnostics"})
+	withKeys := baseInstructionBlockKeys(withLSP.BaseInstructionBlocks)
+	if !withKeys["lsp_basics"] {
+		t.Fatalf("With-LSP request missing lsp_basics: %#v", withLSP.BaseInstructionBlocks)
+	}
+	withBody := contract.TextFromBaseInstructionBlocks(withLSP.BaseInstructionBlocks)
+	for _, want := range []string{"Mandatory With-LSP gate", "With-LSP 强制门禁", "任务边界", "触发矩阵", "多生产文件", "file_paths", "diff_filter", "changed_lines", "lsp_self_check", "generated", "diagnostics_unsupported", "runner", "最终硬守卫"} {
+		if !strings.Contains(withBody, want) {
+			t.Fatalf("With-LSP body missing %q: %q", want, withBody)
+		}
+	}
+}
+
+func requireLSPAdvancedTriggers(t *testing.T) {
+	t.Helper()
+	advanced := resolveBuiltinPromptForToolsAndPrompt(t, "main/general-zh", []string{"structure", "xref", "diagnostics"}, "请查引用并分析这个重构的影响面")
+	if !baseInstructionBlockKeys(advanced.BaseInstructionBlocks)["lsp_advanced"] {
+		t.Fatalf("With-LSP semantic request missing lsp_advanced: %#v", advanced.BaseInstructionBlocks)
+	}
+
+	multiProduction := resolveBuiltinPromptForToolsAndPrompt(t, "main/general-zh", []string{"structure", "xref", "diagnostics"}, "请在多个生产文件中修改共享基类，并排查跨文件失败")
+	if !baseInstructionBlockKeys(multiProduction.BaseInstructionBlocks)["lsp_advanced"] {
+		t.Fatalf("multi-production trigger missing lsp_advanced: %#v", multiProduction.BaseInstructionBlocks)
+	}
+	localOnly := resolveBuiltinPromptForToolsAndPrompt(t, "main/general-zh", []string{"structure", "xref", "diagnostics"}, "把这个局部 if 改清晰")
+	if baseInstructionBlockKeys(localOnly.BaseInstructionBlocks)["lsp_advanced"] {
+		t.Fatalf("local single-file request over-injected lsp_advanced: %#v", localOnly.BaseInstructionBlocks)
+	}
+}
+
+func requireCompactRoundState(t *testing.T) {
+	t.Helper()
+	compactNoLSP := resolveBuiltinPromptForToolsAndFlags(t, "main/general-zh", nil, map[string]bool{"round_state": true})
+	compactNoLSPKeys := baseInstructionBlockKeys(compactNoLSP.BaseInstructionBlocks)
+	if !compactNoLSPKeys["round_state"] {
+		t.Fatalf("compact round state missing without LSP: %#v", compactNoLSP.BaseInstructionBlocks)
+	}
+	compactNoLSPBody := contract.TextFromBaseInstructionBlocks(compactNoLSP.BaseInstructionBlocks)
+	for _, token := range []string{"MCP-LSP", "structure", "xref", "diagnostics", "lsp_self_check"} {
+		if strings.Contains(compactNoLSPBody, token) {
+			t.Fatalf("No-LSP compact round state contains LSP token %q: %q", token, compactNoLSPBody)
+		}
+	}
+
+	compactWithLSP := resolveBuiltinPromptForToolsAndFlags(t, "main/general-zh", []string{"structure", "xref", "diagnostics"}, map[string]bool{"round_state": true})
+	if !baseInstructionBlockKeys(compactWithLSP.BaseInstructionBlocks)["round_state"] {
+		t.Fatalf("compact round state missing with LSP: %#v", compactWithLSP.BaseInstructionBlocks)
+	}
+}
+
 func TestResolveRoutedPrompt_BuiltinDAGDesignerPromptKeyLaunchesWithToolGuidance(t *testing.T) {
 	t.Parallel()
 
@@ -203,6 +288,36 @@ func resolveBuiltinPromptForToolsAllowEmpty(t *testing.T, promptKey string, tool
 	catalog := newBuiltinPromptCatalogForTest(reg)
 	s := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
 	req := &StartRequest{CWD: "/repo/a", PromptKey: promptKey, Prompt: "hello", EnabledTools: tools}
+	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {
+		t.Fatalf("resolveRoutedPrompt() error = %v", err)
+	}
+	return req
+}
+
+func resolveBuiltinPromptForToolsAndPrompt(t *testing.T, promptKey string, tools []string, prompt string) *StartRequest {
+	t.Helper()
+	reg, err := builtinprompts.NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+	catalog := newBuiltinPromptCatalogForTest(reg)
+	s := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: promptKey, Prompt: prompt, EnabledTools: tools}
+	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {
+		t.Fatalf("resolveRoutedPrompt() error = %v", err)
+	}
+	return req
+}
+
+func resolveBuiltinPromptForToolsAndFlags(t *testing.T, promptKey string, tools []string, flags map[string]bool) *StartRequest {
+	t.Helper()
+	reg, err := builtinprompts.NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+	catalog := newBuiltinPromptCatalogForTest(reg)
+	s := &service{promptCatalog: catalog, enableWhenEval: promptpkg.EvaluateEnableWhen}
+	req := &StartRequest{CWD: "/repo/a", PromptKey: promptKey, Prompt: "hello", EnabledTools: tools, SessionFlags: flags}
 	if err := s.resolveRoutedPrompt(context.Background(), req); err != nil {
 		t.Fatalf("resolveRoutedPrompt() error = %v", err)
 	}

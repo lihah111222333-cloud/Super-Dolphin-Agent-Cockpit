@@ -8,8 +8,7 @@
 4. 使用 `rg` 搜索 `docs/doc/codemap/project-map/AI_PROJECT_MAP.md` 和 `docs/doc/codemap/ai-index.json`，缩小候选符号和路径范围。
 5. 如果代码地图分卷、项目地图和 `ai-index.json` 仍无法定位到具体源码文件或符号，先运行 `make project-map-refresh` 刷新项目地图，再重复上述地图检索；不得未刷新就直接跳过项目地图。
 6. 如果刷新后仍无法定位，先上报项目地图缺口，至少包含定位目标、已执行的刷新命令与结果、已检索范围和缺失项；然后继续等价定位，在精确源码目录使用 `rg` 搜索候选符号和路径。项目地图缺口不得被当作停止定位的理由。
-7. 读取 `docs/internal-notes/LSP系统提示词.md`；仅当地图和原生搜索仍无法确认符号归属或跨文件影响面时，使用 `structure` / `xref`。
-8. 打开精确源码文件和同包测试；修改后使用 `diagnostics` 检查改动文件。
+7. 打开精确源码文件和同包测试。
 
 行为阅读模式，适用于用户询问某个机制如何工作时：
 
@@ -18,31 +17,11 @@
 3. 使用 `docs/契约/*.md` 查看 fx、rungroup、jrpc2、sqlc、stateless、MCP 服务、洋葱架构等约定。
 4. 使用 `docs/doc/codemap/*.md` 导航大型子系统。
 5. 除非用户明确询问迁移历史，否则将 `docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**` 和旧报告视为历史规划材料。
-6. 读取 `docs/internal-notes/LSP系统提示词.md`；需要符号定义或跨文件影响证据时分别使用 `structure` / `xref`，局部源码事实直接使用原生文件工具读取。
-
 ## 远程 CI 强制契约
 
 - 任何涉及远程 CI、ECI、ImageCache、基准镜像、刷新、分片、耗时账本、缓存命中或校准资源的审查、设计和实现，开始前必须完整读取 `docs/契约/remote-ci-eci-imagecache-contract.md`。
 - 该契约冻结唯一执行路径、两小时 SQLite 抢占、后台增量刷新、无并发上限、固定规格校准和精确耗时账本。不得从 `docs/plans/**`、历史提交或旧测试恢复与其冲突的 DataCache、JSON truth source、本地 Docker、ACR 专用、并发上限或第二 executor。
 - 若当前源码与该契约不一致，任务目标是让源码收敛到契约并补架构守卫；不得通过放宽契约、添加兼容分支或保留旧入口消除失败。
-
-## LSP 三工具与原生工具分工
-
-- 共享作战法则以 `shared-developer-instructions.md` 为准：文件读取用原生 `cat` / `head`，文本定位用原生 `grep` / `rg`，代码修改用原生 `apply_patch`。
-- `cmd/mcp-lsp` 对外只暴露 `structure`、`xref`、`diagnostics`：找定义用 `structure`，查调用方和影响面用 `xref`，修改后查语法和类型错误用 `diagnostics`。
-- 不存在 `file`、`read_file`、`inspect`、`grep`、`edit`、`patch_edit`、`completion` LSP 工具或兼容别名；不得用纯 shell 命令伪造 LSP 语义结果。
-- Anti-Overkill：局部单文件小 Bug 优先用原生工具直接解决，禁止无必要的重型跨文件探索。只有定义不明、调用关系不明或影响面跨文件时才使用 `structure` / `xref`。
-- 三个 LSP 工具的入参都是封闭 JSON object。返回值只读取 MCP `content` 中的纯文本行协议（`OK` / `ERROR`、`ATTR`、`ROW`、`HINT`），不得依赖 `structuredContent`。
-- `structure(workspace_symbol)` 的无文件语言选择使用 `workspace_language`；具体文件的语言覆盖使用 `language_id`；`xref` 使用 `pos=<file>:<line>:<column>`；`diagnostics` 必须且只能传 `file_path` 或 `file_paths` 之一。
-- LSP 工具超时、不可用或返回异常时，先收窄 `work_dir`、文件、符号或结果数后重试；仍失败时记录 tool、目标、错误和已尝试的收窄方式。禁止把无法取得 diagnostics 写成 PASS。
-- diagnostics 返回的 Error、Warning、Information、Hint 均视为待处理项；无法修复时记录文件、行号、规则和原因。
-
-### 最小工作流
-
-- 局部修复：原生读取/定位 → `apply_patch` → `diagnostics` → 格式化、构建和测试。
-- 定义不明：`structure` → 原生读取精确文件 → `apply_patch` → `diagnostics` → 构建和测试。
-- 影响面不明：先 `structure` 定位符号，再 `xref` 查引用或调用层级；只扩展到真实相关文件。
-- 审查/解释：原生读取是事实来源；需要符号归属或跨文件影响证据时分别追加 `structure` / `xref`，需要诊断证据时使用 `diagnostics`。
 
 ## 上下文预算卫生
 
@@ -64,7 +43,7 @@
 - 自动加载后的技能只提供仓库事实与约束；其中与模型通用推理能力重复的流程、角色说明、方法论、示例话术和常识检查表不构成必须遵循的附加步骤。
 - 不得为了“先检查技能”而自动加载元技能；技能选择直接依据本节规则完成。
 - 使用技能前必须先完整读取对应 `SKILL.md`；仅在该文件要求时再读取 references、scripts 或 assets。
-- 未匹配到可用技能时，直接按本文件的项目地图、LSP 与验证闭环执行，禁止全量扫读技能目录。
+- 未匹配到可用技能时，直接按本文件的项目地图与验证闭环执行，禁止全量扫读技能目录。
 - 如果加载了某个技能，它的指令从属于本文件、用户最新指令和当前仓库证据。
 
 本策略管理从 `.agents/skills/*/SKILL.md` 加载代理指令的行为。它不会禁用或描述产品运行时技能管线。历史 `.agent/skills` 仅作为旧路径保留，不是规范入口，也不是人工编辑目标。运行时规范技能由本项目管理，位置包括项目内 `<cwd>/.agents/skills` 以及活跃个人根目录 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录索引，不得被扫描、镜像或当作普通个人技能处理。显式配置的提供方主目录仍可使用自己的 `skills` 目录。要检查运行时技能行为，请查看 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、提供方镜像测试以及相关 toolbridge 兼容性测试。
@@ -94,4 +73,4 @@ npm run build
 
 - **严禁盲从与局部缝补（Anti-Sycophancy & Anti-Patching）**：大模型天然存在迎合用户的顺从性偏差。严禁无原则附和用户的不合理假设或临时妥协方案；当用户设想的前提或设计存在缺陷时，严禁顺着错误思路做局部缝补，必须立即指出问题并重构为符合生产标准的正确方案。
 - **事实优先与真实场景防御**：不要假设用户已知晓所有隐式依赖与生产边界。当用户的思路或指令存在技术缺陷、架构冲突或潜在风险时，必须基于代码事实、契约规范与真实生产环境直接、客观地指出问题所在（Fail-Fast），并给出健壮、完整的正确方案。
-- **直击要害，拒绝表演与降智**：沟通以代码事实、LSP 证据、测试结果和技术因果链条为主；严禁虚伪客套、表演式认同（如“您说得对/好主意”后勉强修补），同时不得展开居高临下的常识性冗余说教。
+- **直击要害，拒绝表演与降智**：沟通以代码事实、测试结果和技术因果链条为主；严禁虚伪客套、表演式认同（如“您说得对/好主意”后勉强修补），同时不得展开居高临下的常识性冗余说教。

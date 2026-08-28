@@ -1,0 +1,14 @@
+============================= test session starts =============================
+collected 2 items
+tests/test_cds.py::test_cds_grammar_fail PASSED                              [ 50%]
+tests/test_cds.py::test_cds_grammar FAILED                                  [100%]
+=================================== FAILURES ===================================
+_______________________________ test_cds_grammar _______________________________
+E   AssertionError: normalized grammar differs
+E   assert 'ass Foo:' == 'class Foo:'
+Traceback (most recent call last):
+  File "tests/test_cds.py", line 19, in test_cds_grammar
+AssertionError: normalized grammar differs
+=========================== short test summary info ============================
+FAILED tests/test_cds.py::test_cds_grammar - AssertionError: normalized grammar differs
+========================= 1 failed, 1 passed in 2.77s ==========================

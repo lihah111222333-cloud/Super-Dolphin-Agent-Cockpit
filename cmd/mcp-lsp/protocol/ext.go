@@ -175,13 +175,23 @@ type CompactLocation struct {
 	FuncEnd   int `json:"func_end,omitempty"`
 }
 
+// ContinuationInfo 描述截断结果的稳定重查身份和已支持的收窄参数。
+// Token 只由请求/action/截断统计派生，调用方可用 NextArgs 重查而无需猜字段。
+type ContinuationInfo struct {
+	Token    string         `json:"token"`
+	Reason   string         `json:"reason"`
+	NextArgs map[string]any `json:"next_args"`
+}
+
 // GroupedLocationResult 按文件分组 compact locations，并携带截断提示。
 type GroupedLocationResult struct {
-	Data      map[string][]CompactLocation `json:"data"`
-	Total     int                          `json:"total"`
-	Showing   int                          `json:"showing"`
-	Truncated bool                         `json:"truncated,omitempty"`
-	Hint      string                       `json:"hint,omitempty"`
+	Data         map[string][]CompactLocation `json:"data"`
+	Total        int                          `json:"total"`
+	Showing      int                          `json:"showing"`
+	Truncated    bool                         `json:"truncated,omitempty"`
+	SampledFiles []string                     `json:"sampled_files,omitempty"`
+	Hint         string                       `json:"hint,omitempty"`
+	Continuation *ContinuationInfo            `json:"continuation,omitempty"`
 }
 
 // WorkspaceSymbolResult 兼容 workspace/symbol 返回的 SymbolInformation 或 WorkspaceSymbol 两种形态。

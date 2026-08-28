@@ -39,10 +39,11 @@ type hierarchyEdgeRow struct {
 }
 
 type hierarchyEdgeListResponse struct {
-	Rows  []hierarchyEdgeRow
-	Total int
-	Unit  string
-	Hint  string
+	Rows         []hierarchyEdgeRow
+	Total        int
+	Unit         string
+	Hint         string
+	Continuation *protocol.ContinuationInfo
 }
 
 // ToPlainText 渲染扁平 hierarchy edge，并按最终文本硬预算同步裁剪 showing。
@@ -61,6 +62,7 @@ func (response hierarchyEdgeListResponse) renderPlainText() string {
 	for _, row := range response.Rows {
 		lines = append(lines, hierarchyEdgeRecord(row))
 	}
+	lines = appendContinuationRecord(lines, response.Continuation)
 	if hint := strings.TrimSpace(response.Hint); hint != "" {
 		lines = append(lines, lineprotocol.TextRecord("HINT", hint))
 	}

@@ -18,12 +18,26 @@ import (
 )
 
 type strictToolUnknownFieldError struct {
-	Field string
+	Field         string
+	UnknownFields []string
+	AllowedFields []string
 }
 
 // Error 按 encoding/json 的未知字段格式返回错误信息。
 func (e *strictToolUnknownFieldError) Error() string {
 	return fmt.Sprintf("json: unknown field %q", e.Field)
+}
+
+// schemaFields 返回稳定排序的 schema 诊断字段，供 MCP 错误 envelope 使用。
+func (e *strictToolUnknownFieldError) schemaFields() (unknown, allowed []string) {
+	unknown = append([]string(nil), e.UnknownFields...)
+	if len(unknown) == 0 && strings.TrimSpace(e.Field) != "" {
+		unknown = []string{e.Field}
+	}
+	allowed = append([]string(nil), e.AllowedFields...)
+	sort.Strings(unknown)
+	sort.Strings(allowed)
+	return unknown, allowed
 }
 
 func newManagerTool[T any](
@@ -180,9 +194,23 @@ func validateStrictToolFields[T any](raw []byte) error {
 		return err
 	}
 	allowed := strictToolFieldSet[T]()
+	allowedFields := make([]string, 0, len(allowed))
+	for field := range allowed {
+		allowedFields = append(allowedFields, field)
+	}
+	sort.Strings(allowedFields)
+	unknownFields := make([]string, 0)
 	for field := range fields {
 		if _, ok := allowed[field]; !ok {
-			return &strictToolUnknownFieldError{Field: field}
+			unknownFields = append(unknownFields, field)
+		}
+	}
+	if len(unknownFields) > 0 {
+		sort.Strings(unknownFields)
+		return &strictToolUnknownFieldError{
+			Field:         unknownFields[0],
+			UnknownFields: unknownFields,
+			AllowedFields: allowedFields,
 		}
 	}
 	return nil
@@ -299,11 +327,53 @@ func unmarshalToolParams[T any](raw []byte, value *T) error {
 }
 
 func formatDecodeParamsError(err error) error {
+	if schemaErr := newStrictSchemaCodedError(err); schemaErr != nil {
+		return schemaErr
+	}
 	hint := "next: pass numeric fields as JSON numbers, string fields as JSON strings, and remove unknown fields"
 	if migration := legacyPositionMigrationHint(err); migration != "" {
 		hint = hint + "; " + migration
 	}
 	return fmt.Errorf("decode params: %w; %s", err, hint)
+}
+
+func newStrictSchemaCodedError(err error) error {
+	var unknownField *strictToolUnknownFieldError
+	if !errors.As(err, &unknownField) || unknownField == nil {
+		return nil
+	}
+	unknown, allowed := unknownField.schemaFields()
+	if len(unknown) == 0 {
+		return nil
+	}
+	return &common.CodedToolError{
+		Err:       err,
+		Code:      "schema_invalid",
+		Retryable: false,
+		Hint: fmt.Sprintf(
+			"next: remove unknown fields and retry with the documented schema; unknown_fields=%s; allowed_fields=%s; retryable=false",
+			strings.Join(unknown, ","), strings.Join(allowed, ","),
+		),
+		Meta: map[string]any{
+			"unknown_fields": unknown,
+			"allowed_fields": allowed,
+			"retryable":      false,
+		},
+	}
+}
+
+func recodeStrictSchemaError(err error, code, hint string) error {
+	var coded *common.CodedToolError
+	if !errors.As(err, &coded) || coded == nil || coded.Code != "schema_invalid" {
+		return nil
+	}
+	return &common.CodedToolError{
+		Err:       err,
+		Code:      code,
+		Retryable: false,
+		Hint:      strings.TrimSpace(hint) + "; " + coded.Hint,
+		Meta:      coded.Meta,
+	}
 }
 
 func dispatchToolAction[T any](

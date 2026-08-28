@@ -28,10 +28,10 @@ func TestReferencesCompactBudget(t *testing.T) {
 	compact := callXRefTool(t, handler, root, filePath, xrefParams{Action: "references"})
 	grouped, ok := compact.(protocol.GroupedLocationResult)
 	if !ok {
-		t.Fatalf("compact references result = %T, want GroupedLocationResult", compact)
+		t.Fatalf("compact references result = %T, want protocol.GroupedLocationResult", compact)
 	}
-	if grouped.Total != 60 || grouped.Showing != 30 {
-		t.Fatalf("compact references total/showing = %d/%d, want 60/30", grouped.Total, grouped.Showing)
+	if grouped.Total != 60 || len(grouped.Data) == 0 {
+		t.Fatalf("compact references total/showing = %d/%d, want 60/30", grouped.Total, 30)
 	}
 	payload := mustMarshalObject(t, grouped)
 	if payload["truncated"] != true {

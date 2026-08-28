@@ -1,0 +1,22 @@
+{
+  "schema": "super-dolphin/grader-report/v1",
+  "schema_version": 1,
+  "status": "failed",
+  "failure": {
+    "kind": "model_test_failure",
+    "failing_test_ids": [
+      "tests/test_cds.py::test_cds_grammar",
+      "tests/test_cds.py::test_cds_grammar"
+    ],
+    "exception": "AssertionError: normalized grammar differs",
+    "traceback": [
+      "Traceback (most recent call last):",
+      "AssertionError: normalized grammar differs"
+    ],
+    "assertion": "assert 'ass Foo:' == 'class Foo:'"
+  },
+  "source": {
+    "artifact": "candidate.patch",
+    "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

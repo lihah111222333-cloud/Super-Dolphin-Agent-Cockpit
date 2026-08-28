@@ -1,0 +1,51 @@
+model_verbosity = "medium"
+[features]
+hooks = true
+
+[features.code_mode]
+enabled = true
+# direct_only_tool_namespaces = ["mcp__lsp"]
+
+[mcp_servers.playwright]
+command = "/opt/homebrew/bin/node"
+args = [
+    "/Volumes/hello/wj/super-agent-v3/.codex/mcp/playwright/node_modules/@playwright/mcp/cli.js",
+]
+
+# [mcp_servers.lsp]
+# enabled = true
+# required = true
+# type = "stdio"
+# command = "/Volumes/hello/wj/super-agent-v3/bin/LSP/mcp-lsp-mac-arm"
+# args = []
+# cwd = "/Volumes/hello/wj/super-agent-v3"
+# startup_timeout_sec = 30.0
+# default_tools_approval_mode = "approve"
+#
+# [mcp_servers.lsp.env]
+# SUPER_DOLPHIN_RUNTIME_MODE = "dev"
+# SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = "/Volumes/hello/wj/super-agent-v3"
+# SUPER_DOLPHIN_DEPENDENCY_PROFILE = "production"
+# GO_AGENT_LSP_ROOT = "/Volumes/hello/wj"
+# GO_AGENT_LSP_ROOTS = '["/Volumes/hello/wj"]'
+#
+# [mcp_servers.lsp.tools.file]
+# approval_mode = "approve"
+#
+# [mcp_servers.lsp.tools.grep]
+# approval_mode = "approve"
+#
+# [mcp_servers.lsp.tools.structure]
+# approval_mode = "approve"
+#
+# [mcp_servers.lsp.tools.inspect]
+# approval_mode = "approve"
+#
+# [mcp_servers.lsp.tools.xref]
+# approval_mode = "approve"
+#
+# [mcp_servers.lsp.tools.completion]
+# approval_mode = "approve"
+#
+# [mcp_servers.lsp.tools.patch_edit]
+# approval_mode = "approve"

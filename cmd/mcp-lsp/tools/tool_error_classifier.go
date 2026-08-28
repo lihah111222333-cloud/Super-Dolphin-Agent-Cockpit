@@ -2,6 +2,8 @@ package tools
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/hiddenexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
@@ -35,6 +37,9 @@ func (m windowsAuthorizationMeta) asMap() map[string]any {
 // ToolErrorClassifier 将 typed Windows 5/1314 权限错误编码为稳定授权请求。
 // 它只沿 errors.As 识别 WindowsPermissionError，不读取错误文本或子进程退出码。
 func ToolErrorClassifier(_ string, err error) (common.ToolErrorClassification, bool) {
+	if classification, ok := classifyStrictSchemaError(err); ok {
+		return classification, true
+	}
 	var permissionErr *securefs.WindowsPermissionError
 	if !errors.As(err, &permissionErr) || permissionErr == nil {
 		return classifyWindowsJobPolicyError(err)
@@ -59,6 +64,32 @@ func ToolErrorClassifier(_ string, err error) (common.ToolErrorClassification, b
 			WindowsErrorCode:      permissionErr.Win32Code(),
 			WindowsPermissionKind: permissionKind.String(),
 		}.asMap(),
+	}, true
+}
+
+// classifyStrictSchemaError 将严格解码发现的字段漂移编码为不可重试的机器可读错误。
+// Unknown/allowed 字段都来自目标 DTO 的真实 JSON tag 集合，避免提示驱动调用方猜字段。
+func classifyStrictSchemaError(err error) (common.ToolErrorClassification, bool) {
+	var unknownField *strictToolUnknownFieldError
+	if !errors.As(err, &unknownField) || unknownField == nil {
+		return common.ToolErrorClassification{}, false
+	}
+	unknown, allowed := unknownField.schemaFields()
+	if len(unknown) == 0 {
+		return common.ToolErrorClassification{}, false
+	}
+	return common.ToolErrorClassification{
+		Code:      "schema_invalid",
+		Retryable: false,
+		Hint: fmt.Sprintf(
+			"next: remove unknown fields and retry with the documented schema; unknown_fields=%s; allowed_fields=%s; retryable=false",
+			strings.Join(unknown, ","), strings.Join(allowed, ","),
+		),
+		Meta: map[string]any{
+			"unknown_fields": unknown,
+			"allowed_fields": allowed,
+			"retryable":      false,
+		},
 	}, true
 }
 

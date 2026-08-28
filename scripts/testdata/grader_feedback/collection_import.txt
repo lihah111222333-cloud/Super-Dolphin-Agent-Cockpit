@@ -1,0 +1,8 @@
+============================= test session starts =============================
+collected 0 items / 1 error
+==================================== ERRORS ====================================
+ERROR collecting tests/unittest_pyreverse_writer.py
+ImportError: cannot import name 'get_annotation' from 'pylint.pyreverse.utils'
+=========================== short test summary info ============================
+ERROR tests/unittest_pyreverse_writer.py
+!!!!!!!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!
