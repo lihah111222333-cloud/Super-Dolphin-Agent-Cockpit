@@ -6829,7 +6829,7 @@
       "codemap_line": 12,
       "target_path": "internal/provider/claudecli/session_turn.go",
       "line_spec": "273-283",
-      "content_sha256": "a968c7949c98c42679722e2bf4ef06891da32959d94f69c708bc513b7c3002e9",
+      "content_sha256": "a6e67197b45549869fc67d464f3b02a7d10ee2416f9e2ef49c78ebca91370f92",
       "symbol": "validateSelectedSkillNames"
     },
     {
@@ -7129,7 +7129,7 @@
       "codemap_line": 130,
       "target_path": "internal/provider/claudecli/session.go",
       "line_spec": "228-278",
-      "content_sha256": "9bd7258747e8cede446351318befd5688cb08afbe27d1e5987350a2c10324d8e",
+      "content_sha256": "be8e3fc95033cb30960572b6f4e926d8eb3b36f48d45f4cd50c7317aaba6b157",
       "symbol": "*session.StartTurn"
     },
     {
@@ -7425,14 +7425,15 @@
       "codemap_line": 157,
       "target_path": "internal/provider/claudecli/config.go",
       "line_spec": "283-325",
-      "content_sha256": "3dd2bd2ea2c02193b03fa6be956d177cd1c77841c0213480c5248b67ebf324f3"
+      "content_sha256": "823558a17dbf5521e43203fb6e3fd26ab50b16d368c8f5393dee6e30ac11022e",
+      "symbol": "disallowedBuiltinToolsFromMap"
     },
     {
       "codemap_file": "09-provider.md",
       "codemap_line": 157,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "278-287",
-      "content_sha256": "5c7fb6917abdfc83ebddcddcdc973ce3acd3c0e726151f2cecc0a0b4ea7f921e"
+      "content_sha256": "888628c45e7a44ccaf8d7a1ecfa2623c83a54a909b09f43d51084a05cdf2a27f"
     },
     {
       "codemap_file": "09-provider.md",
@@ -7517,7 +7518,7 @@
       "codemap_line": 167,
       "target_path": "internal/provider/claudecli/session_turn.go",
       "line_spec": "273-283",
-      "content_sha256": "a968c7949c98c42679722e2bf4ef06891da32959d94f69c708bc513b7c3002e9",
+      "content_sha256": "a6e67197b45549869fc67d464f3b02a7d10ee2416f9e2ef49c78ebca91370f92",
       "symbol": "validateSelectedSkillNames"
     },
     {
@@ -7603,7 +7604,7 @@
       "codemap_line": 185,
       "target_path": "internal/provider/claudecli/session.go",
       "line_spec": "99-327",
-      "content_sha256": "6ff0ef278627490797825c965109ad18bc6bbbcbdf2103a5ba3550b08f20f797"
+      "content_sha256": "d2861525a33524568e72190d38f9e87155a491b205562f157853f8267fc95df2"
     },
     {
       "codemap_file": "09-provider.md",
@@ -8262,7 +8263,7 @@
       "codemap_line": 378,
       "target_path": "internal/provider/claudecli/config.go",
       "line_spec": "116-124",
-      "content_sha256": "e248e1a23333b4e3038b800731e635f4670cedb9b2f34e7d487987bd78c96e72",
+      "content_sha256": "0160a663fe697a745f7acf69a43f123a22900cf170a21558b30479ab2b9187b0",
       "symbol": "validateSandboxConfigKey"
     },
     {
@@ -8278,7 +8279,7 @@
       "codemap_line": 378,
       "target_path": "internal/provider/claudecli/config.go",
       "line_spec": "71-90",
-      "content_sha256": "8d2dd79ede3e2cb26d8989ec9e9c3a4cd5771c5466ede5a64632d3005c9003c6",
+      "content_sha256": "04351fa523b2a64988dbf8180f29e74cd2c4130c4d0623aebc48befca5654a85",
       "symbol": "validateClaudeSecurityConfig"
     },
     {
@@ -8364,7 +8365,7 @@
       "codemap_line": 382,
       "target_path": "internal/provider/claudecli/session.go",
       "line_spec": "170-278",
-      "content_sha256": "ecd1c6c850eb52b8905e6eb726f40e0e352d8df66c4b78bd634d4750ff8d06c3",
+      "content_sha256": "11bf1ca33410be390e32b2f729dde4cb6ca3d24742fc26850956049f3fb85258",
       "symbol": "runtimeConfigMap"
     },
     {
@@ -8379,8 +8380,7 @@
       "codemap_line": 382,
       "target_path": "internal/provider/claudecli/session.go",
       "line_spec": "288-347",
-      "content_sha256": "3d789fcfc17ce002815c932ac6d391806f1ab28725349ce9a0012c5e5d371d29",
-      "symbol": "*session.Interrupt"
+      "content_sha256": "9f45b2133e5843593bd3ce1932deb73a48c12376acbd7d9846a5fbace84df2bb"
     },
     {
       "codemap_file": "09-provider.md",
@@ -8402,7 +8402,7 @@
       "codemap_line": 383,
       "target_path": "internal/provider/claudecli/session_turn.go",
       "line_spec": "273-365",
-      "content_sha256": "5aafcd40b8c9fe49b4a9c8fffa88d64fd53b171fa2f70286bb0e4f78fa0ba703",
+      "content_sha256": "5a066e0da4bb24211ffba46590a9d3bf5d643724e1f92d39b1ed2377f92d2729",
       "symbol": "validateSelectedSkillNames"
     },
     {
@@ -8695,7 +8695,7 @@
       "codemap_line": 408,
       "target_path": "internal/provider/claudecli/config.go",
       "line_spec": "71-90",
-      "content_sha256": "8d2dd79ede3e2cb26d8989ec9e9c3a4cd5771c5466ede5a64632d3005c9003c6",
+      "content_sha256": "04351fa523b2a64988dbf8180f29e74cd2c4130c4d0623aebc48befca5654a85",
       "symbol": "validateClaudeSecurityConfig"
     },
     {
@@ -8830,7 +8830,7 @@
       "codemap_line": 430,
       "target_path": "internal/provider/claudecli/session_turn.go",
       "line_spec": "260-283",
-      "content_sha256": "584396558ce58d8b954b3658f586d6679c217893a53d409dfe93de99264073f4",
+      "content_sha256": "8d71de7df0f0da5529d3278d6db836c32f5a493ef5894bd009afa641e71d7c25",
       "symbol": "buildSteerPayload"
     },
     {
@@ -9086,7 +9086,7 @@
       "codemap_line": 476,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-287",
-      "content_sha256": "edc38e0f7420523177aa1ddd42e03fcaeb6b9f60a26a062f4dae205d5b9a4a8a",
+      "content_sha256": "c366a7b075cc91ac21e50fde0ad9cdb522927939a9278e8491f6a6f868a145aa",
       "symbol": "*driver.startSession"
     },
     {
@@ -9102,7 +9102,7 @@
       "codemap_line": 476,
       "target_path": "internal/provider/codexapp/driver_pool_routing.go",
       "line_spec": "31-127",
-      "content_sha256": "e916cd3034cc1743e492a8ce36ec3a6e401c3d1ce147e7ba23f09004c0ff421c"
+      "content_sha256": "232ad210f52aeb3a75cbe67436df44e082837ab0fda6113c51cc3b2e683dd246"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9386,7 +9386,7 @@
       "codemap_line": 487,
       "target_path": "internal/provider/codexapp/driver_pool_routing.go",
       "line_spec": "31-127",
-      "content_sha256": "e916cd3034cc1743e492a8ce36ec3a6e401c3d1ce147e7ba23f09004c0ff421c"
+      "content_sha256": "232ad210f52aeb3a75cbe67436df44e082837ab0fda6113c51cc3b2e683dd246"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9424,7 +9424,7 @@
       "codemap_line": 492,
       "target_path": "internal/provider/codexapp/driver_pool_routing.go",
       "line_spec": "31-127",
-      "content_sha256": "e916cd3034cc1743e492a8ce36ec3a6e401c3d1ce147e7ba23f09004c0ff421c"
+      "content_sha256": "232ad210f52aeb3a75cbe67436df44e082837ab0fda6113c51cc3b2e683dd246"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9530,7 +9530,7 @@
       "codemap_line": 504,
       "target_path": "internal/provider/codexapp/driver_pool_routing.go",
       "line_spec": "38-77",
-      "content_sha256": "cd7831cef899ef2ab77f41669fca7df397466d84e3822d76748f6ad9d851155b",
+      "content_sha256": "229c2890b2231a2a3937c12599c6e98b5d48461b71b47dfd3c856a6c07359ca6",
       "symbol": "*driver.prepareStartSessionRequest"
     },
     {
@@ -9553,7 +9553,7 @@
       "codemap_line": 505,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-271",
-      "content_sha256": "d46a5bdc60728f9750c98c3bf0c1127420b757bfd1190517f778fa012f2d25dd",
+      "content_sha256": "4986b28aca8b26ab3aa493de6e7b8642281e5b6a3dece383116e3c908fd0f842",
       "symbol": "*driver.startSession"
     },
     {
@@ -9577,7 +9577,7 @@
       "codemap_line": 507,
       "target_path": "internal/provider/codexapp/driver_pool_routing.go",
       "line_spec": "31-127",
-      "content_sha256": "e916cd3034cc1743e492a8ce36ec3a6e401c3d1ce147e7ba23f09004c0ff421c"
+      "content_sha256": "232ad210f52aeb3a75cbe67436df44e082837ab0fda6113c51cc3b2e683dd246"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9600,7 +9600,7 @@
       "codemap_line": 511,
       "target_path": "internal/provider/codexapp/driver_pool_routing.go",
       "line_spec": "79-113",
-      "content_sha256": "43068fb49a13cbcc0f830488a0f5229e4e825295cb35fc93f712fc39baaddb3b",
+      "content_sha256": "81f5bf895323eb1a0d43a0ff012ef49dcc32bc39b8757acd975e58f5dc8471be",
       "symbol": "validateStartCodexIdentityShape"
     },
     {
@@ -9616,7 +9616,7 @@
       "codemap_line": 513,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "278-287",
-      "content_sha256": "5c7fb6917abdfc83ebddcddcdc973ce3acd3c0e726151f2cecc0a0b4ea7f921e"
+      "content_sha256": "888628c45e7a44ccaf8d7a1ecfa2623c83a54a909b09f43d51084a05cdf2a27f"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9778,7 +9778,7 @@
       "codemap_line": 544,
       "target_path": "internal/provider/codexapp/driver_pool_routing.go",
       "line_spec": "31-127",
-      "content_sha256": "e916cd3034cc1743e492a8ce36ec3a6e401c3d1ce147e7ba23f09004c0ff421c"
+      "content_sha256": "232ad210f52aeb3a75cbe67436df44e082837ab0fda6113c51cc3b2e683dd246"
     },
     {
       "codemap_file": "09-provider.md",
@@ -10188,7 +10188,7 @@
       "codemap_line": 647,
       "target_path": "internal/provider/claudecli/session.go",
       "line_spec": "228-278",
-      "content_sha256": "9bd7258747e8cede446351318befd5688cb08afbe27d1e5987350a2c10324d8e",
+      "content_sha256": "be8e3fc95033cb30960572b6f4e926d8eb3b36f48d45f4cd50c7317aaba6b157",
       "symbol": "*session.StartTurn"
     },
     {
@@ -10297,7 +10297,7 @@
       "codemap_line": 665,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-271",
-      "content_sha256": "d46a5bdc60728f9750c98c3bf0c1127420b757bfd1190517f778fa012f2d25dd",
+      "content_sha256": "4986b28aca8b26ab3aa493de6e7b8642281e5b6a3dece383116e3c908fd0f842",
       "symbol": "*driver.startSession"
     },
     {
@@ -10361,7 +10361,7 @@
       "codemap_line": 673,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-271",
-      "content_sha256": "d46a5bdc60728f9750c98c3bf0c1127420b757bfd1190517f778fa012f2d25dd",
+      "content_sha256": "4986b28aca8b26ab3aa493de6e7b8642281e5b6a3dece383116e3c908fd0f842",
       "symbol": "*driver.startSession"
     },
     {
@@ -10416,7 +10416,7 @@
       "codemap_line": 677,
       "target_path": "internal/provider/claudecli/session_turn.go",
       "line_spec": "273-283",
-      "content_sha256": "a968c7949c98c42679722e2bf4ef06891da32959d94f69c708bc513b7c3002e9",
+      "content_sha256": "a6e67197b45549869fc67d464f3b02a7d10ee2416f9e2ef49c78ebca91370f92",
       "symbol": "validateSelectedSkillNames"
     },
     {

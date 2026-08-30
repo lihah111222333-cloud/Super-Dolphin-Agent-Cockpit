@@ -3224,6 +3224,8 @@
         "internal/provider/claudecli.*session.recordProviderSessionUUID",
         "internal/provider/claudecli.*session.recordProviderTrace",
         "internal/provider/claudecli.*session.recoverTransportAfterWriteFailure",
+        "internal/provider/claudecli.*session.requireProviderNativeSkills",
+        "internal/provider/claudecli.*session.requireProviderNativeSkillsLocked",
         "internal/provider/claudecli.*session.resetThreadReadyLocked",
         "internal/provider/claudecli.*session.resolveSettleTransport",
         "internal/provider/claudecli.*session.restartAndCheckTurnLocked",
@@ -3486,6 +3488,7 @@
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
         "internal/provider/claudecli.readClaudeSettingsModel",
+        "internal/provider/claudecli.readProviderNativeSkillsBool",
         "internal/provider/claudecli.readyChannelClosed",
         "internal/provider/claudecli.registerTranslatorsWithRuntimeHooks",
         "internal/provider/claudecli.registerTransportPID",
@@ -3572,6 +3575,7 @@
         "internal/provider/claudecli.validateConfigStringSliceKeys",
         "internal/provider/claudecli.validateConfigStringSliceValue",
         "internal/provider/claudecli.validateExpectedTurn",
+        "internal/provider/claudecli.validateProviderNativeSkillsConfig",
         "internal/provider/claudecli.validateSandboxConfigKey",
         "internal/provider/claudecli.validateSelectedSkillNames",
         "internal/provider/claudecli.validateStartCWD",
@@ -3865,6 +3869,7 @@
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.requestToolApprovalWithSender",
+        "internal/provider/codexapp.*session.requireProviderNativeSkills",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -4429,6 +4434,7 @@
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
         "internal/provider/codexapp.rawStringList",
+        "internal/provider/codexapp.readCodexProviderNativeSkillsBool",
         "internal/provider/codexapp.readLocalRollout",
         "internal/provider/codexapp.readLoopExpectedExit",
         "internal/provider/codexapp.readManagedCodexInstallRoot",
@@ -4587,6 +4593,7 @@
         "internal/provider/codexapp.validateCodexDownloadResponse",
         "internal/provider/codexapp.validateCodexNativeToolIDs",
         "internal/provider/codexapp.validateCodexNativeToolPolicyConfig",
+        "internal/provider/codexapp.validateCodexProviderNativeSkillsConfig",
         "internal/provider/codexapp.validateCodexToolEventIDs",
         "internal/provider/codexapp.validateCodexTranslatedEventIDs",
         "internal/provider/codexapp.validateCodexTurnEventIDs",
@@ -8323,6 +8330,8 @@
         "internal/provider/claudecli.*session.recordProviderSessionUUID",
         "internal/provider/claudecli.*session.recordProviderTrace",
         "internal/provider/claudecli.*session.recoverTransportAfterWriteFailure",
+        "internal/provider/claudecli.*session.requireProviderNativeSkills",
+        "internal/provider/claudecli.*session.requireProviderNativeSkillsLocked",
         "internal/provider/claudecli.*session.resetThreadReadyLocked",
         "internal/provider/claudecli.*session.resolveSettleTransport",
         "internal/provider/claudecli.*session.restartAndCheckTurnLocked",
@@ -8585,6 +8594,7 @@
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
         "internal/provider/claudecli.readClaudeSettingsModel",
+        "internal/provider/claudecli.readProviderNativeSkillsBool",
         "internal/provider/claudecli.readyChannelClosed",
         "internal/provider/claudecli.registerTranslatorsWithRuntimeHooks",
         "internal/provider/claudecli.registerTransportPID",
@@ -8671,6 +8681,7 @@
         "internal/provider/claudecli.validateConfigStringSliceKeys",
         "internal/provider/claudecli.validateConfigStringSliceValue",
         "internal/provider/claudecli.validateExpectedTurn",
+        "internal/provider/claudecli.validateProviderNativeSkillsConfig",
         "internal/provider/claudecli.validateSandboxConfigKey",
         "internal/provider/claudecli.validateSelectedSkillNames",
         "internal/provider/claudecli.validateStartCWD",
@@ -8964,6 +8975,7 @@
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.requestToolApprovalWithSender",
+        "internal/provider/codexapp.*session.requireProviderNativeSkills",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -9528,6 +9540,7 @@
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
         "internal/provider/codexapp.rawStringList",
+        "internal/provider/codexapp.readCodexProviderNativeSkillsBool",
         "internal/provider/codexapp.readLocalRollout",
         "internal/provider/codexapp.readLoopExpectedExit",
         "internal/provider/codexapp.readManagedCodexInstallRoot",
@@ -9686,6 +9699,7 @@
         "internal/provider/codexapp.validateCodexDownloadResponse",
         "internal/provider/codexapp.validateCodexNativeToolIDs",
         "internal/provider/codexapp.validateCodexNativeToolPolicyConfig",
+        "internal/provider/codexapp.validateCodexProviderNativeSkillsConfig",
         "internal/provider/codexapp.validateCodexToolEventIDs",
         "internal/provider/codexapp.validateCodexTranslatedEventIDs",
         "internal/provider/codexapp.validateCodexTurnEventIDs",
@@ -13422,6 +13436,8 @@
         "internal/provider/claudecli.*session.recordProviderSessionUUID",
         "internal/provider/claudecli.*session.recordProviderTrace",
         "internal/provider/claudecli.*session.recoverTransportAfterWriteFailure",
+        "internal/provider/claudecli.*session.requireProviderNativeSkills",
+        "internal/provider/claudecli.*session.requireProviderNativeSkillsLocked",
         "internal/provider/claudecli.*session.resetThreadReadyLocked",
         "internal/provider/claudecli.*session.resolveSettleTransport",
         "internal/provider/claudecli.*session.restartAndCheckTurnLocked",
@@ -13684,6 +13700,7 @@
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
         "internal/provider/claudecli.readClaudeSettingsModel",
+        "internal/provider/claudecli.readProviderNativeSkillsBool",
         "internal/provider/claudecli.readyChannelClosed",
         "internal/provider/claudecli.registerTranslatorsWithRuntimeHooks",
         "internal/provider/claudecli.registerTransportPID",
@@ -13770,6 +13787,7 @@
         "internal/provider/claudecli.validateConfigStringSliceKeys",
         "internal/provider/claudecli.validateConfigStringSliceValue",
         "internal/provider/claudecli.validateExpectedTurn",
+        "internal/provider/claudecli.validateProviderNativeSkillsConfig",
         "internal/provider/claudecli.validateSandboxConfigKey",
         "internal/provider/claudecli.validateSelectedSkillNames",
         "internal/provider/claudecli.validateStartCWD",
@@ -14063,6 +14081,7 @@
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.requestToolApprovalWithSender",
+        "internal/provider/codexapp.*session.requireProviderNativeSkills",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -14627,6 +14646,7 @@
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
         "internal/provider/codexapp.rawStringList",
+        "internal/provider/codexapp.readCodexProviderNativeSkillsBool",
         "internal/provider/codexapp.readLocalRollout",
         "internal/provider/codexapp.readLoopExpectedExit",
         "internal/provider/codexapp.readManagedCodexInstallRoot",
@@ -14785,6 +14805,7 @@
         "internal/provider/codexapp.validateCodexDownloadResponse",
         "internal/provider/codexapp.validateCodexNativeToolIDs",
         "internal/provider/codexapp.validateCodexNativeToolPolicyConfig",
+        "internal/provider/codexapp.validateCodexProviderNativeSkillsConfig",
         "internal/provider/codexapp.validateCodexToolEventIDs",
         "internal/provider/codexapp.validateCodexTranslatedEventIDs",
         "internal/provider/codexapp.validateCodexTurnEventIDs",
@@ -18521,6 +18542,8 @@
         "internal/provider/claudecli.*session.recordProviderSessionUUID",
         "internal/provider/claudecli.*session.recordProviderTrace",
         "internal/provider/claudecli.*session.recoverTransportAfterWriteFailure",
+        "internal/provider/claudecli.*session.requireProviderNativeSkills",
+        "internal/provider/claudecli.*session.requireProviderNativeSkillsLocked",
         "internal/provider/claudecli.*session.resetThreadReadyLocked",
         "internal/provider/claudecli.*session.resolveSettleTransport",
         "internal/provider/claudecli.*session.restartAndCheckTurnLocked",
@@ -18783,6 +18806,7 @@
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
         "internal/provider/claudecli.readClaudeSettingsModel",
+        "internal/provider/claudecli.readProviderNativeSkillsBool",
         "internal/provider/claudecli.readyChannelClosed",
         "internal/provider/claudecli.registerTranslatorsWithRuntimeHooks",
         "internal/provider/claudecli.registerTransportPID",
@@ -18869,6 +18893,7 @@
         "internal/provider/claudecli.validateConfigStringSliceKeys",
         "internal/provider/claudecli.validateConfigStringSliceValue",
         "internal/provider/claudecli.validateExpectedTurn",
+        "internal/provider/claudecli.validateProviderNativeSkillsConfig",
         "internal/provider/claudecli.validateSandboxConfigKey",
         "internal/provider/claudecli.validateSelectedSkillNames",
         "internal/provider/claudecli.validateStartCWD",
@@ -19162,6 +19187,7 @@
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.requestToolApprovalWithSender",
+        "internal/provider/codexapp.*session.requireProviderNativeSkills",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -19726,6 +19752,7 @@
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
         "internal/provider/codexapp.rawStringList",
+        "internal/provider/codexapp.readCodexProviderNativeSkillsBool",
         "internal/provider/codexapp.readLocalRollout",
         "internal/provider/codexapp.readLoopExpectedExit",
         "internal/provider/codexapp.readManagedCodexInstallRoot",
@@ -19884,6 +19911,7 @@
         "internal/provider/codexapp.validateCodexDownloadResponse",
         "internal/provider/codexapp.validateCodexNativeToolIDs",
         "internal/provider/codexapp.validateCodexNativeToolPolicyConfig",
+        "internal/provider/codexapp.validateCodexProviderNativeSkillsConfig",
         "internal/provider/codexapp.validateCodexToolEventIDs",
         "internal/provider/codexapp.validateCodexTranslatedEventIDs",
         "internal/provider/codexapp.validateCodexTurnEventIDs",
@@ -23623,6 +23651,8 @@
         "internal/provider/claudecli.*session.recordProviderSessionUUID",
         "internal/provider/claudecli.*session.recordProviderTrace",
         "internal/provider/claudecli.*session.recoverTransportAfterWriteFailure",
+        "internal/provider/claudecli.*session.requireProviderNativeSkills",
+        "internal/provider/claudecli.*session.requireProviderNativeSkillsLocked",
         "internal/provider/claudecli.*session.resetThreadReadyLocked",
         "internal/provider/claudecli.*session.resolveSettleTransport",
         "internal/provider/claudecli.*session.restartAndCheckTurnLocked",
@@ -23886,6 +23916,7 @@
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
         "internal/provider/claudecli.readClaudeSettingsModel",
+        "internal/provider/claudecli.readProviderNativeSkillsBool",
         "internal/provider/claudecli.readyChannelClosed",
         "internal/provider/claudecli.registerTranslatorsWithRuntimeHooks",
         "internal/provider/claudecli.registerTransportPID",
@@ -23973,6 +24004,7 @@
         "internal/provider/claudecli.validateConfigStringSliceKeys",
         "internal/provider/claudecli.validateConfigStringSliceValue",
         "internal/provider/claudecli.validateExpectedTurn",
+        "internal/provider/claudecli.validateProviderNativeSkillsConfig",
         "internal/provider/claudecli.validateSandboxConfigKey",
         "internal/provider/claudecli.validateSelectedSkillNames",
         "internal/provider/claudecli.validateStartCWD",
@@ -24266,6 +24298,7 @@
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.requestToolApprovalWithSender",
+        "internal/provider/codexapp.*session.requireProviderNativeSkills",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -24832,6 +24865,7 @@
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
         "internal/provider/codexapp.rawStringList",
+        "internal/provider/codexapp.readCodexProviderNativeSkillsBool",
         "internal/provider/codexapp.readLocalRollout",
         "internal/provider/codexapp.readLoopExpectedExit",
         "internal/provider/codexapp.readManagedCodexInstallRoot",
@@ -24990,6 +25024,7 @@
         "internal/provider/codexapp.validateCodexDownloadResponse",
         "internal/provider/codexapp.validateCodexNativeToolIDs",
         "internal/provider/codexapp.validateCodexNativeToolPolicyConfig",
+        "internal/provider/codexapp.validateCodexProviderNativeSkillsConfig",
         "internal/provider/codexapp.validateCodexToolEventIDs",
         "internal/provider/codexapp.validateCodexTranslatedEventIDs",
         "internal/provider/codexapp.validateCodexTurnEventIDs",
@@ -28729,6 +28764,8 @@
         "internal/provider/claudecli.*session.recordProviderSessionUUID",
         "internal/provider/claudecli.*session.recordProviderTrace",
         "internal/provider/claudecli.*session.recoverTransportAfterWriteFailure",
+        "internal/provider/claudecli.*session.requireProviderNativeSkills",
+        "internal/provider/claudecli.*session.requireProviderNativeSkillsLocked",
         "internal/provider/claudecli.*session.resetThreadReadyLocked",
         "internal/provider/claudecli.*session.resolveSettleTransport",
         "internal/provider/claudecli.*session.restartAndCheckTurnLocked",
@@ -28992,6 +29029,7 @@
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
         "internal/provider/claudecli.readClaudeSettingsModel",
+        "internal/provider/claudecli.readProviderNativeSkillsBool",
         "internal/provider/claudecli.readyChannelClosed",
         "internal/provider/claudecli.registerTranslatorsWithRuntimeHooks",
         "internal/provider/claudecli.registerTransportPID",
@@ -29079,6 +29117,7 @@
         "internal/provider/claudecli.validateConfigStringSliceKeys",
         "internal/provider/claudecli.validateConfigStringSliceValue",
         "internal/provider/claudecli.validateExpectedTurn",
+        "internal/provider/claudecli.validateProviderNativeSkillsConfig",
         "internal/provider/claudecli.validateSandboxConfigKey",
         "internal/provider/claudecli.validateSelectedSkillNames",
         "internal/provider/claudecli.validateStartCWD",
@@ -29372,6 +29411,7 @@
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.requestToolApprovalWithSender",
+        "internal/provider/codexapp.*session.requireProviderNativeSkills",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
@@ -29938,6 +29978,7 @@
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
         "internal/provider/codexapp.rawStringList",
+        "internal/provider/codexapp.readCodexProviderNativeSkillsBool",
         "internal/provider/codexapp.readLocalRollout",
         "internal/provider/codexapp.readLoopExpectedExit",
         "internal/provider/codexapp.readManagedCodexInstallRoot",
@@ -30096,6 +30137,7 @@
         "internal/provider/codexapp.validateCodexDownloadResponse",
         "internal/provider/codexapp.validateCodexNativeToolIDs",
         "internal/provider/codexapp.validateCodexNativeToolPolicyConfig",
+        "internal/provider/codexapp.validateCodexProviderNativeSkillsConfig",
         "internal/provider/codexapp.validateCodexToolEventIDs",
         "internal/provider/codexapp.validateCodexTranslatedEventIDs",
         "internal/provider/codexapp.validateCodexTurnEventIDs",
@@ -30627,12 +30669,12 @@
   ],
   "summary": {
     "total_packages": 40,
-    "total_functions": 2529,
-    "total_methods": 1332,
+    "total_functions": 2533,
+    "total_methods": 1335,
     "total_interfaces": 185,
     "total_interface_methods": 372,
     "total_exported": 1349,
-    "total_unexported": 3335,
+    "total_unexported": 3342,
     "total_structs": 638
   },
   "packages": [
@@ -76352,6 +76394,25 @@
           ]
         },
         {
+          "name": "readProviderNativeSkillsBool",
+          "exported": false,
+          "params": [
+            {
+              "name": "cfg",
+              "type": "map[string]any"
+            },
+            {
+              "name": "field",
+              "type": "contract.RuntimeConfigField"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool",
+            "error"
+          ]
+        },
+        {
           "name": "readyChannelClosed",
           "exported": false,
           "params": [
@@ -77462,6 +77523,19 @@
             {
               "name": "activeTurnID",
               "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateProviderNativeSkillsConfig",
+          "exported": false,
+          "params": [
+            {
+              "name": "cfg",
+              "type": "map[string]any"
             }
           ],
           "returns": [
@@ -79412,6 +79486,34 @@
           "receiver": "*session",
           "name": "recoverTransportAfterWriteFailure",
           "exported": false
+        },
+        {
+          "receiver": "*session",
+          "name": "requireProviderNativeSkillsLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "skills",
+              "type": "[]dto.SkillRef"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "requireProviderNativeSkills",
+          "exported": false,
+          "params": [
+            {
+              "name": "skills",
+              "type": "[]dto.SkillRef"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
         },
         {
           "receiver": "*session",
@@ -85899,6 +86001,25 @@
           ]
         },
         {
+          "name": "readCodexProviderNativeSkillsBool",
+          "exported": false,
+          "params": [
+            {
+              "name": "cfg",
+              "type": "map[string]any"
+            },
+            {
+              "name": "field",
+              "type": "contract.RuntimeConfigField"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool",
+            "error"
+          ]
+        },
+        {
           "name": "readLocalRollout",
           "exported": false,
           "params": [
@@ -87955,6 +88076,19 @@
         },
         {
           "name": "validateCodexNativeToolPolicyConfig",
+          "exported": false,
+          "params": [
+            {
+              "name": "cfg",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateCodexProviderNativeSkillsConfig",
           "exported": false,
           "params": [
             {
@@ -92844,6 +92978,20 @@
             {
               "name": "params",
               "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "requireProviderNativeSkills",
+          "exported": false,
+          "params": [
+            {
+              "name": "skills",
+              "type": "[]dto.SkillRef"
             }
           ],
           "returns": [
