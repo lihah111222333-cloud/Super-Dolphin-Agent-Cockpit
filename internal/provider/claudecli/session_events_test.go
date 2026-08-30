@@ -190,7 +190,6 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 	})
 
 	d := &driver{
-		mirror:     &recordingMirrorReconciler{},
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}
@@ -230,7 +229,6 @@ func TestDriverResumeSessionPublishesPublicThreadID(t *testing.T) {
 
 	d := &driver{
 		eventDispatcher: dispatcher,
-		mirror:          &recordingMirrorReconciler{},
 		launchCLI:       launchFn,
 		authStatus:      loggedInClaudeAuthStatus,
 	}
@@ -265,7 +263,6 @@ func TestDriverResumeSessionAppliesRuntimeToolSafetyConfig(t *testing.T) {
 	})
 
 	d := &driver{
-		mirror:     &recordingMirrorReconciler{},
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}
@@ -320,7 +317,6 @@ func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
 	})
 
 	d := &driver{
-		mirror:     &recordingMirrorReconciler{},
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}
@@ -358,7 +354,6 @@ func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
 	})
 
 	d := &driver{
-		mirror:     &recordingMirrorReconciler{},
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}

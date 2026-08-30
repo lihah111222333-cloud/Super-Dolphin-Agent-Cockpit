@@ -24,9 +24,9 @@ func SectionInvalidatorConcurrent(t *testing.T, factory func() contract.SectionI
 		perWriter = 200
 	)
 	sectionNames := []string{
-		contract.DynamicSectionMemory,
-		contract.DynamicSectionMemoryEntrypoint,
-		contract.DynamicSectionMemoryContext,
+		contract.DynamicSectionSessionGuidance,
+		contract.DynamicSectionRecallCatalog,
+		contract.DynamicSectionPersonalizationProfile,
 	}
 
 	ctx := t.Context()
@@ -41,13 +41,13 @@ func SectionInvalidatorConcurrent(t *testing.T, factory func() contract.SectionI
 				default:
 				}
 				name := sectionNames[(seed+j)%len(sectionNames)]
-				_ = inv.InvalidateSections(contract.InvalidateMemoryWrite, name)
+				_ = inv.InvalidateSections(contract.InvalidateClear, name)
 			}
 		})
 	}
 	wg.Wait()
 
-	gen := inv.InvalidateSections(contract.InvalidateMemoryWrite, contract.DynamicSectionMemory)
+	gen := inv.InvalidateSections(contract.InvalidateClear, contract.DynamicSectionSessionGuidance)
 	if gen == 0 {
 		t.Fatalf("InvalidateSections() final generation = 0; expected monotonically increasing counter")
 	}

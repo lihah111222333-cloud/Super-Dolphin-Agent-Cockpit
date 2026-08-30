@@ -240,7 +240,7 @@ func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T)
 		"ctl/register",
 		"dashboard/agentStatus",
 		"dashboard/insights/list",
-		"memory/consolidate",
+		"prompt-sections/list",
 		"zeta/method",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -266,7 +266,7 @@ func mkdirExtractJSONRPCMethodsFixtureDirs(t *testing.T, repoRoot string) {
 	for _, dir := range []string{
 		"internal/module/thread",
 		"internal/module/dashboard",
-		"internal/module/memory",
+		"internal/module/prompt",
 		"internal/platform/mcpcontrol",
 		"internal/contract",
 		"internal/dto/mcp",
@@ -311,11 +311,11 @@ func writeExtractJSONRPCMethodsMethodFixtures(t *testing.T, repoRoot string) {
 		"}",
 		"",
 	}, "\n"))
-	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/memory/scan.go", strings.Join([]string{
-		"package memory",
+	writeExtractJSONRPCMethodsFixture(t, repoRoot, "internal/module/prompt/scan.go", strings.Join([]string{
+		"package prompt",
 		"",
 		"func helperReturn() handler.Map {",
-		"\treturn handler.Map{\"memory/consolidate\": nil}",
+		"\treturn handler.Map{\"prompt-sections/list\": nil}",
 		"}",
 		"",
 	}, "\n"))

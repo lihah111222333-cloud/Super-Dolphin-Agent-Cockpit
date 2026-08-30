@@ -14,7 +14,7 @@ func TestSQLiteReleaseGatePackageSmokeCommandUsesWorkerXvfb(t *testing.T) {
 	fixture := newSQLitePackageSmokeCommandFixture(t)
 	assertSQLitePackageSmokeCommand(t, fixture)
 	assertSQLitePackageSmokeRuntimePath(t, fixture.gitPath, fixture.xvfbRun)
-	assertSQLitePackageSmokeMemoryOverride(t, fixture.stage)
+	assertSQLitePackageSmokeEnvIsolation(t, fixture.stage)
 }
 
 type sqlitePackageSmokeCommandFixture struct {
@@ -60,17 +60,17 @@ func assertSQLitePackageSmokeRuntimePath(t *testing.T, gitPath, xvfbRun string) 
 	}
 }
 
-func assertSQLitePackageSmokeMemoryOverride(t *testing.T, stage sqliteReleaseGateUnsignedPackage) {
+func assertSQLitePackageSmokeEnvIsolation(t *testing.T, stage sqliteReleaseGateUnsignedPackage) {
 	t.Helper()
 	home := t.TempDir()
-	inheritedOverride := filepath.Join(t.TempDir(), "inherited-memory")
-	t.Setenv("MULTI_AGENT_MEMORY_PATH_OVERRIDE", inheritedOverride)
+	inheritedPath := filepath.Join(t.TempDir(), "inherited-path")
+	t.Setenv(sqlitePackageSmokeInheritedEnvKey, inheritedPath)
 	env := sqliteReleaseGatePackageSmokeEnv(t, stage, home, t.TempDir())
-	wantOverride := "MULTI_AGENT_MEMORY_PATH_OVERRIDE=" + filepath.Join(home, "memory")
-	if !slices.Contains(env, wantOverride) {
-		t.Fatalf("remote worker package smoke env missing isolated memory override %q", wantOverride)
+	wantPath := sqlitePackageSmokeInheritedEnvKey + "=" + filepath.Join(home, "isolated")
+	if !slices.Contains(env, wantPath) {
+		t.Fatalf("remote worker package smoke env missing isolated inherited-path value %q", wantPath)
 	}
-	if slices.Contains(env, "MULTI_AGENT_MEMORY_PATH_OVERRIDE="+inheritedOverride) {
-		t.Fatalf("remote worker package smoke env retained inherited memory override %q", inheritedOverride)
+	if slices.Contains(env, sqlitePackageSmokeInheritedEnvKey+"="+inheritedPath) {
+		t.Fatalf("remote worker package smoke env retained inherited path %q", inheritedPath)
 	}
 }

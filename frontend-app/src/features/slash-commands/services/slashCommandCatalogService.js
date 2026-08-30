@@ -4,7 +4,6 @@ import {
   adaptPromptCommands,
   promptContentFromResponse,
 } from '../adapters/promptSlashCommandAdapter.js';
-import { adaptSkillCommands } from '../adapters/skillSlashCommandAdapter.js';
 import {
   getDashboardPage,
   getDashboardPrompts,
@@ -21,9 +20,6 @@ const defaultApi = Object.freeze({
 
 export function createSlashCommandCatalogService(api = defaultApi) {
   return Object.freeze({
-    async loadSkills(cwd) {
-      return adaptSkillCommands(await api.getDashboardPage({ cwd, page: 'skills' }));
-    },
     async loadPrompts(cwd) {
       return adaptPromptCommands(await api.getDashboardPrompts({ cwd }));
     },

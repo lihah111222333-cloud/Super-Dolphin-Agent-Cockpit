@@ -152,6 +152,7 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("claude", "resume")
 	// SessionUUID must look like a real UUID so the resume logic prefers it
 	// over the stale ProviderThreadID placeholder when the CLI file exists.
 	const realUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
@@ -201,6 +202,7 @@ func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("claude", "resume")
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-1",
 		Provider:      "claude",

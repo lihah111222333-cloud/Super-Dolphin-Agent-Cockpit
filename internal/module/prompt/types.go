@@ -62,7 +62,6 @@ const (
 	InvalidateWorktree       = contract.InvalidateWorktree
 	InvalidateResumeRestore  = contract.InvalidateResumeRestore
 	InvalidateProviderSwitch = contract.InvalidateProviderSwitch
-	InvalidateMemoryWrite    = contract.InvalidateMemoryWrite
 )
 
 // SnapshotVersion 是 prompt 组装快照的当前版本号。

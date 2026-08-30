@@ -7,7 +7,7 @@ let App;
 let state;
 let waitForBackendThreadHeading;
 function createSharedFileState() {
-  let memoryFiles = [
+  let sharedFiles = [
     {
       path: 'reports/final.md',
       content: 'final summary',
@@ -23,8 +23,7 @@ function createSharedFileState() {
   ];
   return {
     payload: () => ({
-      files: memoryFiles,
-      memory: memoryFiles,
+      files: sharedFiles,
       finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
       sharedFileRetention: {
         items: [
@@ -36,10 +35,10 @@ function createSharedFileState() {
       },
     }),
     add(file) {
-      memoryFiles = [...memoryFiles, file];
+      sharedFiles = [...sharedFiles, file];
     },
     remove(path) {
-      memoryFiles = memoryFiles.filter((item) => item.path !== path);
+      sharedFiles = sharedFiles.filter((item) => item.path !== path);
     },
   };
 }
@@ -52,10 +51,6 @@ function mockSharedFileWorkflow(sharedFiles) {
     updatedBy: path === 'reports/final.md' ? 'dag-runner' : 'agent',
     updatedAt: '2026-05-30T08:30:00Z',
   }));
-  backend.deleteSharedFile.mockImplementation(({ path }) => {
-    sharedFiles.remove(path);
-    return Promise.resolve({ deleted: true });
-  });
   backend.saveTextFile.mockResolvedValue('/exports/work.json');
 }
 
@@ -109,7 +104,6 @@ async function refreshSharedFilesFromFocus(sharedFiles) {
 async function previewFinalSharedFile() {
   const finalCard = screen.getByText('final.md').closest('article');
   expect(within(finalCard).getByText('最终产物')).toBeInTheDocument();
-  expect(within(finalCard).getByRole('button', { name: '不可删除' })).toBeDisabled();
   fireEvent.click(within(finalCard).getByRole('button', { name: '打开' }));
 
   expect(await screen.findByRole('dialog', { name: '文件预览' })).toBeInTheDocument();
@@ -118,7 +112,7 @@ async function previewFinalSharedFile() {
   fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 }
 
-async function exportAndDeleteWorkSharedFile() {
+async function exportWorkSharedFile() {
   const workCard = screen.getByText('work.json').closest('article');
   fireEvent.click(within(workCard).getByRole('button', { name: '导出' }));
   await waitFor(() => {
@@ -130,13 +124,6 @@ async function exportAndDeleteWorkSharedFile() {
   });
   expect(await screen.findByText(/已保存到：\/exports\/work\.json/)).toBeInTheDocument();
 
-  fireEvent.click(within(workCard).getByRole('button', { name: '删除' }));
-  expect(await screen.findByRole('dialog', { name: '删除文件' })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-  await waitFor(() => {
-    expect(backend.deleteSharedFile).toHaveBeenCalledWith({ path: 'scratch/work.json' });
-  });
-  expect(await screen.findByText(/已删除文件：scratch\/work\.json/)).toBeInTheDocument();
 }
 
 async function continueChatFromFinalSharedFile() {
@@ -170,7 +157,7 @@ function mockWorkflowDagLifecycle() {
     },
   };
   backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-    page === 'dags' ? { dags: [dag] } : { skills: [] },
+    page === 'dags' ? { dags: [dag] } : {},
   ));
   backend.getDagDetail.mockResolvedValue({ dag, nodes: [agentNode] });
   let hasActiveRun = false;
@@ -349,7 +336,7 @@ export function createAppTestRoutes(nextContext) {
     refreshSharedFilesFromBridge: (...args) => refreshSharedFilesFromBridge(...args),
     refreshSharedFilesFromFocus: (...args) => refreshSharedFilesFromFocus(...args),
     previewFinalSharedFile: (...args) => previewFinalSharedFile(...args),
-    exportAndDeleteWorkSharedFile: (...args) => exportAndDeleteWorkSharedFile(...args),
+    exportWorkSharedFile: (...args) => exportWorkSharedFile(...args),
     continueChatFromFinalSharedFile: (...args) => continueChatFromFinalSharedFile(...args),
     mockWorkflowDagLifecycle: (...args) => mockWorkflowDagLifecycle(...args),
     openWorkflowDashboard: (...args) => openWorkflowDashboard(...args),

@@ -47,18 +47,6 @@ func TestBoundary_DynamicLivesInUncachedTail_MCPInstructions(t *testing.T) {
 	}
 }
 
-// TestBoundary_MemoryIsStartOnly 固定 memory behavior-rules 只在 start 阶段注入。
-// AssembleTurn 不能重复输出该 section，避免每 turn 动态内容无界膨胀。
-func TestBoundary_MemoryIsStartOnly(t *testing.T) {
-	spec, ok := dynamicSectionSpecForName(DynamicSectionMemory)
-	if !ok {
-		t.Fatal("memory slot missing from dynamic matrix")
-	}
-	if !spec.startOnly {
-		t.Fatalf("memory slot must be startOnly=true; got spec=%#v", spec)
-	}
-}
-
 // TestBoundary_RuntimeExtrasExcludesStaticSections 防止 static section 被镜像到 runtimeExtras。
 // static 内容已经在可缓存 system prompt 前缀中，若再次进入 synthetic user meta，
 // 会导致每 turn 重复发送完整静态正文并破坏 prompt cache。
@@ -94,31 +82,5 @@ func TestBoundary_RuntimeExtrasExcludesStaticSections(t *testing.T) {
 		if strings.Contains(extras, marker) {
 			t.Fatalf("runtimeExtras leaks static section %q; static content must stay in cacheable prefix only:\nextras=%s", marker, extras)
 		}
-	}
-}
-
-// TestBoundary_MemorySectionRelativeOrder 固定持久记忆相关动态 section 的顺序。
-// memory 规则必须先于 MEMORY.md 渲染内容，让模型先看到使用方式再看到索引正文；
-// agent_memory 产品面已移除，prompt 契约不能保留静默空 section。
-func TestBoundary_MemorySectionRelativeOrder(t *testing.T) {
-	if _, ok := dynamicSectionSpecForName("agent_memory"); ok {
-		t.Fatal("agent memory dynamic section must not be registered")
-	}
-	wantOrder := []string{
-		DynamicSectionMemory,
-		DynamicSectionMemoryEntrypoint,
-		DynamicSectionMemoryContext,
-	}
-	prev := -1
-	for _, name := range wantOrder {
-		spec, ok := dynamicSectionSpecForName(name)
-		if !ok {
-			t.Fatalf("section %q missing from dynamic spec list", name)
-		}
-		if spec.order <= prev {
-			t.Fatalf("section %q order=%d not strictly greater than previous (=%d); want order memory < memory_entrypoint < memory_context",
-				name, spec.order, prev)
-		}
-		prev = spec.order
 	}
 }

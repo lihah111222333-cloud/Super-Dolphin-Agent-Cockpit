@@ -377,7 +377,7 @@ func codexAppResumeIdentityContractCase() contracttest.Case {
 			}
 		})
 		reporter := &stubRuntimeReporter{}
-		d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, mirror: &recordingSkillMirrorReconciler{}, skillMetrics: testSkillMetrics(t)}
+		d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), reporter: reporter, skillMetrics: testSkillMetrics(t)}
 		resumed, err := d.ResumeSession(context.Background(), req)
 		if err != nil {
 			t.Fatalf("ResumeSession() error = %v", err)
@@ -399,7 +399,7 @@ func codexAppToolbridgeContractCase() contracttest.Case {
 		serverURL := startToolBridgeRPCServer(t, recorder)
 		manager := &ServerManager{}
 		listToolsCalls := 0
-		got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 			listToolsCalls++
 			return []codexprotocol.DynamicToolSchema{{
 				Name:        "contract.echo",
@@ -620,7 +620,6 @@ func newCodexAppContractDriverEnv() *codexAppContractDriverEnv {
 	env.driver = &driver{logRuntime: newTestLoggerRuntime(),
 		approvals:    testApprovalManager(),
 		pool:         pool,
-		mirror:       &recordingSkillMirrorReconciler{},
 		skillMetrics: skillmetrics.NewRegistry(),
 		listTools:    func(context.Context) ([]codexprotocol.DynamicToolSchema, error) { return nil, nil },
 	}

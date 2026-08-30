@@ -17,7 +17,6 @@ import (
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	datasource "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/datasource"
-	memory "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory"
 	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
 	thread "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
 	turnpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
@@ -27,7 +26,6 @@ import (
 type fxHarness struct {
 	assembly      promptpkg.PromptAssemblyService
 	registry      promptpkg.PromptRegistry
-	memorySvc     memory.Service
 	threadSvc     thread.Service
 	bridge        *capturingSessionBridge
 	threadStore   *capturingThreadStore
@@ -35,20 +33,6 @@ type fxHarness struct {
 	orchestration *capturingOrchestration
 	projectRoot   string
 	codexHome     string
-}
-
-func TestFxMemoryPromptIntegration(t *testing.T) {
-	h := newFxHarness(t)
-	if h.assembly == nil || h.registry == nil || h.memorySvc == nil || h.threadSvc == nil {
-		t.Fatalf("fx wiring incomplete: assembly=%v registry=%v memory=%v thread=%v", h.assembly != nil, h.registry != nil, h.memorySvc != nil, h.threadSvc != nil)
-	}
-	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex", CWD: h.projectRoot})
-	if err != nil {
-		t.Fatalf("AssembleStart() error = %v", err)
-	}
-	if !hasSection(start.ResolvedSections, promptpkg.DynamicSectionMemory) {
-		t.Fatalf("ResolvedSections missing %q: %#v", promptpkg.DynamicSectionMemory, start.ResolvedSections)
-	}
 }
 
 func TestAssembleStartProducesValidOutput(t *testing.T) {
@@ -121,24 +105,6 @@ func TestDatasourceInjectsIntoTurnPrompt(t *testing.T) {
 	datasourceSection := sectionContent(turn.ResolvedSections, promptpkg.DynamicSectionDatasource)
 	mustContain(t, datasourceSection, "### launch-notes.txt")
 	mustContain(t, datasourceSection, "datasource text from FX wiring")
-}
-
-func TestMemoryRulesInjectIntoPrompt(t *testing.T) {
-	h := newFxHarness(t)
-	start, err := h.assembly.AssembleStart(context.Background(), promptpkg.StartInput{Provider: "codex", CWD: h.projectRoot})
-	if err != nil {
-		t.Fatalf("AssembleStart() error = %v", err)
-	}
-	if !hasSection(start.ResolvedSections, promptpkg.DynamicSectionMemory) {
-		t.Fatalf("ResolvedSections missing %q: %#v", promptpkg.DynamicSectionMemory, start.ResolvedSections)
-	}
-	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
-	// newFxHarness wires both AutoMemPath and TeamMemPath, which triggers
-	// buildCombinedMemoryPrompt (memory/rules.go): combined mode inserts
-	// "### 2. memory scope" after "### 1. memory system", pushing taxonomy
-	// to section #3. Standard mode (BuildMemoryLines, exercised in
-	// internal/module/memory/rules_test.go) still keeps taxonomy at #2.
-	mustContain(t, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory), "### 3. taxonomy")
 }
 
 func TestSectionCacheInvalidation(t *testing.T) {
@@ -219,7 +185,6 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 	}
 	start := h.bridge.startReq.StartAssembly
 	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.SectionIdentity))
-	mustContain(t, start.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
 	if h.bridge.startReq.Instructions != h.bridge.startReq.StartAssembly.BaseInstructions {
 		t.Fatalf("provider Instructions = %q, want provider StartAssembly.BaseInstructions %q", h.bridge.startReq.Instructions, h.bridge.startReq.StartAssembly.BaseInstructions)
 	}
@@ -227,7 +192,6 @@ func TestFullChainFromThreadToProvider(t *testing.T) {
 		t.Fatalf("provider display name = %q, want %q", h.bridge.startReq.StartAssembly.DisplayName, start.DisplayName)
 	}
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.SectionIdentity))
-	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, sectionContent(start.ResolvedSections, promptpkg.DynamicSectionMemory))
 	mustContain(t, h.bridge.startReq.StartAssembly.BaseInstructions, "existing base tail")
 	if got := configString(h.bridge.startReq.Config, "developerInstructions"); got != "be concise" {
 		t.Fatalf("developerInstructions = %q, want developer tail only", got)
@@ -301,9 +265,6 @@ func newFxHarness(t *testing.T) *fxHarness {
 		t.Fatalf("canonicalize codex home fixture: %v", err)
 	}
 	h.codexHome = canonicalCodexHome
-	t.Setenv("ENABLE_MEMORY_SYSTEM", "1")
-	t.Setenv("MULTI_AGENT_MEMORY_FEATURE_TEAMMEM", "1")
-	t.Setenv("MULTI_AGENT_MEMORY_DIR", filepath.Join(h.projectRoot, "memory"))
 	rolloutPath := filepath.Join(h.projectRoot, "rollout-019e0bcb-0cf7-7982-964f-c2654783ba17.jsonl")
 	if err := os.WriteFile(rolloutPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write rollout fixture: %v", err)
@@ -347,9 +308,8 @@ func newFxHarness(t *testing.T) *fxHarness {
 			return reg.RegisterDynamicProvider(provider)
 		}),
 		promptpkg.Module,
-		memory.Module,
 		thread.Module,
-		fx.Populate(&h.assembly, &h.registry, &h.memorySvc, &h.threadSvc),
+		fx.Populate(&h.assembly, &h.registry, &h.threadSvc),
 	)
 	if err := app.Err(); err != nil {
 		t.Fatalf("fx.New() error = %v", err)

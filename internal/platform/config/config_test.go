@@ -449,8 +449,6 @@ func TestNew_RejectsInvalidPresentEnvValues(t *testing.T) {
 		key   string
 		value string
 	}{
-		{name: "skill bool", key: "SKILL_PROGRESSIVE_DISCLOSURE", value: "sometimes"},
-		{name: "skill token budget", key: "SKILL_TOKEN_BUDGET", value: "0"},
 		{name: "agent bool", key: "PERSISTENT_SUBAGENT_DEFAULT", value: "enabled"},
 		{name: "notify bool", key: "NOTIFY_ALLOW_PRIVATE_CIDR", value: "not-bool"},
 		{name: "notify timeout", key: "NOTIFY_TIMEOUT_SECONDS", value: "-1"},

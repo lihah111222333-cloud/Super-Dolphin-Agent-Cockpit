@@ -14,8 +14,8 @@ var Module = fx.Module("turn",
 		NewToolResultRuntime,
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndTurnContext,
-			// 这些跨模块依赖均为可选注入：缺失时 turn 仍能启动，只跳过对应的 skill、observation、dedupe 或 tracing 能力。
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, ""),
+			// 跨模块依赖均为可选注入；skills 由 provider-native discovery 负责，不再注入 V3 lookup。
+			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, ""),
 			// 同时发布完整 turn.Service 和窄接口 TurnThreadCleaner，避免 thread 模块反向导入 turn 包。
 			fx.As(new(Service)),
 			fx.As(new(contract.TurnThreadCleaner)),
@@ -27,19 +27,6 @@ var Module = fx.Module("turn",
 			NewTurnHandlers,
 			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, "", `optional:"true"`),
 		),
-		// 轨迹收集器允许缺少 observation 依赖；这种部署仍能启动，只是不补终态/token/skill 快照。
-		fx.Annotate(
-			NewTrajectoryCollector,
-			fx.ParamTags(`optional:"true"`, `optional:"true"`),
-		),
-		fx.Annotate(
-			NewTrajectorySubscribers,
-			fx.ParamTags("", `optional:"true"`, `optional:"true"`),
-		),
-		// skill evaluator 是无外部依赖的纯判断器，直接提供默认实现即可。
-		NewDefaultEvaluator,
-		func(e *DefaultEvaluator) Evaluator { return e },
-		func() Redactor { return NewDefaultRedactor() },
 	),
 	fx.Invoke(registerTurnServiceLifecycle),
 )

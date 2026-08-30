@@ -192,6 +192,9 @@ func trimStartRequest(req StartRequest) StartRequest {
 	req.Language = strings.TrimSpace(req.Language)
 	req.GitRoot = strings.TrimSpace(req.GitRoot)
 	req.ToolSurfaceMode = strings.TrimSpace(req.ToolSurfaceMode)
+	// LaunchSkillRefs is a compatibility carrier; strip legacy full-text bodies
+	// before any downstream prompt, persistence, or provider boundary sees it.
+	req.LaunchSkillRefs = cloneProviderSkillRefs(req.LaunchSkillRefs)
 	return req
 }
 
@@ -289,6 +292,18 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
+	if err := contract.ValidateLegacyMemoryPromptSections(assembly.ResolvedSections); err != nil {
+		return nil, err
+	}
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(assembly.Snapshot); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(assembly.Snapshot.Provider) != "" && !strings.EqualFold(strings.TrimSpace(assembly.Snapshot.Provider), strings.TrimSpace(req.Provider)) {
+		return nil, fmt.Errorf("thread: start prompt snapshot provider mismatch: snapshot=%q provider=%q", assembly.Snapshot.Provider, req.Provider)
+	}
+	if assembly.Snapshot.Version != 0 && assembly.Snapshot.Version != contract.PromptAssemblySnapshotVersion {
+		return nil, fmt.Errorf("thread: prompt snapshot version %d is invalid", assembly.Snapshot.Version)
+	}
 	cwd, err := resolveStartCWD(req.CWD)
 	if err != nil {
 		return nil, err
@@ -314,22 +329,18 @@ func (s *service) startSession(ctx context.Context, req StartRequest, input cont
 		StartAssembly:   toProviderStartAssembly(assembly),
 		Config:          config,
 		ToolSurfaceMode: req.ToolSurfaceMode,
-		// 兼容旧 wire 载体；当前 skill 运行时由 canonical skills 到 provider 镜像的同步链路解析。
+		// 兼容旧 wire 载体；provider 只接收选择元数据，正文和目录发现由 provider-native runtime 负责。
 		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
 		LaunchSkillRefs:   cloneProviderSkillRefs(req.LaunchSkillRefs),
 		ForceLaunchSkills: req.ForceLaunchSkills,
 	})
 }
 
-// cloneProviderSkillRefs 复制透传给 provider 的 skill ref 切片。
-// 启动请求后续会继续写入状态快照，复制可以避免 provider 侧持有调用方可变底层数组。
+// cloneProviderSkillRefs 复制透传给 provider 的 skill ref 元数据切片。
+// Prompt 是旧 wire 的全文 carrier，启动边界只保留引用元数据并显式清空正文；
+// 同时复制切片，避免 provider 侧持有调用方可变底层数组。
 func cloneProviderSkillRefs(refs []dto.SkillRef) []dto.SkillRef {
-	if len(refs) == 0 {
-		return nil
-	}
-	out := make([]dto.SkillRef, len(refs))
-	copy(out, refs)
-	return out
+	return contract.CloneProviderSkillRefsMetadataOnly(refs)
 }
 
 // logStartProviderSessionIdentity 记录启动后的 provider session 身份。
@@ -406,6 +417,12 @@ func (s *service) resumeForkSession(ctx context.Context, req ResumeRequest) (con
 func (s *service) resumeResolvedSession(ctx context.Context, resolvedReq ResumeRequest) (contract.Session, error) {
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
+	}
+	// resumeForkSession 不经过 hydrate/store 路径，必须在这里再次执行完整
+	// snapshot 边界校验，确保旧 memory section、错误版本或伪造 hash 不会
+	// 在 kickoff 已启动后才由 provider 拒绝。
+	if err := validatePromptSnapshotForReuse(resolvedReq.PromptSnapshot, resolvedReq.Provider); err != nil {
+		return nil, fmt.Errorf("thread: resume prompt snapshot: %w", err)
 	}
 	if err := validateHydratedResumeRequest(resolvedReq); err != nil {
 		return nil, err

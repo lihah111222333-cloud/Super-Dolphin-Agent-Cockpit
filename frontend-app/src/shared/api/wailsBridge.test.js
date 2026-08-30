@@ -1484,19 +1484,19 @@ describe('wails bridge frontend trace emitter', () => {
 
     expect(emitFrontendTraceEvent({
       phase: 'frontend.warning',
-      method: 'memory.badge.refresh.failed',
-      trace_id: 'trace-memory-1',
-      span_id: 'span-memory-1',
+      method: 'workflow.refresh.failed',
+      trace_id: 'trace-workflow-1',
+      span_id: 'span-workflow-1',
       thread_id: 'thread-1',
       status: 'error',
-      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
-      metadata: { component: 'memory', req_id: 17, prompt: 'secret prompt must not leak' },
+      error: '自动化列表加载超时，请检查后端状态。',
+      metadata: { component: 'workflow', req_id: 17, prompt: 'secret prompt must not leak' },
     })).toBe(true);
     expect(emitFrontendTraceEvent({
       phase: 'frontend.warning',
-      method: 'memory.raw.failed',
-      trace_id: 'trace-memory-2',
-      span_id: 'span-memory-2',
+      method: 'workflow.raw.failed',
+      trace_id: 'trace-workflow-2',
+      span_id: 'span-workflow-2',
       status: 'error',
       error: 'prompt secret must not leak',
     })).toBe(true);
@@ -1526,13 +1526,13 @@ describe('wails bridge frontend trace emitter', () => {
     });
     expect(events[0]).toEqual(expect.objectContaining({
       phase: 'frontend.warning',
-      method: 'memory.badge.refresh.failed',
-      trace_id: 'trace-memory-1',
-      span_id: 'span-memory-1',
+      method: 'workflow.refresh.failed',
+      trace_id: 'trace-workflow-1',
+      span_id: 'span-workflow-1',
       thread_id: 'thread-1',
       status: 'error',
-      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
-      metadata: { component: 'memory', req_id: 17 },
+      error: '自动化列表加载超时，请检查后端状态。',
+      metadata: { component: 'workflow', req_id: 17 },
     }));
     expect(events[1]).not.toHaveProperty('error');
     expect(events[2]).toEqual(expect.objectContaining({
@@ -1568,9 +1568,9 @@ describe('wails bridge frontend trace emitter', () => {
 
     expect(emitFrontendTraceEvent({
       phase: 'frontend.warning',
-      method: 'memory.badge.refresh.failed',
-      trace_id: 'trace-memory-invalid-status',
-      span_id: 'span-memory-invalid-status',
+      method: 'workflow.refresh.failed',
+      trace_id: 'trace-workflow-invalid-status',
+      span_id: 'span-workflow-invalid-status',
       status: 'warn',
     })).toBe(false);
     await waitForTraceFlush();

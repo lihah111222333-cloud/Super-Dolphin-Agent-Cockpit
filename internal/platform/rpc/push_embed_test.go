@@ -341,7 +341,6 @@ func TestThreadPatchSourceMatchesMethodAliases(t *testing.T) {
 		{name: "tool completed", source: "tool/completed", method: eventsurface.MethodItemCompleted, want: true},
 		{name: "command approval requested", source: "tool/approvalRequested", method: eventsurface.MethodCommandApprovalRequested, want: true},
 		{name: "file approval requested", source: "tool/approvalRequested", method: eventsurface.MethodFileApprovalRequested, want: true},
-		{name: "skill approval requested", source: "tool/approvalRequested", method: eventsurface.MethodSkillApprovalRequested, want: true},
 		{name: "approval resolved", source: "tool/approvalResolved", method: eventsurface.MethodApprovalResolved, want: true},
 		{name: "diff updated raw source", source: "tool/diffUpdated", method: "turn/diff/updated", want: true},
 	}

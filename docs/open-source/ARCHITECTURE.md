@@ -58,7 +58,7 @@ The architecture favors narrow ports, explicit ownership, fail-fast errors, gene
 | `cmd/agent-terminal` | Desktop entrypoint, Wails host, frontend embedding, RPC boundary | Business rules that belong to modules |
 | `internal/app` | Dependency injection and anti-corruption adapters | New product capabilities or persistence schemas |
 | `internal/contract` | Stable cross-module ports, events, and DTO-facing contracts | Imports from modules, providers, stores, UI, or commands |
-| `internal/module` | Product capabilities such as thread, turn, cron, memory, skill, and prompt behavior | Direct store implementation or database ownership |
+| `internal/module` | Product capabilities such as thread, turn, cron, and prompt behavior; provider-native CLIs own skill and context discovery, while memory remains a compatibility contract | Direct store implementation or database ownership |
 | `internal/platform` | Shared runtime infrastructure such as RPC, configuration, events, process safety, and observability | Product-module or store dependencies |
 | `internal/provider` | Codex and provider-specific runtime/transport integration | Product database ownership or direct store imports |
 | `internal/store` | Persistence adapters and sqlc-backed storage | Business policy that belongs to a module |

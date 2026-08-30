@@ -137,6 +137,12 @@ type SessionThreadRef struct {
 // ValidateResumePromptSnapshot 校验 resume 请求必须携带可复用的启动提示快照。
 // auto-resume 和 provider adapter 共用这道边界，避免空快照进入运行时后再隐式补默认提示。
 func ValidateResumePromptSnapshot(snapshot PromptAssemblySnapshot) error {
+	// Legacy memory markers are a terminal ownership violation.  Classify them
+	// before generic version/content checks so a malformed old snapshot cannot
+	// hide the stable deny sentinel behind a stale-version error.
+	if err := ValidateLegacyMemoryPromptSnapshot(snapshot); err != nil {
+		return err
+	}
 	if snapshot.Version != PromptAssemblySnapshotVersion {
 		return fmt.Errorf("resume prompt snapshot version %d is invalid", snapshot.Version)
 	}
@@ -148,6 +154,28 @@ func ValidateResumePromptSnapshot(snapshot PromptAssemblySnapshot) error {
 		resumePromptBoundaryBlank(snapshot.Boundary) &&
 		len(snapshot.SectionSnapshot) == 0 {
 		return fmt.Errorf("resume prompt snapshot content is empty")
+	}
+	return nil
+}
+
+// ValidateResumePromptSnapshotForProvider extends the structural resume
+// contract with the provider-owner check used at provider and unified
+// boundaries.  A snapshot may be structurally valid yet belong to another
+// provider; callers must reject that cross-owner payload before launching.
+func ValidateResumePromptSnapshotForProvider(snapshot PromptAssemblySnapshot, provider string) error {
+	if err := ValidateResumePromptSnapshot(snapshot); err != nil {
+		return err
+	}
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return fmt.Errorf("resume prompt snapshot provider is required")
+	}
+	snapshotProvider := strings.TrimSpace(snapshot.Provider)
+	if snapshotProvider == "" {
+		return fmt.Errorf("resume prompt snapshot provider is required")
+	}
+	if !strings.EqualFold(snapshotProvider, provider) {
+		return fmt.Errorf("resume prompt snapshot provider mismatch: snapshot=%q provider=%q", snapshotProvider, provider)
 	}
 	return nil
 }

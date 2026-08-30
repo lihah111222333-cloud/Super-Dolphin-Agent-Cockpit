@@ -2,12 +2,6 @@
 
 import {
   parseDashboardPromptsResponse,
-  parseMemoryAutoDreamIntentResponse,
-  parseMemoryConsolidationJobResponse,
-  parseMemoryEntryDeleteResponse,
-  parseMemoryEntryDetailResponse,
-  parseMemorySimilarityIgnoreResponse,
-  parseMemorySnapshotResponse,
   parseModelProviderRegistryResponse,
   parseObservabilityResultResponse,
   parsePersonalizationProfileResponse,
@@ -17,11 +11,7 @@ import {
   parsePromptIntentDiscardResponse,
   parsePromptIntentDraftResponse,
   parsePromptIntentDryRunResponse,
-  parseSharedFileDeleteResponse,
-  parseSharedFileDetailResponse,
   parseSharedFilesDashboardResponse,
-  parseSkillToolMutationResponse,
-  parseSkillToolsListResponse,
   parseWorkflowMaterialWriteResponse,
 } from './backendSchemas.js';
 
@@ -40,7 +30,6 @@ import {
   validateOpenWindowResponse,
   validateProjectsStateResponse,
   validateRuntimeConfigResponse,
-  validateSkillReadResponse,
   validateThreadCompactResponse,
   validateThreadConfigResponse,
   validateThreadForkResponse,
@@ -161,29 +150,9 @@ function validateSchemaResponse(method, response, parser) {
 /** @type {(method: string, response: unknown) => unknown} */
 const validateObservabilityResultResponse = (method, response) => validateSchemaResponse(method, response, parseObservabilityResultResponse);
 /** @type {(method: string, response: unknown) => unknown} */
-const validateMemorySnapshotResponse = (method, response) => validateSchemaResponse(method, response, parseMemorySnapshotResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateSkillToolsListResponse = (method, response) => validateSchemaResponse(method, response, parseSkillToolsListResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateSkillToolMutationResponse = (method, response) => validateSchemaResponse(method, response, parseSkillToolMutationResponse);
-/** @type {(method: string, response: unknown) => unknown} */
 const validateSharedFilesDashboardResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFilesDashboardResponse);
 /** @type {(method: string, response: unknown) => unknown} */
-const validateSharedFileDetailResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFileDetailResponse);
-/** @type {(method: string, response: unknown) => unknown} */
 const validateParsedModelProviderRegistryResponse = (method, response) => validateSchemaResponse(method, response, parseModelProviderRegistryResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateMemoryEntryDetailResponse = (method, response) => validateSchemaResponse(method, response, parseMemoryEntryDetailResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateMemoryEntryDeleteResponse = (method, response) => validateSchemaResponse(method, response, parseMemoryEntryDeleteResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateMemoryAutoDreamIntentResponse = (method, response) => validateSchemaResponse(method, response, parseMemoryAutoDreamIntentResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateMemorySimilarityIgnoreResponse = (method, response) => validateSchemaResponse(method, response, parseMemorySimilarityIgnoreResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateMemoryConsolidationJobResponse = (method, response) => validateSchemaResponse(method, response, parseMemoryConsolidationJobResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateSharedFileDeleteResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFileDeleteResponse);
 /** @type {(method: string, response: unknown) => unknown} */
 const validateWorkflowMaterialWriteResponse = (method, response) => validateSchemaResponse(method, response, parseWorkflowMaterialWriteResponse);
 /** @type {(method: string, response: unknown) => unknown} */
@@ -252,152 +221,6 @@ function validateRequiredFields(method, value, label, fields) {
       throw new TypeError(`${method} response ${label}.${key} must be a boolean`);
     }
   }
-}
-
-/** @param {string} method @param {unknown} value @param {string} label */
-function validateStringArray(method, value, label) {
-  const items = assertResponseArray(method, value, label);
-  items.forEach((item, index) => {
-    if (typeof item !== 'string') {
-      throw new TypeError(`${method} response ${label}[${index}] must be a string`);
-    }
-  });
-}
-
-/** @param {string} method @param {unknown} response */
-function validateSkillFilesResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  assertOnlyResponseKeys(method, value, new Set(['dir', 'files']), 'body');
-  validateStringFields(method, value, 'body', ['dir'], []);
-  const files = assertResponseArray(method, value.files, 'body.files');
-  files.forEach((raw, index) => {
-    const label = `body.files[${index}]`;
-    const file = assertResponseRecord(method, raw, label);
-    assertOnlyResponseKeys(method, file, new Set(['name', 'path', 'size', 'is_main']), label);
-    validateRequiredFields(method, file, label, {
-      stringKeys: ['name', 'path'], integerKeys: ['size'], booleanKeys: ['is_main'],
-    });
-    if (typeof file.size !== 'number' || file.size < 0) {
-      throw new TypeError(`${method} response ${label}.size must be non-negative`);
-    }
-  });
-  return value;
-}
-
-/** @param {string} method @param {unknown} response @param {string} label */
-function validateSkillImportItem(method, response, label) {
-  const item = assertResponseRecord(method, response, label);
-  assertOnlyResponseKeys(method, item, new Set(['name', 'dir', 'skill_file', 'source', 'files', 'bytes']), label);
-  validateRequiredFields(method, item, label, {
-    stringKeys: ['name', 'dir', 'skill_file', 'source'], integerKeys: ['files', 'bytes'],
-  });
-}
-
-/** @param {string} method @param {unknown} response @param {string} label */
-function validateSkillMirrorReport(method, response, label) {
-  const report = assertResponseRecord(method, response, label);
-  assertOnlyResponseKeys(method, report, new Set(['published', 'skipped', 'deleted', 'conflicts']), label);
-  for (const key of ['published', 'skipped', 'deleted', 'conflicts']) {
-    if (!hasOwn(report, key)) continue;
-    const items = assertResponseArray(method, report[key], `${label}.${key}`);
-    items.forEach((raw, index) => {
-      const itemLabel = `${label}.${key}[${index}]`;
-      const item = assertResponseRecord(method, raw, itemLabel);
-      assertOnlyResponseKeys(method, item, new Set(['target_id', 'provider', 'scope', 'relative_mirror_path', 'canonical_id', 'old_hash', 'new_hash', 'conflict_kind', 'error']), itemLabel);
-      validateStringFields(method, item, itemLabel, ['target_id'], ['provider', 'scope', 'relative_mirror_path', 'canonical_id', 'old_hash', 'new_hash', 'conflict_kind', 'error']);
-    });
-  }
-}
-
-/** @param {string} method @param {unknown} response */
-function validateSkillImportResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  assertOnlyResponseKeys(method, value, new Set(['requested', 'imported', 'failures', 'skill', 'mirror_publish']), 'body');
-  validateRequiredFields(method, value, 'body', { stringKeys: [], integerKeys: ['requested'] });
-  const imported = assertResponseArray(method, value.imported, 'body.imported');
-  imported.forEach((item, index) => validateSkillImportItem(method, item, `body.imported[${index}]`));
-  if (hasOwn(value, 'failures')) {
-    assertResponseArray(method, value.failures, 'body.failures').forEach((raw, index) => {
-      const label = `body.failures[${index}]`;
-      const failure = assertResponseRecord(method, raw, label);
-      assertOnlyResponseKeys(method, failure, new Set(['source', 'error']), label);
-      validateStringFields(method, failure, label, ['source', 'error'], []);
-    });
-  }
-  if (hasOwn(value, 'skill')) validateSkillImportItem(method, value.skill, 'body.skill');
-  if (imported.length > 0 && !hasOwn(value, 'mirror_publish')) {
-    throw new TypeError(`${method} response body.mirror_publish is required when skills were imported`);
-  }
-  if (hasOwn(value, 'mirror_publish')) validateSkillMirrorReport(method, value.mirror_publish, 'body.mirror_publish');
-  return value;
-}
-
-/** @param {string} method @param {unknown} response */
-function validateSkillSummarySuggestionResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  assertOnlyResponseKeys(method, value, new Set(['description']), 'body');
-  validateStringFields(method, value, 'body', ['description'], []);
-  return value;
-}
-
-/** @param {string} method @param {unknown} response @param {string} label */
-function validateSkillResolutionSource(method, response, label) {
-  const source = assertResponseRecord(method, response, label);
-  assertOnlyResponseKeys(method, source, new Set(['scope', 'canonical_id', 'personal_type', 'content_hash', 'canonical_hash', 'path', 'skill_file']), label);
-  validateStringFields(method, source, label, ['scope', 'canonical_id'], ['personal_type', 'content_hash', 'canonical_hash', 'path', 'skill_file']);
-}
-
-/** @param {string} method @param {unknown} response @param {string} label */
-function validateSkillResolutionListItem(method, response, label) {
-  const item = assertResponseRecord(method, response, label);
-  assertOnlyResponseKeys(method, item, new Set(['conflict_id', 'kind', 'scope', 'personal_type', 'name', 'available_actions', 'provider_entries', 'sources']), label);
-  validateStringFields(method, item, label, ['conflict_id', 'kind', 'name'], ['scope', 'personal_type']);
-  validateStringArray(method, item.available_actions, `${label}.available_actions`);
-  if (hasOwn(item, 'provider_entries')) {
-    assertResponseArray(method, item.provider_entries, `${label}.provider_entries`).forEach((raw, index) => {
-      const entryLabel = `${label}.provider_entries[${index}]`;
-      const entry = assertResponseRecord(method, raw, entryLabel);
-      assertOnlyResponseKeys(method, entry, new Set(['provider', 'source_path', 'target_path', 'source_hash', 'target_hash', 'target_id', 'source_path_id']), entryLabel);
-      validateStringFields(method, entry, entryLabel, ['provider'], ['source_path', 'target_path', 'source_hash', 'target_hash', 'target_id', 'source_path_id']);
-    });
-  }
-  if (hasOwn(item, 'sources')) {
-    assertResponseArray(method, item.sources, `${label}.sources`).forEach((raw, index) => validateSkillResolutionSource(method, raw, `${label}.sources[${index}]`));
-  }
-}
-
-/** @param {string} method @param {unknown} response */
-function validateSkillResolutionListResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  assertOnlyResponseKeys(method, value, new Set(['items']), 'body');
-  assertResponseArray(method, value.items, 'body.items').forEach((item, index) => validateSkillResolutionListItem(method, item, `body.items[${index}]`));
-  return value;
-}
-
-/** @param {string} method @param {unknown} response */
-function validateSkillResolutionPreviewResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  assertOnlyResponseKeys(method, value, new Set(['conflict_id', 'kind', 'items']), 'body');
-  validateStringFields(method, value, 'body', ['conflict_id', 'kind'], []);
-  assertResponseArray(method, value.items, 'body.items').forEach((raw, index) => {
-    const label = `body.items[${index}]`;
-    const item = assertResponseRecord(method, raw, label);
-    assertOnlyResponseKeys(method, item, new Set(['action', 'provider', 'preview_id', 'source_provider', 'source_path_id', 'source_path', 'target_path', 'source_hash', 'target_hash', 'preview_hash', 'backup_path', 'confirm_delete_mirror_hash', 'diff']), label);
-    validateStringFields(method, item, label, ['action'], ['provider', 'preview_id', 'source_provider', 'source_path_id', 'source_path', 'target_path', 'source_hash', 'target_hash', 'preview_hash', 'backup_path', 'confirm_delete_mirror_hash', 'diff']);
-  });
-  return value;
-}
-
-/** @param {string} method @param {unknown} response */
-function validateSkillResolutionApplyResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  assertOnlyResponseKeys(method, value, new Set(['action', 'name', 'resultingHash', 'partialFailure', 'followUpAction']), 'body');
-  validateRequiredFields(method, value, 'body', {
-    stringKeys: ['action', 'name', 'resultingHash', 'followUpAction'],
-    integerKeys: [],
-    booleanKeys: ['partialFailure'],
-  });
-  return value;
 }
 
 /** @param {string} method @param {unknown} response @param {string} label */
@@ -548,17 +371,6 @@ export function createBackendResponseValidators(methods) {
     [methods.UI_WINDOW_BOOTSTRAP_GET]: validateWindowBootstrapResponse,
     [methods.UI_SIDEBAR_GET]: validateSidebarStateResponse,
     [methods.UI_STATE_GET]: validateUIStateResponse,
-    [methods.UI_MEMORY_GET]: validateMemorySnapshotResponse,
-    [methods.UI_MEMORY_ENTRY_GET]: validateMemoryEntryDetailResponse,
-    [methods.UI_MEMORY_ENTRY_UPSERT]: validateMemoryEntryDetailResponse,
-    [methods.UI_MEMORY_ENTRY_DELETE]: validateMemoryEntryDeleteResponse,
-    [methods.UI_MEMORY_AUTO_DREAM_SET_INTENT]: validateMemoryAutoDreamIntentResponse,
-    [methods.UI_MEMORY_ENTRY_MERGE]: validateMemoryEntryDetailResponse,
-    [methods.UI_MEMORY_SIMILARITY_IGNORE]: validateMemorySimilarityIgnoreResponse,
-    [methods.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START]: validateMemoryConsolidationJobResponse,
-    [methods.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS]: validateMemoryConsolidationJobResponse,
-    [methods.UI_SHARED_FILE_GET]: validateSharedFileDetailResponse,
-    [methods.UI_SHARED_FILE_DELETE]: validateSharedFileDeleteResponse,
     [methods.PROMPT_ASSETS_LIST]: validatePromptAssetsResponse,
     [methods.PROMPTS_GET]: validatePromptDetailResponse,
     [methods.PROMPTS_WRITE]: validatePromptDetailResponse,
@@ -569,15 +381,6 @@ export function createBackendResponseValidators(methods) {
     [methods.PROMPT_INTENTS_DRY_RUN]: validatePromptIntentDryRunResponse,
     [methods.PERSONALIZATION_PROFILE_GET]: validatePersonalizationProfileResponse,
     [methods.PERSONALIZATION_PROFILE_SAVE]: validatePersonalizationProfileResponse,
-    [methods.SKILLS_LOCAL_READ]: validateSkillReadResponse,
-    [methods.SKILLS_LOCAL_LIST_FILES]: validateSkillFilesResponse,
-    [methods.SKILLS_LOCAL_IMPORT_DIR]: validateSkillImportResponse,
-    [methods.SKILLS_SUMMARY_SUGGEST]: validateSkillSummarySuggestionResponse,
-    [methods.SKILLS_RESOLUTION_LIST]: validateSkillResolutionListResponse,
-    [methods.SKILLS_RESOLUTION_PREVIEW]: validateSkillResolutionPreviewResponse,
-    [methods.SKILLS_RESOLUTION_APPLY]: validateSkillResolutionApplyResponse,
-    [methods.SKILL_TOOLS_LIST]: validateSkillToolsListResponse,
-    [methods.SKILL_TOOLS_CREATE]: validateSkillToolMutationResponse,
 	[methods.DATASOURCE_V2_IMPORT_LOCAL_FILE]: validateDatasourceImportResponse,
     [methods.DATASOURCE_V2_LIST]: validateDatasourceDocumentsResponse,
     [methods.DATASOURCE_V2_GET]: validateDatasourceDetailResponse,

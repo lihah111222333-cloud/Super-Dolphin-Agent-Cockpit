@@ -18,18 +18,21 @@ import (
 )
 
 type session struct {
-	agentID              string
-	threadID             string
-	publicThreadID       string
-	sessionID            string
-	threadReady          chan struct{}
-	transport            *transport
-	caps                 dto.CapabilitySet
-	history              *historyBackend
-	logger               *slog.Logger
-	eventDispatcher      *unified.EventDispatcher
-	binaryPath           string
-	cwd                  string
+	agentID         string
+	threadID        string
+	publicThreadID  string
+	sessionID       string
+	threadReady     chan struct{}
+	transport       *transport
+	caps            dto.CapabilitySet
+	history         *historyBackend
+	logger          *slog.Logger
+	eventDispatcher *unified.EventDispatcher
+	binaryPath      string
+	cwd             string
+	// nativeContext 保存 start/resume 入口已验证的 provider-native 身份；
+	// transport restart 只能复用这份经过 canonical CWD 校验的上下文。
+	nativeContext        contract.ProviderNativeContext
 	launchCLI            func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error)
 	model                string
 	transportModel       string

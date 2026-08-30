@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FilesPage } from './FilesPage.jsx';
 
 const backend = vi.hoisted(() => ({
-  deleteSharedFile: vi.fn(),
   listSharedFilesDashboard: vi.fn(),
   openSharedFile: vi.fn(),
   readSharedFile: vi.fn(),

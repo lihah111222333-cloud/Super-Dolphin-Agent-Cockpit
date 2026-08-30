@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createFilesPageService } from '../files/services/filesPageService.js';
-import { createMemoryPageService } from '../memory/services/memoryPageService.js';
 import { createObservabilityPageService } from '../observability/services/observabilityPageService.js';
 import { createPromptPageService } from '../prompts/services/promptPageService.js';
 
@@ -67,68 +66,6 @@ describe('feature service DTO golden harness', () => {
       method: 'saveTextFile',
       input: { defaultFilename: 'notes.md' },
       message: 'file content is required',
-    });
-  });
-
-  it('captures memory upsertMemoryEntry normalized DTOs', async () => {
-    await expectDtoGolden({
-      factory: createMemoryPageService,
-      methods: ['upsertMemoryEntry'],
-      method: 'upsertMemoryEntry',
-      input: {
-        cwd: ' /repo ',
-        target: ' private ',
-        existingPath: ' memory/old.md ',
-        name: ' feedback-rule ',
-        description: ' write tests first ',
-        type: ' feedback ',
-        content: ' keep DTOs owned by services ',
-        title: 'untouched title',
-      },
-      expectedPayload: {
-        cwd: '/repo',
-        target: 'private',
-        existingPath: 'memory/old.md',
-        name: 'feedback-rule',
-        description: 'write tests first',
-        type: 'feedback',
-        content: 'keep DTOs owned by services',
-        title: 'untouched title',
-      },
-    });
-
-    await expectSyncDtoError({
-      factory: createMemoryPageService,
-      methods: ['upsertMemoryEntry'],
-      method: 'upsertMemoryEntry',
-      input: {
-        cwd: ' /repo ',
-        target: ' private ',
-        existingPath: '',
-        name: ' feedback-rule ',
-        description: ' write tests first ',
-        type: ' feedback ',
-        content: ' ',
-      },
-      message: 'content is required',
-    });
-  });
-
-  it('captures memory mergeMemoryEntries identity validation', async () => {
-    await expectDtoGolden({
-      factory: createMemoryPageService,
-      methods: ['mergeMemoryEntries'],
-      method: 'mergeMemoryEntries',
-      input: { cwd: ' /repo ', targetA: ' private ', pathA: ' a.md ', targetB: ' team ', pathB: ' b.md ' },
-      expectedPayload: { cwd: '/repo', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' },
-    });
-
-    await expectSyncDtoError({
-      factory: createMemoryPageService,
-      methods: ['mergeMemoryEntries'],
-      method: 'mergeMemoryEntries',
-      input: { cwd: '/repo', targetA: 'private', pathA: ' a.md ', targetB: 'private', pathB: 'a.md' },
-      message: 'source and target memory identity must be different',
     });
   });
 

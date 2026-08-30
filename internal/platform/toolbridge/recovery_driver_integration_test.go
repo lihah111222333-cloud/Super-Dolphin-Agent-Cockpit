@@ -37,7 +37,7 @@ func TestManagedAdmissionFailureStopsRealDriverBeforeRemoteThreadStart(t *testin
 		executor,
 		&task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("unsafe", `{"type":"object"}`)}},
 	)
-	factory, err := codexapp.NewDriverFactory(nil, nil, platformrpc.NewApprovalManager(nil, nil), nil, &codexapp.ServerManager{}, pool, recoveryDriverSkillMirror{}, nil)
+	factory, err := codexapp.NewDriverFactory(nil, nil, platformrpc.NewApprovalManager(nil, nil), nil, &codexapp.ServerManager{}, pool, nil)
 	if err != nil {
 		t.Fatalf("codexapp.NewDriverFactory() error = %v", err)
 	}
@@ -80,12 +80,6 @@ func TestManagedAdmissionFailureStopsRealDriverBeforeRemoteThreadStart(t *testin
 	if got := remoteStarts.Load(); got != 0 {
 		t.Fatalf("remote thread/start calls = %d, want 0", got)
 	}
-}
-
-type recoveryDriverSkillMirror struct{}
-
-func (recoveryDriverSkillMirror) ReconcileProviderMirrors(context.Context, string, []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
-	return contract.SkillMirrorReport{}, nil
 }
 
 type recoveryDriverSpawnedServer struct{ url string }

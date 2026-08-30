@@ -36,7 +36,7 @@
 - 看 dashboard cwd 去 [07-module-read.md](07-module-read.md) §2.4。
 - 看 blank-thread `startThread -> sendMessage` 去 [07-module-write.md](07-module-write.md) §5。
 - 看 thread/start、turn/start 后端落点去 [07-module-write.md](07-module-write.md) §2.4、§3.4。
-- 看 memory / prompt snapshot 如何并入启动链，去 [11-memory.md](11-memory.md) §5.5 B；prompt 入口位仍看 [11-prompt-thread.md](11-prompt-thread.md)。
+- 看 prompt snapshot 如何并入启动链，去 [11-prompt-thread.md](11-prompt-thread.md) §4、§6；memory 仅看 [11-memory.md](11-memory.md) 的兼容契约与拒绝边界。
 
 ## 最近一次重大变更摘要
 
@@ -57,6 +57,6 @@
 | 符号 / 主题 | 去哪看 |
 |---|---|
 | `frontend-app/src/App.jsx` / `useClientStore.js` / `backendApi.js` | [01-terminal-ui-react.md](01-terminal-ui-react.md) |
-| `sendDraft` / `SkillsPage` / `backendApi.js` | [01-terminal-ui-react.md](01-terminal-ui-react.md) |
+| `sendDraft` / `PromptPageView` / `backendApi.js` | [01-terminal-ui-react.md](01-terminal-ui-react.md) |
 | `requestScopeRoots` / `resolveSaveTarget` / `findScopedFiles` | [01-terminal-ui-go.md](01-terminal-ui-go.md) §4.6 |
 | `openNewWindow` / `ao_ui_bootstrap` / `ao_window_cwd` | [01-terminal-ui-go.md](01-terminal-ui-go.md) §4.7 |

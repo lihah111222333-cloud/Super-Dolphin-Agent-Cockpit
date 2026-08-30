@@ -32,36 +32,6 @@ func TestBusCallbackGuard(t *testing.T) {
 		}, "thread/module.go reintroduced pre-P2 late-setter injection from registerSubscriptions")
 	})
 
-	// auto-dream 的事件回调只能进入调度器队列，不能在回调内直接启动后台调度。
-	runBusCallbackGuardSubtest(t, "bus_callback_must_not_schedule_auto_dream", func(t *testing.T) {
-		assertFileLacksForbiddenTokens(t, "internal/module/memory/auto_dream_task.go", []string{
-			"func (h *MemoryLifecycleHooks) onThreadStopped",
-			"go func() {\n\t\tif _, err := h.maybeScheduleAutoDream",
-			"p.Hooks.onThreadStopped(",
-		}, "auto_dream_task.go reintroduced pre-P2 fire-and-forget auto-dream scheduling")
-	})
-
-	// memory bus 回调不能直接触发 nested tool result 的同步读写慢路径。
-	// worker 拥有 AddToolReadResult 和磁盘 I/O，callback wiring 文件只负责轻量转发。
-	runBusCallbackGuardSubtest(t, "bus_callback_must_not_do_synchronous_file_io", func(t *testing.T) {
-		assertFileLacksForbiddenTokens(t, "internal/module/memory/module.go", []string{
-			"p.NestedRuntime.AddToolReadResult(",
-			"os.ReadFile(",
-			"os.WriteFile(",
-		}, "memory/module.go reintroduced pre-P2 synchronous nested-read / file I/O on bus callback path")
-	})
-
-	// TeamSync 会话生命周期由 coordinator 管理，memory bus 回调不能直接 start/stop。
-	// callback-wiring 文件禁止保留高层 helper 和底层生命周期动词，避免绕过 coordinator。
-	runBusCallbackGuardSubtest(t, "bus_callback_must_not_start_session", func(t *testing.T) {
-		assertFileLacksForbiddenTokens(t, "internal/module/memory/module.go", []string{
-			"teampkg.StartSessionFromThreadEvent(",
-			"teampkg.StopSessionFromThreadEvent(",
-			".StartSession(",
-			".StopSession(",
-		}, "memory/module.go reintroduced pre-P2 TeamSync lifecycle calls on bus callback path")
-	})
-
 	// hooks event relay 的慢路径由 dispatch worker 承担，bus 回调体不能再起裸 goroutine。
 	// DispatchAfter 也必须留在可 drain 的 worker 内，避免停止阶段丢失后台任务。
 	runBusCallbackGuardSubtest(t, "bus_callback_must_not_fire_and_forget_goroutine", func(t *testing.T) {

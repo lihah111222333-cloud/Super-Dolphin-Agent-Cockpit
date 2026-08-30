@@ -1,7 +1,6 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { expect, vi } from 'vitest';
-import { normalizeMemorySnapshot as normalizeMemorySnapshotForFacade } from '../adapters/memoryAdapter.js';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { expect } from 'vitest';
 
 let backend;
 let App;
@@ -409,87 +408,6 @@ async function createGeneratedPromptIntent() {
   });
 }
 
-function createSimilaritySnapshots() {
-  const group = {
-    nameA: 'A', targetA: 'private', pathA: 'feedback/a.md',
-    nameB: 'B', targetB: 'team', pathB: 'feedback/b.md',
-    score: 0.88,
-  };
-  // 与真实 facade 输出一致：parse + transform 后的扁平 { overview, entries } 形态。
-  const snapshotWithSimilar = normalizeMemorySnapshotForFacade({
-    overview: {
-      enabled: true,
-      autoDreamEnabled: true,
-      projectRoot: '/repo/app', writeAvailable: true,
-      health: {
-        preferenceCount: 2,
-        projectCount: 0,
-        maxPerCategory: 15,
-        similarGroups: [group],
-      },
-    },
-    private: { entries: [] },
-    team: { entries: [] },
-  });
-  const snapshotWithoutSimilar = {
-    ...snapshotWithSimilar,
-    overview: {
-      ...snapshotWithSimilar.overview,
-      health: {
-        ...snapshotWithSimilar.overview.health,
-        similarGroups: [],
-      },
-    },
-  };
-  return { snapshotWithSimilar, snapshotWithoutSimilar };
-}
-
-async function openMemoryCenterWithSimilarity() {
-  render(<App />);
-  await waitForBackendThreadHeading();
-  await waitFor(() => {
-    expect(screen.getByLabelText('记忆中心').querySelector('i')).toHaveAttribute('title', '1 条待整合相似记忆');
-  });
-
-  fireEvent.click(screen.getByLabelText('记忆中心'));
-  expect(await screen.findByText('1 组条目内容相似')).toBeInTheDocument();
-}
-
-async function runConsolidationUntilSimilaritiesClear(clearSimilarities) {
-  vi.useFakeTimers();
-  try {
-    fireEvent.click(screen.getByRole('button', { name: '一键整合全部' }));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(backend.startConsolidateMemorySimilarities).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: '/repo/app',
-      provider: 'codex',
-      codexModelProvider: 'openai',
-    }));
-    expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledWith({ cwd: '/repo/app', jobId: 'memory-job-live' });
-    expect(screen.getByRole('button', { name: '后台整合中' })).toBeDisabled();
-
-    clearSimilarities();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-      await Promise.resolve();
-    });
-  }
-  finally {
-    vi.useRealTimers();
-  }
-}
-
-function expectSimilarityWarningCleared() {
-  expect(screen.queryByText('1 组条目内容相似')).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: '一键整合全部' })).not.toBeInTheDocument();
-  expect(screen.getByText('已整合 1 组')).toBeInTheDocument();
-  expect(screen.getByLabelText('记忆中心').querySelector('i')).toBeNull();
-}
-
 export function createAppTestObservabilityFeatures(nextContext) {
   backend = nextContext.backend;
   App = nextContext.App;
@@ -515,9 +433,5 @@ export function createAppTestObservabilityFeatures(nextContext) {
     editAndDeleteReviewerPrompt: (...args) => editAndDeleteReviewerPrompt(...args),
     handlePendingPromptDraft: (...args) => handlePendingPromptDraft(...args),
     createGeneratedPromptIntent: (...args) => createGeneratedPromptIntent(...args),
-    createSimilaritySnapshots: (...args) => createSimilaritySnapshots(...args),
-    openMemoryCenterWithSimilarity: (...args) => openMemoryCenterWithSimilarity(...args),
-    runConsolidationUntilSimilaritiesClear: (...args) => runConsolidationUntilSimilaritiesClear(...args),
-    expectSimilarityWarningCleared: (...args) => expectSimilarityWarningCleared(...args),
   };
 }

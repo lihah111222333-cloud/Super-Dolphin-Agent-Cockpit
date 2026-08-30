@@ -33,7 +33,7 @@ const OPEN_WINDOW_RESPONSE_KEYS = new Set(['ok', 'windowId', 'cwd']);
 const CODE_SAVE_RESPONSE_KEYS = new Set(['ok', 'filePath', 'relative', 'totalLines', 'contentVersion']);
 const PROJECTS_STATE_RESPONSE_KEYS = new Set(['projects', 'active']);
 const OK_RESPONSE_KEYS = new Set(['ok']);
-const DASHBOARD_PAGE_RESPONSE_KEYS = new Set(['agents', 'dags', 'skills', 'commandCards', 'prompts', 'memory', 'finalOutputRefs', 'sharedFileRetention']);
+const DASHBOARD_PAGE_RESPONSE_KEYS = new Set(['agents', 'dags', 'commandCards', 'prompts', 'finalOutputRefs', 'sharedFileRetention']);
 const SHARED_FILE_RETENTION_KEYS = new Set(['items', 'protectedCount', 'cleanupCandidateCount']);
 const VIDEO_API_KEY_STATUS_RESPONSE_KEYS = new Set(['configured', 'masked']);
 const DASHBOARD_LOGS_RESPONSE_KEYS = new Set(['logs']);
@@ -523,7 +523,7 @@ function validateThreadRecoverResponse(method, response) {
 function validateDashboardPageResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, DASHBOARD_PAGE_RESPONSE_KEYS, 'body');
-  for (const key of ['agents', 'dags', 'skills', 'commandCards', 'prompts', 'memory', 'finalOutputRefs']) {
+  for (const key of ['agents', 'dags', 'commandCards', 'prompts', 'finalOutputRefs']) {
     if (!Array.isArray(value[key])) {
       throw new TypeError(`${method} response ${key} must be an array`);
     }
@@ -756,24 +756,6 @@ function validateDashboardDagCreateAndStartResponse(method, response) {
  * @param {string} method
  * @param {unknown} response
  */
-function validateSkillReadResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  const skill = value.skill;
-  if (!skill || typeof skill !== 'object' || Array.isArray(skill)) {
-    throw new TypeError(`${method} response skill must be an object`);
-  }
-  const skillValue = /** @type {Record<string, unknown>} */ (skill);
-  requireResponseKey(method, skillValue, ['path']);
-  if (!hasOwn(skillValue, 'content') || typeof skillValue.content !== 'string') {
-    throw new TypeError(`${method} response skill.content must be a string`);
-  }
-  return value;
-}
-
-/**
- * @param {string} method
- * @param {unknown} response
- */
 function validateAppUpdateInstallResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   if (value.started !== true) {
@@ -801,7 +783,6 @@ export {
   validateProjectsStateResponse,
   validateRuntimeConfigResponse,
   validateSidebarStateResponse,
-  validateSkillReadResponse,
   validateThreadCompactResponse,
   validateThreadConfigResponse,
   validateThreadForkResponse,

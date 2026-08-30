@@ -95,6 +95,27 @@ func TestAppManagedDataRootsIncludesExplicitMultiAgentLogRoot(t *testing.T) {
 	assertContainsRoot(t, roots, filepath.Join(fakeHome, ".super-dolphin", "log"))
 }
 
+func TestAppManagedDataRootsExcludesRetiredMemoryAndSkillRoots(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	setTestUserHome(t, fakeHome)
+	t.Setenv(SuperDolphinHomeEnv, "")
+
+	roots, err := AppManagedDataRoots()
+	if err != nil {
+		t.Fatalf("AppManagedDataRoots returned error: %v", err)
+	}
+	for _, retired := range []string{
+		filepath.Join(fakeHome, ".super-dolphin", "memory"),
+		filepath.Join(fakeHome, ".super-dolphin", "skills"),
+	} {
+		for _, root := range roots {
+			if root == retired {
+				t.Fatalf("AppManagedDataRoots returned retired root %q", retired)
+			}
+		}
+	}
+}
+
 func setTestUserHome(t *testing.T, home string) {
 	t.Helper()
 	t.Setenv("HOME", home)

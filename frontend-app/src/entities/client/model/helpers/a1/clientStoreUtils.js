@@ -40,10 +40,8 @@ const THREAD_PINS_CHAT_PREF_KEY = 'threadPins.chat';
 const objectPrototype = Object.prototype;
 const BOOTSTRAP_PAGE_ALIASES = Object.freeze({
   dags: 'workflows',
-  'memory-center': 'memory',
-  memory: 'files',
 });
-const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'skills', 'memory', 'observability', 'files', 'settings']);
+const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'observability', 'files', 'settings']);
 const ROOT_THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id']);
 const THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id', 'id']);
 const AGENT_IDENTITY_KEYS = Object.freeze(['agentId', 'agent_id']);
@@ -355,12 +353,8 @@ const baseState = {
   promptPageCacheByCwd: {},
   workflowRevision: 0,
   workflowPageCacheByCwd: {},
-  skillRevision: 0,
-  skillPageCacheByCwd: {},
   sharedFilesRevision: 0,
   sharedFilesPageCacheByCwd: {},
-  memoryRevision: 0,
-  memoryPageCacheByCwd: {},
   chatSurfaceLoadingCwd: '',
   agents: [],
   mainAgentId: '',

@@ -168,7 +168,10 @@ func TestServiceStartPassesFullPromptAssemblyContext(t *testing.T) {
 
 func newPromptAssemblyStartService(t *testing.T, repoRoot string) (*service, *capturingPromptAssembly, *stubThreadOrchestration) {
 	t.Helper()
-	assembly := &capturingPromptAssembly{start: contract.StartAssembly{DisplayName: "assembled name"}}
+	assembly := &capturingPromptAssembly{start: contract.StartAssembly{
+		DisplayName:      "assembled name",
+		BaseInstructions: "assembled system",
+	}}
 	threads := &stubThreadStore{}
 	sessions := &stubSessionProvider{}
 	starter := &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {

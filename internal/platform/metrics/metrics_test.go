@@ -17,7 +17,6 @@ import (
 func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 	source := skillmetrics.NewRegistry()
 	source.IncTrimCorruptionFallback()
-	source.IncArtifactApprovalMiss()
 	source.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
 	source.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
 	source.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeCWDMissing)
@@ -31,7 +30,7 @@ func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))
 	body := rec.Body.String()
 	for _, sample := range []string{
-		"skill_trim_corruption_fallback_count 1", "skill_artifact_approval_miss_total 1",
+		"skill_trim_corruption_fallback_count 1",
 		`host_tool_calls_total{outcome="ok"} 2`, `host_tool_calls_total{outcome="cwd_missing"} 1`,
 		`host_tool_calls_total{outcome="approval_required"} 1`, `host_tool_calls_total{outcome="error"} 2`,
 		"enrich_failures_total 1",

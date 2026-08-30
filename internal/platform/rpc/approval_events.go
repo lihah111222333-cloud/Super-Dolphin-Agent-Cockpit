@@ -18,7 +18,6 @@ const (
 	DefaultApprovalCallbackMethod          = "approval/request"
 	approvalCallbackMethodCommandExecution = "item/commandExecution/requestApproval"
 	approvalCallbackMethodFileChange       = "item/fileChange/requestApproval"
-	approvalCallbackMethodSkillRequest     = "skill/requestApproval"
 	legacyApprovalCallbackMethod           = "tool/approval/request"
 	legacyApprovalEventMethod              = "tool.approval.requested"
 )

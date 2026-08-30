@@ -85,7 +85,7 @@ function ObservabilityRecentLogs(props) { const { result, onOpenTrace, onCopyTra
 } catch (error) { return ( <div className="settings-alert error" data-testid="observability-recent-logs-error" role="alert"> 最近日志数据无效：{errorMessage(error)} </div> );
 } const eventCount = traceRows.reduce((total, row) => total + row.events.length, 0); const tailDiagnostics = observabilityTailDiagnosticText(result); return (
 <div className="settings-card observability-result observability-system-log fusion-surface" data-testid="observability-recent-logs"> <div className="observability-result-header"> <div> <h2>最新匹配 event 分组</h2>
-<p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` · ${tailDiagnostics}` : ''}</p> </div> </div> {traceRows.length === 0 ? (
+<p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'buffer'} · truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` · ${tailDiagnostics}` : ''}</p> </div> </div> {traceRows.length === 0 ? (
 <div className="empty-state">没有匹配的最近请求</div> ) : (
 <div className="observability-log-table" role="table" aria-label="最新匹配 event 分组"> <div className="observability-log-table-head" role="rowgroup"> <div className="observability-log-table-head-row" role="row"> <div role="columnheader">时间</div>
 <div role="columnheader">匹配 event 状态</div> <div role="columnheader">匹配 event 摘要</div> <div role="columnheader">操作</div> </div> </div> <div className="observability-log-table-body" role="rowgroup"> {traceRows.map((row) => (
@@ -130,7 +130,7 @@ await getObservabilityTrace({ traceId: traceID, limit: queryLimit }),
 }); const result = traceQuery.data; const traceError = traceQuery.error ? 'Trace 加载失败，请重试。' : ''; const tailDiagnostics = observabilityTailDiagnosticText(result); let traceEvents = []; let traceShapeError = ''; if (result) { try {
 traceEvents = optionalArrayValue(result.events, 'observability trace events'); } catch { traceShapeError = 'Trace 数据无效，请查看 Health。'; } } useEffect(() => { if (traceError) onTraceError(traceError); }, [onTraceError, traceError]); if (!expanded) return null; return (
 <section className="observability-log-trace-detail" data-testid={`observability-inline-trace-${traceID}`} id={detailId} aria-label={`Trace ${traceID || '-'} 结果`} aria-busy={traceQuery.isFetching} > <div className="observability-inline-trace-header"> <div> <h3>Trace 结果</h3>
-{result ? ( <p>source={result.source || 'memory'} total_duration_ms={traceResultTotalDurationMs(result)} truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` ${tailDiagnostics}` : ''}</p>
+{result ? ( <p>source={result.source || 'buffer'} total_duration_ms={traceResultTotalDurationMs(result)} truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` ${tailDiagnostics}` : ''}</p>
 ) : null} </div> </div> {traceQuery.isFetching && !result ? <output className="empty-state">Trace 加载中...</output> : null} {traceError ? <div className="settings-alert error" role="alert">Trace 加载失败：{traceError}</div> : null}
 {traceShapeError ? <div className="settings-alert error" role="alert">Trace 数据无效：{traceShapeError}</div> : null} {!traceQuery.isFetching && !traceError && result && !traceShapeError ? <TraceEventTable events={traceEvents} /> : null}
 {!traceQuery.isFetching && !traceError && !result ? <div className="empty-state">没有匹配的 trace events</div> : null} </section> ); }

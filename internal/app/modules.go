@@ -19,12 +19,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/feedback"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/insight"
 	mcpserver "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/mcp_server"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/notify"
 	moduleobservability "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/personalization"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
 	turnobservation "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn/observation"
@@ -89,12 +87,10 @@ func newModule() fx.Option {
 		datasourcev2.Module,
 		feedback.Module,
 		mcpserver.Module,
-		memory.Module,
 		prompt.Module,
 		personalization.Module,
 		moduleobservability.Module,
 		appupdate.Module,
-		skill.Module,
 		thread.Module,
 		turn.Module,
 		turnobservation.Module,

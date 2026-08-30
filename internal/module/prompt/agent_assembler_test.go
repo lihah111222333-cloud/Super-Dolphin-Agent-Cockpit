@@ -95,6 +95,7 @@ func TestAssembleAgent_ExploreRedactsClaudeMdAndGitStatus(t *testing.T) {
 	if !strings.Contains(explore.BaseInstructions, "absolute paths") {
 		t.Fatalf("env-details block missing absolute-path rule:\n%s", explore.BaseInstructions)
 	}
+	assertAgentSnapshotMatchesAssembly(t, explore)
 }
 
 // TestAssembleAgent_DefaultKeepsContext 验证默认子代理保留上下文，同时仍追加环境说明。
@@ -120,5 +121,29 @@ func TestAssembleAgent_DefaultKeepsContext(t *testing.T) {
 	// 默认子代理保留 currentDate，确保 synthetic meta message 仍包含日期。
 	if _, ok := assembly.UserContext["currentDate"]; !ok {
 		t.Fatalf("default agent UserContext missing currentDate: %#v", assembly.UserContext)
+	}
+	assertAgentSnapshotMatchesAssembly(t, assembly)
+}
+
+func assertAgentSnapshotMatchesAssembly(t *testing.T, assembly StartAssembly) {
+	t.Helper()
+	snapshot := assembly.Snapshot
+	if snapshot.BaseInstructions != assembly.BaseInstructions {
+		t.Fatalf("snapshot base instructions = %q, want final assembly %q", snapshot.BaseInstructions, assembly.BaseInstructions)
+	}
+	if snapshot.DeveloperInstructions != assembly.DeveloperInstructions {
+		t.Fatalf("snapshot developer instructions = %q, want final assembly %q", snapshot.DeveloperInstructions, assembly.DeveloperInstructions)
+	}
+	want := snapshotHash(snapshotHashPartsWithSections(
+		snapshot.DisplayName,
+		snapshot.BaseInstructions,
+		snapshot.DeveloperInstructions,
+		snapshot.Provider,
+		snapshot.Boundary,
+		snapshot.SectionSnapshot,
+		snapshot.Generation,
+	)...)
+	if snapshot.Hash != want {
+		t.Fatalf("snapshot hash = %q, want %q for final assembly", snapshot.Hash, want)
 	}
 }

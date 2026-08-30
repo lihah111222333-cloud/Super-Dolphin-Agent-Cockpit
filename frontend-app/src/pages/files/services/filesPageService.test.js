@@ -3,7 +3,6 @@ import { createFilesPageService } from './filesPageService.js';
 
 function createApi(overrides = {}) {
   return {
-    deleteSharedFile: vi.fn().mockResolvedValue({ deleted: true }),
     listSharedFilesDashboard: vi.fn().mockResolvedValue({
       files: [],
       finalOutputRefs: [],
@@ -69,26 +68,22 @@ describe('filesPageService', () => {
     await expect(service.readSharedFile('notes/a.md')).rejects.toThrow('file path is required');
   });
 
-  it('opens and deletes shared files with path DTOs', async () => {
+  it('opens shared files with path DTOs', async () => {
     const api = createApi();
     const service = createFilesPageService(api);
 
     await service.openSharedFile('notes/a.md');
-    await service.deleteSharedFile('notes/a.md');
 
     expect(api.openSharedFile).toHaveBeenCalledWith({ path: 'notes/a.md' });
-    expect(api.deleteSharedFile).toHaveBeenCalledWith({ path: 'notes/a.md' });
   });
 
-  it('fails fast before open or delete when the path is blank or non-string', () => {
+  it('fails fast before open when the path is blank', () => {
     const api = createApi();
     const service = createFilesPageService(api);
 
     expect(() => service.openSharedFile(' ')).toThrow('file path is required');
-    expect(() => service.deleteSharedFile(null)).toThrow('file path is required');
 
     expect(api.openSharedFile).not.toHaveBeenCalled();
-    expect(api.deleteSharedFile).not.toHaveBeenCalled();
   });
 
   it('saves text files with the native save DTO', async () => {

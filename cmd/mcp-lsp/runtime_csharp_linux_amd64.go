@@ -124,6 +124,7 @@ func registerLinuxCSharpInstallerWithResolver(
 	inst.Register("csharp", installer.InstallerConfig{
 		BinaryName:          "csharp-ls",
 		AllowInstallCommand: true,
+		ManagedOnly:         true,
 		ManagedBinaryPath:   launcherPath,
 		ManagedInstall: func(ctx context.Context) (string, error) {
 			return managed.Install(ctx)

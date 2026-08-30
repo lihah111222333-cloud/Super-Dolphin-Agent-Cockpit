@@ -274,7 +274,7 @@ sequenceDiagram
 | `service.go` | `PrepareTurn`、`StartTurn`、`SteerTurn`、`ForceCompleteTurn`、tracker watcher。 |
 | `rpc_helpers.go` | `turn/start` / `turn/steer` 输入拼装、session ready wait、capability gate。 |
 | `assembler.go` | 输入 item 规范化、白名单、去重、截断。 |
-| `skills.go` | 显式技能合并、auto-match、手选技能 hydrate。 |
+| `skills.go` | provider-native skill 元数据规范化、去重与正文引用能力门禁；不扫描或 hydrate 本地正文。 |
 | `prompt_assembly.go` | `PrepareTurn` 阶段的 `TurnAssembly` 装配。 |
 | `service_helpers.go` | synthetic memory/turn context 注入与服务辅助逻辑。 |
 | `manifest.go` | MCP manifest 构造。 |
@@ -298,7 +298,7 @@ flowchart TD
     READY --> BUILD[buildRPCPrepareInput]
     BUILD --> PREP[PrepareTurn]
     PREP --> ASM[inputAssembler.Assemble]
-    PREP --> SKILL[hydrateSkillRefs + skillResolver.Resolve]
+    PREP --> SKILL[normalizeSkillRefs + provider capability gate]
     PREP --> MCP[manifest.Build]
     PREP --> MEM[syntheticMemoryContext]
     PREP --> TA[prepareTurnAssembly]
@@ -312,17 +312,15 @@ flowchart TD
 2. **输入 item 规范化**由 `inputAssembler.Assemble()` 完成：
    - 文本、图片、本地图片、mention/filecontent 统一归一：`internal/module/turn/assembler.go:48-190`
    - 最多 256 items；文本 64KB；拒绝可执行扩展名：`internal/module/turn/assembler.go:12-44`
-3. **技能选择**分三层：
-   - 显式 `selectedSkills`：RPC 直接传入
-   - `input.type=skill`：`buildTurnStartInputs()` 会抽出来并并入显式技能：`internal/module/turn/rpc_helpers.go:46-60`
-   - `CandidateSkills`：只在 service 层字段存在；`ManualSkillSelection=true` 时会被清空，不再 auto-match：`internal/module/turn/service.go:128-136`
-4. **技能 hydrate** 是 turn 对 `module/skill.SkillHydrationSource` 窄端口的唯一直接业务依赖：
-   - 注入点是 `NewServiceWithPromptAssemblyAndTurnContext(...)` 的第 4 个参数，类型为 `skillpkg.SkillHydrationSource`；`fx` 也标成 `optional:"true"`，缺失时 `skillLookup==nil` 直接跳过 hydrate：`internal/module/turn/service.go:25-30,80-95`、`internal/module/turn/module.go:12-19`
-   - `PrepareTurn` 实际在 `service.go:141-146` 先把 ctx 包成 `skillpkg.WithCWD(ctx, input.CWD)`，再调用 `hydrateSkillRefs(...)`
-   - 只给 name-only manual skill 补 `Prompt/Summary/Version`
-   - 入口：`internal/module/turn/skills.go:201-241`，正文读取走 `ReadLocal`：`skills.go:326-339`
+3. **技能选择**只作为 provider-native 元数据透传：
+   - 显式 `selectedSkills` / `selectedSkillRefs`：RPC 直接传入；`input.type=skill` 由 `buildTurnStartInputs()` 抽出并并入元数据：`internal/module/turn/rpc_helpers.go:46-60`
+   - `prepareProviderNativeSkills()` 通过 `normalizeSkillRefs()` 合并、去重并清空旧客户端可能携带的 Prompt 正文：`internal/module/turn/service.go:246-265`、`internal/module/turn/skills.go:12-97`
+   - 仅对非空 CandidateSkills、空名称或无效引用返回显式 unsupported；摘要/版本均为可选元数据，不再 auto-match 或从本地 store 静默 hydrate。
+4. **正文隔离**是 turn 对 provider 的硬边界：
+   - `PrepareTurn` 只写入 `dto.SkillRef` 元数据，`Prompt` 始终被清空，provider 自行发现正文。
+   - `ManualSkillSelection` 仍保留在 wire 以兼容旧客户端，但不会恢复旧 `SkillHydrationSource` 注入或本地 resolver。
 5. **turn assembly** 是 turn 侧 prompt 拼装边界，不等于 thread/start 的 start assembly；`PrepareTurn` 在 `internal/module/turn/service.go:176` 调 `prepareTurnAssembly(...)`，其定义在 `internal/module/turn/prompt_assembly.go:13-43`
-6. **memory context** 通过 `TurnContextProvider` 可选注入，不让 `turn` 直接依赖 memory 实现：`internal/module/turn/service_helpers.go:550-580`
+6. **memory context** 通过 `TurnContextProvider` 可选注入，不让 `turn` 直接依赖 memory 实现：`internal/module/turn/service_helpers.go:551-564`
 
 ### 3.5 启动、转向、中断、强制完成
 
@@ -383,7 +381,7 @@ tracker 只保存 **本地真相**：
 ### 3.7 依赖特点
 
 - **contract**：`Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`
-- **module**：可选依赖 `skillpkg.SkillHydrationSource`（仅手选技能 hydrate），不直接依赖完整 `skill.Service` / thread / uistate
+- **module**：不依赖本地 skill module；仅通过 provider-native metadata DTO 与 contract/session 交互，不直接依赖 thread / uistate
 - **store**：无直接 store 依赖；运行态主要靠 session + tracker
 - **provider boundary**：所有 provider 差异都被 contract/session interface 吞掉
 
@@ -396,9 +394,8 @@ tracker 只保存 **本地真相**：
 - `watchTurn`：`internal/module/turn/service.go:317-355`
 - `turn/start` handler：`internal/module/turn/rpc_helpers.go:159-182`
 - `buildRPCPrepareInput`：`internal/module/turn/rpc_helpers.go:19-44`
-- `skillResolver.Resolve`：`internal/module/turn/skills.go:14-40`
-- `PrepareTurn -> hydrateSkillRefs`：`internal/module/turn/service.go:141-146`
-- `hydrateSkillRefs`：`internal/module/turn/skills.go:201-241`
+- `prepareProviderNativeSkills`：`internal/module/turn/service.go:246-265`
+- `normalizeSkillRefs`：`internal/module/turn/skills.go:12-97`
 - `PrepareTurn -> prepareTurnAssembly`：`internal/module/turn/service.go:176`
 - `prepareTurnAssembly`：`internal/module/turn/prompt_assembly.go:13-43`
 - `orchestrationTurnStarter.StartTurn`：`internal/module/turn/orchestration_starter.go:61-93`
@@ -595,12 +592,12 @@ sequenceDiagram
 5. React `turn/start` payload 固定带 cwd、threadId、input，并设置 `manualSkillSelection=false`。
 6. `turn/start` handler 组 `PrepareInput`，再由 `PrepareTurn()` 产出真正的 `dto.TurnRequest`，其中 `prepareTurnAssembly(...)` 的对接点正是 `service.go:176`：`internal/module/turn/rpc_helpers.go:159-182`、`internal/module/turn/service.go:135-186`
 
-### 5.1 这条链里有两套“技能”语义
+### 5.1 这条链里的 provider-native skill 语义
 
-- **provider-native skill**：当前生产路径是 canonical skills -> provider mirror，provider 按自身规则发现并调用。
-- **legacy wire 字段**：`thread/start` / `turn/start` 仍保留兼容字段，但聊天页不再通过它们做 skill 注入。
+- **provider-native skill**：当前生产路径只传递 provider 选择的元数据，provider 按自身规则发现和调用正文；V3 不生成或维护本地技能副本。
+- **legacy wire 字段**：`thread/start` / `turn/start` 仍保留兼容字段，但聊天页不再通过它们做本地 skill 注入；缺少 provider 所需正文能力时直接返回 typed unsupported。
 
-生产 provider skill 发现链路在 provider 启动/acquire 前完成：canonical skills 先同步到项目级 `.claude/skills` / `.agents/skills`，以及个人级 `~/.claude/skills` / `~/.agents/skills` 或显式 provider home `skills` mirror，再由 Claude/Codex 原生发现。
+生产 provider skill 发现由 Claude/Codex 自己负责。桌面只在启动/回合请求中传递 cwd、provider、选择 refs 等元数据，不扫描 `.agents/skills` 或 `.claude/skills`，也不维护集中式 skill tree。
 
 这也是 blank-thread 首发最容易看错的地方：**先起线程不等于已经发出首条 turn**；真正消息发送仍然要再走一次 `turn/start`。
 
@@ -613,7 +610,7 @@ sequenceDiagram
 | 子模块 | 测试文件 | 代表 Test* | 关注点 |
 |---|---|---|---|
 | `thread` | `start_session_helpers_test.go` / `resume_test.go` / `fork_isolation_test.go` / `stop_test.go` | `TestBuildStartAssemblyInputCarriesChildAgentMetadata` / `TestServiceResumeInfersProviderAndRebuildsSession` / `TestServiceForkCreatesIndependentAgentAndBinding` / `TestStopInterruptsTurnAndCleansThreadState` | start input、resume/fork、stop cleanup |
-| `turn` | `service_test.go` / `service_skill_hydrate_test.go` / `orchestration_starter_test.go` | `TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs` / `TestPrepareTurnHydratesNameOnlySkill` / `TestOrchestrationTurnStarterStartsQueuedTurn` | PrepareTurn、skill hydrate、orchestration starter |
+| `turn` | `service_test.go` / `skills_test.go` / `orchestration_starter_test.go` | `TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs` / provider-native metadata normalization tests / `TestOrchestrationTurnStarterStartsQueuedTurn` | PrepareTurn、skill metadata gate、orchestration starter |
 | `uistate` | `sidebar_test.go` / `phase2_stats_patch_pending_test.go` / `config_rpc_test.go` | `TestGetSidebarBuildsCompatibilitySnapshot` / `TestActivityStats_CommandIncrementsCommands` / `TestConfigHandlersReadAndWriteLSPPromptHint` | sidebar 派生、activity stats、config hint |
 | `uistate/timeline` | `timeline_test.go` / `projector_parity_test.go` / `phase2_projector_pending_test.go` | `TestAppendAndGetByThread` / `TestRegisterSubscriptions_PlanAndUserParity` / `TestItemStarted_CommandKind` | timeline append、parity 投影、command/tool item |
 
@@ -624,5 +621,5 @@ sequenceDiagram
 | 场景 | 步骤 | 锚点 | 验证 |
 |---|---|---|---|
 | blank-thread 首发消息 | 1) `performSend()` blank-thread 分支起线程 2) `threadStore.sendMessage()` 组 `turn/start` payload 3) `turnStartHandler -> PrepareTurn -> prepareTurnAssembly` | `useThreadActions.js:139-158` / `thread-actions-helpers.js:423-442` / `internal/module/turn/rpc_helpers.go:159-182` / `internal/module/turn/service.go:176` | `service_test.go` / 前端首发联调 |
-| 手选 skill hydrate | 1) 保持 `skillpkg.SkillHydrationSource` 可选注入 2) `PrepareTurn` 里 `hydrateSkillRefs` 先跑 3) 再交 `skillResolver.Resolve` + `prepareTurnAssembly` | `internal/module/turn/module.go:12-19` / `internal/module/turn/service.go:141-146` / `internal/module/turn/skills.go:201-241` | `service_skill_hydrate_test.go` |
+| provider-native skill metadata | 1) `buildRPCPrepareInput` 接收显式 refs 2) `prepareProviderNativeSkills` 调 `normalizeSkillRefs` 3) 非法候选或空名称返回 typed unsupported 4) 再交 `prepareTurnAssembly` | `internal/module/turn/rpc_helpers.go:19-44` / `internal/module/turn/service.go:246-265` / `internal/module/turn/skills.go:12-97` | `skills_test.go` / `service_provider_native_guard_test.go` |
 | 线程/回合事件进 sidebar/timeline | 1) 上游 emit typed event 2) `registerProjections` 装订阅 3) `registerProjectionSubscriptions` + `timeline.RegisterSubscriptions` 落状态与 timeline 4) `threadPatchLocked`/timeline patch 推 UI | `internal/module/uistate/module.go:46-66` / `internal/module/uistate/projector.go:17-60` / `internal/module/uistate/timeline/projector.go:16-45` | `sidebar_test.go` / `timeline_test.go` |

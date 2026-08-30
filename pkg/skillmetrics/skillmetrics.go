@@ -6,11 +6,6 @@ package skillmetrics
 
 import "sync/atomic"
 
-// ApprovalMissWriter 记录 artifact 审批未命中。
-type ApprovalMissWriter interface {
-	IncArtifactApprovalMiss()
-}
-
 // TrimCorruptionFallbackWriter 记录 skill block footer 缺失时的裁剪回退。
 type TrimCorruptionFallbackWriter interface {
 	IncTrimCorruptionFallback()
@@ -26,9 +21,8 @@ type EnrichFailureWriter interface {
 	IncEnrichFailure()
 }
 
-// Writer 是完整 skill 指标写入契约。
+// Writer 是完整 provider history/host-tool 指标写入契约。
 type Writer interface {
-	ApprovalMissWriter
 	TrimCorruptionFallbackWriter
 	HostToolCallWriter
 	EnrichFailureWriter
@@ -36,7 +30,6 @@ type Writer interface {
 
 // Registry 是一组显式拥有的并发安全计数器。
 type Registry struct {
-	artifactApprovalMissTotal    atomic.Uint64
 	trimCorruptionFallbackCount  atomic.Uint64
 	hostToolCallOKTotal          atomic.Uint64
 	hostToolCallCWDMissingTotal  atomic.Uint64
@@ -47,12 +40,6 @@ type Registry struct {
 
 // NewRegistry 创建独立的指标 owner。
 func NewRegistry() *Registry { return &Registry{} }
-
-// IncArtifactApprovalMiss 对已建 artifact key 查询返回未审批时 +1。
-func (r *Registry) IncArtifactApprovalMiss() { requireRegistry(r).artifactApprovalMissTotal.Add(1) }
-
-// IncSkillArtifactApprovalMiss 是审批调用点的业务语义别名。
-func (r *Registry) IncSkillArtifactApprovalMiss() { r.IncArtifactApprovalMiss() }
 
 // IncTrimCorruptionFallback pair-fenced trim 找不到成对 footer 回落 legacy 时 +1。
 func (r *Registry) IncTrimCorruptionFallback() { requireRegistry(r).trimCorruptionFallbackCount.Add(1) }
@@ -83,9 +70,8 @@ func (r *Registry) IncHostToolCallOutcome(outcome string) {
 // IncEnrichFailure 记录 codexapp tool-call params enrich fail-soft 失败一次。
 func (r *Registry) IncEnrichFailure() { requireRegistry(r).enrichFailuresTotal.Add(1) }
 
-// Snapshot 是 skill 指标的一次读取快照；字段顺序固定为原有七条 series。
+// Snapshot 是 provider history/host-tool 指标的一次读取快照。
 type Snapshot struct {
-	ArtifactApprovalMissTotal    uint64
 	TrimCorruptionFallbackCount  uint64
 	HostToolCallOKTotal          uint64
 	HostToolCallCWDMissingTotal  uint64
@@ -94,11 +80,10 @@ type Snapshot struct {
 	EnrichFailuresTotal          uint64
 }
 
-// Snapshot 返回当前 owner 的七条 skill 指标快照。
+// Snapshot 返回当前 owner 的六条 provider history/host-tool 指标快照。
 func (r *Registry) Snapshot() Snapshot {
 	r = requireRegistry(r)
 	return Snapshot{
-		ArtifactApprovalMissTotal:    r.artifactApprovalMissTotal.Load(),
 		TrimCorruptionFallbackCount:  r.trimCorruptionFallbackCount.Load(),
 		HostToolCallOKTotal:          r.hostToolCallOKTotal.Load(),
 		HostToolCallCWDMissingTotal:  r.hostToolCallCWDMissingTotal.Load(),

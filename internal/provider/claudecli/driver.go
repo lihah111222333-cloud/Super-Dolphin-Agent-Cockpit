@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -35,7 +34,7 @@ func claudeCapabilities() dto.CapabilitySet {
 	}
 }
 
-// driver 是 Claude CLI provider 的 Driver 实现，负责启动 CLI、维护 runtime 观测和 skill mirror。
+// driver 是 Claude CLI provider 的 Driver 实现，负责启动 CLI、维护 runtime 观测。
 type driver struct {
 	logger           *slog.Logger
 	binaryPath       string
@@ -44,7 +43,6 @@ type driver struct {
 	pidRegistry      *pidregistry.Registry
 	proxyAddrFn      func() string
 	proxyTokenFn     func() string
-	mirror           contract.SkillMirrorReconciler
 	recovery         contract.SessionRecoveryReporter
 	tracer           *observability.Service
 	skillMetrics     *skillmetrics.Registry
@@ -59,6 +57,7 @@ type startSpec struct {
 	threadID       string
 	publicThread   string
 	cwd            string
+	nativeContext  contract.ProviderNativeContext
 	model          string
 	startAssembly  contract.StartAssembly
 	manifest       dto.MCPManifest
@@ -119,15 +118,15 @@ func (d *driver) proxyHTTPToken() string {
 }
 
 // newDriver 创建 Claude CLI driver，并注入可替换的启动、认证和观测依赖。
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) (contract.Driver, error) {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) (contract.Driver, error) {
 	if metrics == nil {
 		return nil, errors.New("claudecli skill metrics registry is required")
 	}
-	return buildDriver(logger, eventDispatcher, reporter, reg, proxyAddrFn, proxyTokenFn, mirror, recovery, metrics, tracers...), nil
+	return buildDriver(logger, eventDispatcher, reporter, reg, proxyAddrFn, proxyTokenFn, recovery, metrics, tracers...), nil
 }
 
 // buildDriver 使用已验证的运行时依赖组装 Claude CLI driver。
-func buildDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) contract.Driver {
+func buildDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, recovery contract.SessionRecoveryReporter, metrics *skillmetrics.Registry, tracers ...*observability.Service) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -145,7 +144,6 @@ func buildDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, 
 		pidRegistry:      reg,
 		proxyAddrFn:      proxyAddrFn,
 		proxyTokenFn:     proxyTokenFn,
-		mirror:           mirror,
 		recovery:         recovery,
 		tracer:           firstClaudeTracer(tracers),
 		skillMetrics:     metrics,
@@ -166,12 +164,37 @@ func firstClaudeTracer(tracers []*observability.Service) *observability.Service 
 // Name 返回 provider 标识。
 func (d *driver) Name() string { return "claude" }
 
+// validateClaudeStartRequest 在创建 home、manifest 或 transport 前校验启动提示和安全配置。
+// 该边界保持错误顺序稳定，避免不完整的旧快照先触发 provider 副作用。
+func validateClaudeStartRequest(req dto.StartSessionRequest) error {
+	if err := contract.ValidateLegacyMemoryPromptSections(req.StartAssembly.ResolvedSections); err != nil {
+		return fmt.Errorf("claudecli: %w", err)
+	}
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(req.StartAssembly.Snapshot); err != nil {
+		return fmt.Errorf("claudecli: %w", err)
+	}
+	if !promptSnapshotBlank(req.StartAssembly.Snapshot) {
+		if err := contract.ValidateResumePromptSnapshotForProvider(req.StartAssembly.Snapshot, "claude"); err != nil {
+			return fmt.Errorf("claudecli: start prompt snapshot: %w", err)
+		}
+	}
+	if err := validateClaudeSecurityConfig(req.Config); err != nil {
+		return fmt.Errorf("claudecli: security config: %w", err)
+	}
+	return nil
+}
+
 // StartSession 启动新的 Claude CLI 会话，并为其构建 stdio-only MCP manifest。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	if err := validateClaudeSecurityConfig(req.Config); err != nil {
-		return nil, fmt.Errorf("claudecli: security config: %w", err)
+	if err := validateClaudeStartRequest(req); err != nil {
+		return nil, err
 	}
 	launchConfig := configFromMap(req.Config)
+	canonicalCWD, err := canonicalizeClaudeCWD(req.CWD)
+	if err != nil {
+		return nil, err
+	}
+	req.CWD = canonicalCWD
 	extraBinaries, err := providershared.ConfigMCPBinaries(req.Config, "mcpConfig", "mcp_config")
 	if err != nil {
 		return nil, fmt.Errorf("claudecli: mcp config: %w", err)
@@ -192,6 +215,11 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		TransportMode:  dto.ManifestTransportStdioOnly,
 	})
 	historyDir := providershared.ConfigString(req.Config, "history_dir", "claude_home", "claudeHome")
+	rawConfig := cloneConfigMap(req.Config)
+	if rawConfig == nil {
+		rawConfig = map[string]any{}
+	}
+	rawConfig["cwd"] = req.CWD
 	return d.start(ctx, startSpec{
 		agentID:       req.AgentID,
 		cwd:           req.CWD,
@@ -199,7 +227,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		startAssembly: resolveStartAssembly(req, launchConfig, d.Name()),
 		manifest:      manifest,
 		config:        launchConfig,
-		rawConfig:     cloneConfigMap(req.Config),
+		rawConfig:     rawConfig,
 		publicThread:  req.AgentID,
 		historyDir:    historyDir,
 	})
@@ -211,12 +239,21 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
-	if err := contract.ValidateResumePromptSnapshot(req.PromptSnapshot); err != nil {
+	if err := contract.ValidateResumePromptSnapshotForProvider(req.PromptSnapshot, d.Name()); err != nil {
 		return nil, fmt.Errorf("claudecli: %w", err)
 	}
+	canonicalCWD, err := canonicalizeClaudeCWD(req.CWD)
+	if err != nil {
+		return nil, err
+	}
+	req.CWD = canonicalCWD
 	req.ProviderThreadID = providerThreadID
 	snapshot := req.PromptSnapshot
 	rawConfig := resumeSessionRuntimeConfig(req)
+	if rawConfig == nil {
+		rawConfig = map[string]any{}
+	}
+	rawConfig["cwd"] = req.CWD
 	if err := validateClaudeSecurityConfig(rawConfig); err != nil {
 		return nil, fmt.Errorf("claudecli: security config: %w", err)
 	}
@@ -283,7 +320,7 @@ func resumeSessionRuntimeConfig(req dto.ResumeSessionRequest) map[string]any {
 	return cfg
 }
 
-// start 串起 provider home、skill mirror、CLI 启动、thread ready 等关键步骤。
+// start 串起 provider home、CLI 启动、thread ready 等关键步骤。
 // 任一阶段失败都会直接返回错误，不发布半启动 session。
 func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Session, err error) {
 	traceStarted := time.Now()
@@ -299,7 +336,11 @@ func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Se
 	if err := validateStartCWD(spec.cwd); err != nil {
 		return nil, err
 	}
-	spec, err = d.prepareProviderHomeAndMirrors(ctx, spec)
+	spec, err = d.prepareProviderHome(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	spec, err = d.prepareNativeContext(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -322,9 +363,17 @@ func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Se
 
 // prepareSessionStart 校验 cwd、规范化模型配置、完成认证预检并启动 CLI transport。
 func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (preparedStartSession, error) {
-	if err := validateStartCWD(spec.cwd); err != nil {
-		return preparedStartSession{}, err
+	if spec.nativeContext.SchemaVersion == 0 {
+		var err error
+		spec, err = d.prepareNativeContext(spec)
+		if err != nil {
+			return preparedStartSession{}, err
+		}
+	} else if err := providershared.ValidateProviderNativeContextForProvider(spec.nativeContext, d.Name()); err != nil {
+		return preparedStartSession{}, fmt.Errorf("claudecli: native context: %w", err)
 	}
+	// Keep the launch spec tied to the canonical value carried by the context.
+	spec.cwd = spec.nativeContext.CWD
 	history := &historyBackend{sessionDir: spec.historyDir, skillMetrics: d.skillMetrics}
 	requestedModel, requestedConfig := resolveRequestedStartConfig(spec)
 	requestedConfig.DeveloperInstructions = promptDeveloperInstructions(cliLaunchConfig{
@@ -366,50 +415,101 @@ func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (prepa
 	}, nil
 }
 
-// prepareProviderHomeAndMirrors 准备 Claude home 并同步 provider-native skill mirror。
-// mirror 是启动前硬依赖，冲突会 fail-fast，避免 CLI 读取到过期或重复技能。
-func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSpec) (startSpec, error) {
+// prepareProviderHome 仅准备显式 Claude home；provider-native skills 由 Claude CLI 自己发现。
+// 不在 Super-Dolphin 启动链生成、同步或校验集中式 skill tree。
+func (d *driver) prepareProviderHome(_ context.Context, spec startSpec) (startSpec, error) {
 	requestedHome := strings.TrimSpace(spec.historyDir)
-	mirrorHome := ""
 	if requestedHome != "" {
 		home, err := providershared.EnsureProviderHome(providershared.ProviderClaude, requestedHome)
 		if err != nil {
 			return spec, err
 		}
 		spec.historyDir = home
-		mirrorHome = home
-	}
-	if d == nil || d.mirror == nil {
-		return spec, errors.New("claude skill mirror reconciler is required")
-	}
-	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderClaude, spec.cwd, mirrorHome)
-	if err != nil {
-		return spec, err
-	}
-	report, err := d.mirror.ReconcileProviderMirrors(ctx, spec.cwd, targets)
-	if err != nil {
-		return spec, err
-	}
-	if err := providershared.EnsureNoSkillMirrorConflicts(report); err != nil {
-		return spec, err
 	}
 	return spec, nil
 }
 
-// validateStartCWD 校验 Claude CLI 必须在存在的目录内启动。
-func validateStartCWD(cwd string) error {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return errors.New("claudecli: cwd is required")
+// prepareNativeContext 构造 Claude start/resume 共用的 provider-native context。
+// 能力尚未由 provider 自己探测时保留显式 unknown，不把可启动进程误报为 supported。
+func (d *driver) prepareNativeContext(spec startSpec) (startSpec, error) {
+	capabilities := providershared.UnknownProviderNativeCapabilities()
+	if spec.config.DisableProviderNativeSkills {
+		capabilities.Skills = contract.ProviderNativeFeatureCapability{
+			Owner:  contract.ProviderNativeOwnerDisabled,
+			Status: contract.ProviderNativeStatusDisabled,
+			Reason: "disabled_by_policy",
+		}
 	}
-	info, err := os.Stat(cwd)
+	ctx, err := providershared.BuildProviderNativeContext(providershared.ProviderNativeContextInput{
+		Provider:     d.Name(),
+		CWD:          spec.cwd,
+		ProviderHome: spec.historyDir,
+		Capabilities: capabilities,
+	})
 	if err != nil {
-		return fmt.Errorf("claudecli: cwd stat %q: %w", cwd, err)
+		return spec, fmt.Errorf("claudecli: native context: %w", err)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("claudecli: cwd %q is not a directory", cwd)
+	if err := providershared.ValidateProviderNativeContextForProvider(ctx, d.Name()); err != nil {
+		return spec, fmt.Errorf("claudecli: native context: %w", err)
+	}
+	spec.cwd = ctx.CWD
+	spec.nativeContext = ctx
+	return spec, nil
+}
+
+// validateNativeContextLocked 在 Claude transport restart 前复核 provider-native
+// 身份。生产 session 都由 start/resume 写入 nativeContext；没有上下文的旧测试/内存
+// session 仍走原有 restart 行为，避免把未经过入口的历史对象误当成新快照。
+func (s *session) validateNativeContextLocked(providerHome string) error {
+	if s == nil {
+		return errors.New("claudecli: native context requires session")
+	}
+	if s.nativeContext.SchemaVersion == 0 {
+		if strings.TrimSpace(s.cwd) == "" {
+			return nil
+		}
+		input := providershared.ProviderNativeContextInput{
+			Provider:     "claude",
+			CWD:          s.cwd,
+			ProviderHome: strings.TrimSpace(providerHome),
+			Capabilities: s.nativeContext.Capabilities,
+		}
+		if input.Capabilities == (contract.ProviderNativeCapabilities{}) {
+			input.Capabilities = providershared.UnknownProviderNativeCapabilities()
+		}
+		ctx, err := providershared.BuildProviderNativeContext(input)
+		if err != nil {
+			return fmt.Errorf("claudecli: restart native context: %w", err)
+		}
+		s.nativeContext = ctx
+		// BuildProviderNativeContext canonicalizes CWD; keep the session's launch
+		// path aligned with that value for the candidate transport.
+		s.cwd = ctx.CWD
+		return nil
+	}
+	if err := providershared.ValidateProviderNativeContextForProvider(s.nativeContext, "claude"); err != nil {
+		return fmt.Errorf("claudecli: restart native context: %w", err)
+	}
+	if canonical := s.nativeContext.CWD; canonical != s.cwd {
+		return fmt.Errorf("claudecli: restart native context cwd mismatch")
 	}
 	return nil
+}
+
+// canonicalizeClaudeCWD 将 Claude 启动目录收敛为已存在的绝对真实目录。
+// provider CLI、manifest 和恢复路径必须使用同一 canonical 值，不能只校验后继续传原始别名。
+func canonicalizeClaudeCWD(cwd string) (string, error) {
+	canonical, err := contract.CanonicalizeProviderNativeCWD(cwd)
+	if err != nil {
+		return "", fmt.Errorf("claudecli: cwd: %w", err)
+	}
+	return canonical, nil
+}
+
+// validateStartCWD 保留内部调用点的 fail-fast 校验，并复用统一 canonicalizer。
+func validateStartCWD(cwd string) error {
+	_, err := canonicalizeClaudeCWD(cwd)
+	return err
 }
 
 // resolveRequestedStartConfig 将请求模型和 pending override 合并为本次启动配置。
@@ -443,7 +543,8 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		logger:            d.logger,
 		eventDispatcher:   d.eventDispatcher,
 		binaryPath:        d.binaryPath,
-		cwd:               resolveAbsCWD(spec.cwd),
+		cwd:               spec.cwd,
+		nativeContext:     spec.nativeContext,
 		launchCLI:         d.launchCLI,
 		model:             started.requestedModel,
 		transportModel:    started.launchModel,

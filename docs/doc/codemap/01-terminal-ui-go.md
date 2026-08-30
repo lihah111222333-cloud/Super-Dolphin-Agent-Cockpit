@@ -121,13 +121,13 @@ sequenceDiagram
 #### 关键类型
 - `internal/ui/wails/lifecycle.go:29` `ActiveAgentCounter`：退出前统计活跃 agent 的抽象。
 - `internal/ui/wails/lifecycle.go:39` `WailsLifecycle`：退出拦截、事件发射、shutdown timer 的状态容器。
-- `internal/app/runner.go:225` `runtimeParams`：runner group + lifecycle + shutdowner 的运行时依赖集合。
+- `internal/app/runner.go:192` `runtimeParams`：runner group + shutdowner + optional root context 的运行时依赖集合。
 
 #### 关键流程
 1. `internal/ui/wails/module.go:52` `NewActiveAgentCounter` 通过 `contract.AgentLifecyclePort.ListAgents` 统计非 stopped/failed agent；退出是否弹 overlay 由它决定。
 2. `internal/ui/wails/lifecycle.go:95` `ShouldQuit()` 首次拦截关闭事件：若有活跃 agent，则发 `app-will-quit` 并延迟 `requestBackendShutdown()`；否则直接请求 backend 关闭。
 3. `internal/ui/wails/lifecycle.go:159` `requestBackendShutdown()` 只允许启动一次，同时 arm `shutdownHardDeadline` 定时器；超时后走 `NotifyBackendFailed()` 强退。
-4. `internal/app/runner.go:122` `BindRuntime()` 启动 grouped runners；若 runner 异常退出，会在 `internal/app/runner.go:212` 调 `lifecycle.NotifyBackendFailed()`，再触发 Fx shutdown。
+4. `internal/app/runner.go:122` `BindRuntime()` 启动 grouped runners；RunGroup 返回后在 `internal/app/runner.go:152` 通过 `requestShutdown` 触发 Fx 统一收尾。
 5. `internal/app/app.go:210` `watchFXShutdown()` 监听 `app.Done()`；一旦 Fx 提前结束，也会在 `internal/app/app.go:214` 调 `NotifyBackendFailed()`。
 
 ### 4.4 EventBridge：后端事件面到前端 runtime event

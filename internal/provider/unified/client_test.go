@@ -26,6 +26,28 @@ func TestClient_StartSession_SelectsCorrectDriver(t *testing.T) {
 	}
 }
 
+func TestClient_StartSessionStripsLegacySkillPromptBeforeDriver(t *testing.T) {
+	driver := &mockDriver{name: "claude", session: &mockSession{threadID: "thread-1"}}
+	registry := unified.NewRegistry(unified.RegistryParams{Drivers: []contract.DriverFactory{
+		{Name: "claude", Create: func() contract.Driver { return driver }},
+	}})
+	client := unified.NewClient(registry, nil, nil)
+	_, err := client.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider: "claude",
+		AgentID:  "agent-1",
+		LaunchSkillRefs: []dto.SkillRef{{
+			Name:   "review",
+			Prompt: "legacy body must not reach driver",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("StartSession() error = %v", err)
+	}
+	if len(driver.startReq.LaunchSkillRefs) != 1 || driver.startReq.LaunchSkillRefs[0].Prompt != "" {
+		t.Fatalf("driver received launch refs = %#v, want metadata-only ref", driver.startReq.LaunchSkillRefs)
+	}
+}
+
 func TestClient_StartSession_UnknownProvider(t *testing.T) {
 	client := unified.NewClient(unified.NewRegistry(unified.RegistryParams{}), nil, nil)
 	if _, err := client.StartSession(context.Background(), dto.StartSessionRequest{Provider: "unknown"}); err == nil {

@@ -63,30 +63,28 @@ ASSERT RT-1b "全仓只剩一份 RepoFingerprint 实现（其余必须是 delega
   "go run ./docs/security/internal/check_repofp_delegators.go"
 
 # --------------------------------------------------------------------
-# RT-2  审批 TOCTOU：caller cwd 必须与 candidate fingerprint 一致
-# 文档：fix01.v2.md T-01 / harden-followups.md F2
+# RT-2  provider-native context 身份必须 canonical 且 provider 白名单闭合
+# 旧 candidate/approval 链已退役；start/resume 只接受结构化 provider 身份和安全 CWD。
 # --------------------------------------------------------------------
-ASSERT RT-2 "审批拒绝 caller cwd ≠ candidate repo fingerprint" \
-  "go test ./internal/module/skill/... -run 'TestReview_RejectsRepoFingerprintMismatch|TestReview_RequiresCallerRepoFingerprint|TestReview_ProjectScopeRequiresRepoFingerprint' -count=1"
+ASSERT RT-2 "provider-native context 拒绝非法 provider/CWD 并锁定 canonical identity" \
+  "go test ./internal/contract/... -run 'TestCanonicalProviderNativeProviderWhitelist|TestProviderNativeContextValidate$|TestProviderNativeContextCanonicalCWD' -count=1"
 
 # --------------------------------------------------------------------
-# RT-3  List/Lookup 必须按 repo_fingerprint 隔离
-# 文档：fix01.v2.md T-02 / harden-followups.md F3
+# RT-3  provider-native context 严格序列化，不携带旧 skill/memory 正文
+# 结构化快照只允许 provider/cwd/home/profile/capability 元数据。
 # --------------------------------------------------------------------
-ASSERT RT-3 "Lookup/List 按 repo_fingerprint 隔离" \
-  "go test ./internal/store/skillcandidate/... -run 'TestStore_LookupApproval_DistinctRepoFingerprintIsolation|TestStore_LookupApproval_ProjectRejectsInvalidFingerprint|TestStore_ListPending_RejectsInvalidFingerprint' -count=1 \
-   && go test ./internal/module/skill/... -run 'TestReview_LookupApprovalScopedByFingerprint' -count=1"
+ASSERT RT-3 "provider-native context 严格 JSON 拒绝未知/损坏字段" \
+  "go test ./internal/contract/... -run 'TestProviderNativeContextJSONRoundTrip|TestProviderNativeContextStrictJSON|TestProviderNativeContextJSONFailureDoesNotMutate' -count=1"
 
 # --------------------------------------------------------------------
-# RT-4  Reviewer 身份不能由 caller 自报
-# 文档：fix01.v2.md T-03 / harden-followups.md F4
-# 现状：approval 必须非空已覆盖；caller-supplied 替换为 authn 主体仍待落地
+# RT-4  provider-native capability 必须显式探测，禁止乐观默认
+# 旧 reviewer/approval contract 已退役；未知能力必须保持 unknown 并 fail-closed。
 # --------------------------------------------------------------------
-ASSERT RT-4a "approve 拒绝空 approved_by" \
-  "go test ./internal/module/skill/... -run 'TestReview_RequiresApprovedBy' -count=1 \
-   && go test ./internal/store/skillcandidate/... -run 'TestStore_Approve_RequiresApprovedBy' -count=1"
+ASSERT RT-4a "provider-native capability 要求显式证据并拒绝隐式默认" \
+  "go test ./internal/provider/shared/... -run 'TestBuildProviderNativeContextCanonicalizesCWDAndKeepsCapabilitiesExplicit|TestBuildProviderNativeContextRejectsImplicitCapabilities|TestValidateProviderNativeContextRequiresOnlyExplicitFeatures' -count=1"
 
-SKIP RT-4b "approve 必须忽略 caller-supplied approved_by 字段（由 authn 主体注入）" \
+# 该项保留为迁移记录，不再绑定已删除的 approval 包。
+SKIP RT-4b "provider capability evidence 必须来自受信 probe（而非 caller 自报）" \
   "fix01.v2.md T-03（reviewer authn middleware）"
 
 # --------------------------------------------------------------------
@@ -105,32 +103,37 @@ SKIP RT-5c "错误链路 + 日志输出统一过 Redactor" \
   "fix01.v2.md T-05.1（log/error redaction middleware）"
 
 # --------------------------------------------------------------------
-# RT-6  signed skill 不得跳过审批/脱敏
-# 文档：p21/README.md §收口口径 / harden-followups.md F14
+# RT-6  turn skill 输入仅保留 provider-native 元数据，旧 candidate 正文必须拒绝
+# 正文由 provider-native discovery 负责，不得从 V3 turn payload 注入。
 # --------------------------------------------------------------------
-ASSERT RT-6 "trust=signed 仍走完整审批流程（P22 前一律按未验签处理）" \
-  "go test ./internal/module/skill/... -run 'TestReview_SignedSkillStillRequiresApproval' -count=1"
+ASSERT RT-6 "turn skill 仅接受 provider-native metadata 并拒绝旧 candidate" \
+  "go test ./internal/module/turn/... -run 'TestPrepareTurnKeepsExplicitSkillRefsMetadataOnly|TestPrepareTurnRejectsCandidateSkillsAsProviderNativeUnsupported|TestPrepareTurnRejectsEmptySelectedSkillMetadata|TestStartTurnAppliesProviderNativeSkillGate|TestStartTurnAllowsIdentityOnlyProviderNativeSkillMetadata' -count=1"
 
 # --------------------------------------------------------------------
-# RT-7  RedactedSample 不得在跨 repo List 出参中暴露
-# 文档：fix01.v2.md T-04 / harden-followups.md F14
+# RT-7  旧 skill tool surface 必须从 provider MCP 图移除并 fail-closed
+# provider-native discovery 是唯一 skill 路径；旧 skill__* 名称不得转发到 MCP。
 # --------------------------------------------------------------------
-ASSERT RT-7 "List 出参剔除 RedactedSample" \
-  "go test ./internal/module/skill/... -run 'TestReview_ListPendingExcludesRedactedSample' -count=1"
+ASSERT RT-7 "旧 skill tool surface 不得进入 provider MCP" \
+  "go test ./internal/platform/toolbridge/... -run 'TestPrepareCodexToolSurfaceRejectsLegacySkillSurface|TestCodexToolSurfaceLegacyNamesFailClosedWhenSurfaceMissing' -count=1"
 
 # --------------------------------------------------------------------
-# RT-8  collector 只读 observation（架构红线）
-# 文档：fix01.v2.md T-07b / harden-followups.md F8
+# RT-8  已移除的旧 trajectory/skill 管线不得回归（架构红线）
+# 旧 collector、extractor、evaluator 和 expanded state 已不再属于生产图；
+# 这里锁定物理删除及 Fx 入口清理，避免只删测试或重新接回无界订阅。
 # --------------------------------------------------------------------
-ASSERT RT-8 "archtest 锁定 trajectory_collector 只读 observation" \
-  "go test ./internal/archtest/... -run 'TestTrajectoryCollectorDoesNotCallObservationWriter' -count=1"
+ASSERT RT-8 "旧 trajectory/skill 管线物理残留已移除" \
+  "test ! -e internal/module/turn/trajectory_collector.go \
+   && test ! -e internal/module/turn/skill_extractor.go \
+   && test ! -e internal/module/turn/skill_evaluator.go \
+   && test ! -e internal/module/turn/expanded_state.go \
+   && ! grep -Eq 'NewTrajectoryCollector|NewTrajectorySubscribers|NewDefaultExtractor|NewExtractorRunner' internal/module/turn/module.go"
 
 # --------------------------------------------------------------------
 # RT-9  webhook SSRF + redirect 重校验
 # 文档：fix01.v2.md T-17 / P2
 # --------------------------------------------------------------------
 ASSERT RT-9 "webhook 拒绝私网/loopback、redirect 重跑 LookupIP、禁 env proxy" \
-  "go test ./internal/module/notify/platform/... -run 'TestPostRejectsLoopbackAddress|TestRedirectTargetRejectsLoopbackBeforeDial|TestRedirectTargetRejectsIPv6ZoneID|TestWebhookTransportDisablesEnvProxy|TestCheckRedirectEnforcesHTTPSAgain' -count=1"
+  "go test ./internal/platform/notify/... -run 'TestPostRejectsLoopbackAddress|TestRedirectTargetRejectsLoopbackBeforeDial|TestRedirectTargetRejectsIPv6ZoneID|TestWebhookTransportDisablesEnvProxy|TestCheckRedirectEnforcesHTTPSAgain' -count=1"
 
 # --------------------------------------------------------------------
 # 汇总

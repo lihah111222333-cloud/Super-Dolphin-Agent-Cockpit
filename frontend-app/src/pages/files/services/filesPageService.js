@@ -49,9 +49,6 @@ function createFilesPageService(api = fileService) {
     openSharedFile(path) {
       return api.openSharedFile({ path: normalizeRequiredPath(path) });
     },
-    deleteSharedFile(path) {
-      return api.deleteSharedFile({ path: normalizeRequiredPath(path) });
-    },
     saveTextFile(params) {
       return api.saveTextFile(normalizeSaveTextFileParams(params));
     },
@@ -61,7 +58,6 @@ function createFilesPageService(api = fileService) {
 const filesPageService = createFilesPageService();
 
 const {
-  deleteSharedFile,
   listSharedFilesDashboard,
   openSharedFile,
   readSharedFile,
@@ -70,7 +66,6 @@ const {
 
 export {
   createFilesPageService,
-  deleteSharedFile,
   filesPageService,
   listSharedFilesDashboard,
   openSharedFile,

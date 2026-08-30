@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { chromium } from 'playwright';
+import { chromiumLaunchOptions } from '../playwright-capabilities.mjs';
+import { resolveChromiumExecutable } from './desktop-failure-smoke.mjs';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -54,7 +56,7 @@ describe('agentic e2e planner', () => {
     expect(action.type).toBe('click');
     expect(action.target).toEqual({
       type: 'nestedRole',
-      parentTestId: 'sidebar-secondary-nav',
+      parentTestId: 'sidebar-nav',
       role: 'button',
       name: '链路追踪',
     });
@@ -98,27 +100,6 @@ describe('agentic e2e planner', () => {
     }));
   });
 
-  it('opens stable business navigation goals without filling the composer', () => {
-    const action = decideNextAction({
-      url: 'http://127.0.0.1:5176/',
-      hasFrontendApp: true,
-      hasChatPage: true,
-      composerVisible: true,
-      composerValue: '',
-    }, { id: 'plugins-skills-open' });
-
-    expect(action).toEqual(expect.objectContaining({
-      type: 'click',
-      expectRoute: '/skills',
-      target: {
-        type: 'nestedRole',
-        parentTestId: 'sidebar-nav',
-        role: 'button',
-        name: '插件与技能',
-      },
-    }));
-  });
-
   it('finishes a stable open goal once its route is active', () => {
     expect(decideNextAction({
       url: 'http://127.0.0.1:5176/settings',
@@ -142,15 +123,13 @@ describe('agentic e2e planner', () => {
     }));
   });
 
-  it('fails fast on console errors', () => {
-    const action = decideNextAction({
-      url: 'http://127.0.0.1:5176/',
-      hasFrontendApp: true,
-      consoleErrors: ['boom'],
-    });
-
+  it.each([
+    ['console errors', { consoleErrors: ['boom'] }, /console errors detected/],
+    ['shortcut configuration errors', { shortcutConfigErrorVisible: true }, /shortcut configuration error/],
+  ])('fails fast for %s', (_label, facts, reason) => {
+    const action = decideNextAction({ url: 'http://127.0.0.1:5176/', hasFrontendApp: true, ...facts });
     expect(action.type).toBe('fail');
-    expect(action.reason).toContain('console errors detected');
+    expect(action.reason).toMatch(reason);
   });
 
   it('clicks the real send button for the mocked chat send danger goal', () => {
@@ -407,18 +386,15 @@ describe('agentic e2e business discovery', () => {
       url: 'http://127.0.0.1:5176/',
       title: 'Super Dolphin Agent',
       domSummary: [
-        { tag: 'button', role: '', testId: '', ariaLabel: '插件与技能', text: '插件', disabled: false },
         { tag: 'button', role: '', testId: '', ariaLabel: '设置', text: '设置', disabled: false },
         { tag: 'button', role: '', testId: '', ariaLabel: '链路追踪', text: '', disabled: false },
       ],
     });
     const labels = flows.map((flow) => flow.entry.label);
 
-    expect(labels.some((label) => label === '插件与技能' || label === '插件')).toBe(true);
     expect(labels).toContain('设置');
     expect(labels).toContain('链路追踪');
     expect(flows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ entry: expect.objectContaining({ label: '插件与技能', targetRoute: '/skills' }) }),
       expect.objectContaining({ entry: expect.objectContaining({ label: '设置', targetRoute: '/settings' }) }),
       expect.objectContaining({ entry: expect.objectContaining({ label: '链路追踪', targetRoute: '/observability' }) }),
     ]));
@@ -426,7 +402,6 @@ describe('agentic e2e business discovery', () => {
 
   it('marks known navigation buttons as safe route changes without allowing shell controls', () => {
     const actions = businessActionsFromDOMSummary([
-      { tag: 'button', role: '', testId: '', ariaLabel: '插件与技能', text: '插件', disabled: false, sourceTestId: 'sidebar-nav' },
       { tag: 'button', role: '', testId: '', ariaLabel: '自动化', text: '自动化', disabled: false, sourceTestId: 'sidebar-nav' },
       { tag: 'button', role: '', testId: '', ariaLabel: '设置', text: '设置', disabled: false, sourceTestId: 'app-sidebar' },
       { tag: 'button', role: '', testId: '', ariaLabel: '新对话', text: '', disabled: false, sourceTestId: 'app-sidebar' },
@@ -435,7 +410,6 @@ describe('agentic e2e business discovery', () => {
     ]);
 
     expect(actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: '插件与技能', safety: 'allowed', reason: 'navigation entry', targetRoute: '/skills' }),
       expect.objectContaining({ label: '自动化', safety: 'allowed', reason: 'navigation entry', targetRoute: '/dags' }),
       expect.objectContaining({ label: '设置', safety: 'allowed', reason: 'navigation entry', targetRoute: '/settings' }),
       expect.objectContaining({ label: '新对话', safety: 'blocked', reason: 'action is not recognized as read-only', targetRoute: '/' }),
@@ -468,7 +442,7 @@ describe('agentic e2e readiness', () => {
   it('waits for observability page after clicking its sidebar entry', () => {
     expect(readinessForAction({
       type: 'click',
-      target: { type: 'nestedRole', parentTestId: 'sidebar-secondary-nav', role: 'button', name: '链路追踪' },
+      target: { type: 'nestedRole', parentTestId: 'sidebar-nav', role: 'button', name: '链路追踪' },
     })).toEqual({ type: 'testId', value: 'observability-page' });
   });
 
@@ -504,15 +478,15 @@ describe('agentic e2e discovery aggregation', () => {
   it('keeps target route separate from the latest observed page when merging repeated flows', () => {
     const merged = mergeDiscoveredFlows([
       {
-        id: 'visible-sidebar-nav-插件与技能',
-        entry: { route: '/', label: '插件与技能', source: 'sidebar-nav', targetRoute: '/skills' },
+        id: 'visible-sidebar-nav-自动化',
+        entry: { route: '/', label: '自动化', source: 'sidebar-nav', targetRoute: '/dags' },
         page: { route: '/' },
-        actions: [{ type: 'click', label: '插件与技能', safety: 'allowed', reason: 'navigation entry' }],
+        actions: [{ type: 'click', label: '自动化', safety: 'allowed', reason: 'navigation entry' }],
       },
     ], [
       {
-        id: 'visible-sidebar-nav-插件与技能',
-        entry: { route: '/observability', label: '插件与技能', source: 'sidebar-nav', targetRoute: '/skills' },
+        id: 'visible-sidebar-nav-自动化',
+        entry: { route: '/observability', label: '自动化', source: 'sidebar-nav', targetRoute: '/dags' },
         page: { route: '/observability' },
         actions: [{ type: 'click', label: '查询最新日志', safety: 'allowed', reason: 'read-oriented action keyword: 查询' }],
       },
@@ -521,7 +495,7 @@ describe('agentic e2e discovery aggregation', () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].entry).toEqual(expect.objectContaining({
       route: '/',
-      targetRoute: '/skills',
+      targetRoute: '/dags',
     }));
     expect(merged[0].page.route).toBe('/observability');
   });
@@ -742,12 +716,6 @@ describe('agentic e2e discovery report', () => {
         actions: [{ type: 'click', label: '自动化', safety: 'allowed', reason: 'navigation entry', targetRoute: '/dags' }],
         result: { status: 'candidate', summary: 'Discovered from visible page structure' },
       }, {
-        id: 'visible-sidebar-nav-插件与技能',
-        entry: { route: '/', label: '插件与技能', source: 'sidebar-nav', targetRoute: '/skills' },
-        page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
-        actions: [{ type: 'click', label: '插件与技能', safety: 'allowed', reason: 'navigation entry', targetRoute: '/skills' }],
-        result: { status: 'candidate', summary: 'Discovered from visible page structure' },
-      }, {
         id: 'visible-sidebar-nav-提示词',
         entry: { route: '/', label: '提示词', source: 'sidebar-nav', targetRoute: '/prompts' },
         page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
@@ -763,12 +731,11 @@ describe('agentic e2e discovery report', () => {
     });
 
     expect(markdown).toContain('# Agentic E2E Business Flow Discovery');
-    expect(markdown).toContain('- Total flows: 5');
-    expect(markdown).toContain('- Stable goal candidates: 5');
+    expect(markdown).toContain('- Total flows: 4');
+    expect(markdown).toContain('- Stable goal candidates: 4');
     expect(markdown).toContain('| Entry | Category | Source | Target Route | Observed Page | Result | Suggested Goal |');
     expect(markdown).toContain('链路追踪');
     expect(markdown).toContain('| 自动化 | business-candidate | sidebar-nav | /dags | /observability | candidate - Discovered from visible page structure | automation-open |');
-    expect(markdown).toContain('| 插件与技能 | business-candidate | sidebar-nav | /skills | /observability | candidate - Discovered from visible page structure | plugins-skills-open |');
     expect(markdown).toContain('| 提示词 | business-candidate | sidebar-nav | /prompts | /observability | candidate - Discovered from visible page structure | prompts-open |');
     expect(markdown).toContain('| 共享文件 | business-candidate | sidebar-nav | /files | /observability | candidate - Discovered from visible page structure | shared-files-open |');
     expect(markdown).toContain('Stable Goal Candidates');
@@ -830,6 +797,7 @@ describe('agentic e2e DOM facts', () => {
     const originalHTML = document.body.innerHTML; try {
       document.body.innerHTML = `
         <main data-testid="frontend-app">
+          <output data-testid="shortcut-config-error">快捷键配置失败</output>
           <nav data-testid="sidebar-secondary-nav">
             <button aria-label="链路追踪"></button>
           </nav>
@@ -875,6 +843,7 @@ describe('agentic e2e DOM facts', () => {
         expect.objectContaining({ tag: 'select', ariaLabel: '日志级别' }),
       ]));
       expect(facts).toEqual(expect.objectContaining({
+        shortcutConfigErrorVisible: true,
         settingsProviderSaveVisible: true,
         settingsProviderModelValue: 'gpt-5',
         settingsProviderEffortValue: 'high',
@@ -931,11 +900,9 @@ describe('agentic e2e config', () => {
     expect(AGENTIC_GOAL_IDS).toEqual(expect.arrayContaining([
       'chat-composer',
       'observability-latest-logs',
-      'plugins-skills-open',
       'automation-open',
       'prompts-open',
       'shared-files-open',
-      'memory-open',
       'settings-open',
       'chat-send-mocked',
       'project-add-sandbox',
@@ -972,11 +939,11 @@ describe('agentic e2e config', () => {
   it('uses command line goal selection and goal-scoped output directories', () => {
     const config = agenticE2EConfig({
       SUPER_DOLPHIN_AGENTIC_E2E_RUN_ID: 'probe run',
-      SUPER_DOLPHIN_AGENTIC_E2E_GOAL: 'plugins-skills-open',
-    }, '/repo/app', ['--goal=memory-open']);
+      SUPER_DOLPHIN_AGENTIC_E2E_GOAL: 'automation-open',
+    }, '/repo/app', ['--goal=shared-files-open']);
 
-    expect(config.goal.id).toBe('memory-open');
-    expect(config.outputDir).toBe('/repo/app/.tmp/agentic-e2e/probe-run/memory-open');
+    expect(config.goal.id).toBe('shared-files-open');
+    expect(config.outputDir).toBe('/repo/app/.tmp/agentic-e2e/probe-run/shared-files-open');
   });
 
   it('uses sandbox values for provider settings goal selection', () => {
@@ -1029,13 +996,10 @@ describe('agentic e2e sandbox fixture', () => {
 
       await prepareAgenticE2ESandbox(config);
       const readme = await readFile(path.join(config.sandbox.projectDir, 'README.md'), 'utf8');
-      const skill = await readFile(path.join(config.sandbox.projectDir, '.agents/skills/e2e-fixture/SKILL.md'), 'utf8');
       const snapshot = await snapshotAgenticE2ESandbox(config);
 
       expect(readme).toContain('Agentic E2E Sandbox Project');
-      expect(skill).toContain('agentic-e2e-fixture');
       expect(snapshot.files).toEqual(expect.arrayContaining([
-        '.agents/skills/e2e-fixture/SKILL.md',
         'README.md',
         'docs/note.md',
         'files/sample.txt',
@@ -1050,7 +1014,7 @@ describe('agentic e2e sandbox fixture', () => {
 
 describe('agentic e2e strict Wails mock', () => {
   it('returns sandbox paths for project and file pickers and fails on out-of-sandbox project paths', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+    const browser = await chromium.launch(chromiumLaunchOptions(resolveChromiumExecutable(), true, ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']));
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-boundary');
@@ -1066,18 +1030,15 @@ describe('agentic e2e strict Wails mock', () => {
 
       const state = await readAgenticE2EMockWailsState(page);
       expect(state.sandboxViolations).toEqual([expect.objectContaining({
-        method: 'ui/projects/add',
-        path: 'outside',
+        method: 'ui/projects/add', path: 'outside',
       })]);
       expect(() => assertAgenticE2EMockWailsClean(state)).toThrow(/outside sandbox/);
     }
-    finally {
-      await browser.close();
-    }
+    finally { await browser.close(); }
   });
 
   it('records sandbox-scoped provider preference writes without leaking raw paths', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+    const browser = await chromium.launch(chromiumLaunchOptions(resolveChromiumExecutable(), true, ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']));
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preferences');
@@ -1169,7 +1130,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('accepts runtime trace metadata on provider preference writes without recording trace values', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+    const browser = await chromium.launch(chromiumLaunchOptions(resolveChromiumExecutable(), true, ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']));
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-trace');
@@ -1213,7 +1174,7 @@ describe('agentic e2e strict Wails mock', () => {
   });
 
   it('fails provider preference writes for non-whitelisted keys and out-of-sandbox paths', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+    const browser = await chromium.launch(chromiumLaunchOptions(resolveChromiumExecutable(), true, ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']));
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-guard');

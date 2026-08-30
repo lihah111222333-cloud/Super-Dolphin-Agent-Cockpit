@@ -5,7 +5,7 @@ import { parseObservabilityResultResponse } from '../shared/api/backendSchemas.j
 describe('observabilityAdapter', () => {
   it('preserves tail degradation diagnostics during normalization', () => {
     const result = adaptObservabilityResult({
-      source: 'memory',
+      source: 'buffer',
       degraded: true,
       tailError: 'tail reader unavailable',
       tailTimedOut: true,
@@ -14,7 +14,7 @@ describe('observabilityAdapter', () => {
     });
 
     expect(result).toMatchObject({
-      source: 'memory',
+      source: 'buffer',
       degraded: true,
       tailError: 'tail reader unavailable',
       tailTimedOut: true,
@@ -53,14 +53,14 @@ describe('observabilityAdapter', () => {
 
   it('rejects malformed observability result bodies instead of fabricating degraded events', () => {
     expect(() => adaptObservabilityResult({
-      source: 'memory',
+      source: 'buffer',
       tail: 10,
     })).toThrow('observability response events must be an array');
   });
 
   it('rejects malformed events instead of fabricating parse failure events', () => {
     expect(() => adaptObservabilityResult({
-      source: 'memory',
+      source: 'buffer',
       events: [
         null,
         {
@@ -74,7 +74,7 @@ describe('observabilityAdapter', () => {
 
   it('normalizes missing event status to unknown without defaulting to ok', () => {
     const result = adaptObservabilityResult({
-      source: 'memory',
+      source: 'buffer',
       events: [{
         ts: '2026-06-02T09:01:22.459Z',
         traceId: 'trace-ok',

@@ -42,12 +42,11 @@ func TestTurnPrepareTraceCountsOnlyAndNoPromptPayload(t *testing.T) {
 	session := &stubSession{threadID: "thread-trace-1"}
 	secretPrompt := "user secret memory payload"
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
-		Prompt:          secretPrompt,
-		Inputs:          []InputItem{{Type: "text", Content: "input secret"}},
-		Files:           []string{"README.md"},
-		Images:          []string{"https://example.test/a.png"},
-		Skills:          []dto.SkillRef{{Name: "skill-a", Prompt: "skill prompt secret"}},
-		CandidateSkills: []dto.SkillRef{{Name: "skill-b", Prompt: "candidate prompt secret"}},
+		Prompt: secretPrompt,
+		Inputs: []InputItem{{Type: "text", Content: "input secret"}},
+		Files:  []string{"README.md"},
+		Images: []string{"https://example.test/a.png"},
+		Skills: []dto.SkillRef{{Name: "skill-a", Prompt: "skill prompt secret", Summary: "skill summary", Version: "v1"}},
 	})
 	if err != nil {
 		t.Fatalf("PrepareTurn() error = %v", err)
@@ -65,11 +64,11 @@ func TestTurnPrepareTraceCountsOnlyAndNoPromptPayload(t *testing.T) {
 	assertMetadataCount(t, done.Metadata, "input_count", 1)
 	assertMetadataCount(t, done.Metadata, "file_count", 1)
 	assertMetadataCount(t, done.Metadata, "image_count", 1)
-	assertMetadataCount(t, done.Metadata, "skill_count", 2)
+	assertMetadataCount(t, done.Metadata, "skill_count", 1)
 	assertMetadataPresent(t, done.Metadata, "manifest_tool_count")
 	raw, _ := json.Marshal(events)
 	text := string(raw)
-	assertTraceExcludes(t, text, secretPrompt, "input secret", "skill prompt secret", "candidate prompt secret")
+	assertTraceExcludes(t, text, secretPrompt, "input secret", "skill prompt secret")
 	if done.Code.File == "" || done.Code.Function == "" || done.Code.Line == 0 {
 		t.Fatalf("code anchor missing: %#v", done.Code)
 	}

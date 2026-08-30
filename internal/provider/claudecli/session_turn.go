@@ -186,23 +186,11 @@ func errorMessageFromTerminalReason(reason string) string {
 // prepareTurnLocked 在持锁状态下完成 turn payload、重启检查和 active turn 绑定。
 // 任何编码或 transport 检查失败都会回滚 active turn，避免留下不可完成的 handle。
 func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
-	if s.interrupting {
-		return nil, "", nil, errors.New("claudecli: interrupt cleanup in progress")
-	}
-	blocks := composeTurnContent(req, s.imageTracker)
-	if len(blocks) == 0 {
-		return nil, "", nil, errors.New("claudecli: empty turn input")
-	}
-	if err := ensureTurnAvailable(s.activeTurn); err != nil {
+	blocks, err := s.prepareTurnBlocksLocked(req)
+	if err != nil {
 		return nil, "", nil, err
 	}
-	if err := s.restartIfNeededLocked(ctx, req); err != nil {
-		return nil, "", nil, err
-	}
-	if err := ensureTurnAvailable(s.activeTurn); err != nil {
-		return nil, "", nil, err
-	}
-	if err := ensureTransportReady(s.transport); err != nil {
+	if err := s.restartAndCheckTurnLocked(ctx, req); err != nil {
 		return nil, "", nil, err
 	}
 	localID := strings.TrimSpace(req.LocalID)
@@ -219,8 +207,48 @@ func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([
 	return payload, currentTurnID(handle), handle, nil
 }
 
+// prepareTurnBlocksLocked 在持锁状态下校验 turn 输入并生成 content blocks。
+// 该阶段不触碰 transport，确保损坏的技能选择、旧 memory section 或空输入先失败。
+func (s *session) prepareTurnBlocksLocked(req dto.TurnRequest) ([]map[string]any, error) {
+	if s.interrupting {
+		return nil, errors.New("claudecli: interrupt cleanup in progress")
+	}
+	if err := validateSelectedSkillNames(req.Skills); err != nil {
+		return nil, err
+	}
+	if err := contract.ValidateLegacyMemoryPromptSections(req.TurnAssembly.ResolvedSections); err != nil {
+		return nil, err
+	}
+	blocks := composeTurnContent(req, s.imageTracker)
+	if len(blocks) == 0 {
+		return nil, errors.New("claudecli: empty turn input")
+	}
+	if err := ensureTurnAvailable(s.activeTurn); err != nil {
+		return nil, err
+	}
+	return blocks, nil
+}
+
+// restartAndCheckTurnLocked 在持锁状态下完成必要重启，并确认 turn 可写入当前 transport。
+// 重启后再次检查 active turn 与 transport，避免候选 transport 切换期间写入失效句柄。
+func (s *session) restartAndCheckTurnLocked(ctx context.Context, req dto.TurnRequest) error {
+	if err := s.restartIfNeededLocked(ctx, req); err != nil {
+		return err
+	}
+	if err := ensureTurnAvailable(s.activeTurn); err != nil {
+		return err
+	}
+	return ensureTransportReady(s.transport)
+}
+
 // buildSteerPayload 把 steer 请求复用普通 turn 的内容组装规则编码为 CLI payload。
 func buildSteerPayload(req dto.SteerRequest, tracker *imageHashTracker) ([]byte, error) {
+	if err := validateSelectedSkillNames(req.Skills); err != nil {
+		return nil, err
+	}
+	if err := contract.ValidateLegacyMemoryPromptSections(req.TurnAssembly.ResolvedSections); err != nil {
+		return nil, err
+	}
 	blocks := composeTurnContent(dto.TurnRequest{
 		ThreadID:             req.ThreadID,
 		Inputs:               req.Inputs,
@@ -234,6 +262,18 @@ func buildSteerPayload(req dto.SteerRequest, tracker *imageHashTracker) ([]byte,
 		return nil, errors.New("claudecli: empty steer input")
 	}
 	return marshalTurnContentPayload(blocks)
+}
+
+// validateSelectedSkillNames 拒绝 provider 直连调用中的空 skill 名称。
+// Claude 当前只透传 provider-native 选择元数据，不会把正文写入 turn；即便如此，
+// 损坏的显式选择也必须在 transport 前失败，而不是被忽略后继续发送用户输入。
+func validateSelectedSkillNames(skills []dto.SkillRef) error {
+	for i, skill := range skills {
+		if strings.TrimSpace(skill.Name) == "" {
+			return fmt.Errorf("claudecli: selected skill[%d] name is required", i)
+		}
+	}
+	return nil
 }
 
 // sendSteer 校验目标 turn 后把 steer payload 写入当前 Claude transport。

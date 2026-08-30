@@ -24,15 +24,12 @@ const backend = vi.hoisted(() => {
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
     getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
-    getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
-    ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
+    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
-    readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
-    createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
+    selectProjectDir selectProjectDirs
     listMCPServers listToolbridgeTools startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
-    listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
+    readSharedFile getPreference
     forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
@@ -85,10 +82,8 @@ const {
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
   mockPromptDefaults,
-  mockMemoryDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
-  mockSkillDefaults,
   mockSharedFileDefaults,
   mockSettingsAndThreadDefaults,
   resetFrontendHealthForTest,
@@ -101,10 +96,8 @@ beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
 beforeEach(mockPromptDefaults);
-beforeEach(mockMemoryDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
-beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 beforeEach(resetFrontendHealthForTest);
@@ -135,7 +128,7 @@ afterEach(cleanupAppTest);
       },
     }];
     backend.getDashboardPage.mockImplementation(({ page }) => (
-      page === 'dags' ? Promise.resolve({ dags: [dag] }) : Promise.resolve({ skills: [] })
+      page === 'dags' ? Promise.resolve({ dags: [dag] }) : Promise.resolve({})
     ));
     backend.getDagDetail.mockResolvedValue({ dag, nodes });
     backend.getDagRuns.mockImplementation(({ status }) => Promise.resolve({
@@ -180,7 +173,7 @@ afterEach(cleanupAppTest);
       latest_run: { run_key: 'run-a', status: 'running' },
     }];
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags } : { skills: [] },
+      page === 'dags' ? { dags } : {},
     ));
     backend.getDagDetail.mockImplementation(({ dagKey }) => {
       const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
@@ -250,7 +243,7 @@ afterEach(cleanupAppTest);
         latest_run: { run_key: 'run-a', status: 'running' },
       };
       backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-        page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+        page === 'dags' ? { dags: [runningDag] } : {},
       ));
       backend.getDagDetail.mockResolvedValue({
         dag: runningDag,
@@ -286,7 +279,7 @@ afterEach(cleanupAppTest);
       latest_run: { run_key: 'run-a', status: 'running' },
     }];
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags } : { skills: [] },
+      page === 'dags' ? { dags } : {},
     ));
     backend.getDagDetail.mockImplementation(({ dagKey }) => {
       const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
@@ -349,7 +342,7 @@ afterEach(cleanupAppTest);
       latest_run: { run_key: 'run-a', status: 'running' },
     }];
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags } : { skills: [] },
+      page === 'dags' ? { dags } : {},
     ));
     backend.getDagDetail.mockImplementation(({ dagKey }) => {
       const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
@@ -412,7 +405,7 @@ afterEach(cleanupAppTest);
     };
     const node = { node_key: 'step', title: '步骤 A', node_type: 'agent', status: 'running', depends_on: [], config: {} };
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+      page === 'dags' ? { dags: [runningDag] } : {},
     ));
     backend.getDagDetail.mockResolvedValue({ dag: runningDag, nodes: [node] });
     backend.getDagRuns.mockImplementation(({ status }) => Promise.resolve({
@@ -433,10 +426,10 @@ afterEach(cleanupAppTest);
     const runRefresh = deferred();
     backend.getDashboardPage
       .mockImplementationOnce(({ page }) => (
-        page === 'dags' ? Promise.reject(new Error('workflow backend offline')) : Promise.resolve({ skills: [] })
+        page === 'dags' ? Promise.reject(new Error('workflow backend offline')) : Promise.resolve({})
       ))
       .mockImplementation(({ page }) => Promise.resolve(
-        page === 'dags' ? { dags: [runningDag] } : { skills: [] },
+        page === 'dags' ? { dags: [runningDag] } : {},
       ));
     backend.getDagDetail.mockImplementation(() => detailRefresh.promise);
     backend.getDagRuns.mockImplementation(({ status }) => (
@@ -489,7 +482,7 @@ afterEach(cleanupAppTest);
     backend.getDashboardPage.mockImplementation(({ page }) => (
       page === 'dags'
         ? Promise.reject(new Error('workflow backend offline'))
-        : Promise.resolve({ skills: [] })
+        : Promise.resolve({})
     ));
 
     render(<App />);
@@ -505,7 +498,7 @@ afterEach(cleanupAppTest);
     expect(screen.queryByText('无任务')).not.toBeInTheDocument();
 
     backend.getDashboardPage.mockImplementation(({ page }) => (
-      page === 'dags' ? Promise.resolve({ dags: [flow] }) : Promise.resolve({ skills: [] })
+      page === 'dags' ? Promise.resolve({ dags: [flow] }) : Promise.resolve({})
     ));
     backend.getDagDetail.mockResolvedValue({
       dag: flow,
@@ -529,7 +522,7 @@ afterEach(cleanupAppTest);
       latest_run: { run_key: 'run-a', status: 'running' },
     }];
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags } : { skills: [] },
+      page === 'dags' ? { dags } : {},
     ));
     backend.getDagDetail.mockImplementation(({ dagKey }) => {
       const dag = dags.find((item) => item.dag_key === dagKey) || dags[0];
@@ -582,7 +575,7 @@ afterEach(cleanupAppTest);
       version: 3,
     };
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags: [scheduledDag] } : { skills: [] },
+      page === 'dags' ? { dags: [scheduledDag] } : {},
     ));
     backend.getDagDetail.mockResolvedValue({ dag: scheduledDag, nodes: [] });
     backend.getDagRuns.mockResolvedValue({ runs: [] });
@@ -614,7 +607,7 @@ afterEach(cleanupAppTest);
       version: 7,
     };
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags: [scheduledDag] } : { skills: [] },
+      page === 'dags' ? { dags: [scheduledDag] } : {},
     ));
     backend.getDagDetail.mockResolvedValue({ dag: scheduledDag, nodes: [] });
     backend.getDagRuns.mockResolvedValue({ runs: [] });

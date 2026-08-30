@@ -19,7 +19,6 @@ export async function prepareAgenticE2ESandbox(config = {}) {
     ['src/app.js', 'export function fixtureValue() {\n  return "agentic-e2e-fixture";\n}\n'],
     ['docs/note.md', '# Fixture Note\n\nThis file proves the sandbox project has readable docs.\n'],
     ['files/sample.txt', 'agentic e2e sample attachment\n'],
-    ['.agents/skills/e2e-fixture/SKILL.md', '---\nname: agentic-e2e-fixture\ndescription: Fixture skill for agentic E2E sandbox tests.\n---\n\n# agentic-e2e-fixture\n'],
     ['../home/.codex/config.toml', '# agentic e2e sandbox home\n'],
   ]);
 

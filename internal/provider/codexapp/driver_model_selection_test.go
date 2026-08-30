@@ -46,7 +46,6 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 
@@ -98,7 +97,6 @@ func TestThreadStartFailsWhenRequiredModelListFails(t *testing.T) {
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 
@@ -144,7 +142,6 @@ func TestThreadStartConfigGPTDefaultRequiresModelList(t *testing.T) {
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 
@@ -207,7 +204,6 @@ func TestDriverStartSessionPreservesExplicitOverrideGPT5Model(t *testing.T) {
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 
@@ -269,7 +265,6 @@ func TestDriverStartSessionPreservesExplicitOverrideGPT55Model(t *testing.T) {
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 

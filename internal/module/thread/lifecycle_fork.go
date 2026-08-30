@@ -39,7 +39,13 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if err != nil {
 		return ForkResult{}, err
 	}
-	snapshot, err := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
+	publicThreadID := bindingPublicThreadID(binding, threadID)
+	snapshot, err := s.resolveStablePromptSnapshotForAliases(ctx, []string{
+		publicThreadID,
+		threadID,
+		binding.AgentID,
+		binding.ProviderThreadID,
+	}, provider, contract.PromptAssemblySnapshot{})
 	if err != nil {
 		return ForkResult{}, err
 	}
@@ -64,7 +70,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if err := s.kickoffForkSession(ctx, state, meta, provider, cwd, displayName, newThreadID, snapshot, identity, config); err != nil {
 		return ForkResult{}, s.handleForkKickoffFailure(ctx, forkState, err)
 	}
-	return ForkResult{NewThreadID: newThreadID, ForkedFrom: bindingPublicThreadID(binding, threadID), KickoffState: ForkKickoffCreatedOnly}, nil
+	return ForkResult{NewThreadID: newThreadID, ForkedFrom: publicThreadID, KickoffState: ForkKickoffCreatedOnly}, nil
 }
 
 // handleForkKickoffFailure 统一处理 creating fork 的失败出口。
@@ -99,6 +105,12 @@ func (s *service) persistCreatingForkStateWithPromptSnapshot(ctx context.Context
 	if err := s.upsertForkThreadStatus(ctx, state, statusForkCreating); err != nil {
 		if rollbackErr := s.rollbackThreadBinding(ctx, bindingOutcome); rollbackErr != nil {
 			return errors.Join(err, rollbackErr)
+		}
+		return err
+	}
+	if err := validatePromptSnapshotForReuse(snapshot, state.Provider); err != nil {
+		if cleanupErr := s.cleanupForkCreatingState(ctx, state); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
 		}
 		return err
 	}
@@ -283,6 +295,11 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err := s.requireRecoverProviderSession(agentID, publicThreadID, providerThreadID); err != nil {
 		return RecoverResult{}, err
 	}
+	// 重新拉起 orchestration agent 前先验证可复用的 prompt snapshot；否则
+	// snapshot 失败会留下已经 launch 但无法接回 provider 的孤儿运行态。
+	if err := s.validateRecoverPromptSnapshot(ctx, threadID, publicThreadID, providerThreadID, provider, agentID); err != nil {
+		return RecoverResult{}, err
+	}
 	mode := "restore_launch"
 	if err := s.recoverAgent(
 		ctx,
@@ -301,7 +318,67 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	if err != nil {
 		return RecoverResult{}, err
 	}
-	if err := s.persistThreadState(ctx, newThreadState(threadStateRecoverKind, threadStateFields{
+	if err := s.persistRecoveredThreadState(ctx, threadID, publicThreadID, providerThreadID, agentID, provider, recoverCWD, displayName, meta, binding, session); err != nil {
+		return RecoverResult{}, s.recoverPostResumeFailure(ctx, mode, agentID, err)
+	}
+	s.activateRecoveredSession(mode, agentID)
+	if err := s.invalidateRecoveredPromptIfNeeded(ctx, recoverCWD, mode, agentID); err != nil {
+		return RecoverResult{}, err
+	}
+	return RecoverResult{
+		ThreadID:  publicThreadID,
+		Status:    "recovering",
+		Recovered: true,
+		Mode:      mode,
+	}, nil
+}
+
+// validateRecoverPromptSnapshot 在重新拉起 agent 前验证可复用的 prompt snapshot。
+func (s *service) validateRecoverPromptSnapshot(ctx context.Context, threadID, publicThreadID, providerThreadID, provider, agentID string) error {
+	// Recover accepts aliases (public thread, agent, provider thread).  The
+	// snapshot is persisted under the canonical public id, so checking only the
+	// caller-supplied alias can miss a legacy section and let an active session
+	// relink around the guard.  Probe every known alias and reject any non-empty
+	// invalid projection before orchestration is touched.
+	candidates := uniquePromptSnapshotIDs([]string{publicThreadID, threadID, agentID, providerThreadID})
+	foundSnapshot := false
+	for _, candidate := range candidates {
+		stored, err := s.loadStoredPromptSnapshot(ctx, candidate)
+		if err != nil {
+			if contract.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("load recover prompt snapshot for %q: %w", candidate, err)
+		}
+		if promptSnapshotBlank(stored) {
+			continue
+		}
+		foundSnapshot = true
+		if err := validatePromptSnapshotForReuse(stored, provider); err != nil {
+			return errors.Join(invalidPromptSnapshotError(candidate), err)
+		}
+	}
+	if foundSnapshot {
+		return nil
+	}
+	if _, lookupErr := s.lookupSession(agentID); lookupErr == nil {
+		return nil
+	}
+	// No alias carried a snapshot.  Rebuild only through the explicit legacy
+	// migration gate; resolveStablePromptSnapshot keeps that policy centralized.
+	_, err := s.resolveStablePromptSnapshot(ctx, publicThreadID, provider, contract.PromptAssemblySnapshot{})
+	return err
+}
+
+// persistRecoveredThreadState 持久化恢复后的 thread/binding 状态，并保留 provider 返回的真实身份。
+func (s *service) persistRecoveredThreadState(
+	ctx context.Context,
+	threadID, publicThreadID, providerThreadID, agentID, provider, recoverCWD, displayName string,
+	meta threadMeta,
+	binding *threadBindingStoreRecord,
+	session contract.Session,
+) error {
+	state := newThreadState(threadStateRecoverKind, threadStateFields{
 		RequestedThreadID: threadID,
 		PublicThreadID:    publicThreadID,
 		ProviderThreadID:  util.FirstNonEmpty(providerThreadID, resolvedProviderUUID(session), binding.ProviderThreadID),
@@ -318,21 +395,19 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		SessionUUID:       util.FirstNonEmpty(binding.SessionUUID, resolvedProviderUUID(session)),
 		ConfigOverride:    clone.RawMessage(meta.ConfigOverride),
 		CreatedAt:         meta.CreatedAt,
-	}), true); err != nil {
-		return RecoverResult{}, s.recoverPostResumeFailure(ctx, mode, agentID, err)
+	})
+	return s.persistThreadState(ctx, state, true)
+}
+
+// invalidateRecoveredPromptIfNeeded 在恢复成功后按配置清理 prompt assembly 缓存。
+func (s *service) invalidateRecoveredPromptIfNeeded(ctx context.Context, cwd, mode, agentID string) error {
+	if !promptResumeRestoreRequiresInvalidation(cwd, cwd, s.cfg) {
+		return nil
 	}
-	s.activateRecoveredSession(mode, agentID)
-	if promptResumeRestoreRequiresInvalidation(recoverCWD, recoverCWD, s.cfg) {
-		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
-			return RecoverResult{}, s.recoverPostResumeFailure(ctx, mode, agentID, err)
-		}
+	if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
+		return s.recoverPostResumeFailure(ctx, mode, agentID, err)
 	}
-	return RecoverResult{
-		ThreadID:  publicThreadID,
-		Status:    "recovering",
-		Recovered: true,
-		Mode:      mode,
-	}, nil
+	return nil
 }
 
 func (s *service) resolveRecoverContext(ctx context.Context, threadID string) (*threadBindingStoreRecord, threadMeta, error) {

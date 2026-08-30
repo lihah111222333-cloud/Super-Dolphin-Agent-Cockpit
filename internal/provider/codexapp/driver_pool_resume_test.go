@@ -97,8 +97,7 @@ func TestPrepareResumeSessionRequestDefaultsMissingLegacyIdentity(t *testing.T) 
 	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 	workDir := t.TempDir()
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), logger: slog.Default(), mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), logger: slog.Default()}
 
 	got, err := d.prepareResumeSessionRequest(context.Background(), dto.ResumeSessionRequest{
 		Provider: "codex",
@@ -119,9 +118,6 @@ func TestPrepareResumeSessionRequestDefaultsMissingLegacyIdentity(t *testing.T) 
 	}
 	assertDefaultResumeIdentity(t, got, wantHome)
 	assertDefaultResumeConfigIdentity(t, got.Config, wantHome)
-	if mirror.calls != 1 {
-		t.Fatalf("mirror reconcile calls = %d, want 1 after default identity resolution", mirror.calls)
-	}
 }
 
 func assertDefaultResumeIdentity(t *testing.T, got dto.ResumeSessionRequest, wantHome string) {

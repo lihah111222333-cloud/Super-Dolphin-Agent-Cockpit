@@ -39,48 +39,6 @@ func startAppErrorGoroutineForTest(t *testing.T, label string, run func() error)
 	return errCh
 }
 
-func TestRunDesktopPreDrain(t *testing.T) {
-	owner := newAppOwnerContext(context.Background())
-	drainStarted := make(chan struct{})
-	drainRelease := make(chan struct{})
-	owner.RegisterRuntimePreDrain(func(context.Context) error {
-		close(drainStarted)
-		<-drainRelease
-		return nil
-	})
-	owner.Cancel()
-	drained := startAppErrorGoroutineForTest(t, "desktop pre-drain", func() error {
-		return preDrainDesktopRuntime(owner.RootContext(), owner)
-	})
-	select {
-	case <-drainStarted:
-		t.Fatal("preDrainDesktopRuntime started runtime drain before runtime done")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	select {
-	case err := <-drained:
-		t.Fatalf("preDrainDesktopRuntime returned before runtime drain: %v", err)
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	owner.MarkRuntimeDone()
-	select {
-	case <-drainStarted:
-	case <-time.After(time.Second):
-		t.Fatal("preDrainDesktopRuntime did not start registered runtime drain after runtime done")
-	}
-	close(drainRelease)
-	select {
-	case err := <-drained:
-		if err != nil {
-			t.Fatalf("preDrainDesktopRuntime() error = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("preDrainDesktopRuntime did not finish after runtime done")
-	}
-}
-
 func TestRunHeadlessDesktopRejectsMissingReadyCallback(t *testing.T) {
 	if err := RunHeadlessDesktop(context.Background(), nil, nil); err == nil || !strings.Contains(err.Error(), "ready callback") {
 		t.Fatalf("RunHeadlessDesktop(nil ready) error = %v, want ready callback error", err)

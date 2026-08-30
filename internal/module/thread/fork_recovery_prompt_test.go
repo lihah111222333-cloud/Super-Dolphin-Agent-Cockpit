@@ -2,11 +2,193 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
+
+func TestServiceRecoverRejectsLegacySnapshotEvenWhenSessionActive(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555594"
+	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
+	threads := &stubThreadStore{thread: &ThreadRecord{
+		ThreadID:  "thread-parent",
+		AgentID:   "agent-parent",
+		Prompt:    "Recovered Thread",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+	}, promptSnapshot: &PromptSnapshotRecord{
+		DisplayName:      "Recovered Thread",
+		BaseInstructions: "stored base",
+		Provider:         "codex",
+		Version:          contract.PromptAssemblySnapshotVersion,
+		SectionSnapshot:  map[string]string{contract.DynamicSectionMemory: "legacy memory"},
+	}}
+	threads.promptSnapshot.Hash = promptSnapshotHash(
+		threads.promptSnapshot.DisplayName,
+		threads.promptSnapshot.BaseInstructions,
+		threads.promptSnapshot.DeveloperInstructions,
+		threads.promptSnapshot.Provider,
+		nil,
+		threads.promptSnapshot.SectionSnapshot,
+		threads.promptSnapshot.Generation,
+	)
+	bindings := &stubBindingStore{binding: &BindingRecord{
+		AgentID:              "agent-parent",
+		Provider:             "codex",
+		ProviderThreadID:     providerThreadID,
+		CodexThreadID:        "thread-parent",
+		RolloutPath:          rolloutPath,
+		ProviderRecoveryHome: t.TempDir(),
+		Cwd:                  "/repo",
+	}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: providerThreadID}}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		t.Fatal("ResumeSession should not be called for a legacy snapshot")
+		return nil, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Recover(context.Background(), "thread-parent")
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("Recover() error = %v, want legacy memory sentinel", err)
+	}
+	if len(orch.recovered) != 0 {
+		t.Fatalf("orchestration recover calls = %#v, want none before snapshot rejection", orch.recovered)
+	}
+}
+
+func TestServiceRecoverChecksCanonicalSnapshotWhenCalledByAlias(t *testing.T) {
+	t.Parallel()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555599"
+	legacy := validPromptSnapshotRecordForTest("codex", "Recovered Alias")
+	legacy.SectionSnapshot = map[string]string{contract.DynamicSectionMemory: "retired memory"}
+	legacy.Hash = promptSnapshotHash(
+		legacy.DisplayName,
+		legacy.BaseInstructions,
+		legacy.DeveloperInstructions,
+		legacy.Provider,
+		toDTOPromptBoundary(legacy.Boundary),
+		legacy.SectionSnapshot,
+		legacy.Generation,
+	)
+	threads := &aliasPromptSnapshotThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
+			ThreadID:  "agent-recover-alias",
+			AgentID:   "agent-recover-alias",
+			Prompt:    "Recovered Alias",
+			Model:     "gpt-5.5",
+			Cwd:       "/repo",
+			CreatedAt: 123,
+		}},
+		snapshots: map[string]*PromptSnapshotRecord{
+			"thread-recover-alias": &legacy,
+		},
+	}
+	bindings := &stubBindingStore{binding: &BindingRecord{
+		AgentID:              "agent-recover-alias",
+		Provider:             "codex",
+		ProviderThreadID:     providerThreadID,
+		CodexThreadID:        "thread-recover-alias",
+		ProviderRecoveryHome: t.TempDir(),
+		Cwd:                  "/repo",
+	}}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: providerThreadID}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, &stubSessionStarter{}, nil, orch, nil).(*service)
+
+	_, err := svc.Recover(context.Background(), "agent-recover-alias")
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("Recover(alias) error = %v, want legacy memory sentinel", err)
+	}
+	if len(orch.recovered) != 0 || orch.launch.AgentID != "" {
+		t.Fatalf("orchestration side effects = recovered %#v launch %#v, want none before canonical snapshot rejection", orch.recovered, orch.launch)
+	}
+}
+
+func TestServiceForkChecksCanonicalSnapshotWhenCalledByAlias(t *testing.T) {
+	t.Parallel()
+
+	legacy := validPromptSnapshotRecordForTest("codex", "Fork Alias")
+	legacy.SectionSnapshot = map[string]string{contract.DynamicSectionMemoryContext: "retired memory"}
+	legacy.Hash = promptSnapshotHash(
+		legacy.DisplayName,
+		legacy.BaseInstructions,
+		legacy.DeveloperInstructions,
+		legacy.Provider,
+		toDTOPromptBoundary(legacy.Boundary),
+		legacy.SectionSnapshot,
+		legacy.Generation,
+	)
+	threads := &aliasPromptSnapshotThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
+			ThreadID:  "agent-fork-alias",
+			AgentID:   "agent-fork-alias",
+			Prompt:    "Fork Alias",
+			Model:     "gpt-5.5",
+			Cwd:       "/repo",
+			CreatedAt: 123,
+		}},
+		snapshots: map[string]*PromptSnapshotRecord{
+			"thread-fork-alias": &legacy,
+		},
+	}
+	binding := &stubBindingStore{binding: &BindingRecord{
+		AgentID:          "agent-fork-alias",
+		Provider:         "codex",
+		ProviderThreadID: "provider-fork-alias",
+		CodexThreadID:    "thread-fork-alias",
+		Cwd:              "/repo",
+	}}
+	original := &stubSession{threadID: "provider-fork-alias", forkResult: dto.ForkResult{NewThreadID: "thread-fork-child"}}
+	sessions := &stubSessionProvider{session: original}
+	orch := &forkOrchestrationStub{}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		t.Fatal("ResumeSession should not be called for a legacy snapshot")
+		return nil, nil
+	}}
+	svc := NewService(silentLogger(), threads, binding, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Fork(context.Background(), "agent-fork-alias")
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("Fork(alias) error = %v, want legacy memory sentinel", err)
+	}
+	if original.forkRequest.ThreadID != "" {
+		t.Fatalf("ForkThread request = %#v, want no provider fork before canonical snapshot rejection", original.forkRequest)
+	}
+	if orch.launch.AgentID != "" || len(orch.recovered) != 0 {
+		t.Fatalf("orchestration side effects = launch %#v recovered %#v, want none", orch.launch, orch.recovered)
+	}
+}
+
+// aliasPromptSnapshotThreadStore keeps snapshots keyed by their canonical
+// public thread id so tests can exercise Recover calls made with an alias.
+type aliasPromptSnapshotThreadStore struct {
+	*stubThreadStore
+	snapshots map[string]*PromptSnapshotRecord
+}
+
+func (s *aliasPromptSnapshotThreadStore) LoadPromptSnapshot(_ context.Context, threadID string) (*PromptSnapshotRecord, error) {
+	if snapshot := s.snapshots[threadID]; snapshot != nil {
+		copy := *snapshot
+		copy.SectionSnapshot = clonePromptSectionMap(snapshot.SectionSnapshot)
+		return &copy, nil
+	}
+	return nil, nil
+}
+
+func toDTOPromptBoundary(boundary *PromptBoundaryRecord) *dto.PromptAssemblyBoundary {
+	if boundary == nil {
+		return nil
+	}
+	return &dto.PromptAssemblyBoundary{CachedPrefix: boundary.CachedPrefix, UncachedTail: boundary.UncachedTail}
+}
 
 func TestServiceRecoverDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.T) {
 	t.Parallel()

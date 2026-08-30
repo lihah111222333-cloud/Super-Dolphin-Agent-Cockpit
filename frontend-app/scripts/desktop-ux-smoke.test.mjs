@@ -14,8 +14,13 @@ describe('desktop UX smoke command', () => {
   });
 
   it('prefers explicit Playwright Chrome executable', () => {
-    expect(resolveChromeExecutable({ PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/opt/chrome' }, () => false))
+    expect(resolveChromeExecutable({ PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/opt/chrome' }, () => true))
       .toBe('/opt/chrome');
+  });
+
+  it('uses the shared macOS/system fallback when the injected filesystem reports it', () => {
+    expect(resolveChromeExecutable({}, (candidate) => candidate === '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'))
+      .toBe('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
   });
 
   it('uses independent ports and an isolated SQLite dev flow', () => {
@@ -26,7 +31,7 @@ describe('desktop UX smoke command', () => {
       SUPER_DOLPHIN_PLAYWRIGHT_CTL_ADDR: '127.0.0.1:8193',
       SUPER_DOLPHIN_PLAYWRIGHT_HOME: '/tmp/sd-home',
       SUPER_DOLPHIN_PLAYWRIGHT_SQLITE_PATH: '/tmp/sd-home/smoke.db',
-    }, '/repo/app');
+    }, '/repo/app', (env) => resolveChromeExecutable(env, () => true));
 
     expect(config.httpAddr).toBe('127.0.0.1:4613');
     expect(config.viteURL).toBe('http://127.0.0.1:5276');
@@ -36,7 +41,7 @@ describe('desktop UX smoke command', () => {
   });
 
   it('builds the run-new-ui-desktop environment for UX smoke', () => {
-    const config = desktopUXSmokeConfig({ PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/opt/chrome' }, '/repo/app');
+    const config = desktopUXSmokeConfig({ PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/opt/chrome' }, '/repo/app', (env) => resolveChromeExecutable(env, () => true));
     const env = buildDesktopUXEnv(config, { PATH: '/bin' });
 
     expect(env.SUPER_DOLPHIN_HTTP_ADDR).toBe('127.0.0.1:4513');

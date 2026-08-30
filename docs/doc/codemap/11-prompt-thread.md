@@ -1,6 +1,6 @@
 # 11B Prompt / Thread 代码地图
 
-> 拆卷说明：本卷只覆盖 `internal/module/prompt/`、`internal/module/thread/`、provider bridge、以及 blank-thread 首发链；memory 深水区另见 [`11-memory.md`](11-memory.md)。
+> 拆卷说明：本卷只覆盖 `internal/module/prompt/`、`internal/module/thread/`、provider bridge、以及 blank-thread 首发链；memory 兼容边界另见 [`11-memory.md`](11-memory.md)。
 > 当前口径：用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值；文件数由下列机器声明生成到 `ai-index.json.counts`，不保留手写数字快照。
 > UI 路径校正（2026-06-28）：当前且唯一的前端源码在 `frontend-app/`，见 [`01-terminal-ui-react.md`](01-terminal-ui-react.md)。旧 Vue/package-embed 前端已删除。
 >
@@ -12,7 +12,7 @@
 ## 1. 这卷回答什么
 
 - `thread/start` 到 provider `StartSession` 之间，**system prompt 是怎样组装、下发、落盘**的。
-- `PROMPT_START_CURRENT_DATE`、dynamic sections、memory providers、native-tool replacement hints，**分别插在哪个层级**。
+- `PROMPT_START_CURRENT_DATE`、dynamic sections、retired memory sections、native-tool replacement hints，**分别插在哪个层级**。
 - `thread/resume` / `thread/fork` / `thread/recover` 时，**prompt snapshot 与 runtime config snapshot 各自如何复用**。
 - provider raw event 经过 unified event map、session manager、thread 订阅、eventsurface，**最终怎样变成 UI 可见事件**。
 - blank-thread 首发时，前端为什么一定是 **`resolveStartOptions -> startThread -> sendMessage`** 两段式，而不是一次 RPC 直发。
@@ -23,12 +23,12 @@
 2. **turn prompt 没有同名 helper**：仓内 `resolveTurnPromptAssembly` 为 0 命中；turn 侧真实入口是 `internal/module/turn/prompt_assembly.go:13-43` 的 `prepareTurnAssembly()`，再调 `prompt.AssembleTurn()`。
 3. **`PROMPT_START_CURRENT_DATE` 已上线且只影响 start 一次性 system block**：常量在 `internal/module/prompt/assembler.go:26`，注入在 `:406`，读 env 在 `:420-424`。
 4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:63-82`，当前不含旧 prompt 注入式 skill 列表 slot。
-5. **skill 不再经 prompt catalog 注入**：V1 生产路径是 canonical skills -> provider-native mirrors；prompt 不从 skill store 读取 native replacement，native/tool suppression hints 只来自用户禁用工具配置。
+5. **skill 不再经 prompt catalog 注入**：provider-native discovery 由 Claude/Codex 自己负责；prompt 不从 skill store 读取正文，native/tool suppression hints 只来自用户禁用工具配置。
 6. **prompt config 不再承载旧 skill 列表开关**：`internal/module/prompt/config.go` 只保留 registry / assembly / system-context cache breaker 等 prompt 开关。
 7. **prompt store 不是只读**：`internal/store/prompt/contract.go:15-22` 已暴露 `WithTx / Get / Delete / InsertVersion / Upsert`；写路径在 `internal/module/prompt/service.go:290-340,382-488`。
 8. **prompt/thread 不再有独立 package-count freeze**：本卷使用上方 `codemap-count` 声明校验真实文件数；统一冻结真值位于 `internal/archtest/freeze_baseline.json`。
 9. **resume 没有独立 `resume.go`**：resume 主链分散在 `thread/lifecycle.go`、`start_session.go`、`prompt_snapshot.go`、`rpc.go`；文件树里只有 `resume_test.go`、`resume_session_uuid_test.go`。
-10. **memory 与 prompt 的交点不是共用一个 snapshot 结构**：prompt snapshot 单独存 `agent_thread_prompt_snapshot`；memory 侧读的是 thread `ConfigOverride.Runtime`，由 `MemoryLifecycleHooks.resolveThreadRuntimeMetadata()` 解释。
+10. **memory 与 prompt 当前没有运行时交点**：prompt snapshot 单独存 `agent_thread_prompt_snapshot`；旧 memory provider 注入由 typed unsupported 边界拒绝，不再解释 thread runtime metadata。
 11. **provider bridge 的主干是 bus，不是 thread 直接监听 driver**：driver session 只 dispatch raw event；统一翻译发生在 `internal/provider/unified/event_map.go:71-124`；thread 只订阅 bus 上的 typed event。
 12. **blank-thread 首发天然是两跳**：前端先 `thread/start` 拿 thread id，再 `turn/start` 发用户输入；这保证 start-only prompt 只在创线时注入一次。
 
@@ -146,14 +146,11 @@
 
 ### 4.4 Dynamic sections：真实 slot 矩阵
 
-`internal/module/prompt/dynamic.go:43-61` 当前真实 dynamic matrix 如下。
+`internal/module/prompt/dynamic.go:63-82` 当前真实 dynamic matrix 如下；旧 memory slots 不再属于生产矩阵，兼容拒绝规则另见 [11-memory.md](11-memory.md)。
 
 | order | name | cachePolicy | startOnly | 生产 provider 入口 |
 |---|---|---|---|---|
 | 110 | `session_guidance` | `InputScoped` | 否 | `SessionGuidanceProvider`，`service.go:131` |
-| 120 | `memory` | `InputScoped` | 是 | `MemoryRulesProvider`，memory 模块注册 |
-| 122 | `memory_entrypoint` | `InputScoped` | 是 | memory entrypoint provider |
-| 125 | `memory_context` | `InputScoped` | 否 | `MemoryContextProvider`，turn lane |
 | 130 | `env_info_simple` | `InputScoped` | 否 | `EnvInfoProvider`，`service.go:132` |
 | 140 | `language` | `InputScoped` | 否 | `LanguageProvider`，`service.go:133` |
 | 150 | `mcp_instructions` | `Uncached` | 否 | `MCPInstructionsProvider`，`service.go:134` |
@@ -166,7 +163,7 @@
 | 260 | `brief` | `CacheByName` | 否 | `BriefProvider`，`service.go:141` |
 | 270 | `ant_model_override` | `CacheByName` | 否 | `AntModelOverrideStubProvider`，`service.go` |
 
-结论：**这不是“固定 5 个 dynamic slot”**。旧 prompt 注入式 skill 列表 slot 已退出生产链，skills 通过 provider-native mirrors 让 Claude/Codex 自己发现。
+结论：**这不是“固定 5 个 dynamic slot”**。旧 prompt 注入式 skill 列表和 memory slots 已退出生产链，skills 由 Claude/Codex provider-native capability 自己发现；memory 兼容输入只在 guard 层被拒绝。
 
 ### 4.5 `dynamicSlotSections()` 如何把 slot 变成真正 section
 
@@ -312,12 +309,12 @@
 ### 4.13 Skills 与 prompt 的当前边界
 
 - 生产 skill 发现链路不再走 prompt catalog，也不把 skill body 注入 start/turn prompt。
-- `skill.Module` 通过 `contract.SkillMirrorReconciler` 向 provider 暴露 mirror reconcile 窄端口；Claude/Codex provider 在启动/acquire 前生成项目级 `.claude/skills`、`.agents/skills` 与个人级 `~/.claude/skills`、`~/.agents/skills` mirrors；显式 provider home 才使用其 `skills`。
+- 本地 skill module 与 mirror reconcile 窄端口已移除；Claude/Codex provider 在启动/acquire 前只校验 cwd/provider home，并由各自 CLI 原生发现 skills。
 - prompt 不从 skill store 读取 native replacement；`ServiceFxParams` 已无 skill store 注入，`assembler_support.go` 的 `aggregateSuppressedTools()` 只聚合用户禁用工具配置。
-- provider-native skill mirror 不再通过 prompt assembly metadata 产生 native/tool suppression hints；provider-native mirror 主链看 09 provider / skill module。
-- turn 侧仍用 `SkillHydrationSource` 对显式 `SkillRef` 补版本/hash/summary 等元数据，但 provider 实际发现和调用交给 native mirror。
+- provider-native skill metadata 不通过 prompt assembly 产生 native/tool suppression hints；provider capability 主链见 09 provider。
+- turn 侧仅规范化显式 `SkillRef` 的 name/key/scope/path 等元数据，摘要和版本可选；不再通过已删除的 hydration contract 读取正文。
 
-结论：本卷只记录 prompt/thread 如何携带运行时上下文；skill runtime 主链请看 09 provider mirror 与 skill module mirror reconciler。
+结论：本卷只记录 prompt/thread 如何携带运行时上下文；skill runtime 主链请看 09 provider 的 provider-native capability 说明。
 
 ### 4.14 Prompt snapshot：start 时一起生成的第二产物
 
@@ -512,7 +509,7 @@ prompt store 保存的是 dashboard / prompts 页面可编辑模板。
 - `FRCConfig`
 - `KeepCodingInstructions`
 
-因此，memory、MCP、language、output style、scratchpad 这些 prompt provider，**在创线时拿到的是 thread start context，而不是 provider session runtime 自己再补**。
+因此，当前仍存在的 MCP、language、output style、scratchpad 等 prompt provider，**在创线时拿到的是 thread start context，而不是 provider session runtime 自己再补**；memory slots 仅作兼容校验，不提供内容。
 
 ### 6.5 `buildStartAssemblyInput()`：StartRequest -> StartInput
 
@@ -629,7 +626,7 @@ type storedThreadConfig struct {
 - `Personality`
 - `Runtime = buildStartSessionConfig(...)`
 
-这就是 memory hooks 后续读取的“线程 runtime 元数据快照”。
+这只是 thread/config 的 runtime 元数据快照；当前没有 memory hooks 读取它。
 
 ### 6.10 `savePromptSnapshot()`：单独保存 prompt assembly 快照
 
@@ -824,106 +821,28 @@ provider 侧不需要再理解 thread store；它只消费 resume DTO。
 
 因此文档若继续写“看 `resume.go`”，就是旧口径漂移。
 
-## 7. memory snapshot / prompt snapshot 的结合点
+## 7. prompt snapshot 与 retired memory 边界
 
-### 7.1 先区分两种 snapshot
+### 7.1 prompt snapshot 负责恢复 prompt frame
 
 | 名称 | 存储位置 | 生产时机 | 消费方 |
 |---|---|---|---|
 | prompt snapshot | `threadStore.SavePromptSnapshot()` | `persistStartedSession()` | resume / fork / recover / provider resume |
-| runtime config snapshot | `thread.ConfigOverride.Runtime` | `buildStartStoredThreadConfig()` | thread config read / memory lifecycle hooks / offline config |
+| runtime config snapshot | `thread.ConfigOverride.Runtime` | `buildStartStoredThreadConfig()` | thread config read / offline config |
 
-本仓当前并没有一个名叫 `MemorySnapshot` 的共享 DTO。
+`PromptAssemblySnapshot` 记录 `BaseInstructions`、`DeveloperInstructions`、`Boundary`、`Provider`、`Hash` 和 `SectionSnapshot`。它只负责恢复 prompt frame，不是 memory snapshot，也不承载已删除的 memory 文件内容。
 
-### 7.2 prompt snapshot 负责“恢复 prompt frame”
+### 7.2 旧 memory wiring 的拒绝点
 
-prompt snapshot 记录：
+- `internal/contract/memory_prompt_guard.go` 对 `memory`、`memory_entrypoint`、`memory_context` section 做显式规则校验。
+- `internal/module/prompt/assembler.go` 在组装边界上不允许 retired memory section 混入 runtime extras 或 turn wire。
+- `internal/module/turn/service_helpers.go` 的 `syntheticMemoryContext` 仅用于识别旧注入；一旦发现旧 `TurnContextProvider`，返回 `ErrMemoryRuntimeUnsupported` 分类错误。
 
-- 已组装的 `BaseInstructions`
-- `DeveloperInstructions`
-- `Boundary`
-- `Provider`
-- `Hash`
-- `SectionSnapshot`
+因此当前不存在 “memory → prompt handoff” 或 turn-completed durable write 链。需要重新引入持久化能力时，必须建立新的 owner、生产 caller、契约和对应 gate，不能仅恢复历史 provider 名称。
 
-所以它服务的是：
+### 7.3 当前 assembly 入口
 
-- fork 时沿用原线程 prompt frame
-- resume/recover 时在 provider 层恢复 base/developer instructions
-
-### 7.3 runtime config snapshot 负责“恢复 memory gate 与 thread runtime 元数据”
-
-`internal/module/thread/factory.go:194-200` 的 `storedThreadConfig.Runtime` 里会保存：
-
-- cwd
-- gitRoot
-- language
-- summary
-- sessionFlags
-- mcp snapshot
-- scratchpadDir
-- output style
-- approvals / effort / personality 等 runtime 相关信息
-
-这份 runtime map 不是拿来还原 prompt 文本，而是拿来让 thread / memory / config 相关逻辑知道“这个线程当时是怎么启动的”。
-
-### 7.4 MemoryLifecycleHooks 读的是 thread runtime metadata
-
-`internal/module/memory/extract_metadata.go:33-42`：
-
-- `resolveThreadRuntimeMetadata(ctx, threadID)` 会从 `threadStore.GetByThreadID()` 读线程元数据。
-- 它再用 `decodeStoredThreadRuntime(thread)` 解析 `thread.ConfigOverride`。
-
-后续字段抽取在 `extract_metadata.go:44-65`：
-
-- `parentAgentID`
-- `threadKind`
-- `ownerThreadID`
-- `agentMemoryScope`
-- `sessionFlags`
-- `bareMode`
-
-这些信息会进一步影响 `ResolveMemoryGate(...)`。
-
-### 7.5 真正的结合点：start 时一次写双份
-
-start 主链中有两个并行落盘动作：
-
-1. `encodeStoredThreadConfig(buildStartStoredThreadConfig(...))`
-2. `savePromptSnapshot(ctx, publicThreadID, assembly)`
-
-第 1 个让 memory hooks 未来能按 thread runtime metadata 决策。
-第 2 个让 provider resume/fork 未来能复用 prompt frame。
-
-**结合点不是“存一份共用 snapshot”，而是“start 时同步持久化 runtime + prompt 两种视角”**。
-
-### 7.6 memory -> prompt 的 handoff 在哪
-
-memory 模块把 prompt handoff 分成两条：
-
-#### A. prompt 注入侧
-
-- `memory.Module` 在 `internal/module/memory/module.go:329-367` 组装 providers、workers、子模块与 `registerPromptProviders`。
-- `registerPromptProviders()` 在 `internal/module/memory/rules_provider.go:784-809` 注册：
-  - `MemoryRulesProvider`
-  - `MemoryEntrypointProvider`
-  - `MemoryContextProvider`
-  - ClaudeMd provider
-
-#### B. durable write 侧
-
-- `NewMemorySubscribers()` 在 `internal/module/memory/factory.go:297-339` 声明 bus subscriber，并调用 `internal/module/memory/module_subscribers.go:53-60` 的 `registerLifecycleSubscriptions()`。
-- `registerThreadHookSubscriptions()` 在 `internal/module/memory/module_subscribers.go:85-136`
-- 它订阅：
-  - `threaddto.Started`
-  - `turndto.TurnInputReceived`
-  - `turndto.TurnCompleted`
-- `MemoryLifecycleHooks.onTurnCompleted()` 最终落到 durable write，见 `memory/extract_runtime.go:29-57` 与 `memory/service.go:201-266`
-
-所以 memory 与 prompt 的关系是：
-
-- **start / turn 注入** 走 prompt providers
-- **turn completed 写入** 走 lifecycle hooks
+`internal/module/prompt/assembler.go` 生成 start/turn assembly，`internal/module/thread` 负责 snapshot 持久化和恢复，`internal/provider/{claudecli,codexapp}` 消费统一 DTO。prompt 动态 provider 当前来自 prompt 自身以及 datasource / personalization 等仍存在模块；没有 memory runtime provider。
 
 ## 8. Provider bridge：runtime event 如何进 thread 与 UI
 
@@ -1005,7 +924,7 @@ memory 模块把 prompt handoff 分成两条：
 - thread：`Started / Stopped / MessagesPage / Compacted`
 - tool：`ToolCallBegin / ToolCallEnd / ToolApprovalRequested / ToolApprovalResolved / ToolDiffUpdated`
 - turn：`TurnStarted / TurnCompleted / TurnInterrupted / TurnStalled / TurnResumed / TurnInputReceived / TurnOutputDelta / PlanDelta / PlanUpdated / ItemStarted / ItemCompleted`
-- ui：`UIProjectionUpdated / UITimelineAppended / UITokensUpdated / SkillsChanged / UIThreadPatch / UIPreferencesChanged`
+- ui：`UIProjectionUpdated / UITimelineAppended / UITokensUpdated / UIThreadPatch / UIPreferencesChanged`
 
 这就是 provider runtime event map 的统一真值。
 
@@ -1181,7 +1100,7 @@ memory 模块把 prompt handoff 分成两条：
 
 - start-only system prompt 的一次性注入边界
 - durable prompt snapshot 的持久化时机
-- 聊天页不再挂技能选择器，skill 发现交给 provider-native mirror 的边界
+- 聊天页不再挂本地技能选择器，skill 发现交给 provider-native capability 的边界
 
 ## 10. Mermaid
 
@@ -1194,7 +1113,7 @@ flowchart LR
   C --> D[Static sections]
   C --> E[Dynamic slot matrix]
   E --> E1[session_guidance]
-  E --> E2[memory / agent_memory / memory_context]
+  E --> E2[retired memory slots / guard rejection]
   E --> E3[env / language / mcp / output_style]
   E --> E4[scratchpad / frc / summarize / anchors / token_budget / brief]
   E --> E5[user disabled tool suppression hints]
@@ -1324,26 +1243,20 @@ flowchart LR
 - `grep internal/module/prompt mustRegisterDynamicProvider`
 - `grep internal/module/prompt RegisterDynamicProvider`
 
-### 12.2 新增一条 memory -> prompt 通道
+### 12.2 重新引入 memory 能力前的门禁
 
-目标：让 memory 能影响 start 或 turn prompt，而不是直接在 thread 里拼文案。
+当前没有 memory → prompt 生产通道。若未来要重新引入持久化或检索能力，必须先明确新的 owner 和契约，再接入 prompt：
 
-步骤：
-
-1. 判断它属于：
-   - start-only 规则 -> `MemoryRulesProvider`
-   - turn runtime context -> `MemoryContextProvider`
-   - ClaudeMd source -> ClaudeMd provider
-2. 在 memory 模块实现 provider。
-3. 在 `memory.Module` 的 `registerPromptProviders()` 中注册。
-4. 如有 durable write 需要，再由 `NewMemorySubscribers()` / `registerLifecycleSubscriptions()` 增加相应 bus 订阅。
-5. 如果写侧会改变 prompt 可见内容，记得触发 section invalidation。
+1. 在 `internal/contract` 定义窄接口、错误分类和数据边界；禁止恢复历史实现路径或隐式默认 provider。
+2. 在独立生产包实现 provider，并由 `internal/module/prompt` 的 registrar 显式接线；缺依赖时返回 typed unsupported。
+3. 对会改变 prompt 可见面的写操作增加 section invalidation、Fx wiring 和生产 caller。
+4. 同步更新 archtest、capability manifest、project-map 和本卷，并运行 focused prompt/thread/contract tests。
 
 验证：
 
-- `grep internal/module/memory registerPromptProviders`
-- `xref references memory/rules_provider.go:465`
-- `grep internal/module/memory TurnCompleted`
+- `go run scripts/codemap_index.go --check`
+- `go run ./scripts/archtestmap`
+- `go run ./scripts/capcontract`
 
 ### 12.3 扩展 snapshot / resume / fork 字段
 
@@ -1384,7 +1297,7 @@ flowchart LR
 - [ ] `resolveStartPromptAssembly()` 已写成 start 真入口。
 - [ ] 已明确说明仓内无 `resolveTurnPromptAssembly`，turn 真入口是 `prepareTurnAssembly()`。
 - [ ] `dynamicSectionSpecs` 已按当前 slot 列全，不再写“固定 5 个”。
-- [ ] 已写明 skill 不再经 prompt catalog 注入，生产链路走 provider-native mirror，prompt 侧 native/tool suppression hints 只来自用户禁用工具配置。
+- [ ] 已写明 skill 不再经 prompt catalog 注入，生产链路走 provider-native capability，prompt 侧 native/tool suppression hints 只来自用户禁用工具配置。
 
 ### 13.2 Thread 生命周期 checklist
 
@@ -1412,7 +1325,7 @@ flowchart LR
 - 想看 current date hook：看 `prompt/assembler.go:25,273,289-291`。
 - 想看 start 真入口：看 `thread/start_session_helpers.go:82-94`。
 - 想看 turn 真入口：看 `turn/prompt_assembly.go:13-43`。
-- 想看 skill 与 prompt 当前边界：看 `internal/module/prompt/module.go:19-34`、`internal/module/prompt/assembler_support.go:201-221` 与 `internal/module/skill/module.go:15-34`。
+- 想看 skill 与 prompt 当前边界：看 `internal/module/prompt/module.go:19-34`、`internal/module/prompt/assembler_support.go:201-221`、`internal/module/thread/rpc_types.go:1-100` 与 `internal/module/thread/rpc.go:1-120`。
 - 想看 prompt store 写口：看 `store/prompt/contract.go:15-22` 与 `prompt/service.go:290-340,473-488`。
 - 想看 prompt snapshot 保存/恢复：看 `thread/prompt_snapshot.go:173-215,217-275,320-399`。
 - 想看 provider bridge：看 `provider/unified/event_map.go:28-124`、`thread/events.go:25-152`、`eventsurface/bind.go:72-197`。

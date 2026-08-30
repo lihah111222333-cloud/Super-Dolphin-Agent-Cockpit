@@ -23,15 +23,12 @@ const backend = vi.hoisted(() => {
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
     getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
-    getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
-    ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
+    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
-    readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
-    createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
+    selectProjectDir selectProjectDirs
     listMCPServers listToolbridgeTools startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
-    listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
+    readSharedFile getPreference
     forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
@@ -77,7 +74,6 @@ const appTestSupport = createAppTestSupport({
 });
 const {
   waitForBackendThreadHeading,
-  openPluginsAndSkillsPage,
   mockWorkflowDagLifecycle,
   openWorkflowDashboard,
   runAndStopWorkflowDag,
@@ -91,10 +87,8 @@ const {
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
   mockPromptDefaults,
-  mockMemoryDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
-  mockSkillDefaults,
   mockSharedFileDefaults,
   mockSettingsAndThreadDefaults,
   resetFrontendHealthForTest,
@@ -107,10 +101,8 @@ beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
 beforeEach(mockPromptDefaults);
-beforeEach(mockMemoryDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
-beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 beforeEach(resetFrontendHealthForTest);
@@ -146,7 +138,7 @@ afterEach(cleanupAppTest);
     };
     let hasActiveRun = true;
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags: [dag] } : { skills: [] },
+      page === 'dags' ? { dags: [dag] } : {},
     ));
     backend.getDagDetail.mockResolvedValue({ dag, nodes: [agentNode] });
     backend.getDagRuns.mockImplementation(({ status }) => {
@@ -198,7 +190,7 @@ afterEach(cleanupAppTest);
       config: { provider: 'codex', model: 'gpt-5', first_turn: '请起草简报' },
     };
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags: [dag] } : { skills: [] },
+      page === 'dags' ? { dags: [dag] } : {},
     ));
     backend.getDagDetail.mockResolvedValue({ dag, nodes: [unassignedRoot] });
     backend.getDagRuns.mockResolvedValue({ runs: [] });
@@ -235,7 +227,7 @@ afterEach(cleanupAppTest);
       version: 8,
     };
     backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'dags' ? { dags: [firstDag, secondDag] } : { skills: [] },
+      page === 'dags' ? { dags: [firstDag, secondDag] } : {},
     ));
     backend.getDagDetail.mockImplementation(({ dagKey }) => Promise.resolve({
       dag: dagKey === 'flow-a' ? firstDag : secondDag,
@@ -280,33 +272,6 @@ afterEach(cleanupAppTest);
     await waitFor(() => {
       expect(screen.queryByText('已保存步骤 步骤 A')).not.toBeInTheDocument();
     });
-  });
-
-  it('does not expose database Skill tools from the Skills navigation', async () => {
-    backend.listSkillTools.mockResolvedValueOnce({
-      tools: [{
-        id: 7,
-        name: 'Format Go',
-        description: 'Run formatter',
-        command: 'gofmt',
-        args: ['-w', './internal/module/skill'],
-        enabled: true,
-      }],
-    });
-    render(<App />);
-    await screen.findByLabelText('插件与技能');
-    openPluginsAndSkillsPage();
-
-    expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Skill工具' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '新增工具' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Format Go')).not.toBeInTheDocument();
-    expect(screen.queryByText('本地技能库')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
-    expect(backend.listSkillTools).not.toHaveBeenCalled();
-    expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
-    expect(backend.listSkillResolutions).not.toHaveBeenCalled();
   });
 
   it('keeps composer dock pinned inside the viewport', async () => {

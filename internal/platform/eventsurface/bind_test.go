@@ -356,7 +356,7 @@ func TestBindPublishesRealtimeBridgeEvents(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	got := make(chan publishedEvent, 6)
+	got := make(chan publishedEvent, 4)
 	cancels := Bind(dispatcher, nil, func(method string, payload any) {
 		got <- publishedEvent{method: method, payload: payload}
 	})
@@ -365,13 +365,11 @@ func TestBindPublishesRealtimeBridgeEvents(t *testing.T) {
 	now := time.Unix(1710000000, 0).UTC()
 	event.Publish(dispatcher, threaddto.Compacted{EventHeader: shared.EventHeader{Timestamp: now}, ThreadID: "thread-1", Compacted: true})
 	event.Publish(dispatcher, uidto.UITokensUpdated{UITurnHeader: shared.UITurnHeader{UIProjectionHeader: shared.UIProjectionHeader{ThreadHeader: shared.ThreadHeader{ThreadID: "thread-1"}, Projection: "thread"}}, TotalTokens: 42, ContextWindowTokens: 128})
-	event.Publish(dispatcher, uidto.SkillsChanged{EventHeader: shared.EventHeader{Timestamp: now}, SkillsDir: "/tmp/skills"})
 	event.Publish(dispatcher, uidto.UIThreadPatch{ThreadID: "thread-1", Source: "turn/completed", Sequence: 3, Partial: true})
 	event.Publish(dispatcher, uidto.UISharedFilesChanged{EventHeader: shared.EventHeader{Timestamp: now}, Path: "scratch/notes.md", Action: "write"})
-	event.Publish(dispatcher, uidto.UIMemoryChanged{EventHeader: shared.EventHeader{Timestamp: now}, Action: "upsert"})
 
 	seen := map[string]map[string]any{}
-	for range 6 {
+	for range 4 {
 		ev := mustReceivePublished(t, got)
 		seen[ev.method] = payloadMap(ev.payload)
 	}
@@ -381,17 +379,11 @@ func TestBindPublishesRealtimeBridgeEvents(t *testing.T) {
 	if seen[MethodThreadTokenUsage]["contextWindowTokens"] != 128 {
 		t.Fatalf("token usage payload = %#v", seen[MethodThreadTokenUsage])
 	}
-	if seen[MethodSkillsChanged]["skillsDir"] != "/tmp/skills" {
-		t.Fatalf("skills changed payload = %#v", seen[MethodSkillsChanged])
-	}
 	if seen[MethodUIThreadPatch]["sequence"] != float64(3) || seen[MethodUIThreadPatch]["partial"] != true {
 		t.Fatalf("thread patch payload = %#v", seen[MethodUIThreadPatch])
 	}
 	if seen[MethodUISharedFilesChanged]["path"] != "scratch/notes.md" || seen[MethodUISharedFilesChanged]["action"] != "write" {
 		t.Fatalf("shared files changed payload = %#v", seen[MethodUISharedFilesChanged])
-	}
-	if seen[MethodUIMemoryChanged]["action"] != "upsert" {
-		t.Fatalf("memory changed payload = %#v", seen[MethodUIMemoryChanged])
 	}
 }
 

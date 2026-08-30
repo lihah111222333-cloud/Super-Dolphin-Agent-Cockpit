@@ -229,7 +229,7 @@ func TestEventBridgePublishSkipsAgentEventWithoutIdentity(t *testing.T) {
 	})
 
 	bridge := NewEventBridge(nil, lifecycle, nil)
-	bridge.publish("skills/changed", map[string]any{"name": "demo"})
+	bridge.publish("ui/preferences/changed", map[string]any{"key": "theme"})
 
 	if agentEvents != 0 {
 		t.Fatalf("agent event count = %d, want 0", agentEvents)

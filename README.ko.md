@@ -34,7 +34,7 @@ AI는 사람이 작성하는 것보다 수십 배에서 수백 배 빠르게 코
 
 Super Dolphin은 test 또는 실제 사용에서 잘못된 것으로 입증된 bug fix evidence를 주기적으로 통합해 재사용 가능한 engineering knowledge로 만듭니다. 안정된 패턴은 저장소가 소유한 test, fixture, AST/SSA rule, dependency policy 또는 기타 실행 가능한 gate로 승격됩니다. AI가 알려진 bad smell을 다시 생성하면 gate가 변경을 거부하고 delivery 전에 수정을 강제합니다.
 
-Skill과 prompt는 생성을 안내하지만 guard는 무엇을 수용할 수 있는지 강제합니다. 후보 guard에는 재현 가능한 evidence, 일반화 가능한 invariant, 결정적인 acceptance check가 필요합니다. 이는 통제되지 않은 자기 수정이 아니라 evidence-driven ratchet입니다. 현재 저장소는 자동 memory consolidation과 광범위한 guard infrastructure를 구현하고 있지만, 모든 수정을 새로운 실행 가능한 guard로 완전 자동 end-to-end 승격하는 것은 완전한 적용을 주장하는 기능이 아니라 계속 발전시키는 engineering direction입니다.
+Skill과 prompt는 생성을 안내하지만 guard는 무엇을 수용할 수 있는지 강제합니다. 후보 guard에는 재현 가능한 evidence, 일반화 가능한 invariant, 결정적인 acceptance check가 필요합니다. 이는 통제되지 않은 자기 수정이 아니라 evidence-driven ratchet입니다. Provider-native CLI가 skill과 context 탐색을 자체적으로 관리하며, 저장소는 타입이 지정된 호환 계약과 광범위한 guard infrastructure를 유지합니다. 모든 수정을 새로운 실행 가능한 guard로 완전 자동 end-to-end 승격하는 것은 완전한 적용을 주장하는 기능이 아니라 계속 발전시키는 engineering direction입니다.
 
 이것이 AI-native vibe coding이 나아갈 방향입니다. 인간은 intent, architecture, acceptance boundary를 정의하고 AI는 그 specification 안에서만 코드를 생성합니다. 저장소는 결함에서 학습하고 engineering baseline을 계속 강화하여, 같은 종류의 bug를 사람이 반복해서 찾아 처리하지 않아도 더 견고하고 명확해집니다.
 

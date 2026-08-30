@@ -19,7 +19,6 @@ const pageSurfaceScanDirs = ['pages', 'features'];
 const rawFacadeNames = new Set(['callAPI', 'callBackend']);
 const featureModuleServices = new Map([
   ['files', 'fileService.js'],
-  ['memory', 'memoryService.js'],
   ['observability', 'observabilityService.js'],
 ]);
 const featureViewSurfaces = new Map([
@@ -269,10 +268,10 @@ describe('backend API consumer guardrails', () => {
 
   it('prevents feature pages from importing another feature service or adapter', () => {
     expect(surfaceImportViolations('pages/files/FilesPage.jsx', `
-      import { upsertMemoryEntry } from '../memory/services/memoryPageService.js';
+      import { listObservabilityRecent } from '../observability/services/observabilityPageService.js';
       import { workflowOrderedNodes } from '../workflows/adapters/workflowDisplayAdapter.js';
     `)).toEqual([
-      'pages/files/FilesPage.jsx imports memory surface ../memory/services/memoryPageService.js',
+      'pages/files/FilesPage.jsx imports observability surface ../observability/services/observabilityPageService.js',
       'pages/files/FilesPage.jsx imports workflows surface ../workflows/adapters/workflowDisplayAdapter.js',
     ]);
   });
@@ -346,10 +345,10 @@ describe('backend API consumer guardrails', () => {
 
   it('detects cross-feature service and adapter imports', () => {
     expect(surfaceImportViolations('pages/files/FilesPage.jsx', `
-      import { memoryPageService } from '../memory/services/memoryPageService.js';
+      import { observabilityPageService } from '../observability/services/observabilityPageService.js';
       import { threadStatusBusy } from '../chat/adapters/threadStateAdapter.js';
     `)).toEqual([
-      'pages/files/FilesPage.jsx imports memory surface ../memory/services/memoryPageService.js',
+      'pages/files/FilesPage.jsx imports observability surface ../observability/services/observabilityPageService.js',
       'pages/files/FilesPage.jsx imports chat surface ../chat/adapters/threadStateAdapter.js',
     ]);
   });
@@ -380,9 +379,9 @@ describe('backend API consumer guardrails', () => {
     `)).toEqual([]);
 
     expect(surfaceImportViolations('pages/files/services/filesPageService.js', `
-      import * as memoryService from '../../../services/modules/memoryService.js';
+      import * as observabilityService from '../../../services/modules/observabilityService.js';
     `)).toEqual([
-      'pages/files/services/filesPageService.js imports non-owned module service ../../../services/modules/memoryService.js',
+      'pages/files/services/filesPageService.js imports non-owned module service ../../../services/modules/observabilityService.js',
     ]);
   });
 

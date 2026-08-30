@@ -3,9 +3,7 @@ export const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
 
 const PROMPT_REVISION_EVENTS = new Set(['prompts/changed', 'prompt-assets/changed', 'ui/prompts/changed']);
 const BRIDGE_REVISION_EVENTS = Object.freeze([
-  Object.freeze({ key: 'skillRevision', events: new Set(['skills/changed']) }),
   Object.freeze({ key: 'sharedFilesRevision', events: new Set(['ui/shared-files/changed', 'shared-files/changed', 'shared_file/changed']) }),
-  Object.freeze({ key: 'memoryRevision', events: new Set(['ui/memory/changed', 'memory/changed']) }),
   Object.freeze({ key: 'workflowRevision', events: new Set(['task/node/statuschanged', 'cron/job/runstatechanged', 'task/dag/changed', 'dags/changed']) }),
 ]);
 

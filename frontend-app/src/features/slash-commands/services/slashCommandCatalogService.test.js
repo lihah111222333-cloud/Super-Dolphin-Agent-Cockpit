@@ -1,18 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSlashCommandCatalogService } from './slashCommandCatalogService.js';
 
-const validSkill = {
-  name: 'review',
-  display_name: 'Code Review',
-  dir: '/repo/.agents/skills/review',
-  scope: 'project',
-  personal_type: '',
-  description: 'Review code',
-  summary: '',
-  trigger_words: ['audit'],
-  force_words: ['review'],
-};
-
 const validPrompt = {
   id: 'prompt-1',
   name: 'Review prompt',
@@ -40,7 +28,6 @@ describe('slashCommandCatalogService', () => {
   it('normalizes all project catalogs and keeps prompt content lazy', async () => {
     const api = {
       getDashboardPage: vi.fn()
-        .mockResolvedValueOnce({ skills: [validSkill] })
         .mockResolvedValueOnce({ dags: [validAutomation] }),
       getDashboardPrompts: vi.fn().mockResolvedValue({ prompts: [validPrompt] }),
       getPrompt: vi.fn().mockResolvedValue({
@@ -49,32 +36,6 @@ describe('slashCommandCatalogService', () => {
       listToolbridgeTools: vi.fn().mockResolvedValue({ tools: [validTool] }),
     };
     const service = createSlashCommandCatalogService(api);
-
-    await expect(service.loadSkills('/repo')).resolves.toEqual([{
-      id: 'skill:project::review:/repo/.agents/skills/review',
-      kind: 'skill',
-      name: 'review',
-      label: 'Code Review',
-      description: 'Review code',
-      keywords: ['audit', 'review'],
-      payload: {
-        capability: {
-          kind: 'skill',
-          key: 'skill:project::review:/repo/.agents/skills/review',
-          name: 'review',
-          label: 'Code Review',
-          ref: {
-            name: 'review',
-            scope: 'project',
-            personalType: '',
-            path: '/repo/.agents/skills/review',
-          },
-        },
-      },
-      disabled: false,
-      disabledReason: '',
-    }]);
-    expect(api.getDashboardPage).toHaveBeenNthCalledWith(1, { cwd: '/repo', page: 'skills' });
 
     await expect(service.loadPrompts('/repo')).resolves.toEqual([expect.objectContaining({
       id: 'prompt:prompt-1',
@@ -97,7 +58,7 @@ describe('slashCommandCatalogService', () => {
       payload: { title: 'Release check', content: 'Check the release candidate' },
       disabled: false,
     })]);
-    expect(api.getDashboardPage).toHaveBeenNthCalledWith(2, { cwd: '/repo', page: 'dags' });
+    expect(api.getDashboardPage).toHaveBeenNthCalledWith(1, { cwd: '/repo', page: 'dags' });
 
     await expect(service.loadMCPTools('/repo')).resolves.toEqual([{
       id: 'mcp_tool:lsp:lsp_edit',
@@ -122,15 +83,6 @@ describe('slashCommandCatalogService', () => {
   });
 
   it.each([
-    {
-      label: 'skill',
-      method: 'loadSkills',
-      api: {
-        getDashboardPage: vi.fn().mockResolvedValue({
-          skills: [validSkill, { ...validSkill, name: '' }],
-        }),
-      },
-    },
     {
       label: 'prompt',
       method: 'loadPrompts',
@@ -161,16 +113,6 @@ describe('slashCommandCatalogService', () => {
   ])('rejects the whole $label catalog when one item is malformed', async ({ api, method }) => {
     const service = createSlashCommandCatalogService(api);
     await expect(service[method]('/repo')).rejects.toThrow();
-  });
-
-  it('rejects malformed category wrappers instead of treating them as empty', async () => {
-    const service = createSlashCommandCatalogService({
-      getDashboardPage: vi.fn().mockResolvedValue({ skills: null }),
-    });
-
-    await expect(service.loadSkills('/repo')).rejects.toThrow(
-      'slash command skills response skills must be an array',
-    );
   });
 
   it('keeps an automation without executable content visible but disabled', async () => {

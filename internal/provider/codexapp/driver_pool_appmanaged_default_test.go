@@ -28,8 +28,7 @@ func TestStartSessionMapsLegacyPackagedDefaultHomeToAppManagedRelayHome(t *testi
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-legacy-default",
@@ -42,7 +41,7 @@ func TestStartSessionMapsLegacyPackagedDefaultHomeToAppManagedRelayHome(t *testi
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
-		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
+		t.Fatalf("StartSession() error = %v, want acquire error after provider-native preparation", err)
 	}
 	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
 	if err != nil {
@@ -51,5 +50,4 @@ func TestStartSessionMapsLegacyPackagedDefaultHomeToAppManagedRelayHome(t *testi
 	if gotHome != wantHome {
 		t.Fatalf("pool codex home = %q, want app-managed relay home %q", gotHome, wantHome)
 	}
-	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
 }

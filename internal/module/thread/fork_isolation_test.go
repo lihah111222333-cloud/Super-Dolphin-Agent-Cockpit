@@ -90,6 +90,7 @@ func TestServiceForkUsesRecoverableSessionUUIDWhenProviderThreadIDMissing(t *tes
 		CreatedAt:      123,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("codex", "Forked Thread")
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 		sessions.session = forkedSession
 		return forkedSession, nil
@@ -733,7 +734,7 @@ func claudeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBind
 
 func claudeRecoverThreadStore(t *testing.T, model, effort string) *stubThreadStore {
 	t.Helper()
-	return &stubThreadStore{thread: &ThreadRecord{
+	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:  "thread-parent",
 		AgentID:   "agent-parent",
 		Prompt:    "Recovered Thread",
@@ -748,6 +749,8 @@ func claudeRecoverThreadStore(t *testing.T, model, effort string) *stubThreadSto
 			},
 		}),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("claude", "Recovered Thread")
+	return threads
 }
 
 func assertClaudeRecoverRequest(t *testing.T, req dto.ResumeSessionRequest, model, effort string) {

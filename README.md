@@ -34,7 +34,7 @@ AI can generate code tens or hundreds of times faster than a person can write it
 
 Super Dolphin periodically consolidates evidence from bugs proven by tests or real use into reusable engineering knowledge. Stable patterns are promoted into repository-owned tests, fixtures, AST/SSA rules, dependency policies, or other executable gates. If an AI agent reproduces a known bad smell, the gate rejects the change and forces a repair before delivery.
 
-Skills and prompts can guide generation; guards constrain what may be accepted. A candidate guard still requires reproducible evidence, a generalizable invariant, and deterministic acceptance checks—this is evidence-driven ratcheting, not blind self-modification. The repository currently implements automatic memory consolidation and extensive guard infrastructure; fully automatic end-to-end promotion of every fix into a new executable guard remains an engineering direction rather than a claim of complete coverage.
+Skills and prompts can guide generation; guards constrain what may be accepted. A candidate guard still requires reproducible evidence, a generalizable invariant, and deterministic acceptance checks—this is evidence-driven ratcheting, not blind self-modification. Provider-native CLIs manage their own skill and context discovery; the repository retains typed compatibility contracts and extensive guard infrastructure. Fully automatic end-to-end promotion of every fix into a new executable guard remains an engineering direction rather than a claim of complete coverage.
 
 This is the direction of AI-native vibe coding: humans specify intent, architecture, and acceptance boundaries; AI generates within those specifications; the repository learns from defects and becomes progressively more robust and legible instead of depending on people to rediscover the same class of bug.
 
@@ -272,7 +272,7 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 486 runnable `Test*` functions across 172 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 477 runnable `Test*` functions across 167 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
 | CI | Independent portable validation contract and trusted local Gate checks |

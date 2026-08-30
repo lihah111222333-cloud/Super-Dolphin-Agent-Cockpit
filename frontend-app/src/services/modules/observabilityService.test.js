@@ -18,7 +18,7 @@ describe('observabilityService', () => {
 
   it('keeps degradation fields from recent list normalization', async () => {
     listObservabilityRecentBackend.mockResolvedValue({
-      source: 'memory',
+      source: 'buffer',
       degraded: true,
       tailError: 'tail reader unavailable',
       tailTimedOut: true,
@@ -36,7 +36,7 @@ describe('observabilityService', () => {
 
   it('keeps degradation fields from trace normalization', async () => {
     getObservabilityTraceBackend.mockResolvedValue({
-      source: 'memory',
+      source: 'buffer',
       degraded: true,
       tailError: 'tail reader unavailable',
       tailTimedOut: false,
@@ -54,7 +54,7 @@ describe('observabilityService', () => {
 
   it('preserves observability parse degradation from recent list responses', async () => {
     listObservabilityRecentBackend.mockResolvedValue({
-      source: 'memory',
+      source: 'buffer',
       events: { bad: true },
     });
 

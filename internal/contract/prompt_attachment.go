@@ -79,6 +79,9 @@ func AttachmentDisplayName(attachment dto.AttachmentEnvelope) string {
 // 无效 attachment 返回空串，调用方可直接跳过而不生成半截标签。
 func RenderAttachmentText(attachment dto.AttachmentEnvelope) string {
 	attachment = NormalizeAttachmentEnvelope(attachment)
+	if IsLegacyMemoryAttachmentKind(attachment.Kind) {
+		return ""
+	}
 	if !IsValidAttachmentEnvelope(attachment) {
 		return ""
 	}

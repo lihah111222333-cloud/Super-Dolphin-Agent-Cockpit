@@ -727,7 +727,13 @@ type promptAssemblyStub struct {
 }
 
 func promptAssemblyForTest(base string) promptAssemblyStub {
-	return promptAssemblyStub{startAssembly: contract.StartAssembly{BaseInstructions: base}}
+	assembly := contract.StartAssembly{BaseInstructions: base}
+	if strings.TrimSpace(base) == "" {
+		// Exact resume snapshots must retain some recoverable content even when
+		// this start fixture intentionally leaves provider instructions empty.
+		assembly.Snapshot.BaseInstructions = "test snapshot content"
+	}
+	return promptAssemblyStub{startAssembly: assembly}
 }
 
 func (p promptAssemblyStub) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {

@@ -326,18 +326,7 @@ func assertExternalConsumption(t *testing.T, grouped protocol.GroupedLocationRes
 	if len(grouped.SampledFiles) != 1 || grouped.SampledFiles[0] != "consumer1.go" {
 		t.Fatalf("sampled files = %#v, want [consumer1.go]", grouped.SampledFiles)
 	}
-	for _, want := range []string{
-		"truncation: reason=external_sampling",
-		"max_results=30",
-		"per_file=[file=app.go,total=8,showing=8;file=consumer1.go,total=9,showing=5,sampled=external_sampling;file=consumer2.go,total=3,showing=3]",
-		"sampled_files=[consumer1.go]",
-		"narrow the target with pos=<file>:<line>:<col>",
-		"external_sampling cannot be recovered by increasing max_results",
-	} {
-		if !strings.Contains(grouped.Hint, want) {
-			t.Fatalf("external sampling hint = %q, want metadata/action %q", grouped.Hint, want)
-		}
-	}
+	assertExternalSamplingHint(t, grouped.Hint)
 	if grouped.Continuation == nil {
 		t.Fatal("external sampling continuation = nil, want stable continuation")
 	}
@@ -346,6 +335,22 @@ func assertExternalConsumption(t *testing.T, grouped protocol.GroupedLocationRes
 	}
 	if got := grouped.Continuation.NextArgs["action"]; got != "references" {
 		t.Fatalf("external sampling continuation action = %#v, want references", got)
+	}
+}
+
+func assertExternalSamplingHint(t *testing.T, hint string) {
+	t.Helper()
+	for _, want := range []string{
+		"truncation: reason=external_sampling",
+		"max_results=30",
+		"per_file=[file=app.go,total=8,showing=8;file=consumer1.go,total=9,showing=5,sampled=external_sampling;file=consumer2.go,total=3,showing=3]",
+		"sampled_files=[consumer1.go]",
+		"narrow the target with pos=<file>:<line>:<col>",
+		"external_sampling cannot be recovered by increasing max_results",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("external sampling hint = %q, want metadata/action %q", hint, want)
+		}
 	}
 }
 

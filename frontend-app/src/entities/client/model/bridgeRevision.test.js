@@ -7,9 +7,7 @@ import {
 
 describe('bridge revision helpers', () => {
   it('routes bridge events to their store revision counters', () => {
-    expect(bridgeRevisionKey('skills/changed')).toBe('skillRevision');
     expect(bridgeRevisionKey('ui/shared-files/changed')).toBe('sharedFilesRevision');
-    expect(bridgeRevisionKey('memory/changed')).toBe('memoryRevision');
     expect(bridgeRevisionKey('dags/changed')).toBe('workflowRevision');
     expect(bridgeRevisionKey('prompts/changed')).toBe('promptRevision');
     expect(bridgeRevisionKey('ui/preferences/changed', { key: ACTIVE_PROMPT_PREF_KEY })).toBe('promptRevision');

@@ -609,8 +609,7 @@ func configuredSQLCOutputDirs(opts CheckOptions) ([]string, error) {
 
 func isCorePackageDir(pkgDir string) bool {
 	switch pkgDir {
-	case "internal/module/memory",
-		"internal/module/prompt",
+	case "internal/module/prompt",
 		"internal/module/thread",
 		"internal/module/turn":
 		return true

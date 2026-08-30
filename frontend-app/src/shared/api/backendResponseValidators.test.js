@@ -456,8 +456,8 @@ describe('backend response validators', () => {
     expect(() => validate(RPC_METHODS.OBSERVABILITY_TRACE_GET, null)).toThrow(
       'observability/trace/get response observability response must be an object',
     );
-    expect(() => validate(RPC_METHODS.UI_SHARED_FILE_GET, { path: '', content: '' })).toThrow(
-      'ui/memory/shared-file/get response shared file detail path is required',
+    expect(() => validate(RPC_METHODS.DASHBOARD_SHARED_FILES, { files: [{ content: '' }] })).toThrow(
+      'dashboard/sharedFiles response shared file item 0 path is required',
     );
   });
 });

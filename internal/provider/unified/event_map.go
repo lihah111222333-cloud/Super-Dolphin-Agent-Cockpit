@@ -69,11 +69,9 @@ func newTypedEventPublishers() map[reflect.Type]typedEventPublisher {
 		typedEventType[uidto.UIProjectionUpdated]():     publishEvent[uidto.UIProjectionUpdated],
 		typedEventType[uidto.UITimelineAppended]():      publishEvent[uidto.UITimelineAppended],
 		typedEventType[uidto.UITokensUpdated]():         publishEvent[uidto.UITokensUpdated],
-		typedEventType[uidto.SkillsChanged]():           publishEvent[uidto.SkillsChanged],
 		typedEventType[uidto.UIThreadPatch]():           publishEvent[uidto.UIThreadPatch],
 		typedEventType[uidto.UIPreferencesChanged]():    publishEvent[uidto.UIPreferencesChanged],
 		typedEventType[uidto.UISharedFilesChanged]():    publishEvent[uidto.UISharedFilesChanged],
-		typedEventType[uidto.UIMemoryChanged]():         publishEvent[uidto.UIMemoryChanged],
 	}
 }
 

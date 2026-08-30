@@ -20,32 +20,25 @@ var (
 	ErrUpdateIntegrityInvalid = errors.New("update integrity is invalid")
 )
 
-// ErrSkillMissingCWD 是 skill 模块 cwd 缺失错误的跨层哨兵。
-// platform/toolbridge 等低层消费者用 errors.Is 匹配它，不需要导入 skill 模块。
-var ErrSkillMissingCWD = errors.New("cwd is required")
+// ErrCWDRequired 表示需要工作目录的 host 工具缺少有效 cwd。
+// platform/toolbridge 等低层消费者用 errors.Is 匹配它，不携带宿主路径。
+var ErrCWDRequired = errors.New("cwd is required")
 
-// ErrSkillSameNameConflict 表示多个 canonical skill 同名且没有显式策略选择单一来源。
-var ErrSkillSameNameConflict = errors.New("skill same-name conflict")
-
-// ErrSkillRefIdentityMismatch 表示结构化 skill 引用无法精确匹配 canonical inventory。
-// 调用方不得将该错误降级为 name-only 查找，否则可能切换到不同 scope 或 owner。
-var ErrSkillRefIdentityMismatch = errors.New("skill ref identity mismatch")
-
-// SkillApprovalRequiredError 表示 skill artifact 执行前需要用户审批。
+// ApprovalRequiredError 表示一个受保护工具动作需要用户审批。
 // Request 保留审批载荷，调用方据此展示审批 UI 并阻断执行。
-type SkillApprovalRequiredError struct {
+type ApprovalRequiredError struct {
 	Request ApprovalRequest
 }
 
-var errSkillApprovalRequired = errors.New("skill artifact approval required")
+var errApprovalRequired = errors.New("approval required")
 
-// Error 返回稳定的 skill 审批错误文本。
-func (e SkillApprovalRequiredError) Error() string {
-	return errSkillApprovalRequired.Error()
+// Error 返回稳定的审批错误文本。
+func (e ApprovalRequiredError) Error() string {
+	return errApprovalRequired.Error()
 }
 
 // Unwrap 暴露审批哨兵，允许 errors.Is 识别该错误类别。
-func (e SkillApprovalRequiredError) Unwrap() error { return errSkillApprovalRequired }
+func (e ApprovalRequiredError) Unwrap() error { return errApprovalRequired }
 
 // 存储层哨兵错误由 contract 暴露给 module 层，避免 module 直接依赖 platform/db。
 var (

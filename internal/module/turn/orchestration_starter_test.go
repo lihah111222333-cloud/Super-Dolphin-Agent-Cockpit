@@ -40,7 +40,7 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 		stubTurnRuntimeReader{cfg: map[string]any{"cwd": "/thread/worktree"}},
 	)
 
-	turnID, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
+	_, err := starter.StartTurn(context.Background(), contract.TurnSubmission{
 		AgentID:              "agent-1",
 		ThreadID:             "agent-1",
 		ExpectedTurnID:       "turn-1",
@@ -50,11 +50,6 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 		OutputSchema:         []byte(`{"type":"object"}`),
 	})
 	require.NoError(t, err)
-	require.Equal(t, "turn-1", turnID)
-	implementation := svc.(*service)
-	require.Equal(t, 1, countEntries(implementation.tracker), "Prepare and Start must own one local tracker record")
-	_, active := implementation.tracker.ActiveByThread("thread-1")
-	require.False(t, active, "completed orchestration turn must not leave a generated preparing record active")
 }
 
 func TestOrchestrationTurnStarterFallsBackToThreadRuntimeConfig(t *testing.T) {

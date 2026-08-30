@@ -64,7 +64,6 @@ CODEX_AUTH_PATH_ENV = "SUPER_DOLPHIN_CODEX_AUTH_PATH"
 CODEX_CONTAINER_PATH = "/opt/benchmark/codex-release/codex"
 GRADER_CONTAINER_PATH = "/opt/benchmark/grader/python"
 MCP_CONTAINER_PATH = "/opt/benchmark/mcp/mcp-lsp"
-MCP_GATE_CONTAINER_PATH = "/opt/benchmark/gate/mcp-tools-gate.py"
 PROXY_ENVIRONMENT = {
     "HTTP_PROXY": "http://127.0.0.1:2081",
     "HTTPS_PROXY": "http://127.0.0.1:2081",
@@ -261,7 +260,8 @@ def _local_container_command(
     mcp_binary: pathlib.Path,
     source_workspace: pathlib.Path,
     codex_release_dir: pathlib.Path,
-    mcp_gate_script: pathlib.Path,
+    lsp_bundle_dir: pathlib.Path | None,
+    lsp_bundle_manifest: pathlib.Path | None,
 ) -> tuple[str, ...]:
     """Build one arm's fully isolated Docker argv, including the no-pull fence."""
 
@@ -280,10 +280,15 @@ def _local_container_command(
         f"type=bind,src={codex_home},dst={codex_home}",
         f"type=bind,src={codex_release_dir},dst=/opt/benchmark/codex-release,readonly",
     )
+    if lsp_bundle_dir is not None:
+        if lsp_bundle_manifest is None:
+            raise UbuntuLocalProviderError("LSP bundle manifest is required when bundle dir is configured")
+        mounts += (
+            f"type=bind,src={lsp_bundle_dir},dst=/opt/benchmark/lsp,readonly",
+        )
     if mode == "with_lsp":
         mounts += (
             f"type=bind,src={mcp_binary},dst={MCP_CONTAINER_PATH},readonly",
-            f"type=bind,src={mcp_gate_script},dst={MCP_GATE_CONTAINER_PATH},readonly",
         )
     command = (
         *(str(item) for item in docker_command),
@@ -291,6 +296,10 @@ def _local_container_command(
         "--rm",
         "--init",
         "--pull=never",
+        # Validation images come from many language ecosystems and often set
+        # an application-specific ENTRYPOINT (for example PHP's entrypoint).
+        # Clear it so the mounted Codex executable is the actual process.
+        "--entrypoint=",
         "--name",
         name,
         "--network=host",
@@ -327,17 +336,14 @@ def _local_container_command(
             "--env", f"GO_AGENT_LSP_ROOT={workspace}",
             "--env", f"GO_AGENT_LSP_ROOTS={lsp_roots}",
         )
-        return (
-            *command,
-            "{image}",
-            "python3", MCP_GATE_CONTAINER_PATH,
-            "--server", MCP_CONTAINER_PATH,
-            "--cwd", str(workspace),
-            "--evidence", str(artifact_dir / "mcp-tools-gate.json"),
-            "--stderr", str(artifact_dir / "mcp-tools-gate.stderr"),
-            "--timeout", "15",
-            "--",
-        )
+        if lsp_bundle_dir is not None:
+            command += (
+                "--env",
+                "SUPER_DOLPHIN_LSP_BUNDLE_DIR=/opt/benchmark/lsp",
+                "--env",
+                "SUPER_DOLPHIN_LSP_MANIFEST=/opt/benchmark/lsp/lsp-manifest.json",
+            )
+        return (*command, "{image}")
     return (*command, "{image}")
 
 
@@ -423,14 +429,31 @@ class UbuntuLocalImageProvider:
         for name, binary in (("codex", codex_binary), ("grader", grader_binary), ("MCP", mcp_binary)):
             if not binary.is_file() or not os.access(binary, os.X_OK):
                 raise UbuntuLocalProviderError(f"{name} binary must be an executable host file")
+        self._mcp_binary = mcp_binary
+        bundle_dir_value = self.config.environment.get("SUPER_DOLPHIN_LSP_BUNDLE_DIR")
+        bundle_manifest_value = self.config.environment.get("SUPER_DOLPHIN_LSP_MANIFEST")
+        if bool(bundle_dir_value) != bool(bundle_manifest_value):
+            raise UbuntuLocalProviderError(
+                "SUPER_DOLPHIN_LSP_BUNDLE_DIR and SUPER_DOLPHIN_LSP_MANIFEST must be configured together"
+            )
+        self._lsp_bundle_dir: pathlib.Path | None = None
+        self._lsp_bundle_manifest: pathlib.Path | None = None
+        if bundle_dir_value and bundle_manifest_value:
+            bundle_dir = pathlib.Path(bundle_dir_value).resolve()
+            bundle_manifest = pathlib.Path(bundle_manifest_value).resolve()
+            if not bundle_dir.is_dir() or not bundle_manifest.is_file():
+                raise UbuntuLocalProviderError("configured LSP bundle dir and manifest must exist on host")
+            try:
+                bundle_manifest.relative_to(bundle_dir)
+            except ValueError as exc:
+                raise UbuntuLocalProviderError("LSP bundle manifest must be inside bundle dir") from exc
+            self._lsp_bundle_dir = bundle_dir
+            self._lsp_bundle_manifest = bundle_manifest
         codex_release_dir = codex_binary.parent.parent
         if not (codex_release_dir / "codex-resources" / "bwrap").is_file():
             raise UbuntuLocalProviderError(
                 "Codex release root must contain codex-resources/bwrap"
             )
-        mcp_gate_script = pathlib.Path(__file__).resolve().parent / "cross_file_mcp_tools_gate.py"
-        if not mcp_gate_script.is_file():
-            raise UbuntuLocalProviderError("MCP tools gate script is missing")
         auth_value = self.config.environment.get(CODEX_AUTH_PATH_ENV)
         if not auth_value:
             raise UbuntuLocalProviderError(f"{CODEX_AUTH_PATH_ENV} is required")
@@ -499,7 +522,8 @@ class UbuntuLocalImageProvider:
             mcp_binary,
             source_workspaces.get(question_id) or workspace,
             codex_release_dir,
-            mcp_gate_script,
+            self._lsp_bundle_dir,
+            self._lsp_bundle_manifest,
         )
         provision_factory = lambda question_id, mode, arm_id, workspace, artifact, home: self._provision_arm(
             question_id, mode, arm_id, workspace, artifact, home

@@ -3,10 +3,8 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"golang.org/x/sync/errgroup"
@@ -15,7 +13,6 @@ import (
 const (
 	// dashboard 页面聚合的容量守卫，避免单次 RPC 拉取无界列表。
 	dashboardPageDefaultLimit          = 100
-	dashboardMemoryLimit               = 500
 	dashboardFinalOutputDAGLimit       = 20
 	dashboardFinalOutputRunLimit int32 = 3
 	// dashboardDAGLatestRunLookupLimit 配合 group.SetLimit 限制 latest run 并发。
@@ -25,14 +22,12 @@ const (
 // DashboardPage 是前端 dashboard 分页接口的聚合 wire 结构。
 // 所有切片初始化为空切片，避免 JSON 输出 null 破坏前端兼容。
 type DashboardPage struct {
-	Agents              []AgentOverview      `json:"agents"`
-	DAGs                []DashboardDAG       `json:"dags"`
-	Skills              []contract.SkillInfo `json:"skills"`
-	CommandCards        []CommandCard        `json:"commandCards"`
-	Prompts             []PromptTemplate     `json:"prompts"`
-	Memory              []SharedFile         `json:"memory"`
-	FinalOutputRefs     []FinalOutputRef     `json:"finalOutputRefs"`
-	SharedFileRetention SharedFileRetention  `json:"sharedFileRetention"`
+	Agents              []AgentOverview     `json:"agents"`
+	DAGs                []DashboardDAG      `json:"dags"`
+	CommandCards        []CommandCard       `json:"commandCards"`
+	Prompts             []PromptTemplate    `json:"prompts"`
+	FinalOutputRefs     []FinalOutputRef    `json:"finalOutputRefs"`
+	SharedFileRetention SharedFileRetention `json:"sharedFileRetention"`
 }
 
 // dashboardPageLoader 是 dashboard 页面区块加载函数。
@@ -72,10 +67,8 @@ func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
 		Agents:              []AgentOverview{},
 		DAGs:                []DashboardDAG{},
-		Skills:              []contract.SkillInfo{},
 		CommandCards:        []CommandCard{},
 		Prompts:             []PromptTemplate{},
-		Memory:              []SharedFile{},
 		FinalOutputRefs:     []FinalOutputRef{},
 		SharedFileRetention: SharedFileRetention{Items: []SharedFileRetentionItem{}},
 	}
@@ -108,10 +101,6 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) ([]dashb
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardDAGs(ctx, out) },
 		}, nil
-	case "skills":
-		return []dashboardPageLoader{
-			func(ctx context.Context) error { return s.populateDashboardSkills(ctx, out) },
-		}, nil
 	case "commands":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
@@ -120,10 +109,6 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) ([]dashb
 	case "commandcards":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
-		}, nil
-	case "memory":
-		return []dashboardPageLoader{
-			func(ctx context.Context) error { return s.populateDashboardMemory(ctx, out) },
 		}, nil
 	default:
 		return nil, fmt.Errorf("dashboard: unsupported page %q", page)
@@ -225,16 +210,6 @@ func runMetadataHasFinalOutput(raw json.RawMessage) bool {
 	return trimmed != "" && trimmed != "null" && trimmed != `""` && trimmed != "{}" && trimmed != "[]"
 }
 
-// populateDashboardSkills 读取技能列表并填充，同名冲突错误视为软错误不阻断。
-func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {
-	items, err := s.listDashboardSkills(ctx)
-	out.Skills = items
-	if errors.Is(err, contract.ErrSkillSameNameConflict) {
-		return nil
-	}
-	return err
-}
-
 // populateDashboardCommandCards 读取命令卡片并填充到 DashboardPage。
 // store 缺失时 helper 返回空切片，页面仍可加载其他区块。
 func (s *service) populateDashboardCommandCards(ctx context.Context, out *DashboardPage) error {
@@ -249,37 +224,6 @@ func (s *service) populateDashboardPrompts(ctx context.Context, out *DashboardPa
 	items, err := s.listDashboardPrompts(ctx)
 	out.Prompts = items
 	return err
-}
-
-// populateDashboardMemory 读取共享文件和 final output refs，组装 retention 分析结果。
-// retention 只给 UI 做保护/清理提示，不在这里执行删除。
-func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPage) error {
-	items, err := s.listDashboardMemory(ctx)
-	if err != nil {
-		return err
-	}
-	out.Memory = items
-	refs, err := s.listDashboardFinalOutputRefs(ctx)
-	if err != nil {
-		return err
-	}
-	if refs == nil {
-		refs = []FinalOutputRef{}
-	}
-	out.FinalOutputRefs = refs
-	out.SharedFileRetention = buildSharedFileRetention(items, refs)
-	return nil
-}
-
-// listDashboardSkills 优先使用 skillInventory，回退到 skills.ListSkills。
-func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo, error) {
-	cwd := dashboardPromptScopeCWDFromContext(ctx)
-	if s.skillInventory != nil {
-		return s.skillInventory.ListSkillInventory(contract.WithSkillCWD(ctx, cwd))
-	}
-	return safeList(s.skills != nil, func() ([]contract.SkillInfo, error) {
-		return s.skills.ListSkills(contract.WithSkillCWD(ctx, cwd))
-	})
 }
 
 // listDashboardCommandCards 读取命令卡片列表。
@@ -380,67 +324,22 @@ func dashboardPromptAuthorLooksSystem(author string) bool {
 		strings.Contains(normalized, "builtin.registry")
 }
 
-// listDashboardMemory 读取共享文件列表。
-// store 为 nil 时返回空切片，避免 memory 页因可选能力缺失而失败。
-func (s *service) listDashboardMemory(ctx context.Context) ([]SharedFile, error) {
+// listDashboardSharedFiles 读取共享文件列表。
+// store 为 nil 时返回空切片，保持 dashboard 共享文件页可读。
+func (s *service) listDashboardSharedFiles(ctx context.Context) ([]SharedFile, error) {
 	return safeList(s.sharedFiles != nil, func() ([]SharedFile, error) {
-		return s.sharedFiles.List(ctx, SharedFileFilter{Limit: dashboardMemoryLimit})
+		return s.sharedFiles.List(ctx, SharedFileFilter{Limit: dashboardPageDefaultLimit})
 	})
 }
 
 // ListSharedFiles 暴露 dashboard 共享文件只读列表。
 // 返回值保证非 nil 切片，保持 JSON wire 兼容。
 func (s *service) ListSharedFiles(ctx context.Context) ([]SharedFile, error) {
-	items, err := s.listDashboardMemory(ctx)
+	items, err := s.listDashboardSharedFiles(ctx)
 	if items == nil {
 		items = []SharedFile{}
 	}
 	return items, err
-}
-
-// listDashboardFinalOutputRefs 收集最近 DAG run 中引用的 final output 文件。
-// 有 DAG runtime 时并发查询运行记录；无 runtime 时回退到数据库快照查询。
-func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutputRef, error) {
-	if s.effectiveDAGRuntime() == nil {
-		return s.listDashboardFinalOutputRefsFromSnapshot(ctx)
-	}
-	dags, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardFinalOutputDAGLimit})
-	if err != nil {
-		return nil, err
-	}
-	refs := make([]FinalOutputRef, 0)
-	seen := make(map[string]struct{})
-	var mu sync.Mutex
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(4)
-	for _, dag := range dags {
-		group.Go(func() error {
-			runs, runErr := s.ListDAGRuns(groupCtx, dag.DagKey, "", dashboardFinalOutputRunLimit)
-			if runErr != nil {
-				return runErr
-			}
-			for _, run := range runs {
-				ref, ok, parseErr := finalOutputRefFromRun(run)
-				if parseErr != nil {
-					return parseErr
-				}
-				if !ok {
-					continue
-				}
-				mu.Lock()
-				if _, exists := seen[ref.Path]; !exists {
-					seen[ref.Path] = struct{}{}
-					refs = append(refs, ref)
-				}
-				mu.Unlock()
-			}
-			return nil
-		})
-	}
-	if err := group.Wait(); err != nil {
-		return nil, err
-	}
-	return refs, nil
 }
 
 // listDashboardFinalOutputRefsFromSnapshot 从数据库快照收集 final output 引用。

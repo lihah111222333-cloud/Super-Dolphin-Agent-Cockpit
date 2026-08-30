@@ -27,6 +27,10 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// sqlitePackageSmokeInheritedEnvKey exercises launcher env isolation without
+// depending on any retired feature-specific configuration name.
+const sqlitePackageSmokeInheritedEnvKey = "SUPER_DOLPHIN_PACKAGE_SMOKE_INHERITED_PATH"
+
 type sqliteReleaseGateUnsignedPackage struct {
 	root        string
 	entrypoint  string
@@ -366,8 +370,7 @@ func sqliteReleaseGatePackageSmokeEnv(t *testing.T, stage sqliteReleaseGateUnsig
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN": true,
 		"SUPER_DOLPHIN_CODEX_RELAY_API_KEY":         true,
 		"CODEX_HOME":                                true,
-		"MULTI_AGENT_MEMORY_PATH_OVERRIDE":          true,
-		"CLAUDE_COWORK_MEMORY_PATH_OVERRIDE":        true,
+		sqlitePackageSmokeInheritedEnvKey:           true,
 		"PATH":                                      true,
 	}
 	env := make([]string, 0, len(os.Environ())+8)
@@ -382,7 +385,7 @@ func sqliteReleaseGatePackageSmokeEnv(t *testing.T, stage sqliteReleaseGateUnsig
 		"SUPER_DOLPHIN_HOME="+home,
 		contract.SQLitePathEnvKey+"="+filepath.Join(home, "super-dolphin.db"),
 		"CODEX_HOME="+filepath.Join(home, "providers", "codex"),
-		"MULTI_AGENT_MEMORY_PATH_OVERRIDE="+filepath.Join(home, "memory"),
+		sqlitePackageSmokeInheritedEnvKey+"="+filepath.Join(home, "isolated"),
 		"SUPER_DOLPHIN_CODEX_RELAY_BASE_URL=http://127.0.0.1:1/v1",
 		"SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN=package-smoke-bootstrap",
 		"SUPER_DOLPHIN_PACKAGE_SMOKE_OLD_PG_DATA="+oldPGData,

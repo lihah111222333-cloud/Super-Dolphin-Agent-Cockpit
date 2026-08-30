@@ -231,7 +231,7 @@ type PromptTemplate struct {
 	Description    string          `json:"description"`
 }
 
-// SharedFileFilter 是 dashboard/sharedFiles 和 memory 页面的 sharedfile 查询条件。
+// SharedFileFilter 是 dashboard/sharedFiles 的 sharedfile 查询条件。
 type SharedFileFilter struct {
 	Prefix string
 	Limit  int32

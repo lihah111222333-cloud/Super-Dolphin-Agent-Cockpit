@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-func TestSkillDoesNotImportFBSDModule(t *testing.T) {
-	root := repoRoot(t)
-	assertNoImportPrefixes(t, parseImportFiles(t, root, "internal/module/skill"), []string{internalPrefix("internal/module/fbsd")})
-}
-
 func TestLegacySkillPipelineIsNotInProductionGraph(t *testing.T) {
 	root := repoRoot(t)
 	for _, check := range legacySkillPipelineForbiddenChecks() {
@@ -40,55 +35,29 @@ func legacySkillPipelineForbiddenChecks() []forbiddenFileCheck {
 			`internal/store/skillforge`, `internal/store/skilllibrary`,
 			`internal/store/skillcandidate`, `skillcandidate.Module`,
 		}},
-		{relPath: "internal/module/skill/rpc.go", forbidden: []string{
-			`skills/candidate/`, `skillCandidateApproveHandler`, `skillCandidateRejectHandler`,
-			`skillCandidateGetHandler`, `skillCandidateListPendingHandler`,
-			`skillRPCCandidateParamError`, `ErrCandidate`,
-		}},
-		{relPath: "internal/module/skill/contract.go", forbidden: []string{
-			`skillCandidateReviewer`, `ApproveCandidate`, `RejectCandidate`,
-			`ListPendingCandidates`, `LookupApproval`, `GetCandidateByID`,
-			`ApproveCandidateParams`, `RejectCandidateParams`, `CandidateListItem`,
-			`ErrCandidate`,
-		}},
-		{relPath: "internal/module/skill/service.go", forbidden: []string{
-			`internal/store/skillcandidate`, `candidateStore`, `skillcandidate.Store`,
-		}},
-		{relPath: "internal/module/skill/module.go", forbidden: []string{
-			`internal/store/skillcandidate`, `CandidateStore`,
-		}},
 		{relPath: "internal/module/turn/feedback_proposer.go", forbidden: []string{
 			`internal/store/skillcandidate`, `skillcandidate.InsertParams`, `fp.store.Insert`,
-		}},
-		{relPath: "internal/module/turn/skill_extractor.go", forbidden: []string{
-			`internal/store/skillcandidate`, `skillcandidate.InsertParams`, `e.store.Insert`,
-		}},
-		{relPath: "internal/module/memory/kairos.go", forbidden: []string{
-			`internal/store/skillcandidate`, `candidateInsertStore`, `skillcandidatedto.InsertParams`,
-			`feedbackSkillPropose`, `insertCandidate`,
 		}},
 		{relPath: "internal/module/turn/module.go", forbidden: []string{
 			`NewDefaultExtractor`, `NewExtractorRunner`,
 		}},
-		{relPath: "internal/contract/skill.go", forbidden: legacySkillContractNames()},
+		{relPath: "internal/provider/shared/provider_home.go", forbidden: []string{
+			"ProviderMirrorTargets", "EnsureNoSkillMirrorConflicts", "AppManagedProviderSkillsRoot", "skill mirror",
+		}},
 		{relPath: "internal/provider/claudecli/module.go", forbidden: []string{`FBSDRecorder`, `SetFBSDRecorder`}},
 		{relPath: "internal/provider/claudecli/factory.go", forbidden: []string{`recordSkillReadIfApplicable`}},
-	}
-}
-
-func legacySkillContractNames() []string {
-	return []string{
-		`SkillManifestRenderer`, `SkillManifestEntryLister`, `SkillDescriptionParser`, `FBSDRecorder`,
-		`SkillLibraryLister`, `SkillForger`, `EmbeddedSkillReader`, `SkillReplacementAggregator`,
-		`SkillDisclosureStats`, `SkillDisclosureTierSource`, `StagingRecoveryReport`, `SkillEntryMeta`, `SkillEntry`,
 	}
 }
 
 func TestLegacySkillPhysicalArtifactsRemoved(t *testing.T) {
 	root := repoRoot(t)
 	for _, relPath := range []string{
+		"internal/contract/skill.go",
 		"internal/module/cliadapter",
 		"internal/module/fbsd",
+		"internal/module/skill",
+		"internal/app/storeadapter/skill",
+		"internal/store/skilltool",
 		"internal/module/skillforge",
 		"internal/module/skilllibrary",
 		"internal/dto/skill",
@@ -102,6 +71,10 @@ func TestLegacySkillPhysicalArtifactsRemoved(t *testing.T) {
 		"internal/module/skill/candidate_audit.go",
 		"internal/module/skill/rpc_candidate_types.go",
 		"internal/module/skill/candidate_review_test.go",
+		"internal/module/turn/trajectory_collector.go",
+		"internal/module/turn/skill_extractor.go",
+		"internal/module/turn/skill_evaluator.go",
+		"internal/module/turn/expanded_state.go",
 	} {
 		assertLegacyArtifactRemoved(t, root, relPath)
 	}

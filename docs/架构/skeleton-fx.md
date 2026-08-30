@@ -496,7 +496,7 @@ platformrunner.RunGroup 职责（运行期）：
 | `bus.Module` | `internal/platform/bus` | typed event dispatcher / emitters | Logger |
 | `runner.Module` | `internal/platform/runner` | `Runner` contract / runtime group helper | 无 |
 | `rpc.Module` | `internal/platform/rpc` | `*Server`, `HandlerMapResult`, push bridge, runners | Config, Logger, grouped handlers |
-| `provider.*.Module` | `internal/provider/{unified,claudecli,codexapp}` | provider drivers / sessions | Config, Logger, skill mirror reconciler |
+| `provider.*.Module` | `internal/provider/{unified,claudecli,codexapp}` | provider drivers / sessions | Config, Logger, provider-native context and capability policy |
 | `uiwails.Module` | `internal/ui/wails` | Wails desktop lifecycle / HTTP-RPC bridge | App, Config, RPC server |
 
 ---

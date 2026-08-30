@@ -78,7 +78,7 @@ func configuredPeerWorkspaceRoots(cfg *contract.Config) func() []string {
 }
 
 // DriverFactoryParams 收集 NewDriverFactory 的 fx 依赖。
-// Pool 和 Mirror 参与 provider home 隔离；缺失时会在会话准备阶段 fail-fast。
+// Pool 参与 provider home 隔离；provider-native skills 由 Codex CLI 自己发现。
 type DriverFactoryParams struct {
 	fx.In
 
@@ -91,7 +91,6 @@ type DriverFactoryParams struct {
 	Config       *contract.Config          `optional:"true"`
 	Manager      *ServerManager
 	Pool         *ServerPool
-	Mirror       contract.SkillMirrorReconciler
 	Recovery     contract.SessionRecoveryReporter `optional:"true"`
 	RuntimeHooks providershared.RuntimeHooks
 	Metrics      *skillmetrics.Registry
@@ -111,7 +110,7 @@ func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
 	if p.LogRuntime == nil {
 		return nil, fmt.Errorf("codexapp logger runtime is required")
 	}
-	factory, err := NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Mirror, p.Recovery, p.RuntimeHooks)
+	factory, err := NewDriverFactory(p.Logger, p.Dispatcher, p.Approvals, reporter, p.Manager, p.Pool, p.Recovery, p.RuntimeHooks)
 	if err != nil {
 		return nil, err
 	}
@@ -120,11 +119,14 @@ func provideDriverFactory(p DriverFactoryParams) (*DriverFactory, error) {
 	return factory, nil
 }
 
-func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory {
+func provideContractDriverFactory(factory *DriverFactory) (contract.DriverFactory, error) {
 	if factory == nil {
-		return contract.DriverFactory{}
+		return contract.DriverFactory{}, errors.New("codexapp DriverFactory is required")
 	}
-	return factory.DriverFactory
+	if factory.Name == "" || factory.Create == nil {
+		return contract.DriverFactory{}, errors.New("codexapp DriverFactory is incomplete")
+	}
+	return factory.DriverFactory, nil
 }
 
 type runtimeReportDeferredStatus struct {

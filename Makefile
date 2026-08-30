@@ -99,14 +99,6 @@ run-plain: frontend-build build-peer-binaries
 dev-hot:
 	SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 ./run-new-ui-desktop.sh
 
-# Memory subsystem defaults (override on the command line if you really
-# want memory off, e.g. 'make run-agent-terminal-debug ENABLE_MEMORY_SYSTEM=0').
-ENABLE_MEMORY_SYSTEM ?= 1
-ENABLE_MEMORY_TOOLS ?= 1
-MULTI_AGENT_MEMORY_FEATURE_TEAMMEM ?= 1
-export ENABLE_MEMORY_SYSTEM
-export ENABLE_MEMORY_TOOLS
-export MULTI_AGENT_MEMORY_FEATURE_TEAMMEM
 DEV_CONTROL_SESSION_TOKEN ?= dev-local-$(shell date +%s)-$(shell echo $$$$)
 
 DEV_SQLITE_PATH ?= $(HOME)/.super-dolphin/super-dolphin.db

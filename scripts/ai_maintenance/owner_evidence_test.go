@@ -57,7 +57,6 @@ func TestBuildGatePlanRoutesReleaseWorkflowAndArchtestInputsToOwners(t *testing.
 		{"sql/queries/agent_thread.sql", []string{"backend:archtest"}},
 		{"frontend-app/src/App.jsx", []string{"backend:archtest"}},
 		{"frontend-app/src/app/appShellModel.js", []string{"backend:archtest"}},
-		{"frontend-app/src/features/slash-commands/adapters/skillInfoFieldRegistry.json", []string{"backend:archtest"}},
 		{"internal/platform/shared/builtinprompts/assets/sections/main-dag-designer-en/00-runtime-tools.md", []string{"backend:archtest"}},
 		{"internal/platform/shared/builtinprompts/assets/templates/main-dag-designer-en.json", []string{"backend:archtest"}},
 		{"internal/guards/refactor_baseline.json", []string{"backend:archtest"}},

@@ -322,6 +322,62 @@ func TestPostSnapshotResumeRejectsMissingPromptSnapshot(t *testing.T) {
 	}
 }
 
+func TestPostSnapshotResumeRejectsLegacyMemoryPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &ThreadRecord{
+		ThreadID:       "thread-resume-memory",
+		AgentID:        "agent-resume-memory",
+		Prompt:         "resume name",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
+	}, promptSnapshot: &PromptSnapshotRecord{
+		DisplayName:           "resume name",
+		BaseInstructions:      "stored base",
+		DeveloperInstructions: "stored dev",
+		Provider:              "codex",
+		Version:               contract.PromptAssemblySnapshotVersion,
+		SectionSnapshot:       map[string]string{contract.DynamicSectionMemoryContext: "legacy memory"},
+		Generation:            3,
+	}}
+	threads.promptSnapshot.Hash = promptSnapshotHash(
+		threads.promptSnapshot.DisplayName,
+		threads.promptSnapshot.BaseInstructions,
+		threads.promptSnapshot.DeveloperInstructions,
+		threads.promptSnapshot.Provider,
+		nil,
+		threads.promptSnapshot.SectionSnapshot,
+		threads.promptSnapshot.Generation,
+	)
+	const providerThreadID = "11111111-2222-3333-4444-555555555582"
+	bindings := &stubBindingStore{binding: &BindingRecord{
+		AgentID:          "agent-resume-memory",
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-resume-memory",
+		RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
+		Cwd:              "/repo",
+	}}
+	resumeCalled := false
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		resumeCalled = true
+		return nil, nil
+	}}
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, &forkOrchestrationStub{}, nil).(*service)
+
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-resume-memory"})
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) &&
+		(err == nil || !strings.Contains(err.Error(), "prompt snapshot")) {
+		t.Fatalf("Resume() error = %v, want legacy memory prompt snapshot rejection", err)
+	}
+	if resumeCalled {
+		t.Fatal("ResumeSession was called despite legacy memory snapshot rejection")
+	}
+}
+
 func TestPersistResumedSessionCleansRuntimeOnThreadStoreFailure(t *testing.T) {
 	t.Parallel()
 
@@ -618,198 +674,81 @@ func TestPostSnapshotForkRejectsInvalidPromptSnapshot(t *testing.T) {
 	}
 }
 
-func TestLegacyThreadUsesExplicitSnapshotMigrationGate(t *testing.T) {
+func TestPostSnapshotForkRejectsLegacyMemoryPromptSnapshot(t *testing.T) {
 	t.Parallel()
 
-	run := func(t *testing.T, config []byte, wantErr bool) {
-		t.Helper()
-		threads := &stubThreadStore{thread: &ThreadRecord{
-			ThreadID:         "thread-legacy",
-			AgentID:          "agent-legacy",
-			ParentAgentID:    "agent-root",
-			AgentType:        "worker",
-			AgentMemoryScope: "local",
-			Prompt:           "legacy name",
-			Model:            "gpt-5.5",
-			Cwd:              "/repo",
-			ConfigOverride:   config,
-			CreatedAt:        123,
-			Status:           statusCreated,
-		}}
-		const providerThreadID = "11111111-2222-3333-4444-555555555582"
-		bindings := &stubBindingStore{binding: &BindingRecord{
-			AgentID:          "agent-legacy",
-			ParentAgentID:    "agent-root",
-			AgentType:        "worker",
-			AgentMemoryScope: "local",
-			Provider:         "codex",
-			ProviderThreadID: providerThreadID,
-			CodexThreadID:    "thread-legacy",
-			RolloutPath:      writeExistingProviderHistoryFile(t, providerThreadID),
-			Cwd:              "/repo",
-		}}
-		sessions := &stubSessionProvider{}
-		resumeCalled := false
-		starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
-			resumeCalled = true
-			sessions.session = &stubSession{threadID: providerThreadID}
-			return sessions.session, nil
-		}}
-		svc := NewServiceWithPromptAssembly(
-			silentLogger(),
-			threads,
-			bindings,
-			sessions,
-			starter,
-			nil,
-			&forkOrchestrationStub{},
-			nil,
-			&resumeMetadataPromptAssembly{},
-			nil,
-			nil,
-		).(*service)
-
-		_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-legacy"})
-		if wantErr {
-			if err == nil || !strings.Contains(err.Error(), "legacy") {
-				t.Fatalf("Resume() error = %v, want legacy migration gate error", err)
-			}
-			if resumeCalled {
-				t.Fatal("ResumeSession was called without explicit legacy migration gate")
-			}
-			return
-		}
-		if err != nil {
-			t.Fatalf("Resume() error = %v, want nil with explicit legacy migration gate", err)
-		}
-		if !resumeCalled {
-			t.Fatal("ResumeSession was not called with explicit legacy migration gate")
-		}
-	}
-
-	t.Run("without_gate_rejects", func(t *testing.T) {
-		run(t, nil, true)
-	})
-	t.Run("with_gate_allows_migration", func(t *testing.T) {
-		config := legacyPromptSnapshotMigrationConfig(t)
-		run(t, config, false)
-	})
-}
-
-func TestStartDoesNotPublishStartedBeforeSnapshotSaved(t *testing.T) {
-	t.Parallel()
-
-	cause := errors.New("snapshot write failed")
-	threads := &stubThreadStore{savePromptSnapshotError: cause}
-	sessions := &stubSessionProvider{}
-	starter := &startOnlySessionStarter{
-		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
-			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f607"}
-			sessions.session = session
-			return session, nil
-		},
-	}
-	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, &forkOrchestrationStub{}, nil).(*service)
-	startedCount := 0
-	svc.emitStarted = func(threaddto.Started) {
-		startedCount++
-	}
-
-	_, err := svc.Start(context.Background(), StartRequest{
-		AgentID:           "agent-start",
-		Provider:          "codex",
-		CWD:               wantStartCWD(t),
-		Prompt:            "start",
-		PromptAssemblyRef: promptAssemblyForTest("start"),
-	})
-	if !errors.Is(err, cause) {
-		t.Fatalf("Start() error = %v, want %v", err, cause)
-	}
-	if startedCount != 0 {
-		t.Fatalf("thread.Started emitted %d times; want 0 before prompt snapshot is saved", startedCount)
-	}
-}
-
-func TestForkDoesNotPublishStartedBeforeSnapshotSaved(t *testing.T) {
-	t.Parallel()
-
-	cause := errors.New("fork snapshot write failed")
 	originalSession := &stubSession{
 		threadID:   "thread-parent",
 		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
 	}
-	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
 	sessions := &stubSessionProvider{session: originalSession}
 	bindings := forkParentBindingStore()
 	threads := forkParentThreadStore()
-	threads.savePromptSnapshotError = cause
+	threads.promptSnapshot.SectionSnapshot = map[string]string{contract.DynamicSectionMemory: "legacy memory"}
+	threads.promptSnapshot.Hash = promptSnapshotHash(
+		threads.promptSnapshot.DisplayName,
+		threads.promptSnapshot.BaseInstructions,
+		threads.promptSnapshot.DeveloperInstructions,
+		threads.promptSnapshot.Provider,
+		nil,
+		threads.promptSnapshot.SectionSnapshot,
+		threads.promptSnapshot.Generation,
+	)
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
-		sessions.session = forkedSession
-		return forkedSession, nil
+		t.Fatal("ResumeSession should not be called with a legacy memory snapshot")
+		return nil, nil
 	}}
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &forkOrchestrationStub{}, nil).(*service)
-	startedCount := 0
-	svc.emitStarted = func(threaddto.Started) {
-		startedCount++
-	}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 
 	_, err := svc.Fork(context.Background(), "thread-parent")
-	if !errors.Is(err, cause) {
-		t.Fatalf("Fork() error = %v, want %v", err, cause)
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) &&
+		(err == nil || !strings.Contains(err.Error(), "prompt snapshot")) {
+		t.Fatalf("Fork() error = %v, want legacy memory prompt snapshot rejection", err)
 	}
-	if startedCount != 0 {
-		t.Fatalf("thread.Started emitted %d times; want 0 before fork prompt snapshot is saved", startedCount)
+	if originalSession.forkRequest.ThreadID != "" || orch.launch.AgentID != "" {
+		t.Fatalf("side effects before legacy snapshot rejection: forkRequest=%#v launch=%#v", originalSession.forkRequest, orch.launch)
 	}
 }
 
-func TestPromptSnapshotHashCoversSectionSnapshot(t *testing.T) {
+func TestResumeForkSessionRejectsLegacyMemoryBeforeStarter(t *testing.T) {
 	t.Parallel()
 
-	assembly := ensureStartAssemblySnapshot(contract.StartAssembly{
-		DisplayName:           "snapshot name",
-		BaseInstructions:      "snapshot base",
-		DeveloperInstructions: "snapshot dev",
-		ResolvedSections: []contract.ResolvedPromptSection{
-			{Name: "identity", Content: "You are Codex."},
-			{Name: "language", Content: "Use Chinese."},
-		},
-		Snapshot: contract.PromptAssemblySnapshot{Generation: 9},
-	}, "codex")
-	snapshot := assembly.Snapshot
-	if !storedPromptSnapshotValid(snapshot, "codex") {
-		t.Fatalf("storedPromptSnapshotValid() = false for freshly generated snapshot: %#v", snapshot)
+	resumeCalled := false
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		resumeCalled = true
+		return nil, nil
+	}}
+	svc := &service{starter: starter}
+	snapshot := contract.PromptAssemblySnapshot{
+		DisplayName:      "fork",
+		BaseInstructions: "base",
+		Provider:         "codex",
+		Version:          contract.PromptAssemblySnapshotVersion,
+		SectionSnapshot:  map[string]string{contract.DynamicSectionMemory: "legacy memory"},
+		Generation:       1,
 	}
-
-	tampered := snapshot
-	tampered.SectionSnapshot = clonePromptSectionMap(snapshot.SectionSnapshot)
-	tampered.SectionSnapshot["language"] = "Use French."
-	if storedPromptSnapshotValid(tampered, "codex") {
-		t.Fatal("storedPromptSnapshotValid() = true after section snapshot tamper, want false")
-	}
-}
-
-func validThreadPromptSnapshotForTest(displayName string) PromptSnapshotRecord {
-	assembly := ensureStartAssemblySnapshot(contract.StartAssembly{
-		DisplayName:           displayName,
-		BaseInstructions:      "stored base",
-		DeveloperInstructions: "stored dev",
-		ResolvedSections: []contract.ResolvedPromptSection{
-			{Name: "identity", Content: "stable identity"},
-		},
-		Snapshot: contract.PromptAssemblySnapshot{Generation: 7},
-	}, "codex")
-	return promptSnapshotRecordToStore(toStoredPromptSnapshot(assembly.Snapshot))
-}
-
-func legacyPromptSnapshotMigrationConfig(t *testing.T) []byte {
-	t.Helper()
-	config, err := encodeStoredThreadConfig(storedThreadConfig{
-		Runtime: map[string]any{
-			"legacyPromptSnapshotMigration": true,
-		},
+	snapshot.Hash = promptSnapshotHash(
+		snapshot.DisplayName,
+		snapshot.BaseInstructions,
+		snapshot.DeveloperInstructions,
+		snapshot.Provider,
+		snapshot.Boundary,
+		snapshot.SectionSnapshot,
+		snapshot.Generation,
+	)
+	_, err := svc.resumeForkSession(context.Background(), ResumeRequest{
+		Provider:         "codex",
+		AgentID:          "agent-fork",
+		ThreadID:         "thread-fork",
+		ProviderThreadID: "provider-fork",
+		CWD:              "/repo",
+		PromptSnapshot:   snapshot,
 	})
-	if err != nil {
-		t.Fatalf("encodeStoredThreadConfig() error = %v", err)
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("resumeForkSession() error = %v, want legacy memory sentinel", err)
 	}
-	return config
+	if resumeCalled {
+		t.Fatal("ResumeSession starter ran before legacy memory snapshot rejection")
+	}
 }

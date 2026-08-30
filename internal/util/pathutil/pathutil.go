@@ -209,45 +209,6 @@ func SanitizeMemoryProjectKey(raw string) string {
 	return prefix + "-" + shortProjectKeyHash(normalized)
 }
 
-// SanitizeSkillProjectKey 生成技能目录使用的项目 key。
-// 它保留最后两个路径段和大小写，再用下划线连接，以匹配磁盘目录语义。
-func SanitizeSkillProjectKey(raw string) string {
-	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
-	normalized = strings.Trim(normalized, "/")
-	if normalized == "" {
-		return "project-" + shortProjectKeyHash(raw)
-	}
-	parts := strings.FieldsFunc(normalized, func(r rune) bool {
-		return r == '/' || r == '\\'
-	})
-	if len(parts) > 2 {
-		parts = parts[len(parts)-2:]
-	}
-	candidateParts := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if cleaned := sanitizeSkillProjectKeySegment(part); cleaned != "" {
-			candidateParts = append(candidateParts, cleaned)
-		}
-	}
-	candidate := strings.Join(candidateParts, "_")
-	if candidate == "" {
-		return "project-" + shortProjectKeyHash(normalized)
-	}
-	if len(candidate) <= projectKeyMaxLen {
-		return candidate
-	}
-	prefix := strings.Trim(candidate[:projectKeyMaxLen-9], "_.-")
-	if prefix == "" {
-		prefix = "project"
-	}
-	return prefix + "-" + shortProjectKeyHash(candidate)
-}
-
-// ProjectKeyFromCwd 将 cwd 解析为技能作用域项目 key。
-func ProjectKeyFromCwd(cwd string) (string, error) {
-	return projectKeyFromCwd(cwd, SanitizeSkillProjectKey)
-}
-
 // MemoryProjectKeyFromCwd 将 cwd 解析为 memory/mcp-orch 兼容项目 key。
 func MemoryProjectKeyFromCwd(cwd string) (string, error) {
 	return projectKeyFromCwd(cwd, SanitizeMemoryProjectKey)
@@ -267,31 +228,6 @@ func projectKeyFromCwd(cwd string, sanitize func(string) string) (string, error)
 		return "", fmt.Errorf("resolve git root for %q returned empty path", cwd)
 	}
 	return sanitize(canonical), nil
-}
-
-// sanitizeSkillProjectKeySegment 清理单个技能项目 key 路径段，保留字母数字、短横线和点。
-func sanitizeSkillProjectKeySegment(raw string) string {
-	raw = norm.NFC.String(strings.TrimSpace(raw))
-	if raw == "" {
-		return ""
-	}
-	var builder strings.Builder
-	lastUnderscore := false
-	for _, r := range raw {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			builder.WriteRune(r)
-			lastUnderscore = false
-		case r == '-' || r == '.':
-			builder.WriteRune(r)
-			lastUnderscore = false
-		case lastUnderscore:
-		default:
-			builder.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	return strings.Trim(builder.String(), "_.-")
 }
 
 // shortProjectKeyHash 返回 8 字符 hash 后缀，用于裁剪或空 slug 的稳定区分。

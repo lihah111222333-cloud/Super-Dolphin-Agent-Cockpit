@@ -109,7 +109,6 @@ const (
 	MethodItemCompleted            = "item/completed"
 	MethodCommandApprovalRequested = "item/commandExecution/requestApproval"
 	MethodFileApprovalRequested    = "item/fileChange/requestApproval"
-	MethodSkillApprovalRequested   = "skill/requestApproval"
 	MethodApprovalResolved         = "approval/resolved"
 	MethodThreadStarted            = "thread/started"
 	MethodThreadStopped            = "thread/stopped"
@@ -117,11 +116,9 @@ const (
 	MethodThreadCompacted          = "thread/compacted"
 	// Deprecated: token usage 已迁移到 ui/thread/patch；常量仅保留 wire 兼容。
 	MethodThreadTokenUsage       = "thread/tokenusage/updated"
-	MethodSkillsChanged          = "skills/changed"
 	MethodUIPreferencesChanged   = "ui/preferences/changed"
 	MethodUIThreadPatch          = "ui/thread/patch"
 	MethodUISharedFilesChanged   = "ui/shared-files/changed"
-	MethodUIMemoryChanged        = "ui/memory/changed"
 	MethodUIPromptsChanged       = "ui/prompts/changed"
 	MethodAgentLaunched          = "agent/launched"
 	MethodAgentStopped           = "agent/stopped"
@@ -317,9 +314,6 @@ func bindUI(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Publ
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UITokensUpdated) {
 			publish(MethodThreadTokenUsage, threadTokenUsagePayload(ev))
 		}, logger),
-		bus.ResilientSubscribe(dispatcher, func(ev uidto.SkillsChanged) {
-			publish(MethodSkillsChanged, ev)
-		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIPreferencesChanged) {
 			publish(MethodUIPreferencesChanged, ev)
 		}, logger),
@@ -328,9 +322,6 @@ func bindUI(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Publ
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UISharedFilesChanged) {
 			publish(MethodUISharedFilesChanged, ev)
-		}, logger),
-		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIMemoryChanged) {
-			publish(MethodUIMemoryChanged, ev)
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev uidto.UIPromptsChanged) {
 			publish(MethodUIPromptsChanged, ev)
@@ -483,8 +474,6 @@ func toolApprovalRequestedMethod(ev tooldto.ToolApprovalRequested) string {
 	switch normalizedEventKind(ev.Kind) {
 	case "filechange", "file":
 		return MethodFileApprovalRequested
-	case "skill":
-		return MethodSkillApprovalRequested
 	default:
 		return MethodCommandApprovalRequested
 	}

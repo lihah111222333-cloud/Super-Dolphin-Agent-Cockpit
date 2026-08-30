@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -58,6 +59,24 @@ func TestNewUIDesktopEntrypointsDoNotExportDatabaseURL(t *testing.T) {
 		assertScriptDoesNotContain(t, source, "DEV_DATABASE_URL")
 		assertScriptDoesNotContain(t, source, "$DevDatabaseUrl")
 		t.Logf("%s keeps product DB config on SQLite envs", name)
+	}
+}
+
+func TestNewUIDesktopEntrypointsDoNotExportRetiredMemoryFlags(t *testing.T) {
+	for name, source := range map[string]string{
+		"run-new-ui-desktop.sh":  readScript(t, "../run-new-ui-desktop.sh"),
+		"run-new-ui-desktop.ps1": readScript(t, "../run-new-ui-desktop.ps1"),
+		"Makefile":               readScript(t, "../Makefile"),
+	} {
+		for _, key := range []string{
+			"ENABLE_MEMORY_SYSTEM",
+			"ENABLE_MEMORY_TOOLS",
+			"MULTI_AGENT_MEMORY_FEATURE_TEAMMEM",
+		} {
+			if strings.Contains(source, key) {
+				t.Fatalf("%s retains retired environment key %q", name, key)
+			}
+		}
 	}
 }
 

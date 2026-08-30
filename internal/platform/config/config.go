@@ -16,7 +16,6 @@ import (
 // 这些别名保留 platform/config 的旧导入面；字段定义以 internal/contract 为准。
 type (
 	Config           = contract.Config
-	SkillConfig      = contract.SkillConfig
 	AgentConfig      = contract.AgentConfig
 	NotifyConfig     = contract.NotifyConfig
 	LSPConfig        = contract.LSPConfig
@@ -34,14 +33,12 @@ const (
 )
 
 type parsedEnvConfig struct {
-	skillProgressiveDisclosure bool
-	skillTokenBudget           int
-	persistentSubagentDefault  bool
-	notifyAllowPrivateCIDR     bool
-	notifyTimeoutSeconds       int
-	notifyQueueCapacity        int
-	notifyDrainSeconds         int
-	lsp                        contract.LSPConfig
+	persistentSubagentDefault bool
+	notifyAllowPrivateCIDR    bool
+	notifyTimeoutSeconds      int
+	notifyQueueCapacity       int
+	notifyDrainSeconds        int
+	lsp                       contract.LSPConfig
 }
 
 // New 创建平台配置并解析 SQLite 运行时路径。
@@ -68,10 +65,6 @@ func New() (*Config, error) {
 		RPCAddr:     envOrCompat("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR", "127.0.0.1:8090"),
 		LogLevel:    envOr("LOG_LEVEL", "info"),
 		ProjectRoot: projectRoot,
-		Skill: SkillConfig{
-			ProgressiveDisclosure: envCfg.skillProgressiveDisclosure,
-			TokenBudget:           envCfg.skillTokenBudget,
-		},
 		Agent: AgentConfig{
 			PersistentSubagentDefault: envCfg.persistentSubagentDefault,
 		},
@@ -198,12 +191,6 @@ func goTestBinaryName(name string) bool {
 func parseConfigEnv() (parsedEnvConfig, error) {
 	var cfg parsedEnvConfig
 	var err error
-	if cfg.skillProgressiveDisclosure, err = envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false); err != nil {
-		return cfg, err
-	}
-	if cfg.skillTokenBudget, err = envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000); err != nil {
-		return cfg, err
-	}
 	if cfg.persistentSubagentDefault, err = envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", true); err != nil {
 		return cfg, err
 	}

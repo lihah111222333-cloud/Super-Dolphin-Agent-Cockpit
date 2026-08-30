@@ -67,7 +67,7 @@ func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 	for range writers {
 		wg.Go(func() {
 			for range rounds {
-				internal.InvalidateSections(contract.InvalidateMemoryWrite, contract.DynamicSectionMemory)
+				internal.InvalidateSections(contract.InvalidateClear, contract.DynamicSectionSessionGuidance)
 			}
 		})
 	}
@@ -112,7 +112,7 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 
 	prev := internal.cache.Generation()
 	for i := range invalidations {
-		if err := svc.Invalidate(context.Background(), contract.InvalidateMemoryWrite); err != nil {
+		if err := svc.Invalidate(context.Background(), contract.InvalidateClear); err != nil {
 			t.Fatalf("Invalidate() error = %v", err)
 		}
 		curr := internal.cache.Generation()
@@ -181,7 +181,7 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 	// 步骤 2：等自定义 compute 已经在旧 generation 下进入 singleflight，
 	// 然后在 store 触发前执行 invalidate。
 	waitForPhase2SingleflightComputeStart(t, gate, resultCh)
-	if err := svc.Invalidate(context.Background(), contract.InvalidateMemoryWrite); err != nil {
+	if err := svc.Invalidate(context.Background(), contract.InvalidateClear); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
 	}
 	gate.release()
@@ -301,7 +301,7 @@ func TestPhase2_3aInvalidateRoutingContract(t *testing.T) {
 	// 契约 1: Invalidate(ctx, reason) 同时 advance 两个 cache。
 	gen0Cache := internal.cache.Generation()
 	gen0User := internal.userContextCache.Generation()
-	if err := svc.Invalidate(context.Background(), contract.InvalidateMemoryWrite); err != nil {
+	if err := svc.Invalidate(context.Background(), contract.InvalidateClear); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
 	}
 	if got := internal.cache.Generation(); got <= gen0Cache {
@@ -316,7 +316,7 @@ func TestPhase2_3aInvalidateRoutingContract(t *testing.T) {
 	// cacheKey miss）。
 	gen1Cache := internal.cache.Generation()
 	gen1User := internal.userContextCache.Generation()
-	internal.InvalidateSections(contract.InvalidateMemoryWrite, contract.DynamicSectionMemory)
+	internal.InvalidateSections(contract.InvalidateClear, contract.DynamicSectionSessionGuidance)
 	if got := internal.cache.Generation(); got <= gen1Cache {
 		t.Fatalf("InvalidateSections(): prompt.cache did not advance: prev=%d got=%d", gen1Cache, got)
 	}

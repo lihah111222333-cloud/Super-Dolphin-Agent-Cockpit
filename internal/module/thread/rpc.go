@@ -73,8 +73,7 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/undo":                      newThreadCommandHandler(svc, "/undo"),
 		"thread/backgroundTerminals/clean": newThreadCommandHandler(svc, "/clean"),
 		"thread/mcp/list":                  newThreadCommandHandler(svc, "/mcp"),
-		// thread/skills/list: 走 thread 命令通道，语义上返回 thread 绑定的 active skills。
-		// 与 skills/list 不同：后者扫描本地 skill 目录，返回所有已安装的 skill 元信息。
+		// thread/skills/list 保留 provider-native 命令语义，仅请求 provider 返回当前线程的 active skills。
 		"thread/skills/list": newThreadCommandHandler(svc, "/skills"),
 
 		// thread/debugMemory 当前返回 Go runtime.MemStats。

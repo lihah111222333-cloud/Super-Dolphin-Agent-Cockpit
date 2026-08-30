@@ -54,7 +54,6 @@ var approvalBridgeMethods = map[string]struct{}{
 	"tool/approval/request":                    {},
 	"item/commandExecution/requestApproval":    {},
 	"item/fileChange/requestApproval":          {},
-	"skill/requestApproval":                    {},
 	"tool.approval.requested":                  {},
 	"request_user_input":                       {},
 	"codex/event/request_user_input":           {},

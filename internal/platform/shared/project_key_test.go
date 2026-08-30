@@ -13,7 +13,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-func TestProjectKeyFromCwdPrefersCanonicalGitRoot(t *testing.T) {
+func TestMemoryProjectKeyFromCwdPrefersCanonicalGitRoot(t *testing.T) {
 	t.Parallel()
 
 	repo := filepath.Join(t.TempDir(), "worktrees", "tag-v1.14")
@@ -29,13 +29,6 @@ func TestProjectKeyFromCwdPrefersCanonicalGitRoot(t *testing.T) {
 		t.Fatalf("EvalSymlinks(repo): %v", err)
 	}
 
-	gotSkill, err := ProjectKeyFromCwd(filepath.Join(repo, "nested"))
-	if err != nil {
-		t.Fatalf("ProjectKeyFromCwd(git subdir) error = %v", err)
-	}
-	if got, want := gotSkill, "worktrees_tag-v1.14"; got != want {
-		t.Fatalf("ProjectKeyFromCwd(git subdir) = %q, want %q", got, want)
-	}
 	gotMemory, err := MemoryProjectKeyFromCwd(filepath.Join(repo, "nested"))
 	if err != nil {
 		t.Fatalf("MemoryProjectKeyFromCwd(git subdir) error = %v", err)
@@ -45,7 +38,7 @@ func TestProjectKeyFromCwdPrefersCanonicalGitRoot(t *testing.T) {
 	}
 }
 
-func TestProjectKeyFromCwdFailsFastForNonGitDirectory(t *testing.T) {
+func TestMemoryProjectKeyFromCwdFailsFastForNonGitDirectory(t *testing.T) {
 	t.Parallel()
 
 	cwd := filepath.Join(t.TempDir(), "wj", "super-agent-v3")
@@ -53,9 +46,6 @@ func TestProjectKeyFromCwdFailsFastForNonGitDirectory(t *testing.T) {
 		t.Fatalf("mkdir cwd: %v", err)
 	}
 
-	if got, err := ProjectKeyFromCwd(cwd); err == nil {
-		t.Fatalf("ProjectKeyFromCwd(non-git) = %q nil error, want git root error", got)
-	}
 	if got, err := MemoryProjectKeyFromCwd(cwd); err == nil {
 		t.Fatalf("MemoryProjectKeyFromCwd(non-git) = %q nil error, want git root error", got)
 	}
@@ -76,23 +66,6 @@ func TestSanitizeMemoryProjectKey_MatchesHeadBaseline(t *testing.T) {
 	for _, raw := range cases {
 		if got, want := SanitizeMemoryProjectKey(raw), headMemoryProjectKeyOracle(raw); got != want {
 			t.Fatalf("SanitizeMemoryProjectKey(%q) = %q, want %q", raw, got, want)
-		}
-	}
-}
-
-func TestSanitizeSkillProjectKey_MatchesDiskNames(t *testing.T) {
-	t.Parallel()
-
-	cases := map[string]string{
-		"/Users/alice":                      "Users_alice",
-		"/Users/alice/Desktop/wj/langgraph": "wj_langgraph",
-		"/Volumes/bot/super-agent-v3":       "bot_super-agent-v3",
-		"/Users/alice/Desktop/wj/go-agent-v2/cmd/agent-terminal/frontend": "agent-terminal_frontend",
-		"/Users/alice/Desktop/wj/super-agent-v3":                          "wj_super-agent-v3",
-	}
-	for raw, want := range cases {
-		if got := SanitizeSkillProjectKey(raw); got != want {
-			t.Fatalf("SanitizeSkillProjectKey(%q) = %q, want %q", raw, got, want)
 		}
 	}
 }

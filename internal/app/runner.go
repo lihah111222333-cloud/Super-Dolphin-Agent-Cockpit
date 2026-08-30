@@ -8,7 +8,6 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
@@ -31,22 +30,12 @@ type runtimeDoneMarker interface {
 	MarkRuntimeDone()
 }
 
-// runtimePreDrainRegistrar 注册 Fx 停止前需要先 drain 的 runtime 工作。
-type runtimePreDrainRegistrar interface {
-	RegisterRuntimePreDrain(func(context.Context) error) error
-	DrainRuntime(context.Context) error
-}
-
 // appOwnerContext 持有应用根 context 和 runtime 收尾钩子。
 // 桌面和后台模式共享它，确保 Fx 停止和 runner 树使用同一取消源。
 type appOwnerContext struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu              sync.Mutex
-	runtimePreDrain func(context.Context) error
-	preDrainOnce    sync.Once
-	preDrainErr     error
 	runtimeDone     chan struct{}
 	runtimeDoneOnce sync.Once
 	desktopShutdown *desktopShutdownCoordinator
@@ -88,40 +77,6 @@ func (o *appOwnerContext) MarkRuntimeDone() {
 	o.runtimeDoneOnce.Do(func() { close(o.runtimeDone) })
 }
 
-// RegisterRuntimePreDrain 注册 runtime 停止前的 drain 函数。
-func (o *appOwnerContext) RegisterRuntimePreDrain(fn func(context.Context) error) error {
-	if o == nil {
-		return errors.New("app: runtime pre-drain owner is nil")
-	}
-	if fn == nil {
-		return errors.New("app: runtime pre-drain function is nil")
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if o.runtimePreDrain != nil {
-		return errors.New("app: runtime pre-drain already registered")
-	}
-	o.runtimePreDrain = fn
-	return nil
-}
-
-// DrainRuntime 执行一次 runtime pre-drain。
-// sync.Once 保证 Wails 退出和 Fx OnStop 竞态时只 drain 一次。
-func (o *appOwnerContext) DrainRuntime(ctx context.Context) error {
-	if o == nil {
-		return errors.New("app: runtime pre-drain owner is nil")
-	}
-	o.preDrainOnce.Do(func() {
-		o.mu.Lock()
-		fn := o.runtimePreDrain
-		o.mu.Unlock()
-		if fn != nil {
-			o.preDrainErr = fn(ctx)
-		}
-	})
-	return o.preDrainErr
-}
-
 // WaitRuntimeDone 等待 runtime run.Group 完全退出。
 func (o *appOwnerContext) WaitRuntimeDone(ctx context.Context) error {
 	if o == nil || o.runtimeDone == nil {
@@ -139,16 +94,10 @@ func (o *appOwnerContext) WaitRuntimeDone(ctx context.Context) error {
 }
 
 // BindRuntime 将所有 platform runner 接入 Fx 生命周期。
-// OnStop 会取消 runCtx、等待 runner 退出，再 drain 内存提取等收尾任务。
+// OnStop 会取消 runCtx 并等待 runner 退出；memory 已从 app runtime 图移除。
 func BindRuntime(lc fx.Lifecycle, p runtimeParams) error {
-	var (
-		cancel   context.CancelFunc
-		drainErr error
-	)
+	var cancel context.CancelFunc
 	done := make(chan error, 1)
-	if err := registerRuntimePreDrain(p); err != nil {
-		return err
-	}
 	requestShutdown := func(runErr error) error {
 		if errors.Is(runErr, context.Canceled) {
 			runErr = nil
@@ -179,12 +128,10 @@ func BindRuntime(lc fx.Lifecycle, p runtimeParams) error {
 			}
 
 			runErr := waitForRuntimeDone(done, ctx)
-
-			drainRuntimeBeforeStop(ctx, p, &drainErr)
 			if errors.Is(runErr, context.Canceled) {
-				return drainErr
+				return nil
 			}
-			return errors.Join(runErr, drainErr)
+			return runErr
 		},
 	})
 	return nil
@@ -223,30 +170,6 @@ func markRuntimeDone(root RootCtxProvider) {
 	}
 }
 
-// registerRuntimePreDrain 将内存提取 drain 注册到 owner context。
-func registerRuntimePreDrain(p runtimeParams) error {
-	registrar, ok := p.RootCtx.(runtimePreDrainRegistrar)
-	if !ok {
-		return errors.New("app: runtime pre-drain registrar is required")
-	}
-	if p.ExtractionDrainer == nil {
-		return errors.New("app: extraction drainer is required")
-	}
-	return registrar.RegisterRuntimePreDrain(func(ctx context.Context) error {
-		return p.ExtractionDrainer.DrainPendingExtraction(ctx)
-	})
-}
-
-// drainRuntimeBeforeStop 执行 runtime 收尾 drain。
-// 缺少 owner registrar 会返回配置错误，避免 runtime 收尾静默跳过。
-func drainRuntimeBeforeStop(ctx context.Context, p runtimeParams, drainErr *error) {
-	if registrar, ok := p.RootCtx.(runtimePreDrainRegistrar); ok {
-		*drainErr = registrar.DrainRuntime(ctx)
-		return
-	}
-	*drainErr = errors.New("app: runtime pre-drain registrar is required")
-}
-
 // reportRuntimeExit 将非预期 runtime 退出写入日志；停止状态由唯一 coordinator 发布。
 func reportRuntimeExit(err error, p runtimeParams) {
 	if err == nil || errors.Is(err, context.Canceled) {
@@ -269,10 +192,9 @@ func waitForRuntimeDone(runtimeDone <-chan error, ctx context.Context) error {
 type runtimeParams struct {
 	fx.In
 
-	Logger            *slog.Logger
-	Runners           []platformrunner.Runner `group:"runners"`
-	Shutdowner        fx.Shutdowner
-	RootCtx           RootCtxProvider                  `optional:"true"`
-	Lifecycle         *uiwails.WailsLifecycle          `optional:"true"`
-	ExtractionDrainer contract.MemoryExtractionDrainer `optional:"true"`
+	Logger     *slog.Logger
+	Runners    []platformrunner.Runner `group:"runners"`
+	Shutdowner fx.Shutdowner
+	RootCtx    RootCtxProvider         `optional:"true"`
+	Lifecycle  *uiwails.WailsLifecycle `optional:"true"`
 }

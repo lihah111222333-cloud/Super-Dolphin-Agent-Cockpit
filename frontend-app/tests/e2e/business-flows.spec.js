@@ -20,12 +20,6 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
   await expect(page.getByTestId('frontend-app')).toBeVisible();
   await expect(page.getByTestId('chat-page')).toBeVisible();
 
-  await openBusinessEntry(page, { label: '插件与技能', route: /\/skills$/, assert: async () => {
-    await expect(page.getByRole('heading', { name: 'MCP工具' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'SQLite MCP 控制', exact: true })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Playwright MCP 控制', exact: true })).toBeVisible();
-  } });
-
   await openBusinessEntry(page, { label: '自动化', route: /\/dags$/, assert: async () => {
     const overview = page.getByRole('region', { name: '自动化资产', exact: true });
     await expect(overview).toBeVisible();
@@ -43,10 +37,6 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
     await expect(overview).toBeVisible();
     await expect(overview.getByRole('heading', { name: '共享文件和最终产物', exact: true })).toBeVisible();
   } });
-
-  await openBusinessEntry(page, { label: '记忆中心', route: /\/memory$/, assert: async () => {
-    await expect(page.getByRole('heading', { name: '记忆中心', exact: true })).toBeVisible();
-  }, navTestId: 'sidebar-nav' });
 
   await openBusinessEntry(page, { label: '链路追踪', route: /\/observability$/, assert: async () => {
     await expect(page.getByTestId('observability-page')).toBeVisible();
@@ -423,7 +413,6 @@ async function installStrictWailsMock(page) {
       if (method === 'thread/delete') return { ok: true };
       if (method === 'app/update/check') return { enabled: false, available: false };
       if (method === 'ui/dashboard/get') return dashboardPage(params.page);
-      if (method === 'ui/memory/get') return memorySnapshot();
       if (method === 'dashboard/sharedFiles') return sharedFilesDashboard();
       if (method === 'observability/status') return { enabled: true, schema_version: 1, index_trace_keys: 1, sink_events_written: 1, sink_write_errors: 0 };
       if (method === 'observability/recent/list') return observabilityResult();
@@ -442,8 +431,6 @@ async function installStrictWailsMock(page) {
       if (method === 'dashboard/dagRuns') return { runs: [] };
       if (method === 'workflowTemplates/list') return { templates: [] };
       if (method === 'cronjob/list') return { jobs: [] };
-      if (method === 'skills/resolution_list') return { items: [] };
-      if (method === 'skills/tools/list') return { tools: [] };
       if (method === 'mcpServer/list') return { mcpServers: { sqlite: { enabled: false }, playwright: { enabled: false } } };
       if (method === 'datasourceV2/list') return { documents: [] };
       state.unhandledRPC.push(method);
@@ -534,35 +521,8 @@ async function installStrictWailsMock(page) {
     }
 
     function dashboardPage(page) {
-      if (page === 'skills') return {
-        skills: [{
-          name: 'backend',
-          display_name: '后端',
-          dir: '/repo/app/.agents/skills/backend',
-          description: '业务链路测试技能夹具',
-          trigger_words: ['go'],
-          scope: 'project',
-        }],
-      };
-      if (page === 'memory') return memorySnapshot();
       if (page === 'dags') return { dags: [] };
       return {};
-    }
-
-    function memorySnapshot() {
-      return {
-        overview: {
-          enabled: true,
-          autoDreamEnabled: false,
-          autoDreamIntent: null,
-          projectRoot: '/repo/app',
-          health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
-        },
-        private: { entries: [] },
-        team: { entries: [] },
-        finalOutputRefs: [],
-        sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-      };
     }
 
     function sharedFilesDashboard() {

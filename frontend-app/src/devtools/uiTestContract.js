@@ -24,11 +24,9 @@ const UI_TEST_ROUTES = Object.freeze({
   chat: '/',
   settings: '/settings',
   observability: '/observability',
-  skills: '/skills',
   automation: '/dags',
   prompts: '/prompts',
   files: '/files',
-  memory: '/memory',
 });
 
 const UI_TEST_WAIT_STATES = Object.freeze([

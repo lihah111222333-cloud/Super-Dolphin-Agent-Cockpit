@@ -472,8 +472,6 @@
 .super-dolphin-agent-main-canvas > .chat-page,
 .super-dolphin-agent-main-canvas > .console-page,
 .super-dolphin-agent-main-canvas > .workflow-page,
-.super-dolphin-agent-main-canvas > .memory-page,
-.super-dolphin-agent-main-canvas > .skills-tabbed-container,
 .super-dolphin-agent-main-canvas > .settings-page {
   height: 100%;
   min-height: 0;
@@ -482,8 +480,6 @@
 .sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .chat-page,
 .sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .console-page,
 .sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .workflow-page,
-.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .memory-page,
-.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .skills-tabbed-container,
 .sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .settings-page {
   padding-top: 32px;
 }
@@ -751,7 +747,6 @@
 .chat-page,
 .console-page,
 .workflow-page,
-.memory-page,
 .settings-page {
   height: 100%;
   min-height: 0;
@@ -778,11 +773,9 @@
 .top-command select,
 .page-actions button,
 .action-row button,
-.skills-toolbar button,
 .file-intro button,
 .file-row button,
 .settings-page button,
-.memory-page button,
 .workflow-page button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -796,11 +789,9 @@
 .top-command button:hover,
 .page-actions button:hover,
 .action-row button:hover,
-.skills-toolbar button:hover,
 .file-intro button:hover,
 .file-row button:hover,
 .settings-page button:hover,
-.memory-page button:hover,
 .workflow-page button:hover {
   border-color: var(--accent-2);
   background: var(--panel-3);

@@ -1,4 +1,4 @@
-import { parseSharedFileDetailResponse, parseSharedFilesDashboardResponse } from '../shared/api/backendSchemas.js';
+import { parseSharedFilesDashboardResponse } from '../shared/api/backendSchemas.js';
 
 function textValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
@@ -47,8 +47,7 @@ function detailResponseFile(response) {
 
 function adaptSharedFileDetail(response, fallbackFile = {}) {
   const rawDetail = detailResponseFile(response);
-  const detail = parseSharedFileDetailResponse(rawDetail);
-  const adapted = adaptSharedFile(detail, 0);
+  const adapted = adaptSharedFile(rawDetail, 0);
   return {
     ...adapted,
     updatedBy: firstText(adapted.updatedBy, fallbackFile.updatedBy, fallbackFile.updated_by),

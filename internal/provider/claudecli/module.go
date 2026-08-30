@@ -28,9 +28,8 @@ type driverFactoryParams struct {
 	Dependency   contract.DependencyConfig `optional:"true"`
 	Config       *contract.Config          `optional:"true"`
 	Reg          *pidregistry.Registry
-	ProxyAddrFn  func() string `name:"proxy_addr_fn"`
-	ProxyTokenFn func() string `name:"proxy_token_fn"`
-	Mirror       contract.SkillMirrorReconciler
+	ProxyAddrFn  func() string                    `name:"proxy_addr_fn"`
+	ProxyTokenFn func() string                    `name:"proxy_token_fn"`
 	Recovery     contract.SessionRecoveryReporter `optional:"true"`
 	Tracer       *observability.Service           `optional:"true"`
 	Metrics      *skillmetrics.Registry
@@ -42,7 +41,7 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return buildDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.ProxyTokenFn, p.Mirror, p.Recovery, p.Metrics, p.Tracer)
+			return buildDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.ProxyTokenFn, p.Recovery, p.Metrics, p.Tracer)
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "Read", Label: "直接读项目文件", Description: "绕过项目文件工具直接读取工作区文件。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},

@@ -145,30 +145,6 @@ function cleanObject(payload) {
   );
 }
 
-/** @param {string} method @param {unknown} params */
-function requireSkillScope(method, params) {
-  const payload = assertPlainObject(method, params);
-  const scope = normalizeString(payload.scope);
-  if (scope !== 'project' && scope !== 'personal') {
-    throw new Error(`${method}: scope must be project or personal`);
-  }
-  return { ...payload, scope };
-}
-
-/** @param {string} method @param {unknown} params */
-function requireContent(method, params) {
-  const payload = assertPlainObject(method, params);
-  if (!hasOwn(payload, 'content')) throw new Error(`${method}: content is required`);
-  return { ...payload, content: normalizeOptionalString(payload.content) };
-}
-
-/** @param {string} method @param {unknown} params */
-function requirePaths(method, params) {
-  const payload = assertPlainObject(method, params);
-  if (!Array.isArray(payload.paths)) throw new Error(`${method}: paths must be an array`);
-  return payload;
-}
-
 /** @param {string} method @param {unknown} params @param {string} key */
 function requireBoolean(method, params, key) {
   const payload = assertPlainObject(method, params);
@@ -198,6 +174,6 @@ export {
   objectPrototype, TOOL_SURFACE_MODES, MCP_TOOL_LIFECYCLE_STATES, DEFAULT_PROMPT_INTENT_KIND, DEFAULT_PROMPT_SOURCE_TYPE, assertPlainObject,
   assertStrictPlainObject, assertNoExtraPayloadFields, takePayloadField, takePayloadFields, hasOwn, normalizeString, normalizeRequiredString,
   normalizeOptionalString, optionalPayloadObject, normalizeProviderConfigValue, normalizeToolSurfaceMode, requireCwd, requireThreadId,
-  requireKey, cleanObject, requireSkillScope, requireContent, requirePaths, requireBoolean,
+  requireKey, cleanObject, requireBoolean,
   normalizeOptionalLimit, normalizeOptionalCursorInteger,
 };

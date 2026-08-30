@@ -1,15 +1,15 @@
 # 12 Dream Pipeline 代码地图
 
-> 拆卷说明：dream consolidation pipeline 横跨 `internal/provider/{unified,claudecli,codexapp,dreamexec}` 与 `pkg/dreammetrics` 多个包，独立于 `11-memory.md`（root memory 写侧 / retrieval / nested 主链）成卷。
+> 拆卷说明：dream executor pipeline 横跨 `internal/provider/{unified,claudecli,codexapp,dreamexec}` 与 `pkg/dreammetrics` 多个包；它是 provider 侧的可选批处理能力，不代表已存在 memory 持久化 owner。
 > 当前口径：以 2026-04-29 HEAD 为准。
-> 与 `11-memory.md` 的边界：本卷只写 dispatcher → provider → binary → write 这条 dream 真实现链路；触发段（thread.stopped → registerAutoDreamSubscriptions → maybeScheduleAutoDream → SafeGo → consolidateWithOptions → extractFn）在 `11-memory.md §5` 已有说明。
+> 与 `11-memory.md` 的边界：本卷只写 dispatcher → provider → binary 的 dream 执行链路；memory 触发、写盘和检索链已从当前生产树移除，见 `11-memory.md` §1–§4。
 
 ## 1. 这卷回答什么
 
-- thread.stopped 事件最终如何变成磁盘 memory 整合：dispatcher 选 provider → 调真 LLM → 解 JSON → 写盘。
+- provider 或显式调用方如何使用 dream executor：dispatcher 选 provider → 调真 LLM → 解 JSON；本卷不声称后续会自动写入 memory。
 - dispatcher 层 4 项底盘保障：5min timeout / 256KB prompt cap / DREAM_PROVIDER_ORDER env / 5 outcome + 3 token atomic metrics counters。
 - 双 provider failover 真链路：claudecli `claude -p` + codexapp `codex exec` 各自 thin wrapper + 共享 `dreamexec` 子进程层。
-- 测试金字塔：单元 → provider 单 e2e → dispatcher failover e2e → stop hook → write 完整 e2e。
+- 测试金字塔：单元 → provider 单 e2e → dispatcher failover e2e；旧 stop-hook → write 场景仅属历史材料。
 
 ## 2. 当前源码结论
 
@@ -18,7 +18,7 @@
 3. **provider 是 thin wrapper**：claudecli/codexapp 各 ~85 行，核心子进程边界（exec / stdin / stdout cap / stderr 收集 / fence strip / JSON 提取 / retry）抽到 `dreamexec` 公共包。
 4. **binary not available 哨兵 error 集中**：`dreamexec.ErrBinaryNotAvailable` 覆盖 PATH 查找失败 + 绝对路径不存在 + 字符串 fallback 三种场景，provider 层用 `errors.Is` 简化判断。
 5. **timeout 集中管理**：`DreamConsolidationTimeout = 5 * time.Minute` 在 `platform/config/timeouts.go`（TimeoutLocality 规范），dispatcher 通过 `platformconfig.WithTimeout` wrapper 注入。
-6. **metrics in-process**：`pkg/dreammetrics` 现在是 8 个 `atomic.Uint64` counter（5 个 outcome + 3 个 token usage），仿 `pkg/skillmetrics` 模式，未接 Prometheus exporter（C 类长期路线）。
+6. **metrics in-process**：`pkg/dreammetrics` 现在是 8 个 `atomic.Uint64` counter（5 个 outcome + 3 个 token usage），未接 Prometheus exporter（C 类长期路线）。
 
 ## 3. 真实包图与职责
 
@@ -36,21 +36,10 @@
 ## 4. 完整调用链
 
 ```
-thread.stopped event (event bus)
-  → registerAutoDreamSubscriptions (auto_dream_task.go:170)
-  → scheduler.Enqueue (auto_dream_scheduler.go:107)
-  → runWorker → process (auto_dream_scheduler.go:167,179)
-  → hooks.maybeScheduleAutoDream (auto_dream_task.go:179)
-    ├─ autoDreamThreadEligible (kairos / agent gate, auto_dream_task.go:196)
-    ├─ prepareAutoDreamExecution (24h 节流 / sessionCount ≥ 5 / extractFn 注入, auto_dream_task.go:215)
-    ├─ startDreamTask + 单例锁 dreamMu (auto_dream_task.go:60)
-    └─ launchAutoDreamTask + SafeGo (auto_dream_task.go:284-289)
-       → consolidator.consolidateWithOptions (auto_dream.go:52)
-         ├─ buildConsolidationPrompt (consolidation_prompt.go:69)
-         └─ run.extractFn(ctx, prompt) ─────┐
-                                              │
-   ┌──────────────────────────────────────────┘
-   ↓
+explicit dream caller
+  → unified.dreamExecutor.ExecuteDream / ExecuteDreamWithOptions
+  → preflight + timeout + provider-order resolution
+  ↓
 unified.dreamExecutor.ExecuteDream (dispatcher 入口)
   ├─ preflight: 空 prompt 校验 + 256KB cap + IncPromptOversize
   ├─ ctx.Err() check
@@ -71,11 +60,7 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
        ├─ 真错误 (rate limit / network) → IncProviderFailed + 立即短路
        └─ 全链路 NotConfigured → IncAllNotConfigured + 返回 last error
 
-返回 raw JSON (string, error) ──→ extractFn 调用方
-  ├─ parseExtractedMemories (extract.go:67)
-  ├─ writeConsolidatedMemories (path.go:424)
-  ├─ UpdateMemoryIndex (index.go)
-  └─ recordConsolidation (consolidationStamp 双字段：LastScanAt + LastSuccessAt)
+返回 provider raw JSON (string, error) ──→ 显式调用方；当前树不再提供 memory extract/write/index 后处理链
 ```
 
 ## 5. dispatcher 4 项底盘
@@ -113,7 +98,7 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 | `claudecli/dream_executor_manual_test.go` | claude 单 provider e2e | 3.62s |
 | `codexapp/dream_executor_manual_test.go` | codex 单 provider e2e | 5.21s |
 | `codexapp/dream_failover_external_manual_test.go` | dispatcher failover (claude 不可用 → codex 成功) | 3.61s |
-| `internal/module/memory/auto_dream_e2e_manual_test.go` | stop hook → write 完整业务 e2e | 7.79s |
+| （已移除的旧 memory stop-hook e2e） | 历史 stop hook → write 场景，仅保留在迁移材料 | — |
 
 跑法：`go test -tags=manual -run TestManual<Name> -v ./<package>/`
 
@@ -127,8 +112,8 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 
 ## 10. 与其他卷的边界
 
-- 触发段（thread.stopped → SafeGo → extractFn）：见 `11-memory.md §5 写侧主链`
-- prompt 拼装段（`buildConsolidationPrompt`）：见 `11-memory.md` consolidation 节
+- 旧 memory 触发/写盘段已退役：见 `11-memory.md` §1–§4 的移除结论
+- prompt 输入与 provider-neutral assembly：见 `11-prompt-thread.md`
 - thread / session 绑定（codex_home / instance_key）：见 `11-prompt-thread.md`
 - 配置真值：order / timeout / cap / fail-fast 见 `internal/provider/unified/dream_executor.go:19-30`、`:50-84`、`:101-178`；provider binary/model 见 `internal/provider/claudecli/dream_executor.go:15-51` 与 `internal/provider/codexapp/dream_executor.go:16-55`
 
@@ -144,7 +129,7 @@ unified.dreamExecutor.ExecuteDream (dispatcher 入口)
 | B-4.1 | dreamexec 公共子进程层 | `internal/provider/dreamexec/` |
 | B-4.2 / B-4.3 | claudecli + codexapp thin wrapper | `*/dream_executor.go` |
 | B-4.4 | binary detection bug + failover e2e | `dreamexec.ErrBinaryNotAvailable` 哨兵 |
-| B-4.5 | stop hook 完整 e2e | `auto_dream_e2e_manual_test.go` |
+| B-4.5 | stop hook 完整 e2e | 历史场景；当前不再有对应 production caller |
 | B-4.6 | archtest 3 项违规修复 | `ExecuteDream` 拆 3 函数 + `ExtractFirstJSONObject` 拆 3 函数 + timeout 迁移 |
 | B-4.7 / B-4.9 | binding fixture 字段对齐（latent fix） | `capturingBindingStore` + `stubBindingStore` |
 | B-4.8 / B-4.9 | dream provider 配置真值 | `internal/provider/unified/dream_executor.go:19-178`、`internal/provider/dreamexec/dreamexec.go:77-145` |

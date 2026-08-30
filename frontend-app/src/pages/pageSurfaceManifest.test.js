@@ -17,7 +17,6 @@ const requiredFields = ['entry', 'servicePrefix', 'adapterPrefix', 'serviceEntry
 const sharedDtoGoldenTest = 'pages/shared/featureDtoGolden.test.js';
 const dtoGoldenFactories = new Map([
   ['files', { factory: 'createFilesPageService', methods: ['saveTextFile'] }],
-  ['memory', { factory: 'createMemoryPageService', methods: ['upsertMemoryEntry', 'mergeMemoryEntries'] }],
   ['observability', { factory: 'createObservabilityPageService', methods: ['listObservabilityRecent'] }],
   ['prompts', { factory: 'createPromptPageService', methods: ['draftPromptIntent', 'writePrompt'] }],
 ]);

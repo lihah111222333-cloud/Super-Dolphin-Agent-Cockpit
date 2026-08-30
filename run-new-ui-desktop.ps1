@@ -761,9 +761,6 @@ Set-DefaultEnv -Name 'SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS' -Value '300'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS' -Value '300'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_READY_POLL_INTERVAL_SECONDS' -Value '0.2'
 Set-DefaultEnv -Name 'LOG_LEVEL' -Value 'debug'
-Set-DefaultEnv -Name 'ENABLE_MEMORY_SYSTEM' -Value '1'
-Set-DefaultEnv -Name 'ENABLE_MEMORY_TOOLS' -Value '1'
-Set-DefaultEnv -Name 'MULTI_AGENT_MEMORY_FEATURE_TEAMMEM' -Value '1'
 Set-DefaultEnv -Name 'CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME' -Value '1'
 
 try {

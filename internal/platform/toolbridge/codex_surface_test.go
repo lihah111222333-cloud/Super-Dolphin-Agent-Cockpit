@@ -164,18 +164,14 @@ func TestPrepareCodexToolSurfaceRejectsLegacyOrchestrationAliases(t *testing.T) 
 
 func TestPrepareCodexToolSurfaceFiltersDisabledToolsAndRejectsStaleCalls(t *testing.T) {
 	host := &stubHostToolRegistry{
-		hasToolName: ToolNameMemoryWrite,
-		tools:       []mcpdto.MCPTool{{Name: ToolNameMemoryWrite, Description: "host memory write", InputSchema: strictEmptyObjectSchema()}},
+		hasToolName: ToolNameRetiredHostWrite,
+		tools:       []mcpdto.MCPTool{{Name: ToolNameRetiredHostWrite, Description: "retired host write", InputSchema: strictEmptyObjectSchema()}},
 		result:      toolCallTextResult(true, "host ok"),
-	}
-	skills := &fakeSkillToolProvider{
-		tools: []contract.SkillToolSurfaceTool{{Name: "skill_write_note", Description: "skill writer", InputSchema: strictEmptyObjectSchema()}},
 	}
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "launch_agent", Description: "launch", InputSchema: strictEmptyObjectSchema()}}}
 	external := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "connect_tool_source", Description: "connect source", InputSchema: strictEmptyObjectSchema()}}}
 	h := &Handler{
 		hostTools:    host,
-		skillTools:   skills,
 		skillMetrics: skillmetrics.NewRegistry(),
 		bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 			"agent-allow": {AgentID: "agent-allow", Provider: "codex", ProviderThreadID: "provider-thread-allow"},
@@ -187,8 +183,8 @@ func TestPrepareCodexToolSurfaceFiltersDisabledToolsAndRejectsStaleCalls(t *test
 		{Name: "external", Command: []string{"mcp-external"}},
 	}}
 	cwd := t.TempDir()
-	assertDisabledCodexSurfaceTools(t, h, manifest, cwd, host, skills, orch, external)
-	assertAllowedCodexSurfaceTools(t, h, manifest, cwd, host, skills, orch, external)
+	assertDisabledCodexSurfaceTools(t, h, manifest, cwd, host, orch, external)
+	assertAllowedCodexSurfaceTools(t, h, manifest, cwd, host, orch, external)
 }
 
 func assertDisabledCodexSurfaceTools(
@@ -197,18 +193,17 @@ func assertDisabledCodexSurfaceTools(
 	manifest providerdto.MCPManifest,
 	cwd string,
 	host *stubHostToolRegistry,
-	skills *fakeSkillToolProvider,
 	orch *fakeMCPClient,
 	external *fakeMCPClient,
 ) {
 	t.Helper()
 
-	disabledNames := []string{ToolNameMemoryWrite, "skill__skill_write_note", "launch_agent", "mcp__orch__launch_agent", "launch_agent", "connect_tool_source"}
+	disabledNames := []string{ToolNameRetiredHostWrite, "launch_agent", "mcp__orch__launch_agent", "launch_agent", "connect_tool_source"}
 	disabledTools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-deny",
 		ProviderThreadID: "provider-thread-deny",
 		CWD:              cwd,
-		DisabledTools:    []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "connect_tool_source"},
+		DisabledTools:    []string{ToolNameRetiredHostWrite, "launch_agent", "connect_tool_source"},
 		Manifest:         manifest,
 	})
 	if err != nil {
@@ -216,7 +211,7 @@ func assertDisabledCodexSurfaceTools(
 	}
 	assertNoDynamicToolNames(t, disabledTools, disabledNames)
 	assertDisabledCodexSurfaceToolCalls(t, h, cwd, disabledNames)
-	assertNoDisabledCodexSurfaceToolCallsReachedBackends(t, host, skills, orch, external)
+	assertNoDisabledCodexSurfaceToolCallsReachedBackends(t, host, orch, external)
 }
 
 func assertAllowedCodexSurfaceTools(
@@ -225,7 +220,6 @@ func assertAllowedCodexSurfaceTools(
 	manifest providerdto.MCPManifest,
 	cwd string,
 	host *stubHostToolRegistry,
-	skills *fakeSkillToolProvider,
 	orch *fakeMCPClient,
 	external *fakeMCPClient,
 ) {
@@ -240,9 +234,9 @@ func assertAllowedCodexSurfaceTools(
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface(allowed) error = %v", err)
 	}
-	assertDynamicToolNames(t, allowedTools, []string{ToolNameMemoryWrite, "skill__skill_write_note", "launch_agent", "connect_tool_source"})
+	assertDynamicToolNames(t, allowedTools, []string{ToolNameRetiredHostWrite, "launch_agent", "connect_tool_source"})
 	callAllowedCodexSurfaceTools(t, h, cwd)
-	assertAllowedCodexSurfaceCallsReachedBackends(t, host, skills, orch, external)
+	assertAllowedCodexSurfaceCallsReachedBackends(t, host, orch, external)
 }
 
 func assertNoDynamicToolNames(t *testing.T, tools []contract.DynamicToolSchema, names []string) {
@@ -267,7 +261,6 @@ func assertDisabledCodexSurfaceToolCalls(t *testing.T, h *Handler, cwd string, n
 func assertNoDisabledCodexSurfaceToolCallsReachedBackends(
 	t *testing.T,
 	host *stubHostToolRegistry,
-	skills *fakeSkillToolProvider,
 	orch *fakeMCPClient,
 	external *fakeMCPClient,
 ) {
@@ -275,9 +268,6 @@ func assertNoDisabledCodexSurfaceToolCallsReachedBackends(
 
 	if host.calls != 0 {
 		t.Fatalf("disabled host tool reached host registry: calls=%d", host.calls)
-	}
-	if len(skills.calls) != 0 {
-		t.Fatalf("disabled skill tool reached skill provider: calls=%#v", skills.calls)
 	}
 	if len(orch.calls) != 0 || len(external.calls) != 0 {
 		t.Fatalf("disabled MCP tool reached clients: orch=%#v external=%#v", orch.calls, external.calls)
@@ -287,8 +277,7 @@ func assertNoDisabledCodexSurfaceToolCallsReachedBackends(
 func callAllowedCodexSurfaceTools(t *testing.T, h *Handler, cwd string) {
 	t.Helper()
 
-	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, ToolNameMemoryWrite)
-	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "skill__skill_write_note")
+	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, ToolNameRetiredHostWrite)
 	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "launch_agent")
 	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "connect_tool_source")
 }
@@ -296,7 +285,6 @@ func callAllowedCodexSurfaceTools(t *testing.T, h *Handler, cwd string) {
 func assertAllowedCodexSurfaceCallsReachedBackends(
 	t *testing.T,
 	host *stubHostToolRegistry,
-	skills *fakeSkillToolProvider,
 	orch *fakeMCPClient,
 	external *fakeMCPClient,
 ) {
@@ -304,9 +292,6 @@ func assertAllowedCodexSurfaceCallsReachedBackends(
 
 	if host.calls != 1 {
 		t.Fatalf("allowed host calls = %d, want 1", host.calls)
-	}
-	if len(skills.calls) != 1 {
-		t.Fatalf("allowed skill calls = %#v, want one call", skills.calls)
 	}
 	if !orch.calledWith("launch_agent") {
 		t.Fatalf("allowed launch_agent did not reach orchestration client: %#v", orch.calls)
@@ -351,49 +336,40 @@ func assertDisabledCodexSurfaceToolResult(t *testing.T, got *ToolCallResult, nam
 	}
 }
 
-func TestPrepareCodexToolSurfaceAdvertisesSkillToolsAndReturnsSkillText(t *testing.T) {
-	inputSchema := json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
-	skillTools := &fakeSkillToolProvider{
-		tools: []contract.SkillToolSurfaceTool{{
-			Name:        "backend",
-			Description: "Return backend skill details",
-			InputSchema: inputSchema,
-		}},
-		content: "---\nname: backend\n---\n# Backend\nUse Go backend conventions carefully.\n",
-	}
-	h := &Handler{
-		skillTools:         skillTools,
-		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": &fakeMCPClient{}}),
-	}
+// TestPrepareCodexToolSurfaceRejectsLegacySkillSurface verifies that provider-native
+// discovery remains the only skill route. No V3 skill provider is consulted.
+func TestPrepareCodexToolSurfaceRejectsLegacySkillSurface(t *testing.T) {
+	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{
+		Name:        "skill__backend",
+		Description: "stale V3 skill surface",
+		InputSchema: strictEmptyObjectSchema(),
+	}}}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"external": client})}
 	projectRoot := t.TempDir()
 
 	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
-		AgentID:          "agent-1",
-		ProviderThreadID: "provider-thread-1",
+		AgentID:          "agent-skill-native-only",
+		ProviderThreadID: "thread-skill-native-only",
 		CWD:              projectRoot,
-		Manifest:         providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: "lsp", Command: []string{"mcp-lsp"}}}},
+		Manifest:         providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: "external", Command: []string{"mcp-external"}}}},
 	})
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
-	assertDynamicToolNames(t, tools, []string{"skill__backend"})
-	assertDynamicSkillToolSchema(t, tools, "skill__backend", "Return backend skill details", inputSchema)
-
+	assertNoDynamicToolName(t, tools, "skill__backend")
+	assertNoDynamicToolName(t, tools, "mcp__external__skill__backend")
 	resultAny, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
-		Params: json.RawMessage(`{"name":"skill__backend","arguments":{},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"` + jsonEscape(projectRoot) + `"}`),
+		Params: json.RawMessage(`{"name":"skill__backend","arguments":{},"_agentId":"agent-skill-native-only","_threadId":"thread-skill-native-only","_callId":"call-1","_cwd":"` + jsonEscape(projectRoot) + `"}`),
 	})
 	if err != nil {
-		t.Fatalf("HandleToolCall(backend) error = %v", err)
+		t.Fatalf("HandleToolCall(skill__backend) error = %v", err)
 	}
 	result, ok := resultAny.(*ToolCallResult)
-	if !ok {
-		t.Fatalf("HandleToolCall result type = %T, want *ToolCallResult", resultAny)
+	if !ok || result == nil || result.Success {
+		t.Fatalf("HandleToolCall(skill__backend) result = %#v, want explicit unsupported result", resultAny)
 	}
-	if !result.Success || len(result.ContentItems) != 1 || result.ContentItems[0].Text != skillTools.content {
-		t.Fatalf("HandleToolCall result = %#v", result)
-	}
-	if len(skillTools.calls) != 1 || skillTools.calls[0].Name != "backend" || skillTools.calls[0].CWD != projectRoot {
-		t.Fatalf("skill tool calls = %#v", skillTools.calls)
+	if len(client.calls) != 0 {
+		t.Fatalf("skill__backend reached MCP client: %#v", client.calls)
 	}
 }
 
@@ -615,14 +591,14 @@ func TestCodexToolSurfaceMissingSurfaceFails(t *testing.T) {
 
 func TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend(t *testing.T) {
 	host := &stubHostToolRegistry{
-		hasToolName: ToolNameMemoryWrite,
-		tools:       []mcpdto.MCPTool{{Name: ToolNameMemoryWrite, Description: "host memory write", InputSchema: strictEmptyObjectSchema()}},
+		hasToolName: ToolNameRetiredHostWrite,
+		tools:       []mcpdto.MCPTool{{Name: ToolNameRetiredHostWrite, Description: "retired host write", InputSchema: strictEmptyObjectSchema()}},
 		result:      map[string]any{"status": "host backend should not run"},
 	}
 	h := &Handler{hostTools: host}
 
 	_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
-		"name":      ToolNameMemoryWrite,
+		"name":      ToolNameRetiredHostWrite,
 		"arguments": map[string]any{},
 		"_agentId":  "agent-1",
 		"_threadId": "provider-thread-1",

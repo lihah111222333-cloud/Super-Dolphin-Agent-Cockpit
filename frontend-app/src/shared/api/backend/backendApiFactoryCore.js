@@ -26,7 +26,6 @@ import {
   requireThreadId,
   requireKey,
   cleanObject,
-  requireBoolean,
   normalizeOptionalLimit,
 } from './backendApiCommon.js';
 import {
@@ -34,9 +33,6 @@ import {
   observabilityThreadPayload,
   observabilityListPayload,
   observabilityRecentPayload,
-  memoryEntryGetPayload,
-  memoryEntryUpsertPayload,
-  memoryPairPayload,
   dashboardDagStartPayload,
   dashboardDagCreateAndStartPayload,
   dashboardWorkflowMaterialWritePayload,
@@ -48,7 +44,6 @@ import {
   promptWritePayload,
   promptDeletePayload,
   promptIntentDraftPayload,
-  memoryConsolidationPayload,
   promptIntentCommitPayload,
   promptIntentDiscardPayload,
   promptIntentDryRunPayload,
@@ -204,14 +199,6 @@ async function callAppUpdateRPC(callBackend, method) {
   }
 }
 
-/** @param {BackendCaller} callBackend */
-function createObservabilityMemoryApi(callBackend) {
-  return {
-    ...createObservabilityApi(callBackend),
-    ...createMemoryApi(callBackend),
-  };
-}
-
 /** @param {string} method @param {unknown} params */
 function datasourceCreatePayload(method, params) {
   const payload = assertPlainObject(method, params);
@@ -335,44 +322,43 @@ function createObservabilityApi(callBackend) {
   };
 }
 
+/** @typedef {{files: unknown[]}} SharedFilesResponse */
+/** @param {unknown} response @returns {unknown[]} */
+function sharedFilesFromResponse(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new TypeError('dashboard/sharedFiles response must be an object');
+  }
+  const typed = /** @type {SharedFilesResponse} */ (response);
+  if (!Array.isArray(typed.files)) throw new TypeError('dashboard/sharedFiles response files must be an array');
+  return typed.files;
+}
+
+/** @param {unknown} item @param {string} path */
+function sharedFileMatchesPath(item, path) {
+  if (!item || typeof item !== 'object') return false;
+  const record = /** @type {Record<string, unknown>} */ (item);
+  return normalizeString(record.path) === path;
+}
+
 /** @param {BackendCaller} callBackend */
-function createMemoryApi(callBackend) {
+function createSharedFilesApi(callBackend) {
   return {
-    getMemorySnapshot: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.UI_MEMORY_GET, requireCwd(RPC_METHODS.UI_MEMORY_GET, params)),
-    getMemoryEntry: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_GET, memoryEntryGetPayload(RPC_METHODS.UI_MEMORY_ENTRY_GET, params)),
-    upsertMemoryEntry: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, memoryEntryUpsertPayload(RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, params)),
-    deleteMemoryEntry: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_DELETE, memoryEntryGetPayload(RPC_METHODS.UI_MEMORY_ENTRY_DELETE, params)),
-    setMemoryAutoDreamIntent: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT,
-      requireCwd(
-        RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT,
-        requireBoolean(RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT, params, 'enabled'),
-      ),
-    ),
-    mergeMemoryEntries: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, memoryPairPayload(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, params)),
-    ignoreMemorySimilarity: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, memoryPairPayload(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, params)),
-    consolidateMemorySimilarities: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, requireCwd(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, params)),
-    startConsolidateMemorySimilarities: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START,
-      memoryConsolidationPayload(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START, params),
-    ),
-    getMemoryConsolidationStatus: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS,
-      requireKey(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, requireCwd(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, params), 'jobId'),
-    ),
     listSharedFiles: (/** @type {unknown} */ params = {}) => {
       const payload = assertPlainObject(RPC_METHODS.DASHBOARD_SHARED_FILES, params);
       if (Object.keys(payload).length > 0) throw new Error(`${RPC_METHODS.DASHBOARD_SHARED_FILES}: params are not supported`);
       return callBackend(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     },
-    readSharedFile: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.UI_SHARED_FILE_GET,
-      requireKey(RPC_METHODS.UI_SHARED_FILE_GET, assertPlainObject(RPC_METHODS.UI_SHARED_FILE_GET, params), 'path'),
-    ),
-    deleteSharedFile: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.UI_SHARED_FILE_DELETE,
-      requireKey(RPC_METHODS.UI_SHARED_FILE_DELETE, assertPlainObject(RPC_METHODS.UI_SHARED_FILE_DELETE, params), 'path'),
-    ),
+    // Shared-file detail is served by the dashboard snapshot.  There is no
+    // separate read RPC; callers must resolve the requested path
+    // from the authoritative dashboard/sharedFiles response.
+    readSharedFile: async (/** @type {unknown} */ params) => {
+      const payload = requireKey('readSharedFile', assertPlainObject('readSharedFile', params), 'path');
+      const path = normalizeString(payload.path);
+      const files = sharedFilesFromResponse(await callBackend(RPC_METHODS.DASHBOARD_SHARED_FILES, {}));
+      const file = files.find((item) => sharedFileMatchesPath(item, path));
+      if (!file) throw new Error(`shared file not found: ${path}`);
+      return file;
+    },
     writeWorkflowMaterial: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE, dashboardWorkflowMaterialWritePayload(params)),
   };
 }
@@ -448,6 +434,6 @@ function createPromptDagApi(callBackend) {
 
 export {
   BACKEND_RESPONSE_VALIDATORS, NATIVE_DEP_FALLBACKS, resolveNativeDeps, createBackendCaller, createConfigProjectApi, createAppUpdateApi,
-  createObservabilityMemoryApi, datasourceCreatePayload, datasourceImportLocalFilePayload, datasourceListPayload, datasourceDocumentIDPayload, datasourceChunksPayload,
-  datasourceUpdatePayload, createDatasourceApi, createObservabilityApi, createMemoryApi, createPromptDagApi,
+  datasourceCreatePayload, datasourceImportLocalFilePayload, datasourceListPayload, datasourceDocumentIDPayload, datasourceChunksPayload,
+  datasourceUpdatePayload, createDatasourceApi, createObservabilityApi, createSharedFilesApi, createPromptDagApi,
 };

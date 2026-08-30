@@ -2,9 +2,6 @@ import { z } from 'zod';
 
 /** @typedef {Record<string, unknown>} SchemaRecord */
 
-const memorySectionSchema = z.object({
-  entries: z.array(z.unknown()),
-}).passthrough();
 const modelProviderVendorSchema = z.object({}).passthrough();
 const wireTimestampSchema = z.string().datetime({ offset: true });
 /** @type {import('zod').ZodType<unknown>} */
@@ -18,43 +15,6 @@ const jsonValueSchema = z.lazy(() => z.union([
 ]));
 const promptIntentKindSchema = z.enum(['expert', 'recall', 'default_rule']);
 
-const memoryEntryDetailResponseSchema = z.object({
-  target: z.enum(['private', 'team']).optional(),
-  path: z.string().optional(),
-  name: z.string(),
-  description: z.string().optional(),
-  type: z.string().optional(),
-  content: z.string().optional(),
-  title: z.string().optional(),
-  updatedAt: wireTimestampSchema.optional(),
-}).strict();
-const memoryEntryDeleteResponseSchema = z.object({ deleted: z.boolean() }).strict();
-const memoryAutoDreamIntentResponseSchema = z.object({ ok: z.literal(true), enabled: z.boolean() }).strict();
-const memorySimilarityIgnoreResponseSchema = z.object({ ignored: z.literal(true), key: z.string() }).strict();
-const memoryConsolidationResultSchema = z.object({
-  merged: z.number().int(),
-  ignored: z.number().int(),
-  failed: z.number().int(),
-  skipped: z.number().int(),
-  errors: z.array(z.string()).optional(),
-}).strict();
-const memoryConsolidationJobResponseSchema = z.object({
-  jobId: z.string(),
-  status: z.enum(['running', 'succeeded', 'failed']),
-  result: memoryConsolidationResultSchema.optional(),
-  error: z.string().optional(),
-}).strict().superRefine((value, context) => {
-  if (value.status === 'succeeded' && value.result === undefined) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['result'], message: 'is required when status is succeeded' });
-  }
-  if (value.status === 'failed' && !value.error) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['error'], message: 'is required when status is failed' });
-  }
-  if (value.status === 'running' && (value.result !== undefined || value.error !== undefined)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['status'], message: 'running job must not contain result or error' });
-  }
-});
-const sharedFileDeleteResponseSchema = z.object({ deleted: z.boolean() }).strict();
 const workflowMaterialWriteResponseSchema = z.object({ path: z.string() }).strict();
 
 const promptItemSchema = z.object({
@@ -173,13 +133,6 @@ const personalizationProfileResponseSchema = z.object({
   }).strict(),
 }).strict();
 
-const MEMORY_TYPE_INFO = Object.freeze({
-  user: { category: 'preference', label: '偏好' },
-  feedback: { category: 'preference', label: '偏好' },
-  project: { category: 'project', label: '项目' },
-  reference: { category: 'project', label: '项目' },
-});
-
 /** @param {unknown} value @returns {string} */
 function schemaTextValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
@@ -209,11 +162,6 @@ function isSchemaRecord(value) {
 function schemaObjectValue(value) {
   return isSchemaRecord(value) ? value : {};
 }
-
-const sharedFileDetailTextSchema = z.preprocess(
-  (value) => (typeof value === 'string' ? value.trim() : ''),
-  z.string().min(1, 'path is required'),
-);
 
 const observabilityEventSchema = z.object({
   ts: z.unknown().optional(),
@@ -296,162 +244,6 @@ const observabilityResultSchema = z.object({
   totalDurationMs: schemaNumberValue(value.totalDurationMs ?? value.total_duration_ms, 0),
   events: value.events,
 }));
-
-/** @param {unknown} section @param {string} target @returns {string} */
-function memorySectionError(section, target) {
-  if (!isSchemaRecord(section) || !Array.isArray(section.entries)) {
-    return `memory ${target} entries must be an array`;
-  }
-  return '';
-}
-
-/** @param {string} type */
-function memoryTypeInfo(type) {
-  if (!Object.prototype.hasOwnProperty.call(MEMORY_TYPE_INFO, type)) return undefined;
-  return MEMORY_TYPE_INFO[/** @type {keyof typeof MEMORY_TYPE_INFO} */ (type)];
-}
-
-/** @param {unknown} raw @param {number} index @param {string} target @returns {string} */
-function memoryEntryError(raw, index, target) {
-  if (!isSchemaRecord(raw)) {
-    return `memory ${target} entry ${index} must be an object`;
-  }
-  const path = schemaTextValue(raw.path);
-  if (!path) return `memory ${target} entry ${index} path is required`;
-  const type = schemaTextValue(raw.type).toLowerCase();
-  if (!memoryTypeInfo(type)) return `memory ${target} entry ${index} type is unsupported: ${type || '(empty)'}`;
-  const name = schemaFirstText(raw.name, raw.title);
-  if (!name) return `memory ${target} entry ${index} name is required`;
-  return '';
-}
-
-/** @param {unknown} raw @param {number} index @param {string} target @returns {(string | number)[]} */
-function memoryEntryIssuePath(raw, index, target) {
-  if (!isSchemaRecord(raw)) return [target, 'entries', index];
-  if (!schemaTextValue(raw.path)) return [target, 'entries', index, 'path'];
-  const type = schemaTextValue(raw.type).toLowerCase();
-  if (!memoryTypeInfo(type)) return [target, 'entries', index, 'type'];
-  if (!schemaFirstText(raw.name, raw.title)) return [target, 'entries', index, 'name'];
-  return [target, 'entries', index];
-}
-
-/** @param {unknown} section @param {string} target @param {import('zod').RefinementCtx} context */
-function validateMemorySection(section, target, context) {
-  const sectionError = memorySectionError(section, target);
-  if (sectionError) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: [target, 'entries'],
-      message: sectionError,
-    });
-    return;
-  }
-  const entries = /** @type {unknown[]} */ (/** @type {SchemaRecord} */ (section).entries);
-  entries.forEach((raw, index) => {
-    const entryError = memoryEntryError(raw, index, target);
-    if (entryError) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: memoryEntryIssuePath(raw, index, target),
-        message: entryError,
-      });
-    }
-  });
-}
-
-/** @param {unknown} raw @param {number} index @param {string} target */
-function normalizeMemoryEntry(raw, index, target) {
-  const entryError = memoryEntryError(raw, index, target);
-  if (entryError) throw new Error(entryError);
-  const entry = /** @type {SchemaRecord} */ (raw);
-  const path = schemaTextValue(entry.path);
-  const type = schemaTextValue(entry.type).toLowerCase();
-  const typeInfo = memoryTypeInfo(type);
-  if (!typeInfo) throw new Error(`memory ${target} entry ${index} type is unsupported: ${type || '(empty)'}`);
-  const name = schemaFirstText(entry.name, entry.title);
-  return {
-    id: `${target}:${path}:${index}`,
-    target,
-    path,
-    type,
-    category: typeInfo.category,
-    tag: typeInfo.label,
-    name,
-    title: schemaFirstText(entry.title, entry.name),
-    description: schemaFirstText(entry.description, entry.summary),
-    preview: schemaFirstText(entry.preview, entry.content, entry.text),
-    updatedAt: schemaFirstText(entry.updatedAt, entry.updated_at, entry.createdAt, entry.created_at),
-    source: schemaTextValue(entry.source),
-    raw: entry,
-  };
-}
-
-/** @param {unknown} section @param {string} target */
-function normalizeMemorySection(section, target) {
-  const sectionError = memorySectionError(section, target);
-  if (sectionError) throw new Error(sectionError);
-  const entries = /** @type {unknown[]} */ (/** @type {SchemaRecord} */ (section).entries);
-  return entries.map((item, index) => normalizeMemoryEntry(item, index, target));
-}
-
-const memoryOverviewSchema = z.object({
-  writeAvailable: z.boolean(),
-  unavailableReason: z.enum(['git_repository_required']).optional(),
-}).passthrough().superRefine((value, context) => {
-  if (!value.writeAvailable && value.unavailableReason !== 'git_repository_required') {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['unavailableReason'], message: 'is required when memory writes are unavailable' });
-  }
-  if (value.writeAvailable && value.unavailableReason !== undefined) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['unavailableReason'], message: 'must be omitted when memory writes are available' });
-  }
-});
-
-const memorySnapshotSchema = z.object({
-  overview: memoryOverviewSchema,
-  private: memorySectionSchema,
-  team: memorySectionSchema,
-}).passthrough().superRefine((value, context) => {
-  validateMemorySection(value.private, 'private', context);
-  validateMemorySection(value.team, 'team', context);
-}).transform((value) => ({
-  overview: value.overview,
-  entries: [
-    ...normalizeMemorySection(value.private, 'private'),
-    ...normalizeMemorySection(value.team, 'team'),
-  ],
-}));
-
-/*
- * SkillTool wire DTO 的单一事实源：skills/tools/list 与 skills/tools/create/update
- * 的响应都复用 skillToolRecordSchema，禁止维护两套字段规则。
- */
-/** @param {string} message */
-const nonEmptyWireString = (message) => z.string().refine((value) => value.trim() !== '', { message });
-
-const skillToolRecordSchema = z.object({
-  id: z.number().int().positive(),
-  cwd: nonEmptyWireString('skill tool cwd must be a non-empty string'),
-  methodName: nonEmptyWireString('skill tool methodName must be a non-empty string')
-    .refine((value) => !/[\s\\/]/.test(value), { message: 'skill tool methodName must not contain whitespace or path separators' }),
-  description: nonEmptyWireString('skill tool description must be a non-empty string'),
-  enabled: z.boolean(),
-  createdAt: wireTimestampSchema,
-  updatedAt: wireTimestampSchema,
-}).strict();
-
-const skillToolsListResponseSchema = z.object({
-  tools: z.array(skillToolRecordSchema),
-}).strict();
-
-/** @param {unknown} response */
-function parseSkillToolMutationResponse(response) {
-  return parseSchema('skill tool mutation', skillToolRecordSchema, response);
-}
-
-/** @param {unknown} response */
-function parseSkillToolsListResponse(response) {
-  return parseSchema('skill tools list', skillToolsListResponseSchema, response);
-}
 
 /** @param {unknown} raw @param {number} index @returns {string} */
 function sharedFileItemError(raw, index) {
@@ -576,11 +368,10 @@ function normalizeSharedFileRetention(value) {
 
 const sharedFilesDashboardSchema = z.object({
   files: z.array(z.unknown()).optional(),
-  memory: z.array(z.unknown()).optional(),
   finalOutputRefs: z.unknown().optional(),
   sharedFileRetention: z.unknown().optional(),
 }).passthrough().superRefine((value, context) => {
-  if (!Array.isArray(value.files) && !Array.isArray(value.memory)) {
+  if (!Array.isArray(value.files)) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['files'],
@@ -588,13 +379,13 @@ const sharedFilesDashboardSchema = z.object({
     });
     return;
   }
-  const files = /** @type {unknown[]} */ (Array.isArray(value.files) ? value.files : value.memory);
+  const files = /** @type {unknown[]} */ (value.files);
   files.forEach((item, index) => {
     const itemError = sharedFileItemError(item, index);
     if (itemError) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        path: [Array.isArray(value.files) ? 'files' : 'memory', index],
+      path: ['files', index],
         message: itemError,
       });
     }
@@ -616,7 +407,7 @@ const sharedFilesDashboardSchema = z.object({
     });
   }
 }).transform((value) => {
-  const files = Array.isArray(value.files) ? value.files : value.memory;
+  const files = value.files;
   if (!files) throw new TypeError('shared files dashboard response files must be an array');
   return {
     files: files.map((item, index) => normalizeSharedFileItem(item, index)),
@@ -624,20 +415,6 @@ const sharedFilesDashboardSchema = z.object({
     retention: normalizeSharedFileRetention(value.sharedFileRetention),
   };
 });
-
-const sharedFileDetailResponseSchema = z.object({
-  path: sharedFileDetailTextSchema,
-  content: z.preprocess(
-    (value) => (value === null || value === undefined ? '' : value),
-    z.string(),
-  ),
-  updated_by: z.string().optional(),
-  updatedBy: z.string().optional(),
-  updated_at: z.string().optional(),
-  updatedAt: z.string().optional(),
-  created_at: z.string().optional(),
-  createdAt: z.string().optional(),
-}).passthrough();
 
 const modelProviderRegistrySchema = z.object({
   activeVendorId: z.unknown().optional(),
@@ -653,19 +430,11 @@ function issuePath(issue) {
 /** @param {string} label @param {import('zod').ZodIssue | undefined} issue @returns {string} */
 function formatIssue(label, issue) {
   const path = issuePath(issue);
-  if (label === 'shared file detail' && path === 'path') {
-    return 'shared file detail path is required';
-  }
   if (label === 'observability response') {
     if (path === 'events') return 'observability response events must be an array';
     const eventIndex = issue?.path?.[0] === 'events' && Number.isInteger(issue.path[1]) ? issue.path[1] : null;
     if (eventIndex !== null) return `observability response event[${String(eventIndex)}] must be an object`;
     return 'observability response must be an object';
-  }
-  if (label === 'memory snapshot') {
-    if (issue?.message?.startsWith('memory ')) return issue.message;
-    if (path === 'private' || path === 'private.entries') return 'memory private entries must be an array';
-    if (path === 'team' || path === 'team.entries') return 'memory team entries must be an array';
   }
   if (label === 'shared files dashboard' && path === 'files') {
     return 'shared files dashboard response files must be an array';
@@ -708,18 +477,8 @@ function parseObservabilityResultResponse(response) {
 }
 
 /** @param {unknown} response */
-function parseMemorySnapshotResponse(response) {
-  return parseSchema('memory snapshot', memorySnapshotSchema, response);
-}
-
-/** @param {unknown} response */
 function parseSharedFilesDashboardResponse(response) {
   return parseSchema('shared files dashboard', sharedFilesDashboardSchema, response);
-}
-
-/** @param {unknown} response */
-function parseSharedFileDetailResponse(response) {
-  return parseSchema('shared file detail', sharedFileDetailResponseSchema, response);
 }
 
 /** @param {unknown} response */
@@ -742,12 +501,6 @@ function parseExactSchema(label, schema, response) {
   throw new TypeError(`${label}${path ? ` ${path}` : ''} ${issue.message}`);
 }
 
-const parseMemoryEntryDetailResponse = (/** @type {unknown} */ response) => parseExactSchema('memory entry detail', memoryEntryDetailResponseSchema, response);
-const parseMemoryEntryDeleteResponse = (/** @type {unknown} */ response) => parseExactSchema('memory entry delete', memoryEntryDeleteResponseSchema, response);
-const parseMemoryAutoDreamIntentResponse = (/** @type {unknown} */ response) => parseExactSchema('memory auto dream intent', memoryAutoDreamIntentResponseSchema, response);
-const parseMemorySimilarityIgnoreResponse = (/** @type {unknown} */ response) => parseExactSchema('memory similarity ignore', memorySimilarityIgnoreResponseSchema, response);
-const parseMemoryConsolidationJobResponse = (/** @type {unknown} */ response) => parseExactSchema('memory consolidation job', memoryConsolidationJobResponseSchema, response);
-const parseSharedFileDeleteResponse = (/** @type {unknown} */ response) => parseExactSchema('shared file delete', sharedFileDeleteResponseSchema, response);
 const parseWorkflowMaterialWriteResponse = (/** @type {unknown} */ response) => parseExactSchema('workflow material write', workflowMaterialWriteResponseSchema, response);
 const parsePromptAssetsResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt assets', promptAssetsResponseSchema, response);
 const parseDashboardPromptsResponse = (/** @type {unknown} */ response) => parseExactSchema('dashboard prompts', dashboardPromptsResponseSchema, response);
@@ -759,18 +512,8 @@ const parsePromptIntentDryRunResponse = (/** @type {unknown} */ response) => par
 const parsePersonalizationProfileResponse = (/** @type {unknown} */ response) => parseExactSchema('personalization profile', personalizationProfileResponseSchema, response);
 
 export {
-  MEMORY_TYPE_INFO,
-  memorySnapshotSchema,
   modelProviderRegistrySchema,
-  normalizeMemoryEntry,
-  normalizeMemorySection,
   observabilityResultSchema,
-  parseMemorySnapshotResponse,
-  parseMemoryAutoDreamIntentResponse,
-  parseMemoryConsolidationJobResponse,
-  parseMemoryEntryDeleteResponse,
-  parseMemoryEntryDetailResponse,
-  parseMemorySimilarityIgnoreResponse,
   parseModelProviderRegistryResponse,
   parseObservabilityResultResponse,
   parseDashboardPromptsResponse,
@@ -781,12 +524,7 @@ export {
   parsePromptIntentDiscardResponse,
   parsePromptIntentDraftResponse,
   parsePromptIntentDryRunResponse,
-  parseSharedFileDetailResponse,
-  parseSharedFileDeleteResponse,
   parseSharedFilesDashboardResponse,
-  parseSkillToolMutationResponse,
-  parseSkillToolsListResponse,
   parseWorkflowMaterialWriteResponse,
-  sharedFileDetailResponseSchema,
   sharedFilesDashboardSchema,
 };

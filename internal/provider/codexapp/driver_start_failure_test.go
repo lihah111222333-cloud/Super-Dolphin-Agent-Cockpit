@@ -25,7 +25,6 @@ func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
 	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		manager:      &ServerManager{},
 		skillMetrics: skillmetrics.NewRegistry(),
 		prepareTools: func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {

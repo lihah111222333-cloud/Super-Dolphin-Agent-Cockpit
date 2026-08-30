@@ -18,7 +18,7 @@ const builtinToolsKnownIDsKey = "config/builtinTools.knownIDs"
 var errUnknownBuiltinTool = errors.New("uistate: unknown builtin tool id")
 
 // BuiltinToolView 是 config/builtinTools/read 返回给 UI 的单个工具行。
-// 字段保持 wire 兼容，Enabled 已合并用户禁用和 skill 替代两类过滤来源。
+// 字段保持 wire 兼容；provider-native-only 模式不再计算 V3 skill 替代关系。
 type BuiltinToolView struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`
@@ -51,32 +51,23 @@ type builtinToolsWriteParams struct {
 	Cwd     string `json:"cwd,omitempty"`
 }
 
-// readBuiltinTools 汇总 registry、用户禁用偏好和 skill 替代关系，生成 UI 可展示的工具状态。
-func readBuiltinTools(ctx context.Context, prefs PreferenceStore, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
-	var replaced map[string]string
-	if store != nil {
-		entries, err := store.ListSkills(contract.WithSkillCWD(ctx, cwd))
-		if err == nil {
-			replaced = aggregateReplacementSources(entries)
-		}
-	}
+// readBuiltinTools 汇总 registry 和用户禁用偏好，生成 UI 可展示的 provider-native 工具状态。
+func readBuiltinTools(ctx context.Context, prefs PreferenceStore, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
 	disabled, err := effectiveDisabledBuiltinToolSet(ctx, prefs, cwd, registry, index)
 	if err != nil {
 		return nil, err
 	}
-	filtered := filteredBuiltinToolSet(disabled, replaced)
+	filtered := filteredBuiltinToolSet(disabled)
 	codexPolicy := contract.NewCodexNativeToolPolicy(setKeys(filtered))
 	tools := make([]BuiltinToolView, 0, len(registry))
 	for _, item := range registry {
-		skillName := replaced[item.ID]
 		_, isDisabled := disabled[item.ID]
 		tools = append(tools, BuiltinToolView{
 			ID:          item.ID,
 			Label:       item.Label,
 			Description: item.Description,
-			Enabled:     !isDisabled && skillName == "",
+			Enabled:     !isDisabled,
 			Provider:    item.Provider,
-			ReplacedBy:  skillName,
 			FilterMode:  string(item.FilterMode),
 			Enforcement: builtinToolEnforcement(item, filtered, codexPolicy),
 		})
@@ -84,16 +75,11 @@ func readBuiltinTools(ctx context.Context, prefs PreferenceStore, store contract
 	return &builtinToolsReadResult{Tools: tools}, nil
 }
 
-// filteredBuiltinToolSet 合并用户禁用和 skill 替代两类过滤来源。
-func filteredBuiltinToolSet(disabled map[string]struct{}, replaced map[string]string) map[string]struct{} {
-	out := make(map[string]struct{}, len(disabled)+len(replaced))
+// filteredBuiltinToolSet 返回用户显式或默认禁用的 provider-native 工具集合。
+func filteredBuiltinToolSet(disabled map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(disabled))
 	for id := range disabled {
 		out[id] = struct{}{}
-	}
-	for id, skill := range replaced {
-		if strings.TrimSpace(skill) != "" {
-			out[id] = struct{}{}
-		}
 	}
 	return out
 }
@@ -126,27 +112,8 @@ func setKeys(set map[string]struct{}) []string {
 	return out
 }
 
-// aggregateReplacementSources 返回 map[toolName]skillName，记录每个被替代工具
-// 是被哪个 skill 声明替代的（取第一个声明者）。
-func aggregateReplacementSources(entries []contract.SkillInfo) map[string]string {
-	out := make(map[string]string)
-	for _, e := range entries {
-		for _, tools := range e.ReplacesNative {
-			for _, name := range tools {
-				if name == "" {
-					continue
-				}
-				if _, exists := out[name]; !exists {
-					out[name] = e.Name
-				}
-			}
-		}
-	}
-	return out
-}
-
 // writeBuiltinTool 更新单个 native tool 的启用状态，并持久化当前 registry 快照。
-func writeBuiltinTool(ctx context.Context, prefs PreferenceStore, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
+func writeBuiltinTool(ctx context.Context, prefs PreferenceStore, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
 	if prefs == nil {
 		return nil, errConfigPreferenceStoreRequired
 	}
@@ -169,7 +136,7 @@ func writeBuiltinTool(ctx context.Context, prefs PreferenceStore, store contract
 	if err := storeKnownBuiltinToolSet(ctx, prefs, p.Cwd, registry); err != nil {
 		return nil, err
 	}
-	return readBuiltinTools(ctx, prefs, store, registry, index, p.Cwd)
+	return readBuiltinTools(ctx, prefs, registry, index, p.Cwd)
 }
 
 // ResolveFilteredBuiltinTools 返回当前作用域应过滤的工具 ID。

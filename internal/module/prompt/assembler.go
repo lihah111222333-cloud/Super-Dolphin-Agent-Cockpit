@@ -98,7 +98,8 @@ func promptBoundaryUncachedTail(boundary *contract.PromptAssemblyBoundary) strin
 }
 
 // AssembleStart 组出 thread/start 要交给 provider 的初始提示。
-// 这里会带上 memory 规则、系统上下文和 snapshot，provider 侧不要再重拼一份。
+// 系统上下文和 snapshot 在这里一次性确定；退役的 V3 memory slot 不属于
+// provider-native start prompt，不能从旧注册表或缓存重新拼入。
 func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error) {
 	if err := ctx.Err(); err != nil {
 		return StartAssembly{}, err
@@ -116,7 +117,13 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		return s.simpleStartAssembly(ctx, in, suppressedTools), nil
 	}
 
-	resolved, err := s.resolveSections(ctx, s.startSections(), SectionContext{BuildCtx: buildCtx, Start: &in})
+	// Section providers receive the StartInput pointer in addition to BuildCtx.
+	// Keep that secondary view metadata-only as well; otherwise a provider that
+	// reads Start.LaunchSkillRefs directly could bypass the BuildCtx sanitizer and
+	// observe the legacy full-text Prompt carrier.
+	sectionStart := in
+	sectionStart.LaunchSkillRefs = cloneProviderSkillRefsMetadataOnly(in.LaunchSkillRefs)
+	resolved, err := s.resolveSections(ctx, s.startSections(), SectionContext{BuildCtx: buildCtx, Start: &sectionStart})
 	if err != nil {
 		if contract.IsCriticalPromptSectionError(err) {
 			return StartAssembly{}, err
@@ -127,6 +134,9 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 	// DB 中的 prompt_template 会按 region 进入 cached prefix 或 uncached tail；
 	// EnableWhen 不匹配当前 BuildCtx 的块在这里过滤，避免 provider 侧再判断一次。
 	resolved = mergeTemplateSections(resolved, in.BaseInstructionBlocks, buildCtx, in.Prompt)
+	// legacy memory section 已由 provider-native owner 接管，不能进入 start
+	// prompt、boundary 或 snapshot；在生成这些派生字段前统一过滤。
+	resolved = contract.FilterLegacyMemoryPromptSections(resolved)
 	boundary := startAssemblyBoundary(resolved, strings.TrimSpace(in.BaseInstructions))
 	base := joinBlocks(boundaryCachedPrefix(boundary), boundaryUncachedTail(boundary))
 	userMeta := s.buildStartUserMeta(buildCtx, resolved)
@@ -204,6 +214,8 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 		s.logBuildFallback("turn", err)
 		return TurnAssembly{}, err
 	}
+	// memory/memory_context 等旧 slot 不得进入 runtimeExtras 或任何 turn wire。
+	resolved = contract.FilterLegacyMemoryPromptSections(resolved)
 	buildCtx := sectionCtx.BuildCtx
 	sources, err := s.resolveClaudeMdSources(ctx, buildCtx)
 	if err != nil {
@@ -220,6 +232,7 @@ func (s *service) AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly,
 		}
 		attachments = append(attachments, extraAttachments...)
 	}
+	attachments = contract.FilterLegacyMemoryAttachments(attachments)
 	return TurnAssembly{
 		UserContext:      map[string]string(cloneUserContextPayload(merged)),
 		UserContextText:  contract.FormatUserContextText(merged),
@@ -279,6 +292,11 @@ func (s *service) resolveSections(ctx context.Context, sections []PromptSection,
 
 // resolveSection 解析单个 prompt section。
 func (s *service) resolveSection(ctx context.Context, section PromptSection, input SectionContext) (*ResolvedPromptSection, error) {
+	// 即使旧模块直接注册 provider，也保持已退役的 V3 memory slot 不可执行，
+	// 防止在 assembly 过滤前触发旧 provider 重建记忆正文。
+	if contract.IsLegacyMemoryPromptSection(section.Name) {
+		return nil, nil
+	}
 	if section.StartOnly && input.Start == nil {
 		return nil, nil
 	}
@@ -492,9 +510,18 @@ func buildStartCtx(in StartInput) BuildCtx {
 		FRCConfig:                    copyFRCConfig(in.FRCConfig),
 		KeepCodingInstructions:       copyOptionalBool(in.KeepCodingInstructions),
 		LaunchSkillNames:             append([]string(nil), in.LaunchSkillNames...),
-		LaunchSkillRefs:              append([]dto.SkillRef(nil), in.LaunchSkillRefs...),
-		ForceLaunchSkills:            in.ForceLaunchSkills,
+		// Prompt is the legacy full-text carrier.  Prompt assembly only keeps
+		// provider-native skill identity metadata; body text must never enter
+		// BuildCtx where dynamic providers could observe or cache it.
+		LaunchSkillRefs:   cloneProviderSkillRefsMetadataOnly(in.LaunchSkillRefs),
+		ForceLaunchSkills: in.ForceLaunchSkills,
 	}
+}
+
+// cloneProviderSkillRefsMetadataOnly copies provider skill references while
+// removing the legacy Prompt body carrier.  The source slice is never mutated.
+func cloneProviderSkillRefsMetadataOnly(refs []dto.SkillRef) []dto.SkillRef {
+	return contract.CloneProviderSkillRefsMetadataOnly(refs)
 }
 
 // buildTurnCtx 从 TurnInput 构建 BuildCtx，所有字符串字段做 TrimSpace，切片做防御性拷贝。

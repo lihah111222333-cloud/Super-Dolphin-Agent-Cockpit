@@ -12,7 +12,7 @@ vi.mock('./services/observabilityPageService.js', () => ({
 }));
 
 const recentResult = {
-  source: 'memory',
+  source: 'buffer',
   truncated: false,
   events: [
     {
@@ -29,7 +29,7 @@ const recentResult = {
 };
 
 const traceResult = {
-  source: 'memory',
+  source: 'buffer',
   truncated: false,
   totalDurationMs: 12,
   events: [
@@ -150,7 +150,7 @@ describe('ObservabilityPage module', () => {
 
   it('labels recent rows as matching event groups instead of full trace state', async () => {
     listObservabilityRecent.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [
         {
@@ -184,7 +184,7 @@ describe('ObservabilityPage module', () => {
 
   it('uses slow and error events as representative group summaries', async () => {
     listObservabilityRecent.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [
         {
@@ -281,7 +281,7 @@ describe('ObservabilityPage module', () => {
 
   it('keeps degraded parse diagnostics visible and does not default missing status to ok', async () => {
     listObservabilityRecent.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       degraded: true,
       parseError: 'events[0].status is missing',
       truncated: false,
@@ -321,7 +321,7 @@ describe('ObservabilityPage module', () => {
     let resolveTraceA;
     let resolveTraceB;
     listObservabilityRecent.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [
         {
@@ -352,7 +352,7 @@ describe('ObservabilityPage module', () => {
     fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-a' }));
     fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-b' }));
     resolveTraceB({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [{ ...traceResult.events[0], traceId: 'trace-b', spanId: 'span-b-detail', method: 'turn/start' }],
     });
@@ -363,7 +363,7 @@ describe('ObservabilityPage module', () => {
     expect(traceBDetail).not.toHaveTextContent('span-a-detail');
 
     resolveTraceA({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [{ ...traceResult.events[0], traceId: 'trace-a', spanId: 'span-a-detail', method: 'thread/start' }],
     });
@@ -519,7 +519,7 @@ describe('ObservabilityPage module', () => {
     const newerUTCTimestamp = '2026-06-04T07:34:55.054Z';
     const baseEvent = recentResult.events[0];
     listObservabilityRecent.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [
         {
@@ -562,7 +562,7 @@ describe('ObservabilityPage module', () => {
 
   it('shows an explicit error for invalid recent timestamps', async () => {
     listObservabilityRecent.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [
         {
@@ -584,7 +584,7 @@ describe('ObservabilityPage module', () => {
   it('keeps same-timestamp recent rows in deterministic backend order', async () => {
     const baseEvent = recentResult.events[0];
     listObservabilityRecent.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       events: [
         { ...baseEvent, traceId: 'trace-first', spanId: 'span-first', ts: '2026-06-02T09:01:22.459Z' },
@@ -605,7 +605,7 @@ describe('ObservabilityPage module', () => {
 
   it('shows an explicit error for invalid trace event shapes', async () => {
     getObservabilityTrace.mockResolvedValueOnce({
-      source: 'memory',
+      source: 'buffer',
       truncated: false,
       totalDurationMs: 0,
       events: { invalid: true },

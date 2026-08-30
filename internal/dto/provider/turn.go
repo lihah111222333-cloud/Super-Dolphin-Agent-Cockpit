@@ -41,9 +41,10 @@ type InputItem = shareddto.InputItem
 
 // SkillRef 是 turn / steer 请求中携带的 skill 引用。
 //
-// SkillRef 进入 provider 前只保留稳定引用元数据，注入内容由 provider 自己从镜像目录发现：
-//   - Codex 通过 .agents/skills 镜像目录发现 skills。
-//   - Claude 通过 .claude/skills 或 provider 主目录 skills 发现 skills。
+// SkillRef 进入 provider 前只保留稳定引用元数据；正文和目录发现由 provider
+// 自己负责，Super-Dolphin 不生成或同步集中式 skill 目录：
+//   - Codex 按自身 CLI/app-server 配置和工作目录发现 skills。
+//   - Claude 按自身 CLI 配置、工作目录和 provider home 发现 skills。
 //   - 旧 Mode/Effective() 三态不再参与生产链路，保留值只用于兼容历史 payload。
 //
 // 字段语义：
@@ -54,9 +55,9 @@ type InputItem = shareddto.InputItem
 //   - Version：skill 版本或内容 hash（可选）；用于去重键 `name@version`。
 //   - Prompt：兼容旧 payload 的全文 SKILL.md carrier；生产 turn/provider-native
 //     链路不消费该字段注入正文，PrepareTurn 会在归一化阶段清空它。
-//   - Summary：摘要文本（UI/观测与 hydration 输出）。
+//   - Summary：摘要文本（UI/观测元数据，不触发正文读取）。
 //   - Source：决策来源，供观测性日志划分 manual/force/trigger/native；
-//     expand 仅作为旧观测值兼容保留，当前 provider 镜像链路不再产生它。
+//     expand 仅作为旧观测值兼容保留，当前 provider-native discovery 链路不再产生它。
 type SkillRef struct {
 	Key          string      `json:"key,omitempty"`
 	Name         string      `json:"name"`

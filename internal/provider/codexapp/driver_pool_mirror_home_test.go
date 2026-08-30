@@ -14,7 +14,7 @@ import (
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
-func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T) {
+func TestStartSessionDefaultCodexHomeDoesNotCreateAppManagedSkillsRoot(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
@@ -30,8 +30,7 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-default-codex-home",
@@ -44,7 +43,7 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
-		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
+		t.Fatalf("StartSession() error = %v, want acquire error", err)
 	}
 	wantHome, err := filepath.EvalSymlinks(filepath.Join(userHome, ".codex"))
 	if err != nil {
@@ -53,7 +52,6 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 	if gotHome != wantHome {
 		t.Fatalf("pool codex home = %q, want %q", gotHome, wantHome)
 	}
-	assertCodexMirrorTargets(t, mirror.targets, workDir, userHome)
 	if _, err := os.Stat(filepath.Join(userHome, ".codex", "skills")); !os.IsNotExist(err) {
 		t.Fatalf("default codex skills root stat = %v, want not created", err)
 	}

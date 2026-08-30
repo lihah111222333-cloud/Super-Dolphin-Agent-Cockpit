@@ -18,7 +18,6 @@ const backend = vi.hoisted(() => ({
   getSidebarState: vi.fn(),
   getThreadState: vi.fn(),
   getThreadMessages: vi.fn(),
-  getMemorySnapshot: vi.fn(),
   listModelProviders: vi.fn(),
   saveModelProviders: vi.fn(),
   applyModelProvider: vi.fn(),
@@ -94,17 +93,6 @@ function mockSettingsBootstrap() {
   backend.installLatestAppUpdate.mockResolvedValue({ ok: true });
   backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
   backend.getSidebarState.mockResolvedValue({ threads: [], activeThreadId: '' });
-  backend.getMemorySnapshot.mockResolvedValue({
-    overview: {
-      enabled: true,
-      autoDreamEnabled: false,
-      autoDreamIntent: null,
-      projectRoot: '/repo/app',
-      health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
-    },
-    private: { entries: [] },
-    team: { entries: [] },
-  });
   backend.listModelProviders.mockResolvedValue({ activeVendorId: '', vendors: [] });
   backend.saveModelProviders.mockResolvedValue({ activeVendorId: '', vendors: [] });
   backend.applyModelProvider.mockResolvedValue({ activeVendorId: '', vendors: [] });

@@ -1,8 +1,9 @@
 import { chromium } from 'playwright';
+import { chromiumLaunchOptions } from '../playwright-capabilities.mjs';
+import { resolveChromiumExecutable } from './desktop-failure-smoke.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 import { discoverBusinessFlows } from './agentic-e2e-discovery.mjs';
 import { DEFAULT_AGENTIC_GOAL, decideNextAction, normalizeGoal } from './agentic-e2e-planner.mjs';
 import { renderDiscoveryMarkdown, summarizeDiscovery } from './agentic-e2e-reporter.mjs';
@@ -40,7 +41,7 @@ export function agenticE2EConfig(env = process.env, repoRoot = repoRootFromScrip
     outputDir: path.join(outputBaseDir, normalizeRunID(goal.id)),
     maxSteps: positiveInt(cli.maxSteps || env.SUPER_DOLPHIN_AGENTIC_E2E_MAX_STEPS, DEFAULT_MAX_STEPS),
     headless: cli.headed === undefined ? !truthyEnv(env.SUPER_DOLPHIN_AGENTIC_E2E_HEADED) : !cli.headed,
-    chromiumExecutable: normalizeString(env.PLAYWRIGHT_CHROMIUM_EXECUTABLE),
+    chromiumExecutable: resolveChromiumExecutable(env),
     mockWails: cli.mockWails === undefined ? truthyEnv(env.SUPER_DOLPHIN_AGENTIC_E2E_MOCK_WAILS) : cli.mockWails,
     sandbox,
     goal,
@@ -53,10 +54,7 @@ export async function runAgenticE2E(config = agenticE2EConfig()) {
   if (config.mockWails || config.goal.requiresSandbox) {
     await prepareAgenticE2ESandbox(config);
   }
-  const browser = await chromium.launch({
-    headless: config.headless,
-    ...(config.chromiumExecutable ? { executablePath: config.chromiumExecutable } : {}),
-  });
+  const browser = await chromium.launch(chromiumLaunchOptions(config.chromiumExecutable, config.headless));
   const page = await browser.newPage();
   const consoleMessages = [];
   const networkRequests = [];
@@ -141,7 +139,7 @@ export async function collectPageFacts(page, consoleMessages = []) {
     }
     return {
       hasFrontendApp: visibleByTestId('frontend-app'),
-      hasChatPage: visibleByTestId('chat-page'),
+      hasChatPage: visibleByTestId('chat-page'), shortcutConfigErrorVisible: visibleByTestId('shortcut-config-error'),
       composerVisible: visibleByTestId('composer-input'),
       composerValue: inputValueByTestId('composer-input'),
       chatActionsMenuVisible: visibleByTestId('chat-actions-menu'),
@@ -199,7 +197,7 @@ export async function collectPageFacts(page, consoleMessages = []) {
     url: page.url(),
     title: await page.title().catch(() => ''),
     hasFrontendApp: structuralFacts.hasFrontendApp || summaryFacts.hasFrontendApp,
-    hasChatPage: structuralFacts.hasChatPage || summaryFacts.hasChatPage,
+    hasChatPage: structuralFacts.hasChatPage || summaryFacts.hasChatPage, shortcutConfigErrorVisible: structuralFacts.shortcutConfigErrorVisible || summaryFacts.shortcutConfigErrorVisible,
     composerVisible: structuralFacts.composerVisible || summaryFacts.composerVisible,
     chatActionsMenuVisible: structuralFacts.chatActionsMenuVisible || summaryFacts.chatActionsMenuVisible,
     projectMenuVisible: structuralFacts.projectMenuVisible || summaryFacts.projectMenuVisible,
@@ -401,6 +399,7 @@ function factsFromDOMSummary(summary = []) {
   return {
     hasFrontendApp: testIds.has('frontend-app'),
     hasChatPage: testIds.has('chat-page'),
+    shortcutConfigErrorVisible: testIds.has('shortcut-config-error'),
     composerVisible: testIds.has('composer-input'),
     chatActionsMenuVisible: testIds.has('chat-actions-menu'),
     projectMenuVisible: roles.has('menu'),

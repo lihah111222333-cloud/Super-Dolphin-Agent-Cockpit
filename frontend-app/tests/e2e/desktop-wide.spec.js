@@ -16,12 +16,6 @@ const SETTINGS_BUTTON_NAME = /^(Settings|设置)$/u;
 
 const BUSINESS_PAGES = Object.freeze([
   {
-    label: '插件与技能',
-    route: /\/skills$/u,
-    navTestId: 'sidebar-nav',
-    assert: async (page) => expect(page.getByRole('heading', { name: 'MCP工具' })).toBeVisible(),
-  },
-  {
     label: '自动化',
     route: /\/dags$/u,
     navTestId: 'sidebar-nav',
@@ -50,12 +44,6 @@ const BUSINESS_PAGES = Object.freeze([
       await expect(overview).toBeVisible();
       await expect(overview.getByRole('heading', { name: '共享文件和最终产物', exact: true })).toBeVisible();
     },
-  },
-  {
-    label: '记忆中心',
-    route: /\/memory$/u,
-    navTestId: 'sidebar-nav',
-    assert: async (page) => expect(page.getByRole('heading', { name: '记忆中心', exact: true })).toBeVisible(),
   },
   {
     label: '链路追踪',
@@ -326,7 +314,7 @@ async function writeDesktopWideBugReport(page, testInfo) {
     'utf8',
   );
 
-  if (mock) assertAgenticE2EMockWailsClean(mock);
+  assertAgenticE2EMockWailsClean(mock);
   expect(bugs.pageErrors).toEqual([]);
   expect(bugs.consoleErrors).toEqual([]);
   expect(bugs.failedRequests).toEqual([]);

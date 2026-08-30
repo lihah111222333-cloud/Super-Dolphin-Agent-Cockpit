@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'; import { useQuery, useQueryClient } from '@tanstack/react-query'; import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, Trash2, X } from 'lucide-react';
-import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from './services/filesPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'; import { useQuery, useQueryClient } from '@tanstack/react-query'; import { Copy, Download, Eye, File, FolderOpen, MessageCircle, Search, X } from 'lucide-react';
+import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from './services/filesPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { dashboardQueryErrorState, optionalSettingsCwd, parseStrictJsonValue, queryHasSnapshot, rawTextValue, sharedFileTimestamp, textValue, optionalTimestampMillis, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx'; import './FilesPage.css'; const SHARED_FILE_CATEGORY_KEYS = Object.freeze(['all', 'final', 'work']); const SHARED_FILE_SORT_KEYS = Object.freeze(['updated-desc', 'updated-asc', 'path-asc']);
 import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
@@ -58,31 +58,27 @@ const data = query.data || { files: [], finalOutputRefs: [], retention: { items:
 }; const loading = query.isPending && !hasSnapshot; const { cachedSyncError: syncError, blockingError } = dashboardQueryErrorState(query, hasSnapshot); const refreshFiles = useCallback(async () => { await queryClient.invalidateQueries({ queryKey });
 }, [queryClient, queryKey]); useEffect(() => { const revision = Number(store?.sharedFilesRevision || 0); if (revision > 0) void refreshFiles(); }, [refreshFiles, store?.sharedFilesRevision]); return { error: blockingError ? '加载共享文件失败，请重试。' : '', files: data.files,
 finalOutputRefs: data.finalOutputRefs, loading, refreshFiles, retention: data.retention, syncError: syncError ? '同步共享文件失败，当前显示上次成功数据。' : '', }; }
-function useSharedFilesFilters(options) { const { files, finalOutputRefs, retention, copy } = options;
+function useSharedFilesFilters(options) { const { files, finalOutputRefs, copy } = options;
 const [searchText, setSearchText] = useState(''); const [sortMode, setSortMode] = useState('updated-desc'); const [category, setCategory] = useState('all');
 const finalOutputByPath = useMemo(() => finalOutputRefsByPath(files, finalOutputRefs), [files, finalOutputRefs]);
-const retentionByPath = useMemo(() => new Map(retention.items.map((item) => [item.path, item])), [retention.items]); const finalCount = files.filter((file) => finalOutputByPath.has(file.path)).length;
+const finalCount = files.filter((file) => finalOutputByPath.has(file.path)).length;
 const workCount = Math.max(0, files.length - finalCount); const visibleFiles = useMemo(() => {
 const filtered = sortSharedFiles(files.filter((file) => sharedFileMatches(file, searchText)), sortMode); if (category === 'final') return filtered.filter((file) => sharedFileCategoryOf(file, finalOutputByPath) === 'final');
-if (category === 'work') return filtered.filter((file) => sharedFileCategoryOf(file, finalOutputByPath) === 'work'); return filtered; }, [category, files, finalOutputByPath, searchText, sortMode]); const protectionFor = useCallback((file) => {
-const retentionItem = retentionByPath.get(file.path); if (retentionItem?.protected) return retentionItem; const ref = finalOutputByPath.get(file.path); if (ref) return { path: file.path, protected: true, reason: 'final_output', finalOutput: ref }; return null;
-}, [finalOutputByPath, retentionByPath]); return { activeSortLabel: copy.sorts[sortMode] || copy.sorts['updated-desc'], category, categoryCounts: { all: files.length, final: finalCount, work: workCount }, finalCount, finalOutputByPath, protectionFor, searchText, setCategory,
+if (category === 'work') return filtered.filter((file) => sharedFileCategoryOf(file, finalOutputByPath) === 'work'); return filtered; }, [category, files, finalOutputByPath, searchText, sortMode]);
+return { activeSortLabel: copy.sorts[sortMode] || copy.sorts['updated-desc'], category, categoryCounts: { all: files.length, final: finalCount, work: workCount }, finalCount, finalOutputByPath, searchText, setCategory,
 setSearchText, setSortMode, sortMode, visibleFiles, workCount, }; }
-function useSharedFileActions(context) { const { exportDefaultPath, refreshFiles, store, protectionFor } = context;
-const [notice, setNotice] = useState(null); const [selectedFile, setSelectedFile] = useState(null); const [deleteTarget, setDeleteTarget] = useState(null); const [busyPath, setBusyPath] = useState(''); const [exportingPath, setExportingPath] = useState('');
-const [deletingPath, setDeletingPath] = useState(''); const [copied, setCopied] = useState(false); const openRequestRef = useRef(0); const loadFileDetail = useSharedFileDetailLoader(setBusyPath);
+function useSharedFileActions(context) { const { exportDefaultPath, store } = context;
+const [notice, setNotice] = useState(null); const [selectedFile, setSelectedFile] = useState(null); const [busyPath, setBusyPath] = useState(''); const [exportingPath, setExportingPath] = useState('');
+const [copied, setCopied] = useState(false); const openRequestRef = useRef(0); const loadFileDetail = useSharedFileDetailLoader(setBusyPath);
 const openContext = useMemo(() => ({ loadFileDetail, openRequestRef, setBusyPath, setCopied, setNotice, setSelectedFile }), [loadFileDetail]);
 const openFile = useCallback((file) => runUIAction('file.open', () => openSharedFileFromRow(file, openContext), { retryable: true }), [openContext]);
 const exportAction = useSharedFileExport({ exportDefaultPath, exportingPath, loadFileDetail, setExportingPath, setNotice });
-const exportFile = useCallback((file) => runUIAction('file.export', () => exportAction(file)), [exportAction]); const askDelete = useCallback((file) => {
-if (protectionFor(file)) setNotice({ level: 'error', message: `最终产物不能直接删除：${file.path}` }); else setDeleteTarget(file);
-}, [protectionFor]); const deleteAction = useSharedFileDelete({ deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile });
-const confirmDelete = useCallback(() => runUIAction('file.delete', deleteAction), [deleteAction]); const continueWithFile = useCallback((file) => runUIAction('file.continue', () => {
+const exportFile = useCallback((file) => runUIAction('file.export', () => exportAction(file)), [exportAction]); const continueWithFile = useCallback((file) => runUIAction('file.continue', () => {
 if (typeof store?.continueWithSharedFile === 'function') return store.continueWithSharedFile(file.path);
 return undefined; }), [store]);
 const copySelectedContent = useCallback(() => runUIAction('file.copy', () => copySharedFileContent({ selectedFile, setCopied, setNotice }), { retryable: true }), [selectedFile]);
-return { askDelete, busyPath, copied, continueWithFile, confirmDelete, copySelectedContent,
-deletingPath, deleteTarget, exportFile, exportingPath, notice, openFile, selectedFile, setDeleteTarget, setSelectedFile, }; }
+return { busyPath, copied, continueWithFile, copySelectedContent,
+exportFile, exportingPath, notice, openFile, selectedFile, setSelectedFile, }; }
 async function copySharedFileContent(context) { const { selectedFile, setCopied, setNotice } = context; const text = rawTextValue(selectedFile?.content); if (!text) return; try {
 await navigator.clipboard.writeText(text);
 setCopied(true);
@@ -111,20 +107,12 @@ catch (err) { showExportSharedFileError(err, setNotice); throw err; } finally { 
 function exportSharedFilePayload(exportDefaultPath, detail) { return { defaultPath: exportDefaultPath, defaultFilename: sharedFileExportName(detail.path), content: detail.content }; }
 function exportSharedFileNotice(savedPath) { return { level: 'info', message: savedPath ? `已保存到：${savedPath}` : '已取消保存。' }; }
 function showExportSharedFileError(_err, setNotice) { setNotice({ level: 'error', message: '导出失败，请重试。' }); }
-function useSharedFileDelete(context) { const { deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile } = context;
-return useCallback(() => deleteSharedFileFromPage({ deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile }), [deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile]); }
-async function deleteSharedFileFromPage(context) {
-const { deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile } = context;
-const target = deleteTarget; if (!target?.path || deletingPath) return; setNotice(null); setDeletingPath(target.path);
-try { await deleteSharedFile(target.path); if (selectedFile?.path === target.path) setSelectedFile(null); setDeleteTarget(null); setNotice(deleteSharedFileNotice(target)); await refreshFiles(); }
-catch (err) { showDeleteSharedFileError(err, setNotice); throw err; } finally { setDeletingPath(''); }
-}
-function deleteSharedFileNotice(target) { return { level: 'info', message: `已删除文件：${target.path}` }; }
-function showDeleteSharedFileError(_err, setNotice) { setNotice({ level: 'error', message: '删除失败，请重试。' }); }
 function FilesPage(props) { const { copy = APP_COPY.zh.files, projectPath, store } = props;
 const exportDefaultPath = optionalSettingsCwd(projectPath); const dashboard = useSharedFilesDashboard(store);
-const filters = useSharedFilesFilters({ files: dashboard.files, finalOutputRefs: dashboard.finalOutputRefs, retention: dashboard.retention, copy }); const actions = useSharedFileActions({ exportDefaultPath,
-refreshFiles: dashboard.refreshFiles, store, protectionFor: filters.protectionFor, }); return <SharedFilesPageView actions={actions} copy={copy} dashboard={dashboard} filters={filters} />; } function SharedFilesPageView({ actions, copy, dashboard, filters }) { return (
+const filters = useSharedFilesFilters({ files: dashboard.files, finalOutputRefs: dashboard.finalOutputRefs, copy });
+const actions = useSharedFileActions({ exportDefaultPath, store });
+return <SharedFilesPageView actions={actions} copy={copy} dashboard={dashboard} filters={filters} />; }
+function SharedFilesPageView({ actions, copy, dashboard, filters }) { return (
 <section className="console-page shared-files-page"> <SharedFilesHeader copy={copy} dashboard={dashboard} filters={filters} /> <SharedFilesOverview copy={copy} dashboard={dashboard} filters={filters} /> <SharedFilesIntro copy={copy} />
 <SharedFilesToolbar copy={copy} filters={filters} />
 <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} copy={copy} onCategory={filters.setCategory} /> <SharedFilesStatus actions={actions} copy={copy} dashboard={dashboard} />
@@ -179,24 +167,20 @@ if (!dashboard.error && dashboard.files.length > 0 && filters.visibleFiles.lengt
 function SharedFilesEmptyState({ copy, kind }) { const search = kind === 'search'; return (
 <div className="empty-state"> <span>{search ? <Search size={24} /> : <File size={24} />}</span> <h2>{search ? copy.emptySearchTitle : copy.emptyTitle}</h2> <p>{search ? copy.emptySearchText : copy.emptyText}</p> </div> ); }
 function SharedFilesList(props) { const { actions, copy, filters } = props; return ( <div className="file-list" data-testid="shared-files-list"> {filters.visibleFiles.map((file) => (
-<SharedFileRow key={file.path} file={file} finalOutputRef={filters.finalOutputByPath.get(file.path)} protectedFile={Boolean(filters.protectionFor(file))} busy={actions.busyPath === file.path} exporting={actions.exportingPath === file.path}
-deleting={actions.deletingPath === file.path} copy={copy} onOpen={actions.openFile} onExport={actions.exportFile} onDelete={actions.askDelete} onContinue={actions.continueWithFile} /> ))} </div> ); } function SharedFilesModals({ actions }) { return ( <> {actions.selectedFile ? (
+<SharedFileRow key={file.path} file={file} finalOutputRef={filters.finalOutputByPath.get(file.path)} busy={actions.busyPath === file.path} exporting={actions.exportingPath === file.path}
+copy={copy} onOpen={actions.openFile} onExport={actions.exportFile} onContinue={actions.continueWithFile} /> ))} </div> ); } function SharedFilesModals({ actions }) { return ( <> {actions.selectedFile ? (
 <SharedFileViewer file={actions.selectedFile} copied={actions.copied} exporting={actions.exportingPath === actions.selectedFile.path} onClose={() => actions.setSelectedFile(null)} onCopy={actions.copySelectedContent}
-onExport={() => { void actions.exportFile(actions.selectedFile); }} /> ) : null} {actions.deleteTarget ? (
-<ConfirmSharedFileDeleteModal file={actions.deleteTarget} deleting={actions.deletingPath === actions.deleteTarget.path} onClose={() => actions.setDeleteTarget(null)} onConfirm={actions.confirmDelete} /> ) : null} </> ); }
+onExport={() => { void actions.exportFile(actions.selectedFile); }} /> ) : null} </> ); }
 function SharedFileRow(props) {
-const { file, copy, finalOutputRef, protectedFile, busy, exporting, deleting, onOpen, onExport, onDelete, onContinue } = props;
-const path = splitSharedFilePath(file.path); const role = finalOutputRef ? copy.roleFinal : copy.roleWork; let deleteLabel = copy.delete; if (protectedFile) { deleteLabel = copy.protectedDelete; } else if (deleting) { deleteLabel = copy.deleting; } return (
+const { file, copy, finalOutputRef, busy, exporting, onOpen, onExport, onContinue } = props;
+const path = splitSharedFilePath(file.path); const role = finalOutputRef ? copy.roleFinal : copy.roleWork; return (
 <article className={`file-row${finalOutputRef ? ' is-final-output' : ''}`}> <header> <h3>{path.base}</h3> <span>{role}</span> </header> <p>{role} {sharedFileTimestamp(file.updatedAt)} {formatBytes(sharedFileContent(file).length)}</p> <div className="file-path-container">
 <code>{file.path}</code> </div> {finalOutputRef ? ( <small>Run {finalOutputRef.runKey || '-'} · DAG {finalOutputRef.dagKey || '-'} · Node {finalOutputRef.sourceNodeKey || '-'}</small>
 ) : null} <pre className="shared-file-summary">{sharedFileSummary(file)}</pre> <footer> <button type="button" className="ghost continue-with-file" onClick={() => onContinue(file)}> <MessageCircle size={14} /> {copy.continueWithFile} </button>
 <div className="file-row-actions"> <button type="button" onClick={() => { void onOpen(file); }} disabled={busy}> <Eye size={14} /> {busy ? copy.loadingAction : copy.open} </button>
-<button type="button" onClick={() => { void onExport(file); }} disabled={busy || exporting}> <Download size={14} /> {exporting ? copy.exporting : copy.export} </button> <button type="button" className={protectedFile ? 'ghost' : 'text-danger'}
-onClick={() => onDelete(file)} disabled={protectedFile || deleting} title={protectedFile ? copy.protectedDeleteTitle : ''} > <Trash2 size={14} /> {deleteLabel} </button> </div> </footer> </article> ); } function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }) { return (
+<button type="button" onClick={() => { void onExport(file); }} disabled={busy || exporting}> <Download size={14} /> {exporting ? copy.exporting : copy.export} </button> </div> </footer> </article> ); } function SharedFileViewer({ file, copied, exporting, onClose, onCopy, onExport }) { return (
 <FocusTrapDialog ariaLabel="文件预览" className="modal-box shared-file-viewer-modal" onClose={onClose}> <header> <div> <h2>文件预览</h2> <p className="path">{file.path}</p> </div> <div className="modal-actions">
 <button type="button" onClick={onExport} disabled={exporting}><Download size={14} /> {exporting ? '导出中...' : '导出'}</button> <button type="button" onClick={() => { void onCopy(); }} disabled={!file.content}><Copy size={14} /> {copied ? '已复制' : '复制内容'}</button>
 <button type="button" className="ghost" onClick={onClose}><X size={14} /> 关闭</button> </div> </header> <dl className="shared-file-viewer-meta"> <dt>来源</dt><dd>{file.updatedBy || '-'}</dd> <dt>更新时间</dt><dd>{sharedFileTimestamp(file.updatedAt)}</dd>
-<dt>格式</dt><dd>{sharedFileDisplay(file).formatLabel}</dd> </dl> <pre className="shared-file-content-preview">{sharedFilePreview(file)}</pre> </FocusTrapDialog> ); } function ConfirmSharedFileDeleteModal({ file, deleting, onClose, onConfirm }) { return (
-<FocusTrapDialog ariaLabel="删除文件" closeDisabled={deleting} onClose={onClose}> <header> <h2>删除文件</h2> <button type="button" className="ghost" onClick={onClose} disabled={deleting}>关闭</button> </header> <p>文件删除后无法恢复。删除前请确认这份内容不再需要。</p> <p className="path">{file.path}</p>
-<footer> <button type="button" className="ghost" onClick={onClose} disabled={deleting}>取消</button> <button type="button" className="text-danger" onClick={() => { void onConfirm(); }} disabled={deleting}> {deleting ? '删除中...' : '确认删除'} </button> </footer> </FocusTrapDialog> ); }
+<dt>格式</dt><dd>{sharedFileDisplay(file).formatLabel}</dd> </dl> <pre className="shared-file-content-preview">{sharedFilePreview(file)}</pre> </FocusTrapDialog> ); }
 export { FilesPage };

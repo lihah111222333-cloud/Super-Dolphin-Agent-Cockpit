@@ -40,7 +40,7 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     id: DEFAULT_AGENTIC_GOAL_ID,
     kind: 'frontend-navigation-probe',
     targetRoute: '/observability',
-    navigationTarget: secondarySidebarNav('链路追踪'),
+    navigationTarget: sidebarNav('链路追踪'),
     queryTarget: latestLogsAction,
     composerText: DEFAULT_AGENTIC_COMPOSER_TEXT,
   }),
@@ -54,14 +54,8 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     id: 'observability-latest-logs',
     kind: 'observability-latest-logs',
     targetRoute: '/observability',
-    navigationTarget: secondarySidebarNav('链路追踪'),
+    navigationTarget: sidebarNav('链路追踪'),
     queryTarget: latestLogsAction,
-  }),
-  'plugins-skills-open': Object.freeze({
-    id: 'plugins-skills-open',
-    kind: 'open-route',
-    targetRoute: '/skills',
-    navigationTarget: sidebarNav('插件与技能'),
   }),
   'automation-open': Object.freeze({
     id: 'automation-open',
@@ -80,12 +74,6 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     kind: 'open-route',
     targetRoute: '/files',
     navigationTarget: sidebarNav('共享文件'),
-  }),
-  'memory-open': Object.freeze({
-    id: 'memory-open',
-    kind: 'open-route',
-    targetRoute: '/memory',
-    navigationTarget: secondarySidebarNav('记忆中心'),
   }),
   'settings-open': Object.freeze({
     id: 'settings-open',
@@ -167,11 +155,9 @@ export const DEFAULT_AGENTIC_GOAL = Object.freeze({
 const STABLE_GOAL_BY_LABEL = Object.freeze([
   { pattern: /^新对话$/u, goal: 'chat-composer' },
   { pattern: /^链路追踪$/u, goal: 'observability-latest-logs' },
-  { pattern: /^插件与技能$/u, goal: 'plugins-skills-open' },
   { pattern: /^自动化$/u, goal: 'automation-open' },
   { pattern: /^提示词$/u, goal: 'prompts-open' },
   { pattern: /^共享文件$/u, goal: 'shared-files-open' },
-  { pattern: /^记忆中心$/u, goal: 'memory-open' },
   { pattern: /^设置$/u, goal: 'settings-open' },
 ]);
 

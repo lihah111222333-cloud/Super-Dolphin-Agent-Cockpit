@@ -207,12 +207,12 @@ describe('bridgePatchState', () => {
   it('records backend patch alerts as warning entries', () => {
     const patch = bridgePatchData('ui/thread/patch', {
       status: 'running',
-      source: 'memory.intent_failed',
+      source: 'workflow.intent_failed',
       thread: { name: 'Worker' },
       alerts: [{
-        id: 'memory.intent_failed:turn-1:remember',
+        id: 'workflow.intent_failed:turn-1:apply',
         level: 'warning',
-        message: 'memory.intent_failed: partial',
+        message: 'workflow.intent_failed: partial',
         time: '2026-06-15T00:00:00.000Z',
       }],
     }, 'thread-1', { normalizeThread });
@@ -228,12 +228,12 @@ describe('bridgePatchState', () => {
     expect(next.warningEntries).toEqual([
       expect.objectContaining({
         level: 'warn',
-        event: 'memory.intent_failed',
+        event: 'workflow.intent_failed',
         threadId: 'thread-1',
         timestamp: '2026-06-15T00:00:00.000Z',
         fields: expect.objectContaining({
-          alertId: 'memory.intent_failed:turn-1:remember',
-          message: 'memory.intent_failed: partial',
+          alertId: 'workflow.intent_failed:turn-1:apply',
+          message: 'workflow.intent_failed: partial',
         }),
       }),
     ]);

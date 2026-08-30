@@ -13,7 +13,7 @@ import (
 func TestDevLocalCodexLaunchIgnoresResidualRelayEnv(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "privileged")
-	d := &driver{logRuntime: testLoggerRuntime(t), mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t)}
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-local",
 		CWD:     t.TempDir(),
@@ -28,7 +28,7 @@ func TestPackagedAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T)
 	t.Setenv(providershared.RuntimeModeEnv, providershared.RuntimeModePackaged)
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BASE_URL", "https://relay.example.test/v1")
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN", "")
-	d := &driver{logRuntime: testLoggerRuntime(t), mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t)}
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-managed",
 		CWD:     t.TempDir(),
@@ -45,7 +45,7 @@ func TestPackagedAppManagedCodexLaunchFailsFastWithPartialRelayEnv(t *testing.T)
 func TestPackagedAppManagedCodexLaunchRejectsPrivilegedRelayAPIKey(t *testing.T) {
 	t.Setenv(providershared.RuntimeModeEnv, providershared.RuntimeModePackaged)
 	t.Setenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY", "privileged")
-	d := &driver{logRuntime: testLoggerRuntime(t), mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t)}
 	_, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-managed",
 		CWD:     t.TempDir(),

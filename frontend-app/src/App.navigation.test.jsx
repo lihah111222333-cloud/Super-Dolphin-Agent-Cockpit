@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import App from './App.jsx';
 import { resetClientStoreForTests } from "./entities/client/model/useClientStore.js";
@@ -24,15 +24,12 @@ const backend = vi.hoisted(() => {
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
     getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
-    getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
-    ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
+    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
-    readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
-    createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
+    selectProjectDir selectProjectDirs
     listMCPServers listToolbridgeTools startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
-    listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
+    readSharedFile getPreference
     forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
@@ -77,17 +74,14 @@ const appTestSupport = createAppTestSupport({
   },
 });
 const {
-  getSidebarNavButton,
   installAppOverlayHost,
   resetConnectedShellTestState,
   mockBootstrapBackendDefaults,
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
   mockPromptDefaults,
-  mockMemoryDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
-  mockSkillDefaults,
   mockSharedFileDefaults,
   mockSettingsAndThreadDefaults,
   resetFrontendHealthForTest,
@@ -100,10 +94,8 @@ beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
 beforeEach(mockPromptDefaults);
-beforeEach(mockMemoryDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
-beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 beforeEach(resetFrontendHealthForTest);
@@ -119,38 +111,6 @@ afterEach(cleanupAppTest);
     expect(screen.queryByRole('button', { name: '任务' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '命令' })).not.toBeInTheDocument();
     expect(chatButton).toHaveClass('active');
-  });
-
-  it('lets user navigation override the explicit boot URL after initial route sync', async () => {
-    window.history.pushState({}, '', '/dags');
-
-    render(<App skipBootstrap />);
-
-    const workflowButton = await screen.findByRole('button', { name: '自动化' });
-    await waitFor(() => expect(workflowButton).toHaveClass('active'));
-
-    fireEvent.click(getSidebarNavButton('插件与技能'));
-
-    await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
-    expect(window.location.pathname).toBe('/skills');
-  });
-
-  it('writes page navigation to browser history and restores it on popstate', async () => {
-    render(<App skipBootstrap />);
-
-    fireEvent.click(getSidebarNavButton('插件与技能'));
-    await waitFor(() => expect(window.location.pathname).toBe('/skills'));
-
-    fireEvent.click(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' }));
-    await waitFor(() => expect(window.location.pathname).toBe('/settings'));
-
-    await act(async () => {
-      window.history.pushState({ activePage: 'skills' }, '', '/skills');
-      window.dispatchEvent(new PopStateEvent('popstate', { state: { activePage: 'skills' } }));
-    });
-
-    await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
-    expect(getSidebarNavButton('插件与技能')).toHaveClass('active');
   });
 
   it('shows a bootstrap failure notice when the backend bridge is unavailable', async () => {

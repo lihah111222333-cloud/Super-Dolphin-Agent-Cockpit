@@ -32,7 +32,7 @@ func AppManagedDataRoots() ([]string, error) {
 		return nil, fmt.Errorf("resolve user home: empty path")
 	}
 
-	roots := make([]string, 0, 6)
+	roots := make([]string, 0, 4)
 	seen := make(map[string]struct{})
 	if configuredHome := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv)); configuredHome != "" {
 		cleanedConfiguredHome, cleanErr := cleanAppManagedDataRoot(configuredHome, userHome)
@@ -57,8 +57,6 @@ func AppManagedDataRoots() ([]string, error) {
 
 	for _, root := range []string{
 		filepath.Join(userHome, ".super-dolphin", "log"),
-		filepath.Join(userHome, ".super-dolphin", "memory"),
-		filepath.Join(userHome, ".super-dolphin", "skills"),
 		filepath.Join(userHome, "sharedfile"),
 	} {
 		var appendErr error

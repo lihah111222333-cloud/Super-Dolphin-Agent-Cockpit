@@ -26,15 +26,12 @@ const EXPECTED_EXISTING_RESPONSE_VALIDATORS = Object.freeze([
   ['OBSERVABILITY_SLOW_LIST', 'observabilityResultResponse'],
   ['OBSERVABILITY_THREAD_RECENT', 'observabilityResultResponse'],
   ['OBSERVABILITY_TRACE_GET', 'observabilityResultResponse'],
-  ['SKILLS_LOCAL_READ', 'skillReadResponse'],
   ['THREAD_FORK', 'threadForkResponse'],
   ['THREAD_MESSAGES', 'threadMessagesResponse'],
   ['THREAD_RESOLVE', 'threadResolveResponse'],
   ['THREAD_START', 'threadStartResponse'],
   ['TURN_FORCE_COMPLETE', 'turnForceCompleteResponse'],
   ['TURN_START', 'turnStartResponse'],
-  ['UI_MEMORY_GET', 'memorySnapshotResponse'],
-  ['UI_SHARED_FILE_GET', 'sharedFileDetailResponse'],
   ['UI_STATE_GET', 'uiStateResponse'],
 ]);
 
@@ -67,14 +64,6 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['PROMPT_INTENTS_DISCARD', 'promptIntentDiscardResponse'],
   ['PROMPT_INTENTS_DRAFT', 'promptIntentDraftResponse'],
   ['PROMPT_INTENTS_DRY_RUN', 'promptIntentDryRunResponse'],
-  ['SKILLS_LOCAL_IMPORT_DIR', 'skillImportResponse'],
-  ['SKILLS_LOCAL_LIST_FILES', 'skillFilesResponse'],
-  ['SKILLS_RESOLUTION_APPLY', 'skillResolutionApplyResponse'],
-  ['SKILLS_RESOLUTION_LIST', 'skillResolutionListResponse'],
-  ['SKILLS_RESOLUTION_PREVIEW', 'skillResolutionPreviewResponse'],
-  ['SKILLS_SUMMARY_SUGGEST', 'skillSummarySuggestionResponse'],
-  ['SKILL_TOOLS_CREATE', 'skillToolMutationResponse'],
-  ['SKILL_TOOLS_LIST', 'skillToolsListResponse'],
   ['THREAD_ARCHIVE', 'nullResponse'],
   ['THREAD_COMPACT_START', 'threadCompactResponse'],
   ['THREAD_CONFIG_GET', 'threadConfigResponse'],
@@ -87,21 +76,12 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['THREAD_UNARCHIVE', 'nullResponse'],
   ['UI_CODE_SAVE', 'codeSaveResponse'],
   ['UI_DASHBOARD_GET', 'dashboardPageResponse'],
-  ['UI_MEMORY_AUTO_DREAM_SET_INTENT', 'memoryAutoDreamIntentResponse'],
-  ['UI_MEMORY_ENTRY_DELETE', 'memoryEntryDeleteResponse'],
-  ['UI_MEMORY_ENTRY_GET', 'memoryEntryDetailResponse'],
-  ['UI_MEMORY_ENTRY_MERGE', 'memoryEntryDetailResponse'],
-  ['UI_MEMORY_ENTRY_UPSERT', 'memoryEntryDetailResponse'],
-  ['UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START', 'memoryConsolidationJobResponse'],
-  ['UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS', 'memoryConsolidationJobResponse'],
-  ['UI_MEMORY_SIMILARITY_IGNORE', 'memorySimilarityIgnoreResponse'],
   ['UI_OPEN_NEW_WINDOW', 'openWindowResponse'],
   ['UI_PREFERENCES_SET', 'okResponse'],
   ['UI_PROJECTS_ADD', 'projectsStateResponse'],
   ['UI_PROJECTS_GET', 'projectsStateResponse'],
   ['UI_PROJECTS_REMOVE', 'projectsStateResponse'],
   ['UI_PROJECTS_SET_ACTIVE', 'projectsStateResponse'],
-  ['UI_SHARED_FILE_DELETE', 'sharedFileDeleteResponse'],
   ['UI_SIDEBAR_GET', 'sidebarStateResponse'],
   ['UI_VIDEO_GET_API_KEY', 'videoApiKeyStatusResponse'],
   ['UI_VIDEO_SET_API_KEY', 'okResponse'],
@@ -122,10 +102,6 @@ const EXPECTED_NEW_IGNORED_RESPONSE_POLICIES = Object.freeze([
   'DASHBOARD_DAG_DELETE',
   'DASHBOARD_DAG_DISPATCH_NODE',
   'DASHBOARD_DAG_TERMINATE',
-  'DATASOURCE_V2_DELETE',
-  'SKILLS_CREATE',
-  'SKILLS_LOCAL_DELETE',
-  'SKILLS_LOCAL_WRITE',
   'WORKFLOW_TEMPLATES_ROLLBACK',
 ]);
 
@@ -134,10 +110,6 @@ const EXPECTED_LOCKED_RESPONSE_POLICIES = Object.freeze({
   DASHBOARD_DAG_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'useDeleteDagAction', visibility: 'module-private' }, regressionTest: { path: 'frontend-app/src/pages/workflows/WorkflowPage.test.jsx', symbol: 'ignores the malformed delete response body after deleting a DAG' } },
   DASHBOARD_DAG_DISPATCH_NODE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'dispatchDagNodeAction' }, outcome: { kind: 'published-callback', target: ['notices', 'showTaskNotice'] }, regressionTest: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.ignoredResult.test.js', symbol: 'ignores malformed dispatch body and publishes dispatch success' } },
   DASHBOARD_DAG_TERMINATE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'stopSelectedDagAction' }, outcome: { kind: 'published-callback', target: ['notices', 'showTaskNotice'] }, regressionTest: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.ignoredResult.test.js', symbol: 'ignores malformed terminate body and publishes stop success' } },
-  DATASOURCE_V2_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'handleDelete', visibility: 'module-private' }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.test.jsx', symbol: 'ignores RPC response body for datasource delete' } },
-  SKILLS_CREATE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed create-skill body and publishes save success' } },
-  SKILLS_LOCAL_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'confirmDeleteSkill' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed delete-skill body and publishes delete success' } },
-  SKILLS_LOCAL_WRITE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed write-skill body and publishes save success' } },
   UI_LOG: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/shared/api/wails/wailsBridgeRpc.js', symbol: 'sendFrontendLogBatch' }, regressionTest: { path: 'frontend-app/src/shared/api/wailsBridge.test.js', symbol: 'propagates frontend log batch RPC failures' } },
   UI_PREFERENCES_GET: { kind: 'consumer-validated', consumer: { path: 'frontend-app/src/shared/api/preferenceResponseGuards.js', symbol: 'getValidatedPreference' }, shape: { path: 'frontend-app/src/shared/api/preferenceResponseGuards.js', symbol: 'assertPreferenceResponseShape' }, regressionTest: { path: 'frontend-app/src/shared/api/preferenceResponseGuards.test.js', symbol: 'rejects malformed UI_PREFERENCES_GET response before returning it' } },
   TURN_INTERRUPT: { kind: 'result-handled', consumer: { path: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js', symbol: 'attachActiveThreadRpcRuntime' }, handler: { path: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js', symbol: 'notifyThreadActionFailure' }, regressionTest: { path: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js', symbol: 'reports interrupt ok:false as warning without showing success' } },
@@ -155,6 +127,7 @@ const EXPECTED_UNUSED_RESPONSE_POLICIES = Object.freeze([
   'CRONJOB_UPDATE',
   'DASHBOARD_DAGS',
   'DATASOURCE_V2_CREATE',
+  'DATASOURCE_V2_DELETE',
   'MCP_TOOL_LIFECYCLE_EXPORT',
   'MCP_TOOL_LIFECYCLE_LIST',
   'MCP_TOOL_LIFECYCLE_SET',
@@ -162,12 +135,8 @@ const EXPECTED_UNUSED_RESPONSE_POLICIES = Object.freeze([
   'PROMPT_SECTIONS_DELETE',
   'PROMPT_SECTIONS_LIST',
   'PROMPT_SECTIONS_WRITE',
-  'SKILL_TOOLS_DELETE',
-  'SKILL_TOOLS_GET',
-  'SKILL_TOOLS_UPDATE',
   'THREAD_LIST_PAGE',
   'THREAD_LOADED_LIST_PAGE',
-  'UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL',
   'UI_PREFERENCES_GET_ALL',
 ]);
 
@@ -193,11 +162,11 @@ describe('backend API contract matrix', () => {
       && entry.responseValidator === ''
       && entry.responsePolicy == null
     ));
-    expect(entries).toHaveLength(140);
+    expect(entries).toHaveLength(113);
     expect(validators).toEqual(EXPECTED_RESPONSE_VALIDATORS);
-	expect(validators).toHaveLength(100);
-	expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(71);
-	expect(policies).toHaveLength(36);
+	expect(validators).toHaveLength(80);
+	expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(54);
+	expect(policies).toHaveLength(29);
     expect(unusedKeys).toEqual(EXPECTED_UNUSED_RESPONSE_POLICIES);
     expect(RPC_CONTRACT_REGISTRY.UI_LOG.responsePolicy.kind).toBe('ignored-result');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePolicy.kind).toBe('result-handled');
@@ -214,17 +183,14 @@ describe('backend API contract matrix', () => {
       'DASHBOARD_DAG_APPLY_OPS',
       'DASHBOARD_DAG_DISPATCH_NODE',
       'DASHBOARD_DAG_TERMINATE',
-      'SKILLS_CREATE',
-      'SKILLS_LOCAL_DELETE',
-      'SKILLS_LOCAL_WRITE',
     ]);
     for (const key of publishedCallbackKeys) {
       expect(Object.isFrozen(RPC_CONTRACT_REGISTRY[key].responsePolicy.outcome)).toBe(true);
       expect(Object.isFrozen(RPC_CONTRACT_REGISTRY[key].responsePolicy.outcome.target)).toBe(true);
     }
     expect(p2WithoutMandatoryGovernance).toHaveLength(4);
-    expect(28 + EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(109);
-    expect(EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(81);
+    expect(26 + EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(86);
+    expect(EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(60);
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('responsePassthroughReason');
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('response is consumed unchanged by');
 
@@ -312,11 +278,7 @@ describe('backend API contract matrix', () => {
       'DASHBOARD_PROMPTS',
       'PROMPTS_GET',
       'PROMPT_SECTIONS_LIST',
-      'UI_MEMORY_GET',
-      'UI_MEMORY_ENTRY_GET',
-      'UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS',
       'DASHBOARD_SHARED_FILES',
-      'UI_SHARED_FILE_GET',
       'OBSERVABILITY_TRACE_GET',
       'OBSERVABILITY_THREAD_RECENT',
       'OBSERVABILITY_RECENT_LIST',
@@ -349,7 +311,6 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.THREAD_MESSAGES.responseValidator).toBe('threadMessagesResponse');
     expect(RPC_CONTRACT_REGISTRY.THREAD_PROMPT_HISTORY.responseValidator).toBe('threadPromptHistoryResponse');
     expect(RPC_CONTRACT_REGISTRY.THREAD_RESOLVE.responseValidator).toBe('threadResolveResponse');
-    expect(RPC_CONTRACT_REGISTRY.SKILLS_LOCAL_READ.responseValidator).toBe('skillReadResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_START.responseValidator).toBe('turnStartResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_FORCE_COMPLETE.responseValidator).toBe('turnForceCompleteResponse');
     expect(RPC_CONTRACT_REGISTRY.DASHBOARD_DAG_START.responseValidator).toBe('dashboardDagStartResponse');
@@ -359,18 +320,6 @@ describe('backend API contract matrix', () => {
 
   it('anchors migrated page service DTO golden coverage in route metadata', () => {
     const expectations = {
-      UI_SHARED_FILE_GET: {
-        facade: 'filesPageService.readSharedFile',
-        tests: ['src/pages/files/services/filesPageService.test.js'],
-      },
-      UI_MEMORY_ENTRY_GET: {
-        facade: 'memoryPageService.getMemoryEntry',
-        tests: ['src/pages/memory/services/memoryPageService.test.js'],
-      },
-      UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS: {
-        facade: 'memoryPageService.getMemoryConsolidationStatus',
-        tests: ['src/pages/memory/services/memoryPageService.test.js'],
-      },
       OBSERVABILITY_TRACE_GET: {
         facade: 'observabilityPageService.getObservabilityTrace',
         tests: ['src/pages/observability/services/observabilityPageService.test.js'],

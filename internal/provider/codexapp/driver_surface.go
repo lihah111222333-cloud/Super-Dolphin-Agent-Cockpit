@@ -178,7 +178,6 @@ func newDriver(
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
 	pool *ServerPool,
-	mirror contract.SkillMirrorReconciler,
 	recovery contract.SessionRecoveryReporter,
 	listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error),
 ) contract.Driver {
@@ -206,7 +205,6 @@ func newDriver(
 		manager:         manager,
 		pool:            pool,
 		listTools:       listToolsFn,
-		mirror:          mirror,
 		recovery:        recovery,
 	}
 }

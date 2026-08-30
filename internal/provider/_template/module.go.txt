@@ -21,7 +21,6 @@ type driverFactoryParams struct {
 	Reporter        contract.RuntimeReporter
 	ToolbridgeProxy TemplateToolbridgeProxy
 	Approvals       TemplateApprovalBridge `optional:"true"`
-	Mirror          TemplateProviderMirror
 	Recovery        TemplateSessionRecovery
 	Tracer          TemplateTracer `optional:"true"`
 	Dependency      contract.DependencyConfig
@@ -38,7 +37,6 @@ func NewDriverFactory(p driverFactoryParams) (contract.DriverFactory, error) {
 				Reporter:        p.Reporter,
 				ToolbridgeProxy: p.ToolbridgeProxy,
 				Approvals:       p.Approvals,
-				Mirror:          p.Mirror,
 				Recovery:        p.Recovery,
 				Tracer:          p.Tracer,
 				Dependency:      p.Dependency,
@@ -61,7 +59,6 @@ func ValidateProviderDependencies(p driverFactoryParams) error {
 	}{
 		{name: "provider.template.runtime_reporter", missing: p.Reporter == nil},
 		{name: "provider.template.toolbridge_proxy", missing: p.ToolbridgeProxy == nil},
-		{name: "provider.template.mirror", missing: p.Mirror == nil},
 		{name: "provider.template.session_recovery", missing: p.Recovery == nil},
 	}
 	for _, dep := range required {

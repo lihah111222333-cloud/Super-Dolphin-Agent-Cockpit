@@ -176,7 +176,6 @@ var patchSourceMethodAliases = map[string][]string{
 	"tool/approvalrequested": {
 		eventsurface.MethodCommandApprovalRequested,
 		eventsurface.MethodFileApprovalRequested,
-		eventsurface.MethodSkillApprovalRequested,
 	},
 	"tool/approvalresolved": {
 		eventsurface.MethodApprovalResolved,

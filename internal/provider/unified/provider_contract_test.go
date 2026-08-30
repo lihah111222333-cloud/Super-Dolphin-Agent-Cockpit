@@ -414,7 +414,12 @@ func unifiedResumeIdentityCase() contracttest.Case {
 				RolloutPath:          writeExistingProviderHistoryFile(t, providerThreadID, "codex", recoveryHome),
 				ProviderRecoveryHome: recoveryHome,
 			}
-			plan, err := resolver.buildAutoResumePlan(binding, map[string]any{"provider": "codex"}, unifiedContractPromptSnapshot(), "public-thread-resume")
+			// Auto-resume binds the persisted prompt snapshot to the same provider
+			// owner as the binding.  The generic contract golden uses the synthetic
+			// unified-contract provider, so override that owner for this Codex case.
+			snapshot := unifiedContractPromptSnapshot()
+			snapshot.Provider = "codex"
+			plan, err := resolver.buildAutoResumePlan(binding, map[string]any{"provider": "codex"}, snapshot, "public-thread-resume")
 			if err != nil {
 				t.Fatalf("buildAutoResumePlan() error = %v", err)
 			}

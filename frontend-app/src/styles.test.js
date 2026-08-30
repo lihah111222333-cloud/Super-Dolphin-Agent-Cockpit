@@ -17,9 +17,7 @@ const cssFiles = [
   'src/pages/chat/runtime/RuntimePanel.css',
   'src/shared/styles/PagePrimitives.css',
   'src/pages/workflows/WorkflowPage.css',
-  'src/pages/skills/SkillsPage.css',
   'src/pages/files/FilesPage.css',
-  'src/pages/memory/MemoryPage.css',
   'src/pages/settings/SettingsPage.css',
   'src/pages/observability/ObservabilityPage.css',
   'src/shared/styles/PagePrimitivesLate.css',
@@ -33,12 +31,10 @@ const cssFiles = [
   'src/pages/workflows/WorkflowEmptyState.css',
   'src/pages/files/FilesPageWorkbench.css',
   'src/features/prompts/PromptPagePolish.css',
-  'src/pages/skills/SkillsPageHub.css',
   'src/features/prompts/Personalization.css',
   'src/AppShellSidebarPolish.css',
   'src/pages/workflows/WorkflowPolish.css',
   'src/pages/chat/components/RuntimePanelPolish.css',
-  'src/pages/skills/DatasourcePage.css',
   'src/AppShellSidebarThreadActions.css',
   'src/shared/styles/MarkdownReferences.css', 'src/shared/styles/TechGlowPolish.css', 'src/shared/styles/GlassCardPolish.css',
 ];
@@ -78,8 +74,6 @@ const EXPECTED_Z_INDEX_FILES = [
   'src/pages/chat/components/ProjectSelector.css',
   'src/pages/chat/composer/ComposerDock.css',
   'src/pages/chat/runtime/RuntimePanel.css',
-  'src/pages/memory/MemoryPage.css',
-  'src/pages/skills/SkillsPage.css',
 ];
 const FORBIDDEN_HOST_STACKING_PROPERTIES = new Set([
   'transform',
@@ -101,18 +95,6 @@ const OVERLAY_THEME_SELECTOR_MIGRATIONS = [
   [
     '.sa-window[data-theme="light"] .warning-log-popover code',
     '#overlay-root[data-theme="light"] .warning-log-popover code',
-  ],
-  [
-    '.sa-window[data-theme="light"] .skills-editor-modal button',
-    '#overlay-root[data-theme="light"] .skills-editor-modal button',
-  ],
-  [
-    '.sa-window[data-theme="light"] .skills-editor-modal button:hover:not(:disabled)',
-    '#overlay-root[data-theme="light"] .skills-editor-modal button:hover:not(:disabled)',
-  ],
-  [
-    '.sa-window[data-theme="light"] .skills-editor-modal button.ghost',
-    '#overlay-root[data-theme="light"] .skills-editor-modal button.ghost',
   ],
 ];
 
@@ -283,7 +265,7 @@ describe('layer token and overlay host contract', () => {
     expect(mainCssImports[0]).toBe(LAYER_TOKENS_FILE);
   });
 
-  it('keeps all 52 active z-index declarations in 12 files on exact known token references', () => {
+  it('keeps all active z-index declarations in 11 files on exact known token references', () => {
     const declarations = activeZIndexDeclarations();
     const files = [...new Set(declarations.map((declaration) => declaration.file))].sort();
     const invalid = declarations.filter((declaration) => {
@@ -291,7 +273,7 @@ describe('layer token and overlay host contract', () => {
       return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
     });
 
-    expect(declarations).toHaveLength(52);
+    expect(declarations).toHaveLength(49);
     expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
     expect(invalid).toEqual([]);
   });
@@ -463,28 +445,9 @@ const TOKEN_COLOR_RULES = [
   ['.runtime-stat.stat-tool', ['color']],
   ['.warning-log-popover', ['border', 'background', 'color']],
   ['.warning-log-popover code', ['color']],
-  ['.skill-card header span', ['border', 'color']],
-  ['.skill-card .quote', ['background']],
-  ['.skill-card button', ['background', 'color']],
-  ['.modal-box button', ['background', 'color']],
-  ['.skills-subfiles button.active', ['border-color', 'color']],
-  ['.skills-body-field textarea', ['background', 'color']],
   ['.file-row header span', ['border', 'color']],
   ['.file-row.is-final-output', ['border-color']],
   ['.file-row.is-final-output header span', ['border-color', 'color']],
-  ['.similar-alert', ['border', 'color']],
-  ['.similar-alert button', ['border-color', 'color']],
-  ['.memory-health-track', ['background']],
-  ['.memory-health-track.danger span', ['background']],
-  ['.memory-notice', ['color', 'background']],
-  ['.memory-notice.is-error', ['border-color', 'color']],
-  ['.memory-notice.is-warning', ['border-color', 'color']],
-  ['.memory-similar-item', ['border', 'background', 'color']],
-  ['.memory-similar-item button', ['background', 'color']],
-  ['.memory-card.type-project', ['border-left-color']],
-  ['.memory-form-grid label', ['color']],
-  ['.memory-form-grid input', ['background', 'color']],
-  ['.memory-editor-actions button', ['background', 'color']],
   ['.prompt-tabs button', ['color', 'background']],
   ['.prompt-tabs button.active', ['color', 'border-color', 'background']],
   ['.prompt-badges span', ['color', 'background']],
@@ -756,39 +719,12 @@ describe('theme-aware component styles', () => {
 
       expect(rootTokens['--super-dolphin-agent-sidebar-width']).toBe('280px');
       expect(rootTokens['--super-dolphin-agent-content-max-width']).toBe('1100px');
-      expect(glass).toContain('backdrop-filter: blur(20px) saturate(145%)'); expect(glass).toContain('.chat-intro-card'); expect(glass).toContain('.mcp-tool-title-line h2');
+      expect(glass).toContain('backdrop-filter: blur(20px) saturate(145%)'); expect(glass).toContain('.chat-intro-card');
       expect(rootTokens['--super-dolphin-agent-gutter']).toBe('24px');
       expect(rootTokens['--super-dolphin-agent-card-shadow']).toBe('0 20px 40px -10px rgba(30, 38, 68, 0.08)');
       expect(rootTokens['--super-dolphin-agent-input-shadow']).toBe('0 8px 30px rgba(30, 38, 68, 0.06)');
       expect(rootTokens['--super-dolphin-agent-input-highlight']).toBe('inset 0 1px 0 rgba(255, 255, 255, 0.82)');
     });
-  });
-
-  it('uses theme-aware colors for skill filter active buttons', () => {
-    const active = declarationsFor('.skill-filter .active');
-
-    expect(active.background).toBe('color-mix(in srgb, var(--accent-2) 16%, var(--surface-3))');
-    expect(active.color).toBe('var(--text-pri)');
-    expect(active['border-color']).toBe('var(--border-strong)');
-    expect(active.background).not.toBe('#4d4f55');
-  });
-
-  it('keeps skill editor controls on theme token surfaces', () => {
-    const modalButton = declarationsFor('.skills-editor-modal button');
-    const scopeButton = declarationsFor('.skills-scope-segmented button');
-    const activeScopeButton = declarationsFor('.skills-scope-segmented button.active');
-    const bodyPreview = declarationsFor('.skills-body-preview');
-    const bodyPreviewHeading = declarationsFor('.skills-body-preview h3');
-
-    expect(modalButton.background).toBe('var(--surface-2)');
-    expect(modalButton.color).toBe('var(--text-pri)');
-    expect(scopeButton.background).toBe('var(--surface-2)');
-    expect(scopeButton.color).toBe('var(--text-sec)');
-    expect(activeScopeButton.background).toBe('color-mix(in srgb, var(--success) 12%, var(--surface))');
-    expect(activeScopeButton.color).toBe('var(--success)');
-    expect(bodyPreview.background).toBe('var(--surface-2)');
-    expect(bodyPreview.color).toBe('var(--text-sec)');
-    expect(bodyPreviewHeading.color).toBe('var(--text-pri)');
   });
 
   it('shows a readable generated-image fallback instead of a bare broken image icon', () => {
@@ -1446,7 +1382,6 @@ describe('workbench shell styles', () => {
       const mobileTopCommand = mediaDeclarationFor('(max-width: 920px)', '.super-dolphin-agent-top-appbar', 'padding');
       const mainCanvas = declarationsFor('.super-dolphin-agent-main-canvas');
       const nonChatPage = declarationsFor('.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .chat-page');
-      const skillsPage = declarationsFor('.sa-window.super-dolphin-agent-shell .super-dolphin-agent-main-canvas > .skills-tabbed-container');
       const main = declarationsFor('.sa-main');
 
       expect(navRail.background).toBe('var(--sidebar-bg)');
@@ -1461,7 +1396,6 @@ describe('workbench shell styles', () => {
       expect(topCommand['border-bottom']).toBe('1px solid var(--border)');
       expect(mainCanvas.height).toBe('100%');
       expect(nonChatPage['padding-top']).toBe('32px');
-      expect(skillsPage['padding-top']).toBe('32px');
       expect(main.background).toBe('var(--bg)');
     });
 
@@ -1568,24 +1502,6 @@ describe('workbench shell styles', () => {
       expect(darkShell['--super-dolphin-agent-input-shadow']).toBe('0 8px 30px rgba(0, 0, 0, 0.2)');
     });
 
-    it('renders memory controls as compact Super Dolphin Agent components', () => {
-      const stats = topLevelDeclarationsFor('.memory-page .memory-stats');
-      const panel = declarationsFor('.memory-page .memory-stats .panel');
-      const overviewChip = declarationsFor('.memory-page .memory-overview-breakdown > span');
-      const autoToggle = topLevelDeclarationsFor('.memory-page .memory-auto-dream-toggle');
-      const createButton = declarationsFor('.memory-page .memory-create-button');
-      const createMenu = declarationsFor('.memory-page .memory-create-menu');
-
-      expect(stats['grid-template-columns']).toBe('repeat(3, minmax(0, 1fr))');
-      expect(panel['border-radius']).toBe('var(--super-dolphin-agent-radius-card)');
-      expect(overviewChip['border-radius']).toBe('999px');
-      expect(autoToggle['grid-column']).toBe('2');
-      expect(createButton.background).toBe('var(--primary-action-bg)');
-      expect(createButton['border-radius']).toBe('999px');
-      expect(createMenu.left).toBe('0');
-      expect(createMenu.right).toBe('auto');
-      expect(createMenu.width).toBe('max-content');
-    });
   });
 
   it('keeps the screenshot-style sidebar fixed and branded', () => {
@@ -1628,11 +1544,9 @@ describe('workbench shell styles', () => {
     expect(superDolphinAgentAppWindowSource).toContain('<ChatSidebarProjectTree');
     expect(superDolphinAgentAppWindowSource).not.toContain('<SidebarTaskSummary');
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Chat'");
-    expect(superDolphinAgentAppWindowSource).toContain("label: 'Plugins'");
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Automation'");
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Roles'");
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Files'");
-    expect(superDolphinAgentAppWindowSource).toContain("label: 'Memory'");
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Logs'");
   });
 
@@ -2026,34 +1940,6 @@ describe('light theme baseline usability', () => {
 });
 
 describe('light theme control surfaces', () => {
-  it('keeps card actions consistent with light-mode controls', () => {
-    const skillButton = declarationsFor('.sa-window[data-theme="light"] .skill-card button');
-    const dangerButton = declarationsFor('.sa-window[data-theme="light"] .skill-card button.text-danger');
-
-    expect(skillButton.background).toBe('var(--surface-2)');
-    expect(skillButton.color).toBe('var(--text-pri)');
-    expect(dangerButton.background).toBe('color-mix(in srgb, var(--error) 8%, var(--surface))');
-    expect(dangerButton.color).toBe('var(--error)');
-  });
-
-  it('keeps skill editor controls and preview readable in light mode', () => {
-    const modalButton = declarationsFor('#overlay-root[data-theme="light"] .skills-editor-modal button');
-    const scopeButton = declarationsFor('.sa-window[data-theme="light"] .skills-scope-segmented button');
-    const activeScopeButton = declarationsFor('.sa-window[data-theme="light"] .skills-scope-segmented button.active');
-    const preview = declarationsFor('.sa-window[data-theme="light"] .skills-body-preview');
-    const previewHeading = declarationsFor('.sa-window[data-theme="light"] .skills-body-preview h3');
-
-    expect(modalButton.background).toBe('var(--surface-2)');
-    expect(modalButton.color).toBe('var(--text-pri)');
-    expect(scopeButton.background).toBe('var(--surface-2)');
-    expect(scopeButton.color).toBe('var(--text-sec)');
-    expect(activeScopeButton.background).toBe('color-mix(in srgb, var(--success) 12%, var(--surface))');
-    expect(activeScopeButton.color).toBe('var(--success)');
-    expect(preview.background).toBe('var(--surface-2)');
-    expect(preview.color).toBe('var(--text-sec)');
-    expect(previewHeading.color).toBe('var(--text-pri)');
-  });
-
   it('keeps chat action and composer controls on light-mode surfaces', () => {
     const feedback = declarationsFor('.sa-window[data-theme="light"] .top-command .action-feedback.success');
     const composerButton = declarationsFor('.sa-window[data-theme="light"] .composer button');
@@ -2069,85 +1955,23 @@ describe('light theme control surfaces', () => {
 });
 
 describe('card layout styles', () => {
-  it('keeps MCP tool controls aligned when feedback appears', () => {
-    const card = topLevelDeclarationsFor('.mcp-tool-card');
-    const compactCard = mediaDeclarationFor('(max-width: 640px)', '.mcp-tool-card', 'grid-template-columns');
-    const notice = declarationsFor('.mcp-tool-notice');
-    const status = declarationsFor('.mcp-tool-status');
-
-    expect(card['align-items']).toBe('center');
-    expect(card['grid-template-columns']).toBe('36px minmax(0, 1fr) max-content auto');
-    expect(compactCard['grid-template-columns']).toBe('32px minmax(0, 1fr) max-content auto');
-    expect(status['align-self']).toBe('center');
-    expect(status['justify-self']).toBe('end');
-    expect(notice.margin).toBe('0');
-    expect(notice['line-height']).toBe('1.35');
-
-    // contract: MCP 卡片统一使用暗色主题变量底座（浅色/深色主题各自取值），
-    // 保证白色标题、说明与状态文字的对比度；颜色必须走 --mcp-card-* 变量而非硬编码。
-    expect(card.background).toBe('var(--mcp-card-bg)');
-    expect(card.border).toBe('1px solid var(--mcp-card-border)');
-    expect(card.color).toBe('var(--mcp-card-text)');
-
-    const lightTokens = declarationsFor(':root[data-theme="light"]');
-    const darkTokens = declarationsFor(':root[data-theme="dark"]');
-    for (const token of ['--mcp-card-bg', '--mcp-card-text', '--mcp-card-text-muted', '--mcp-card-border']) {
-      expect(lightTokens[token], `light ${token}`).toBeTruthy();
-      expect(darkTokens[token], `dark ${token}`).toBeTruthy();
-    }
-    expect(lightTokens['--mcp-card-text']).toBe('#ffffff');
-    // 两个主题的卡片底色都必须是暗色（亮度低），确保白色文字可读。
-    expect(lightTokens['--mcp-card-bg']).toMatch(/^#([0-5][0-9a-f]){3}$/i);
-    expect(darkTokens['--mcp-card-bg']).toMatch(/^#([0-5][0-9a-f]){3}$/i);
-  });
-
   it('keeps card badges and actions horizontal beside long content', () => {
-    const memoryTitle = declarationsFor('.memory-card h3');
-    const skillTitle = declarationsFor('.skill-card h3');
     const promptTitle = declarationsFor('.prompt-card h3');
-    const memoryBadge = declarationsFor('.memory-card header span');
-    const skillBadge = declarationsFor('.skill-card header span');
     const promptBadge = declarationsFor('.prompt-badges span');
-    const timestamp = declarationsFor('.memory-card footer time');
-    const memoryAction = declarationsFor('.memory-card button');
-    const skillAction = declarationsFor('.skill-card button');
     const promptAction = declarationsFor('.prompt-card-actions button');
 
-    for (const title of [memoryTitle, skillTitle]) {
-      expect(title.flex).toBe('1 1 auto');
-      expect(title['min-width']).toBe('0');
-      expect(title['overflow-wrap']).toBe('anywhere');
-    }
     expect(promptTitle['min-width']).toBe('0');
     expect(promptTitle['overflow-wrap']).toBe('anywhere');
 
-    for (const badge of [memoryBadge, skillBadge, promptBadge]) {
-      expect(badge.display).toBe('inline-flex');
-      expect(badge.flex).toBe('0 0 auto');
-      expect(badge['align-items']).toBe('center');
-      expect(badge['white-space']).toBe('nowrap');
-    }
-
-    expect(timestamp.flex).toBe('1 1 auto');
-    expect(timestamp['min-width']).toBe('0');
-    for (const action of [memoryAction, skillAction, promptAction]) {
-      expect(action.flex).toBe('0 0 auto');
-      expect(action['min-width']).toBe('64px');
-      expect(action['white-space']).toBe('nowrap');
-    }
+    expect(promptBadge.display).toBe('inline-flex');
+    expect(promptBadge.flex).toBe('0 0 auto');
+    expect(promptBadge['align-items']).toBe('center');
+    expect(promptBadge['white-space']).toBe('nowrap');
+    expect(promptAction.flex).toBe('0 0 auto');
+    expect(promptAction['min-width']).toBe('64px');
+    expect(promptAction['white-space']).toBe('nowrap');
   });
 
-  it('keeps MCP status badges vertically centered in their own grid column', () => {
-    const card = topLevelDeclarationsFor('.mcp-tool-card');
-    const compactCard = mediaDeclarationFor('(max-width: 640px)', '.mcp-tool-card', 'grid-template-columns');
-    const status = declarationsFor('.mcp-tool-status');
-
-    expect(card['grid-template-columns']).toBe('36px minmax(0, 1fr) max-content auto');
-    expect(card['align-items']).toBe('center');
-    expect(compactCard['grid-template-columns']).toBe('32px minmax(0, 1fr) max-content auto');
-    expect(status['align-self']).toBe('center');
-    expect(status['justify-self']).toBe('end');
-  });
 });
 
 describe('fusion surface redesign contracts', () => {
@@ -2163,28 +1987,6 @@ describe('fusion surface redesign contracts', () => {
     // contract: hero has specific grid
     expect(hero.display).toBe('grid');
     expect(hero['grid-template-columns']).toBe('minmax(220px, 1fr) auto');
-  });
-
-  it('keeps skills resolution panel neutral with a distinct header', () => {
-    const panel = declarationsFor('.skills-resolution-panel');
-    const header = declarationsFor('.skills-resolution-header');
-
-    // contract: panel must be neutral
-    expect(panel.background).toBe('var(--surface)');
-    expect(panel.background).not.toContain('color-mix(in srgb, var(--orange)');
-
-    // contract: header is distinct (receives fusion-surface via JSX)
-    expect(header['border-radius']).toBe('0');
-  });
-
-  it('keeps datasource empty state neutral', () => {
-    const emptyCard = declarationsFor('.datasource-empty-card');
-
-    // contract: empty state must not use fusion background
-    expect(emptyCard.background).toBe('var(--surface)');
-
-    // contract: empty state explicitly overrides 42vh
-    expect(emptyCard['min-height']).toBe('auto');
   });
 
   it('restricts workflow overview to a stable vertical column layout', () => {
@@ -2330,25 +2132,6 @@ describe('blue-purple form and notice contract', () => {
     expect(preview.color).toBe('var(--text-sec)');
     expect(preview['border-color']).toBe('var(--border)');
     expect(preview.cursor).toBe('default');
-  });
-});
-
-describe('modal overlay styles', () => {
-  it('keeps the full-screen backdrop invisible inside button-themed pages', () => {
-    const base = declarationsFor('.modal-overlay > button.modal-overlay-backdrop');
-    const hover = declarationsFor('.modal-overlay > button.modal-overlay-backdrop:hover');
-    const focus = declarationsFor('.modal-overlay > button.modal-overlay-backdrop:focus');
-    const focusVisible = declarationsFor('.modal-overlay > button.modal-overlay-backdrop:focus-visible');
-
-    for (const declarations of [base, hover, focus, focusVisible]) {
-      expect(declarations.position).toBe('absolute');
-      expect(declarations.inset).toBe('0');
-      expect(declarations.border).toBe('0');
-      expect(declarations.background).toBe('transparent');
-      expect(declarations.color).toBe('transparent');
-      expect(declarations.padding).toBe('0');
-      expect(declarations['box-shadow']).toBe('none');
-    }
   });
 });
 

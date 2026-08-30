@@ -120,7 +120,7 @@ func readQueuedThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfig
 // prepareQueuedTurnInput 把编排提交转换成 turn service 的 PrepareInput。
 func prepareQueuedTurnInput(session sessionCaps, submission contract.TurnSubmission, threadRuntimeConfig map[string]any) PrepareInput {
 	return buildPrepareInput(prepareInputSpec{
-		LocalTurnID:           strings.TrimSpace(submission.ExpectedTurnID),
+		LocalTurnID:          strings.TrimSpace(submission.ExpectedTurnID),
 		Inputs:               submission.Inputs,
 		ManualSkillSelection: submission.ManualSkillSelection,
 		OutputSchema:         append(json.RawMessage(nil), submission.OutputSchema...),

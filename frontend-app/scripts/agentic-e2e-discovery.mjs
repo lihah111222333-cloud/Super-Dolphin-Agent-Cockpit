@@ -11,16 +11,14 @@ const ALLOWED_ACTION_KEYWORDS = Object.freeze([
 ]);
 
 const KNOWN_NAVIGATION_ENTRY_LABELS = Object.freeze([
-  '链路追踪', 'Settings', '设置', '新对话', '记忆中心', '插件', '插件与技能', '自动化', '定制角色', '共享文件',
+  '链路追踪', 'Settings', '设置', '新对话', '自动化', '定制角色', '共享文件',
 ]);
 
 const NAVIGATION_PAGE_BY_LABEL = Object.freeze([
   { pattern: /^新对话$/u, page: 'chat' },
-  { pattern: /^(插件|插件与技能)$/u, page: 'skills' },
   { pattern: /^自动化$/u, page: 'workflows' },
   { pattern: /^(提示词|定制角色)$/u, page: 'prompts' },
   { pattern: /^共享文件$/u, page: 'files' },
-  { pattern: /^记忆中心$/u, page: 'memory' },
   { pattern: /^链路追踪$/u, page: 'observability' },
   { pattern: /^(Settings|设置)$/u, page: 'settings' },
 ]);

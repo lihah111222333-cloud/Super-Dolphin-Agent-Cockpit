@@ -72,8 +72,8 @@ func TestManualClaudeDreamPipeline(t *testing.T) {
 		t.Errorf("TokensInput() = %d, want > 0 (claude usage should be recorded)", got)
 	}
 
-	// 验证 3: parseExtractedMemories 兼容（使用 memory 模块的真实 parser 验证 JSON 契约）
-	// 注：parseExtractedMemories 在 internal/module/memory，这里只验证 JSON 结构兼容性
+	// 验证 3: provider 返回的 memories envelope 保持 JSON 结构兼容性。
+	// 解析与归属由 provider-native 消费方负责；本 manual test 不依赖仓内 memory runtime。
 }
 
 func truncate(s string, max int) string {

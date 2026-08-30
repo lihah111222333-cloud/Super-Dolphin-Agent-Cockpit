@@ -366,7 +366,6 @@ func fixtureResponses(project string) map[string]any {
 		"thread/config/get":           map[string]any{"threadId": smokeThreadID, "provider": "codex", "supportsThreadOverride": true, "override": map[string]any{}, "effective": map[string]any{}},
 		"app/update/check":            map[string]any{"enabled": false, "available": false},
 		"ui/dashboard/get":            map[string]any{},
-		"ui/memory/get":               map[string]any{"overview": map[string]any{}, "private": map[string]any{"entries": []any{}}, "team": map[string]any{"entries": []any{}}, "finalOutputRefs": []any{}},
 		"dashboard/sharedFiles":       map[string]any{"files": []any{}, "finalOutputRefs": []any{}},
 		"observability/status":        map[string]any{"enabled": true, "schema_version": 1, "index_trace_keys": 1, "sink_events_written": 1, "sink_write_errors": 0},
 		"observability/recent/list":   map[string]any{"events": []any{}, "slowest_events": []any{}, "errors": []any{}, "truncated": false},
@@ -382,8 +381,6 @@ func fixtureResponses(project string) map[string]any {
 		"dashboard/dagRuns":           map[string]any{"runs": []any{}},
 		"workflowTemplates/list":      map[string]any{"templates": []any{}},
 		"cronjob/list":                map[string]any{"jobs": []any{}},
-		"skills/resolution_list":      map[string]any{"items": []any{}},
-		"skills/tools/list":           map[string]any{"tools": []any{}},
 		"mcpServer/list":              map[string]any{"mcpServers": map[string]any{}},
 		"datasourceV2/list":           map[string]any{"documents": []any{}},
 	}

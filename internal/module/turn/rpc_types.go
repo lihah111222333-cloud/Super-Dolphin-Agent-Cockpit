@@ -59,6 +59,9 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	if err := mergePreparingCancelRequestID(p, &legacy, payload); err != nil {
 		return err
 	}
+	if err := validateSkillRefNames("turn/start", p.SelectedSkills, p.SelectedSkillRefs); err != nil {
+		return err
+	}
 	return validateSkillRefSources("turn/start", p.SelectedSkillRefs)
 }
 
@@ -168,6 +171,23 @@ type skillRefParams struct {
 	Source       string `json:"source,omitempty"`
 }
 
+// validateSkillRefNames 拒绝显式选择列表中的空名称。
+// normalizePrepareSkillRefs 会丢弃空名称以保持内部切片整洁，但 RPC 边界必须先
+// 报错，避免损坏 payload 被静默收敛成“没有选择技能”。
+func validateSkillRefNames(method string, names []string, refs []skillRefParams) error {
+	for i, name := range names {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("%s: selected skill[%d] name is required", method, i)
+		}
+	}
+	for i, ref := range refs {
+		if strings.TrimSpace(ref.Name) == "" {
+			return fmt.Errorf("%s: selected skill ref[%d] name is required", method, i)
+		}
+	}
+	return nil
+}
+
 // validateSkillRefSources 拒绝未知的显式 skill source；空 source 保留调用方默认语义。
 func validateSkillRefSources(method string, refs []skillRefParams) error {
 	for _, ref := range refs {
@@ -219,6 +239,9 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 	if err := decodeLegacyTurnParams(data, (*rawTurnSteerParams)(p), &legacy, func(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
 		return mergeTurnSteerLegacy(current, legacy, payload)
 	}); err != nil {
+		return err
+	}
+	if err := validateSkillRefNames("turn/steer", p.SelectedSkills, p.SelectedSkillRefs); err != nil {
 		return err
 	}
 	return validateSkillRefSources("turn/steer", p.SelectedSkillRefs)

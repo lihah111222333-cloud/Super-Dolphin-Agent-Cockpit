@@ -30,8 +30,13 @@ const (
 )
 
 // prepareStartSessionRequest 解析 Codex provider home 并写入启动身份配置。
-// 技能镜像必须在选定 home 后同步，避免 app-server 看到旧 provider mirror。
-func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
+// provider-native skills 由 Codex CLI 根据 cwd/home 自己发现；该层不再生成或校验集中式 skill tree。
+func (d *driver) prepareStartSessionRequest(_ context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
+	canonicalCWD, err := canonicalizeProviderNativeDiscoveryCWD(req.CWD)
+	if err != nil {
+		return req, err
+	}
+	req.CWD = canonicalCWD
 	if err := validateStartCodexIdentityShape(req.Config); err != nil {
 		return req, err
 	}
@@ -48,11 +53,8 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 			return req, err
 		}
 	}
-	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
+	home, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
-		return req, err
-	}
-	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
 	config, err := withDefaultCodexIdentity(req.Config, home, defaultCodexModelProviderForHome(providerHome))
@@ -76,10 +78,14 @@ func validateStartCodexIdentityShape(config map[string]any) error {
 	return nil
 }
 
-// prepareResumeSessionRequest 恢复会话前重新解析 Codex home 并刷新技能镜像。
+// prepareResumeSessionRequest 恢复会话前重新解析 Codex home；provider-native skills 由 CLI 自己发现。
 // Resume 依赖历史绑定身份，解析失败时必须阻断，不能退回默认 home。
 func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
-	var err error
+	canonicalCWD, err := canonicalizeProviderNativeDiscoveryCWD(req.CWD)
+	if err != nil {
+		return req, err
+	}
+	req.CWD = canonicalCWD
 	req, err = d.ResolveResumeSessionIdentity(ctx, req)
 	if err != nil {
 		return req, err
@@ -94,42 +100,108 @@ func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.Resume
 			return req, err
 		}
 	}
-	home, mirrorHome, err := ensureResolvedCodexProviderHome(providerHome)
+	home, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
-		return req, err
-	}
-	if err := d.reconcileProviderMirrors(ctx, req.CWD, mirrorHome); err != nil {
 		return req, err
 	}
 	req.CodexHome = home
 	return req, nil
 }
 
-// reconcileProviderMirrors 将 canonical skill roots 同步到 Codex 可发现的 provider mirror。
-// mirror 组件缺失直接报错，因为继续启动会造成 runtime 技能面与项目配置不一致。
-func (d *driver) reconcileProviderMirrors(ctx context.Context, cwd, home string) error {
-	if d == nil || d.mirror == nil {
-		return errors.New("codex skill mirror reconciler is required")
+// canonicalizeProviderNativeDiscoveryCWD 保留 provider-native discovery 所需的
+// cwd/path 安全边界，并返回 provider CLI/app-server 实际应使用的 canonical 路径。
+// 该校验只确认 CLI 的工作目录可用，不读取或写入 Super-Dolphin skill tree。
+func canonicalizeProviderNativeDiscoveryCWD(cwd string) (string, error) {
+	trimmed := strings.TrimSpace(cwd)
+	if trimmed == "" {
+		return "", errors.New("codexapp: provider-native skills cwd is required")
 	}
-	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderCodex, cwd, home)
+	if !filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("codexapp: provider-native skills cwd must be absolute: %s", cwd)
+	}
+	canonical, err := contract.CanonicalizeProviderNativeCWD(trimmed)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("codexapp: provider-native skills cwd: %w", err)
 	}
-	report, err := d.mirror.ReconcileProviderMirrors(ctx, cwd, targets)
-	if err != nil {
-		return err
-	}
-	if err := providershared.EnsureNoSkillMirrorConflicts(report); err != nil {
-		return err
-	}
-	return nil
+	return canonical, nil
 }
 
-func normalizedExplicitProviderHome(rawHome, normalizedHome string) string {
-	if strings.TrimSpace(rawHome) == "" {
-		return ""
+// validateProviderNativeDiscoveryCWD 保留旧内部调用名；新调用方应使用
+// canonicalizeProviderNativeDiscoveryCWD 并把返回路径写回请求。
+func validateProviderNativeDiscoveryCWD(cwd string) error {
+	_, err := canonicalizeProviderNativeDiscoveryCWD(cwd)
+	return err
+}
+
+// buildCodexProviderNativeContext constructs the identity shared by start,
+// resume and recovery.  Capability status remains explicit unknown until a
+// provider-owned probe supplies evidence; launching app-server alone is not a
+// supported-capability claim.
+func buildCodexProviderNativeContext(req dto.StartSessionRequest) (contract.ProviderNativeContext, error) {
+	return providershared.BuildProviderNativeContext(providershared.ProviderNativeContextInput{
+		Provider:     "codex",
+		CWD:          req.CWD,
+		ProviderHome: providershared.ConfigString(req.Config, contract.CodexHomeKey),
+		Profile:      providershared.ConfigString(req.Config, contract.CodexInstanceKeyKey),
+		Capabilities: providershared.UnknownProviderNativeCapabilities(),
+	})
+}
+
+func buildCodexResumeNativeContext(req dto.ResumeSessionRequest) (contract.ProviderNativeContext, error) {
+	return providershared.BuildProviderNativeContext(providershared.ProviderNativeContextInput{
+		Provider:     "codex",
+		CWD:          req.CWD,
+		ProviderHome: req.CodexHome,
+		Profile:      req.CodexInstanceKey,
+		Capabilities: providershared.UnknownProviderNativeCapabilities(),
+	})
+}
+
+// prepareCodexStartBoundary 收敛 start 的请求、CWD 和 native context 校验。
+// 返回值只包含已经 canonicalize/Validate 的对象，后续启动阶段不得重新读取原始路径。
+func (d *driver) prepareCodexStartBoundary(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, contract.ProviderNativeContext, error) {
+	if !codexPromptSnapshotBlank(req.StartAssembly.Snapshot) {
+		if err := contract.ValidateResumePromptSnapshotForProvider(req.StartAssembly.Snapshot, "codex"); err != nil {
+			return dto.StartSessionRequest{}, contract.ProviderNativeContext{}, fmt.Errorf("codexapp: start prompt snapshot: %w", err)
+		}
 	}
-	return normalizedHome
+	prepared, err := d.prepareStartSessionRequest(ctx, req)
+	if err != nil {
+		return dto.StartSessionRequest{}, contract.ProviderNativeContext{}, err
+	}
+	nativeContext, err := buildCodexProviderNativeContext(prepared)
+	if err != nil {
+		return dto.StartSessionRequest{}, contract.ProviderNativeContext{}, fmt.Errorf("codexapp: start native context: %w", err)
+	}
+	if err := providershared.ValidateProviderNativeContextForProvider(nativeContext, "codex"); err != nil {
+		return dto.StartSessionRequest{}, contract.ProviderNativeContext{}, fmt.Errorf("codexapp: start native context: %w", err)
+	}
+	return prepared, nativeContext, nil
+}
+
+// prepareCodexResumeBoundary 收敛 resume 的身份、CWD 和 native context 校验。
+// provider thread、prompt snapshot 与 context 任一边界失败都会在 transport 之前返回。
+func (d *driver) prepareCodexResumeBoundary(ctx context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, contract.ProviderNativeContext, error) {
+	providerThreadID, err := requireProviderResumeThreadID("codexapp", req.ProviderThreadID)
+	if err != nil {
+		return dto.ResumeSessionRequest{}, contract.ProviderNativeContext{}, err
+	}
+	if err := contract.ValidateResumePromptSnapshotForProvider(req.PromptSnapshot, d.Name()); err != nil {
+		return dto.ResumeSessionRequest{}, contract.ProviderNativeContext{}, fmt.Errorf("codexapp: %w", err)
+	}
+	req.ProviderThreadID = providerThreadID
+	prepared, err := d.prepareResumeSessionRequest(ctx, req)
+	if err != nil {
+		return dto.ResumeSessionRequest{}, contract.ProviderNativeContext{}, err
+	}
+	nativeContext, err := buildCodexResumeNativeContext(prepared)
+	if err != nil {
+		return dto.ResumeSessionRequest{}, contract.ProviderNativeContext{}, fmt.Errorf("codexapp: resume native context: %w", err)
+	}
+	if err := providershared.ValidateProviderNativeContextForProvider(nativeContext, "codex"); err != nil {
+		return dto.ResumeSessionRequest{}, contract.ProviderNativeContext{}, fmt.Errorf("codexapp: resume native context: %w", err)
+	}
+	return prepared, nativeContext, nil
 }
 
 func matchesAppManagedCodexHome(requested string) bool {

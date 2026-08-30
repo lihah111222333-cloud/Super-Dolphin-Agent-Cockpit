@@ -3,9 +3,11 @@ package claudecli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/identifier"
@@ -272,6 +274,19 @@ func (s *session) logRestartLocked(reason string, next stagedSessionState, resum
 // prepareSessionRestartLocked 启动候选 Claude transport 并准备 session 切换。
 // 新进程必须先写入 PID registry，写入失败会停止候选进程并保留当前 session。
 func (s *session) prepareSessionRestartLocked(ctx context.Context, next stagedSessionState, resumeID, reason string) (preparedSessionRestart, error) {
+	if err := s.validateNativeContextLocked(next.config.ClaudeHome); err != nil {
+		return preparedSessionRestart{}, err
+	}
+	snapshot := next.config.PromptSnapshot
+	if !promptSnapshotBlank(snapshot) {
+		// A restart reuses the exact prompt snapshot captured by the current
+		// Claude session.  Apply the same owner/version gate as initial resume;
+		// otherwise a stale cross-provider or legacy-memory snapshot could be
+		// launched before the failure becomes visible to the caller.
+		if err := contract.ValidateResumePromptSnapshotForProvider(snapshot, "claude"); err != nil {
+			return preparedSessionRestart{}, fmt.Errorf("claudecli: restart prompt snapshot: %w", err)
+		}
+	}
 	baseInstructions := promptSnapshotBaseInstructions(next.config.PromptSnapshot, s.instructions)
 	if promptLaunchBaseBlank(baseInstructions, next.config) {
 		return preparedSessionRestart{}, errors.New("claudecli: restart prompt snapshot has empty base instructions")

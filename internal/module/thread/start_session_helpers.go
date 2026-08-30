@@ -73,7 +73,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		ScratchpadDir:                buildCtx.ScratchpadDir,
 		FRCConfig:                    buildCtx.FRCConfig,
 		KeepCodingInstructions:       buildCtx.KeepCodingInstructions,
-		// 兼容旧 wire 载体；生产 skill 发现由 provider 驱动的镜像同步处理，不由 prompt catalog 渲染。
+		// 兼容旧 wire 载体；生产 skill 发现由 provider-native runtime 处理，不由 prompt catalog 渲染。
 		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
 		LaunchSkillRefs:   cloneProviderSkillRefs(req.LaunchSkillRefs),
 		ForceLaunchSkills: req.ForceLaunchSkills,
@@ -90,10 +90,31 @@ func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input con
 	if err != nil {
 		return contract.StartAssembly{}, err
 	}
+	if err := contract.ValidateLegacyMemoryPromptSections(assembly.ResolvedSections); err != nil {
+		return contract.StartAssembly{}, err
+	}
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(assembly.Snapshot); err != nil {
+		return contract.StartAssembly{}, err
+	}
 	assembly.DisplayName = normalizeStartDisplayName(util.FirstNonEmpty(strings.TrimSpace(assembly.DisplayName), req.Name))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
 	assembly.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
-	return ensureStartAssemblySnapshot(assembly, input.Provider), nil
+	assembly = ensureStartAssemblySnapshot(assembly, input.Provider)
+	// Reject a caller/provider-owned snapshot before launchAgent.  The
+	// provider adapters repeat this check, but waiting until after thread
+	// launch would leave a half-created agent when a stale snapshot is passed.
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(assembly.Snapshot); err != nil {
+		return contract.StartAssembly{}, err
+	}
+	if version := assembly.Snapshot.Version; version != contract.PromptAssemblySnapshotVersion {
+		return contract.StartAssembly{}, fmt.Errorf("thread: prompt snapshot version %d is invalid", version)
+	}
+	if snapshotProvider := strings.TrimSpace(assembly.Snapshot.Provider); snapshotProvider != "" &&
+		strings.TrimSpace(input.Provider) != "" &&
+		!strings.EqualFold(snapshotProvider, strings.TrimSpace(input.Provider)) {
+		return contract.StartAssembly{}, fmt.Errorf("thread: start prompt snapshot provider mismatch: snapshot=%q provider=%q", snapshotProvider, strings.TrimSpace(input.Provider))
+	}
+	return assembly, nil
 }
 
 func resolveResumeCWD(req ResumeRequest, state resumeState) (string, error) {

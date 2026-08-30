@@ -217,6 +217,7 @@ func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
 			ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 		},
 	}
+	threadStore.promptSnapshot = validPromptSnapshotPtrForTest("codex", "demo")
 	bindings := newHistoryTestBindingStore(&BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",

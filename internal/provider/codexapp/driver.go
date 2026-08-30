@@ -61,7 +61,6 @@ type DriverFactory struct {
 	prepareTools    func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
 	bindTools       func(contract.CodexToolSurfaceScope) error
 	releaseTools    func(contract.CodexToolSurfaceScope) error
-	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
 	runtimeHooks    providershared.RuntimeHooks
 	skillMetrics    *skillmetrics.Registry
@@ -80,7 +79,6 @@ type driver struct {
 	prepareTools    func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
 	bindTools       func(contract.CodexToolSurfaceScope) error
 	releaseTools    func(contract.CodexToolSurfaceScope) error
-	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
 	runtimeHooks    providershared.RuntimeHooks
 	skillMetrics    *skillmetrics.Registry
@@ -147,7 +145,6 @@ func NewDriverFactory(
 	reporter contract.RuntimeReporter,
 	manager *ServerManager,
 	pool *ServerPool,
-	mirror contract.SkillMirrorReconciler,
 	recovery contract.SessionRecoveryReporter,
 	runtimeHooks ...providershared.RuntimeHooks,
 ) (*DriverFactory, error) {
@@ -162,14 +159,13 @@ func NewDriverFactory(
 		reporter:        reporter,
 		manager:         manager,
 		pool:            pool,
-		mirror:          mirror,
 		recovery:        recovery,
 		runtimeHooks:    hooks,
 	}
 	factory.DriverFactory = contract.DriverFactory{
 		Name: "codex",
 		Create: func() contract.Driver {
-			raw := newDriver(factory.logRuntime, logger, dispatcher, approvals, reporter, manager, pool, factory.mirror, factory.recovery, factory.currentListTools())
+			raw := newDriver(factory.logRuntime, logger, dispatcher, approvals, reporter, manager, pool, factory.recovery, factory.currentListTools())
 			if d, ok := raw.(*driver); ok {
 				d.logRuntime = factory.logRuntime
 				d.runtimeHooks = factory.runtimeHooks
@@ -195,13 +191,23 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if err := requireApprovalManager(d.approvals); err != nil {
 		return nil, err
 	}
+	if err := contract.ValidateLegacyMemoryPromptSections(req.StartAssembly.ResolvedSections); err != nil {
+		return nil, err
+	}
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(req.StartAssembly.Snapshot); err != nil {
+		return nil, err
+	}
+	if !codexPromptSnapshotBlank(req.StartAssembly.Snapshot) {
+		if err := contract.ValidateResumePromptSnapshotForProvider(req.StartAssembly.Snapshot, d.Name()); err != nil {
+			return nil, fmt.Errorf("codexapp: start prompt snapshot: %w", err)
+		}
+	}
 	return d.startSession(ctx, req)
 }
 
 // startSession 在依赖校验后执行请求准备、会话构造和远端线程启动。
 func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
-	var err error
-	req, err = d.prepareStartSessionRequest(ctx, req)
+	req, nativeContext, err := d.prepareCodexStartBoundary(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +226,11 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	s.prepareTools, s.listTools, s.releaseTools = d.prepareTools, d.listTools, d.releaseTools
 	s.dynamicToolsEnabled = contract.ToolSurfaceModeUsesDynamicTools(req.ToolSurfaceMode)
+	s.setNativeContext(nativeContext)
+	// 先记录已校验的 snapshot，再启动 recovery worker。否则 initialize/
+	// thread/start 期间若 reader 短暂断链，worker 可能在 snapshot 尚未写入
+	// 时重连，绕过同一条 provider owner/version/legacy guard。
+	s.setPromptSnapshot(req.StartAssembly.Snapshot)
 	// runtime 拥有 reader、health 和恢复 goroutine；任何后续 RPC 都要求 reader 已经在线。
 	if s.runtime != nil {
 		s.runtime.Start()
@@ -229,6 +240,8 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 		cleanupFailedSession(s, "force stop failed on start prompt assembly error")
 		return nil, err
 	}
+	// recovery 期间的 thread/resume 不再从 runtimeConfig 猜测 prompt；此前已
+	// 记录校验过的 snapshot，后续每次 reconnect 重新执行 owner/version/legacy guard。
 	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
 	s.ensureRuntimeCodexHomeFromInitialize("start")
 	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
@@ -266,15 +279,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 
 // resumeSession 在依赖校验后恢复远端线程并重建动态工具面。
 func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-	var err error
-	req.ProviderThreadID, err = requireProviderResumeThreadID("codexapp", req.ProviderThreadID)
-	if err != nil {
-		return nil, err
-	}
-	if err := contract.ValidateResumePromptSnapshot(req.PromptSnapshot); err != nil {
-		return nil, fmt.Errorf("codexapp: %w", err)
-	}
-	req, err = d.prepareResumeSessionRequest(ctx, req)
+	req, nativeContext, err := d.prepareCodexResumeBoundary(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -293,6 +298,10 @@ func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	}
 	s.prepareTools, s.listTools, s.releaseTools = d.prepareTools, d.listTools, d.releaseTools
 	s.dynamicToolsEnabled = contract.ToolSurfaceModeUsesDynamicTools(toolSurfaceMode)
+	s.setNativeContext(nativeContext)
+	// resume 请求已经通过完整 snapshot owner/version 校验；保存副本供
+	// reconnect 的 thread/resume 路径继续执行同一边界检查。
+	s.setPromptSnapshot(req.PromptSnapshot)
 	// resume RPC 的响应也依赖 runtime-owned reader；失败时 ForceStop 会幂等 drain runtime。
 	if s.runtime != nil {
 		s.runtime.Start()
@@ -324,7 +333,7 @@ func (d *driver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeS
 	if err != nil {
 		return req, err
 	}
-	home, _, err := ensureResolvedCodexProviderHome(providerHome)
+	home, err := ensureResolvedCodexProviderHome(providerHome)
 	if err != nil {
 		return req, err
 	}
@@ -420,7 +429,20 @@ func requireProviderResumeThreadID(component, providerThreadID string) (string, 
 	return providerThreadID, nil
 }
 
+// startAssemblyInstructions 校验启动快照并组装 base/developer 指令；旧 memory 槽位
+// 必须在 thread/start 之前拒绝，避免恢复时再次穿透 provider-native 边界。
 func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string, string, error) {
+	if err := contract.ValidateLegacyMemoryPromptSections(req.StartAssembly.ResolvedSections); err != nil {
+		return "", "", err
+	}
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(req.StartAssembly.Snapshot); err != nil {
+		return "", "", err
+	}
+	if !codexPromptSnapshotBlank(req.StartAssembly.Snapshot) {
+		if err := contract.ValidateResumePromptSnapshotForProvider(req.StartAssembly.Snapshot, d.Name()); err != nil {
+			return "", "", fmt.Errorf("codexapp: start prompt snapshot: %w", err)
+		}
+	}
 	base := strings.TrimSpace(shared.FirstNonEmpty(
 		req.StartAssembly.BaseInstructions,
 		promptSnapshotBaseInstructions(req.StartAssembly.Snapshot),
@@ -451,6 +473,9 @@ func promptSnapshotInstructions(snapshot dto.PromptAssemblySnapshot) (string, st
 }
 
 func buildThreadResumeParams(req dto.ResumeSessionRequest) (threadResumeParams, error) {
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(req.PromptSnapshot); err != nil {
+		return threadResumeParams{}, err
+	}
 	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
 	if strings.TrimSpace(baseInstructions) == "" {
 		return threadResumeParams{}, errors.New("codexapp: resume prompt snapshot has empty base instructions")

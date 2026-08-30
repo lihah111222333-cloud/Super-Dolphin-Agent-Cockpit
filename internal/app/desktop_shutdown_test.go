@@ -25,12 +25,6 @@ func TestDesktopShutdownCoordinatorOrdersCancelJoinStopHandoffQuit(t *testing.T)
 		events = append(events, event)
 		mu.Unlock()
 	}
-	if err := owner.RegisterRuntimePreDrain(func(context.Context) error {
-		record("drain")
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
 	lifecycle := uiwails.NewWailsLifecycle(nil, nil)
 	lifecycle.MarkFrontendReady()
 	quit := make(chan struct{}, 1)
@@ -69,7 +63,7 @@ func TestDesktopShutdownCoordinatorOrdersCancelJoinStopHandoffQuit(t *testing.T)
 	mu.Lock()
 	got := strings.Join(events, ",")
 	mu.Unlock()
-	if got != "cancel,drain,stop,quit" {
+	if got != "cancel,stop,quit" {
 		t.Fatalf("shutdown order = %q", got)
 	}
 }
@@ -140,12 +134,8 @@ func TestDesktopShutdownCoordinatorRepeatedTriggerReturnsSameResult(t *testing.T
 func TestDesktopShutdownCoordinatorJoinsRunnerStopAndRunErrors(t *testing.T) {
 	owner := newAppOwnerContext(context.Background())
 	owner.MarkRuntimeDone()
-	drainErr := errors.New("drain failed")
 	stopErr := errors.New("stop failed")
 	runErr := errors.New("runner failed")
-	if err := owner.RegisterRuntimePreDrain(func(context.Context) error { return drainErr }); err != nil {
-		t.Fatal(err)
-	}
 	coordinator, err := newDesktopShutdownCoordinator(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +144,7 @@ func TestDesktopShutdownCoordinatorJoinsRunnerStopAndRunErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := coordinator.Shutdown(context.Background(), runErr)
-	for _, want := range []error{runErr, drainErr, stopErr} {
+	for _, want := range []error{runErr, stopErr} {
 		if !errors.Is(got, want) {
 			t.Fatalf("Shutdown() error = %v, missing %v", got, want)
 		}
@@ -243,10 +233,9 @@ func TestBindRuntimeDesktopUsesCoordinatorNotFXShutdowner(t *testing.T) {
 	}
 	lifecycle := &runtimeTestLifecycle{}
 	err = BindRuntime(lifecycle, runtimeParams{
-		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Shutdowner:        runtimeTestShutdowner{},
-		RootCtx:           owner,
-		ExtractionDrainer: runtimeDrainStub{},
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Shutdowner: runtimeTestShutdowner{},
+		RootCtx:    owner,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -273,10 +262,9 @@ func TestBindRuntimeRunnerErrorReachesCoordinator(t *testing.T) {
 	}
 	lifecycle := &runtimeTestLifecycle{}
 	if err := BindRuntime(lifecycle, runtimeParams{
-		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Shutdowner:        runtimeTestShutdowner{},
-		RootCtx:           owner,
-		ExtractionDrainer: runtimeDrainStub{},
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Shutdowner: runtimeTestShutdowner{},
+		RootCtx:    owner,
 	}); err != nil {
 		t.Fatal(err)
 	}

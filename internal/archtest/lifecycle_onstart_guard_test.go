@@ -69,7 +69,6 @@ func rootBridgeNegativeCases() []struct{ path, symbol string } {
 		{"internal/platform/mcpcontrol/module.go", "registerSweeper"},
 		{"internal/platform/rpc/module.go", "registerApprovalCleanup"},
 		{"internal/platform/toolbridge/module.go", "startProxy"},
-		{"internal/module/memory/module.go", "startTeamSync"},
 	}
 }
 
@@ -244,8 +243,8 @@ func TestShutdownOrdering(t *testing.T) {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 	onStop := bindRuntimeOnStopBody(t, file)
-	if len(onStop.List) < 3 {
-		t.Fatalf("BindRuntime OnStop has %d statements, want at least 3", len(onStop.List))
+	if len(onStop.List) < 2 {
+		t.Fatalf("BindRuntime OnStop has %d statements, want at least 2", len(onStop.List))
 	}
 	checks := []struct {
 		idx  int
@@ -254,7 +253,6 @@ func TestShutdownOrdering(t *testing.T) {
 	}{
 		{idx: 0, name: "cancel guard", ok: isCancelIfStmt},
 		{idx: 1, name: "RunGroup wait", ok: isRuntimeDoneWaitStmt},
-		{idx: 2, name: "runtime drain", ok: isDrainRuntimeBeforeStopStmt},
 	}
 	for _, check := range checks {
 		if !check.ok(onStop.List[check.idx]) {

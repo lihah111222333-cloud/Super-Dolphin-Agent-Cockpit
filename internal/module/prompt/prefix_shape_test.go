@@ -17,7 +17,7 @@ func TestBuildPrefixShapeUsesAssemblyFactsWithoutPromptContent(t *testing.T) {
 	sections := []ResolvedPromptSection{
 		{Name: "identity", Region: PromptRegionStatic, Content: "static body"},
 		{Name: "volatile", Region: PromptRegionStatic, Volatile: true, Content: "volatile body"},
-		{Name: "memory", Region: PromptRegionDynamic, Content: "dynamic body"},
+		{Name: "dynamic", Region: PromptRegionDynamic, Content: "dynamic body"},
 		{Name: "  ", Region: PromptRegionStatic, Content: "ignored"},
 	}
 	got := BuildPrefixShape(
@@ -29,7 +29,7 @@ func TestBuildPrefixShapeUsesAssemblyFactsWithoutPromptContent(t *testing.T) {
 		" compact ",
 	)
 
-	if got.Hash != "b193d14dfd7808ef100d7e1865771850347466e5c7f88593761f066bab04b867" {
+	if got.Hash != "3eb22cb5f3e26d36854ba2575eee69e2df5a94fc79ab1f19fc928ff01c880637" {
 		t.Fatalf("Hash = %q", got.Hash)
 	}
 	assertPrefixShapeNames(t, got)
@@ -41,7 +41,7 @@ func assertPrefixShapeNames(t *testing.T, got contract.PrefixShape) {
 	if !reflect.DeepEqual(got.StaticSectionNames, []string{"identity"}) {
 		t.Fatalf("StaticSectionNames = %#v", got.StaticSectionNames)
 	}
-	if !reflect.DeepEqual(got.DynamicSectionNames, []string{"memory", "volatile"}) {
+	if !reflect.DeepEqual(got.DynamicSectionNames, []string{"dynamic", "volatile"}) {
 		t.Fatalf("DynamicSectionNames = %#v", got.DynamicSectionNames)
 	}
 	if !reflect.DeepEqual(got.SuppressedToolNames, []string{"grep", "shell"}) {

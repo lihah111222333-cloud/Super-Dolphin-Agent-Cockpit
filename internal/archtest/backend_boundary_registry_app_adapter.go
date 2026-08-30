@@ -56,10 +56,8 @@ func appAdapterAllowPolicies() []BoundaryImportPolicy {
 		"internal/app/storeadapter/datasourcev2",
 		"internal/app/storeadapter/feedback",
 		"internal/app/storeadapter/insight",
-		"internal/app/storeadapter/memory",
 		"internal/app/storeadapter/personalization",
 		"internal/app/storeadapter/prompt",
-		"internal/app/storeadapter/skill",
 		"internal/app/storeadapter/thread",
 		"internal/app/storeadapter/turn",
 		"internal/app/storeadapter/uistate",
@@ -84,8 +82,6 @@ func appAdapterAllowPolicies() []BoundaryImportPolicy {
 		"internal/app/internal/storeguard", "internal/module/feedback", "internal/store/feedback")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/insight/adapter.go", "insight adapter owns only its domain module and store",
 		"internal/app/internal/storeguard", "internal/module/insight", "internal/store/insight")
-	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/memory/adapter.go", "memory adapter owns only its shared-file port and store",
-		"internal/app/internal/storeguard", "internal/module/memory/sharedfileport", "internal/store/sharedfile")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/personalization/adapter.go", "personalization adapter owns only its domain module and preference store",
 		"internal/app/internal/storeguard", "internal/module/personalization", "internal/store/uipreference")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/prompt/adapter.go", "prompt adapter owns only its domain module and prompt-related stores",
@@ -96,8 +92,6 @@ func appAdapterAllowPolicies() []BoundaryImportPolicy {
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/uistate/adapter.go", "UI state adapter owns only its domain module and UI stores",
 		"internal/app/internal/storeguard", "internal/module/uistate", "internal/store/binding",
 		"internal/store/sharedfile", "internal/store/uipreference")
-	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/skill/adapter.go", "skill adapter owns only skill domain and persistence ports",
-		"internal/module/skill", "internal/module/skill/toolstore", "internal/store/auditlog", "internal/store/skilltool")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/thread/prompt.go", "thread prompt adapter owns only thread contracts, modules, and prompt store",
 		"internal/contract", "internal/module/thread", "internal/module/threadprompt", "internal/store/prompt")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/thread/store.go", "thread store adapter owns only thread contracts and stores",

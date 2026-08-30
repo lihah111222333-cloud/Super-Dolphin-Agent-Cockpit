@@ -137,7 +137,7 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 		DeveloperInstructions: "snapshot dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  "snapshot-hash",
+		Hash:                  promptSnapshotHash("resume name", "snapshot base", "snapshot dev", "codex", nil, nil, 0),
 	}
 	threads := &stubThreadStore{thread: &ThreadRecord{
 		ThreadID:       "thread-1",

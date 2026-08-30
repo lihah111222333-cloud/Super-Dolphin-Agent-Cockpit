@@ -70,7 +70,6 @@ func NewConfigHandlers(
 	prefs PreferenceStore,
 	sharedFiles SharedFileReader,
 	threads contract.ThreadConfigReader,
-	skillStore contract.SkillLister,
 	nativeTools []contract.NativeToolDescriptor,
 ) platformrpc.HandlerMapResult {
 	toolIndex := buildNativeToolIndex(nativeTools)
@@ -85,10 +84,10 @@ func NewConfigHandlers(
 			return writeLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd, p.Hint)
 		}),
 		"config/builtinTools/read": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
-			return readBuiltinTools(ctx, prefs, skillStore, nativeTools, toolIndex, p.Cwd)
+			return readBuiltinTools(ctx, prefs, nativeTools, toolIndex, p.Cwd)
 		}),
 		"config/builtinTools/write": platformrpc.StrictHandler(func(ctx context.Context, p builtinToolsWriteParams) (any, error) {
-			return writeBuiltinTool(ctx, prefs, skillStore, nativeTools, toolIndex, p)
+			return writeBuiltinTool(ctx, prefs, nativeTools, toolIndex, p)
 		}),
 	}}
 }

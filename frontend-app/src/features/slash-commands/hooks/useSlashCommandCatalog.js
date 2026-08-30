@@ -59,16 +59,10 @@ export function useSlashCommandCatalog(options) {
   } = options;
   const enabled = Boolean(cwd) && (paletteOpen || hasSelectedCapabilities);
   const builtins = useMemo(() => builtinSlashCommandItems(copy), [copy]);
-  const skills = useCatalogCategory('skill', cwd, enabled, (targetCwd) => runBackgroundAction('slash-command.skills.load', () => service.loadSkills(targetCwd)));
   const prompts = useCatalogCategory('prompt', cwd, enabled, (targetCwd) => runBackgroundAction('slash-command.prompts.load', () => service.loadPrompts(targetCwd)));
   const automations = useCatalogCategory('automation', cwd, enabled, (targetCwd) => runBackgroundAction('slash-command.automations.load', () => service.loadAutomations(targetCwd)));
   const tools = useCatalogCategory('mcp_tool', cwd, enabled, (targetCwd) => runBackgroundAction('slash-command.mcp-tools.load', () => service.loadMCPTools(targetCwd)));
 
-  useCapabilityReconciliation(
-    'skill',
-    skills,
-    store.reconcileComposerCapabilities,
-  );
   useCapabilityReconciliation(
     'mcp_tool',
     tools,
@@ -78,14 +72,12 @@ export function useSlashCommandCatalog(options) {
   return {
     items: [
       ...builtins,
-      ...skills.items,
       ...prompts.items,
       ...automations.items,
       ...tools.items,
     ],
     categoryStates: {
       builtin: { status: 'success', error: '' },
-      skill: skills.state,
       prompt: prompts.state,
       automation: automations.state,
       mcp_tool: tools.state,

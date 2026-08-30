@@ -42,7 +42,6 @@ func TestToolbridgeProductionProfileRequiresCriticalDependencies(t *testing.T) {
 		{name: "agent_thread_lookup", omit: "toolbridge.agent_thread_lookup", wantErr: "toolbridge.agent_thread_lookup"},
 		{name: "thread_config_override_store", omit: "toolbridge.thread_config_override_store", wantErr: "toolbridge.thread_config_override_store"},
 		{name: "host_tools", omit: "toolbridge.host_tools", wantErr: "toolbridge.host_tools"},
-		{name: "skill_tools", omit: "toolbridge.skill_tools", wantErr: "toolbridge.skill_tools"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateToolbridgeDependencies(toolbridgeDependencyFixture{
@@ -140,7 +139,6 @@ func allToolbridgeDependencyNamesForTest() []string {
 		"toolbridge.agent_thread_lookup",
 		"toolbridge.thread_config_override_store",
 		"toolbridge.host_tools",
-		"toolbridge.skill_tools",
 	}
 }
 
@@ -182,8 +180,7 @@ func (f toolbridgeDependencyFixture) handlerIn() handlerIn {
 			hasToolName: testHostToolName,
 			tools:       []mcpdto.MCPTool{{Name: testHostToolName}},
 		},
-		SkillTools: &fakeSkillToolProvider{},
-		Metrics:    skillmetrics.NewRegistry(),
+		Metrics: skillmetrics.NewRegistry(),
 	}
 	omitToolbridgeDependencyForTest(&in, f.omit)
 	return in
@@ -203,7 +200,6 @@ func omitToolbridgeDependencyForTest(in *handlerIn, name string) {
 		"toolbridge.agent_thread_lookup":          func() { in.BindingStore = nil },
 		"toolbridge.thread_config_override_store": func() { in.ThreadStore = nil },
 		"toolbridge.host_tools":                   func() { in.HostTools = nil },
-		"toolbridge.skill_tools":                  func() { in.SkillTools = nil },
 	}
 	if omit := omits[name]; omit != nil {
 		omit()

@@ -25,7 +25,6 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
@@ -67,7 +66,6 @@ func TestDriverStartSessionSendsRestrictedSandboxPolicyOnWire(t *testing.T) {
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 

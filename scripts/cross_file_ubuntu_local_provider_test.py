@@ -225,7 +225,7 @@ class CrossFileUbuntuLocalProviderTest(unittest.TestCase):
             self.assertIn("HTTP_PROXY=http://127.0.0.1:2081", command)
             self.assertIn("HTTPS_PROXY=http://127.0.0.1:2081", command)
             self.assertIn("ALL_PROXY=http://127.0.0.1:2081", command)
-            self.assertEqual(sum(item == "--mount" for item in command), 5 if arm is no_lsp else 8)
+            self.assertEqual(sum(item == "--mount" for item in command), 5 if arm is no_lsp else 7)
             self.assertNotIn("/opt/benchmark/grader/python", command)
             self.assertTrue(any(item.startswith("CODEX_HOME=") for item in command))
             self.assertTrue(any("codex-home" in item for item in command))
@@ -238,9 +238,6 @@ class CrossFileUbuntuLocalProviderTest(unittest.TestCase):
         self.assertIn("MCP_LSP_RECEIPT_LOG_PATH=", " ".join(with_lsp.config.container_command))
         self.assertIn("MCP_LSP_RECEIPT_SIGNING_KEY_PATH=", " ".join(with_lsp.config.container_command))
         self.assertIn("dst=/opt/benchmark/mcp/mcp-lsp,readonly", " ".join(with_lsp.config.container_command))
-        self.assertIn("dst=/opt/benchmark/gate/mcp-tools-gate.py,readonly", " ".join(with_lsp.config.container_command))
-        self.assertIn("mcp-tools-gate.json", " ".join(with_lsp.config.container_command))
-        self.assertNotIn("mcp-tools-gate.py", " ".join(no_lsp.config.container_command))
         self.assertTrue(
             any(
                 "dst=/opt/benchmark/codex-release,readonly" in item

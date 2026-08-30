@@ -13,7 +13,7 @@ import (
 func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
 	var launched dto.MCPManifest
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
 		launched = manifest
 		return next.tr, nil, nil
 	})
@@ -47,7 +47,7 @@ func TestStartSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 	next := newBufferedTransport(t, "thread-1")
 	var launched dto.MCPManifest
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, _ cliLaunchConfig, manifest dto.MCPManifest, _ string) (*transport, func(), error) {
 		launched = manifest
 		return next.tr, nil, nil
 	})

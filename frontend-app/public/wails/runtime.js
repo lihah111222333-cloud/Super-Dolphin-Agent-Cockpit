@@ -319,7 +319,7 @@ const SESSION_ESTABLISHMENT_RPC_METHODS = new Set(['turn/start']);
 const DREAM_RPC_PATTERNS = ['prompt-intents/draft'];
 const UPDATE_RPC_PATTERNS = ['app/update/download', 'app/update/installlatest'];
 const INTERACTIVE_RPC_PATTERNS = ['ui/selectfiles', 'ui/selectprojectdir', 'ui/selectprojectdirs', 'ui/selectdatasourceimportfile'];
-const LONG_RPC_PATTERNS = ['compact', 'summary', 'memory', 'dream', 'extract', 'state/get', 'fork', 'cron'];
+const LONG_RPC_PATTERNS = ['compact', 'summary', 'dream', 'extract', 'state/get', 'fork', 'cron'];
 
 function rpcTimeoutMs(methodName) {
   const lower = methodName.toLowerCase();

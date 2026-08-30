@@ -40,6 +40,9 @@ func (s *service) resolveDynamicTurnAttachments(ctx context.Context, sectionCtx 
 	s.dynamicMu.RLock()
 	defer s.dynamicMu.RUnlock()
 	for _, section := range sections {
+		if contract.IsLegacyMemoryPromptSection(section.Name) {
+			continue
+		}
 		provider, ok := s.dynamic[section.Name]
 		if !ok || section.StartOnly {
 			continue
@@ -144,7 +147,9 @@ func resolvedSectionSnapshot(sections []ResolvedPromptSection) map[string]string
 	for _, section := range sections {
 		name := strings.TrimSpace(section.Name)
 		content := strings.TrimSpace(section.Content)
-		if name != "" && content != "" {
+		// Keep the snapshot boundary closed even when a custom caller invokes
+		// this helper without going through AssembleStart's earlier filter.
+		if name != "" && content != "" && !contract.IsLegacyMemoryPromptSection(name) {
 			snapshot[name] = content
 		}
 	}

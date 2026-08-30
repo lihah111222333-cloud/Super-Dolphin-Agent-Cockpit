@@ -24,7 +24,6 @@ import (
 	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/routingtest"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/skilltool"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sqlc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/systemlog"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"
@@ -59,7 +58,6 @@ var Module = fx.Module("store",
 	promptstore.Module,
 	routingtest.Module,
 	sharedfile.Module,
-	skilltool.Module,
 	systemlog.Module,
 	thread.Module,
 	topologyapproval.Module,

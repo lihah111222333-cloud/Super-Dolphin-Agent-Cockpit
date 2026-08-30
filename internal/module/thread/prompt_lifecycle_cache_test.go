@@ -15,16 +15,16 @@ func TestWorktreeResumeInvalidationClearsCache(t *testing.T) {
 	t.Parallel()
 
 	_, worktreeCWD := newPromptGitFixture(t)
-	promptAssembly, calls := newCountingMemoryPromptAssembly(t)
+	promptAssembly, calls := newCountingLanguagePromptAssembly(t)
 
 	firstStart := assemblePromptStart(t, promptAssembly, "first")
-	assertMemoryPromptBuild(t, *calls, firstStart.BaseInstructions, 1, "before resume")
+	assertLanguagePromptBuild(t, *calls, firstStart.BaseInstructions, 1, "before resume")
 
 	svc := newResumeInvalidationService(t, worktreeCWD, promptAssembly)
 	resumeThreadForPromptInvalidation(t, svc)
 
 	secondStart := assemblePromptStart(t, promptAssembly, "second")
-	assertMemoryPromptBuild(t, *calls, secondStart.BaseInstructions, 2, "after resume")
+	assertLanguagePromptBuild(t, *calls, secondStart.BaseInstructions, 2, "after resume")
 	if secondStart.BaseInstructions == firstStart.BaseInstructions {
 		t.Fatalf("BaseInstructions reused cached content after resume:\n%s", secondStart.BaseInstructions)
 	}
@@ -33,15 +33,16 @@ func TestWorktreeResumeInvalidationClearsCache(t *testing.T) {
 	}
 }
 
-func newCountingMemoryPromptAssembly(t *testing.T) (promptpkg.Service, *int) {
+func newCountingLanguagePromptAssembly(t *testing.T) (promptpkg.Service, *int) {
 	t.Helper()
 	promptAssembly := promptpkg.NewService(&promptpkg.Config{}, nil)
 	calls := 0
+	promptAssembly.UnregisterDynamicProvider(promptpkg.DynamicSectionLanguage)
 	if err := promptAssembly.RegisterDynamicProvider(promptpkg.DynamicTextProvider{
-		Name: promptpkg.DynamicSectionMemory,
+		Name: promptpkg.DynamicSectionLanguage,
 		ResolveFunc: func(context.Context, promptpkg.SectionContext) (*string, error) {
 			calls++
-			text := fmt.Sprintf("memory build #%d", calls)
+			text := fmt.Sprintf("language build #%d", calls)
 			return &text, nil
 		},
 	}); err != nil {
@@ -59,12 +60,12 @@ func assemblePromptStart(t *testing.T, promptAssembly promptpkg.Service, label s
 	return out
 }
 
-func assertMemoryPromptBuild(t *testing.T, gotCalls int, instructions string, wantCalls int, phase string) {
+func assertLanguagePromptBuild(t *testing.T, gotCalls int, instructions string, wantCalls int, phase string) {
 	t.Helper()
 	if gotCalls != wantCalls {
 		t.Fatalf("dynamic provider calls %s = %d, want %d", phase, gotCalls, wantCalls)
 	}
-	wantText := fmt.Sprintf("memory build #%d", wantCalls)
+	wantText := fmt.Sprintf("language build #%d", wantCalls)
 	if !strings.Contains(instructions, wantText) {
 		t.Fatalf("BaseInstructions %s missing %s:\n%s", phase, wantText, instructions)
 	}
@@ -83,6 +84,7 @@ func newResumeInvalidationService(t *testing.T, worktreeCWD string, promptAssemb
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("codex", "resume name")
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-resume",
 		Provider:      "codex",

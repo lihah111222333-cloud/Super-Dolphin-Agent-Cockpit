@@ -495,36 +495,3 @@
   font-size: 11px;
   padding: 4px 10px;
 }
-
-/* Custom Drag-and-drop look zone for memory imports */
-.super-dolphin-agent-import-memory-card {
-  display: flex;
-  flex-direction: column;
-}
-
-.super-dolphin-agent-import-memory-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-}
-
-.super-dolphin-agent-import-memory-content h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-pri);
-}
-
-.super-dolphin-agent-import-memory-content p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-sec);
-  line-height: 1.5;
-}
-
-.super-dolphin-agent-import-memory-content button {
-  margin-top: auto;
-}

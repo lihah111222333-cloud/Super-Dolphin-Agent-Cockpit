@@ -1,10 +1,10 @@
 {
   "_meta": {
-    "updatedAt": "2026-08-17T21:56:36Z"
+    "updatedAt": "2026-08-30T07:53:24Z"
   },
   "files": {
     "scripts/action-producer-guard.mjs": {
-      "lines": 720,
+      "lines": 718,
       "maxFuncLen": 91,
       "maxNesting": 7,
       "maxParams": 5,
@@ -65,8 +65,8 @@
       ]
     },
     "scripts/agentic-e2e-wails-mock.mjs": {
-      "lines": 548,
-      "maxFuncLen": 565,
+      "lines": 518,
+      "maxFuncLen": 528,
       "maxNesting": 8,
       "maxParams": 2,
       "exportCount": 3,
@@ -167,7 +167,7 @@
       ]
     },
     "scripts/desktop-ux-smoke.mjs": {
-      "lines": 188,
+      "lines": 184,
       "maxFuncLen": 20,
       "maxNesting": 4,
       "maxParams": 5,
@@ -350,7 +350,7 @@
       ]
     },
     "scripts/rpc-contract-audit.mjs": {
-      "lines": 5223,
+      "lines": 5214,
       "maxFuncLen": 185,
       "maxNesting": 8,
       "maxParams": 6,

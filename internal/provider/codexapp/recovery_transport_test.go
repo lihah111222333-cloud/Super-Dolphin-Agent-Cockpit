@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/kelindar/event"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
@@ -693,6 +694,34 @@ func TestSessionResumeThreadAfterRecoveryRejectsMissingRuntimeCWD(t *testing.T) 
 	err := s.resumeThreadAfterRecovery(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "recovery cwd is required") {
 		t.Fatalf("resumeThreadAfterRecovery() error = %v, want cwd required", err)
+	}
+}
+
+func TestSessionResumeThreadAfterRecoveryRejectsLegacyPromptSnapshotBeforeWire(t *testing.T) {
+	t.Parallel()
+
+	recorder := &rpcMethodRecorder{}
+	server := newCodexTestRPCServer(t, recordMethodsAndOK(recorder))
+	defer server.Close()
+	s := newRecoveryTestSession(t, server)
+	defer s.ForceStop()
+	s.setThreadID("thread-legacy-memory")
+	s.setPromptSnapshot(contract.PromptAssemblySnapshot{
+		BaseInstructions: "resume base",
+		Provider:         "codex",
+		Version:          contract.PromptAssemblySnapshotVersion,
+		Hash:             "snapshot-hash",
+		SectionSnapshot: map[string]string{
+			contract.DynamicSectionMemory: "legacy memory",
+		},
+	})
+
+	err := s.resumeThreadAfterRecovery(context.Background())
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("resumeThreadAfterRecovery() error = %v, want legacy memory sentinel", err)
+	}
+	if recorder.count("thread/resume") != 0 {
+		t.Fatalf("thread/resume calls = %d, want none before snapshot validation", recorder.count("thread/resume"))
 	}
 }
 

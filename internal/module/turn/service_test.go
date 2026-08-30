@@ -27,7 +27,7 @@ func TestNewServiceRequiresToolResultRuntime(t *testing.T) {
 	NewService(silentLogger(), nil)
 }
 
-func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) {
+func TestPrepareTurnKeepsExplicitSkillRefsMetadataOnly(t *testing.T) {
 	t.Parallel()
 
 	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
@@ -36,11 +36,7 @@ func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) 
 		Prompt: "Please use @debug and [skill:deploy-tool] on this issue.",
 		Images: []string{"https://example.com/screen.png", "https://example.com/screen.png"},
 		Files:  []string{"./README.md", "./README.md", "./malware.exe"},
-		Skills: []dto.SkillRef{{Name: "explicit", Prompt: "explicit guidance", Summary: "explicit summary"}},
-		CandidateSkills: []dto.SkillRef{
-			{Name: "debug", Prompt: "debug guidance", Summary: "debug summary"},
-			{Name: "deploy-tool", Prompt: "deploy guidance", Summary: "deploy summary"},
-		},
+		Skills: []dto.SkillRef{{Name: "explicit", Prompt: "explicit guidance", Summary: "explicit summary", Version: "v1"}},
 	})
 	if err != nil {
 		t.Fatalf("PrepareTurn() error = %v", err)
@@ -55,13 +51,41 @@ func TestPrepareTurnKeepsSkillRefsMetadataOnlyAndNormalizesInputs(t *testing.T) 
 	require.Equal(t, "./README.md", req.Inputs[2].Path)
 
 	gotNames := skillNames(req.Skills)
-	require.Equal(t, []string{"explicit", "debug", "deploy-tool"}, gotNames)
+	require.Equal(t, []string{"explicit"}, gotNames)
 	for _, ref := range req.Skills {
 		require.Equal(t, "", ref.Prompt)
 	}
 	require.Equal(t, "explicit summary", req.Skills[0].Summary)
-	require.Equal(t, "debug summary", req.Skills[1].Summary)
-	require.Equal(t, "deploy summary", req.Skills[2].Summary)
+}
+
+func TestPrepareTurnRejectsCandidateSkillsAsProviderNativeUnsupported(t *testing.T) {
+	t.Parallel()
+
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
+	session := &stubSession{threadID: "thread-1"}
+	_, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Prompt:          "Please use @debug on this issue.",
+		CandidateSkills: []dto.SkillRef{{Name: "debug", Summary: "debug guidance", Version: "v1"}},
+	})
+	if !errors.Is(err, contract.ErrProviderNativeCapabilityUnsupported) {
+		t.Fatalf("PrepareTurn() error = %v, want provider-native unsupported", err)
+	}
+}
+
+func TestPrepareTurnRejectsEmptySelectedSkillMetadata(t *testing.T) {
+	t.Parallel()
+
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
+	session := &stubSession{threadID: "thread-1"}
+	_, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Skills: []dto.SkillRef{
+			{Name: "debug", Summary: "debug guidance", Version: "v1"},
+			{Name: "   ", Summary: "missing name", Version: "v1"},
+		},
+	})
+	if !errors.Is(err, contract.ErrProviderNativeCapabilityUnsupported) {
+		t.Fatalf("PrepareTurn() error = %v, want provider-native unsupported", err)
+	}
 }
 
 func TestPrepareTurnRegistersDeferredStopBeforeLongPrepareAndStartUsesSameTrackerKey(t *testing.T) {
@@ -231,24 +255,18 @@ func TestInputAssemblerKeepsFileContentBoundaryDifferences(t *testing.T) {
 	}
 }
 
-func TestPrepareTurnManualSkillSelectionDisablesAutoMatch(t *testing.T) {
+func TestPrepareTurnManualSkillSelectionRejectsAutoMatchCandidates(t *testing.T) {
 	t.Parallel()
 
 	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
-	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+	_, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt:               "Please use @debug on this issue.",
 		ManualSkillSelection: true,
 		CandidateSkills:      []dto.SkillRef{{Name: "debug", Prompt: "debug guidance"}},
 	})
-	if err != nil {
-		t.Fatalf("PrepareTurn() error = %v", err)
-	}
-	if req.ManualSkillSelection != true {
-		t.Fatal("ManualSkillSelection = false, want true")
-	}
-	if len(req.Skills) != 0 {
-		t.Fatalf("Skills = %#v, want no auto-matched skills in manual mode", req.Skills)
+	if !errors.Is(err, contract.ErrProviderNativeCapabilityUnsupported) {
+		t.Fatalf("PrepareTurn() error = %v, want provider-native unsupported", err)
 	}
 }
 
@@ -258,8 +276,8 @@ func TestPrepareTurnProviderNativeSkillsDisabledForcesManualSkillMode(t *testing
 	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
-		Prompt:          "Please use @debug on this issue.",
-		CandidateSkills: []dto.SkillRef{{Name: "debug", Prompt: "debug guidance"}},
+		Prompt: "Please use @debug on this issue.",
+		Skills: []dto.SkillRef{{Name: "debug", Summary: "debug guidance", Version: "v1"}},
 		ThreadRuntimeConfig: map[string]any{
 			"providerNativeSkills": false,
 		},
@@ -270,8 +288,8 @@ func TestPrepareTurnProviderNativeSkillsDisabledForcesManualSkillMode(t *testing
 	if req.ManualSkillSelection != true {
 		t.Fatal("ManualSkillSelection = false, want provider-native skill isolation to force manual mode")
 	}
-	if len(req.Skills) != 0 {
-		t.Fatalf("Skills = %#v, want no auto-matched skills when provider-native skills are disabled", req.Skills)
+	if len(req.Skills) != 1 || req.Skills[0].Name != "debug" {
+		t.Fatalf("Skills = %#v, want explicit metadata-only skill", req.Skills)
 	}
 }
 
@@ -403,7 +421,7 @@ func TestPrepareTurnInjectsTurnAssembly(t *testing.T) {
 		CWD:                  "/repo",
 		Model:                "claude-sonnet",
 		ManualSkillSelection: true,
-		Skills:               []dto.SkillRef{{Name: "debug", Prompt: "legacy skill body"}},
+		Skills:               []dto.SkillRef{{Name: "debug", Prompt: "legacy skill body", Summary: "debug summary", Version: "v1"}},
 		RuntimeUserContext: map[string]string{
 			"workerToolsContext": "Workers can use bash and read tools.",
 			"terminalFocus":      "The terminal is unfocused — the user is not actively watching.",

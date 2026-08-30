@@ -243,6 +243,9 @@ func validateLinuxNativeManagedInstaller(languageID string, cfg installer.Instal
 	if cfg.ManagedInstall == nil {
 		return fmt.Errorf("native language %q must use ManagedInstall", languageID)
 	}
+	if !cfg.ManagedOnly {
+		return fmt.Errorf("native language %q must reject unrelated PATH shims with ManagedOnly", languageID)
+	}
 	if strings.TrimSpace(cfg.ManagedBinaryPath) == "" || !filepath.IsAbs(cfg.ManagedBinaryPath) {
 		return fmt.Errorf("native language %q must use an absolute ManagedBinaryPath, got %q", languageID, cfg.ManagedBinaryPath)
 	}

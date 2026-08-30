@@ -24,7 +24,7 @@ func TestSelectCodexProviderHomeDevEmptyUsesLocalCLIHome(t *testing.T) {
 	if selection.useAppManagedHome {
 		t.Fatalf("useAppManagedHome = true, want false for dev empty home")
 	}
-	home, mirrorHome, err := ensureResolvedCodexProviderHome(selection)
+	home, err := ensureResolvedCodexProviderHome(selection)
 	if err != nil {
 		t.Fatalf("ensureResolvedCodexProviderHome() error = %v", err)
 	}
@@ -32,8 +32,8 @@ func TestSelectCodexProviderHomeDevEmptyUsesLocalCLIHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks local codex home: %v", err)
 	}
-	if home != want || mirrorHome != "" {
-		t.Fatalf("home, mirrorHome = %q, %q; want local CLI home %q and empty mirror home", home, mirrorHome, want)
+	if home != want {
+		t.Fatalf("home = %q; want local CLI home %q", home, want)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestSelectCodexProviderHomePackagedEmptyUsesAppManagedHome(t *testing.T) {
 	if !selection.useAppManagedHome {
 		t.Fatalf("useAppManagedHome = false, want true for packaged empty home")
 	}
-	home, mirrorHome, err := ensureResolvedCodexProviderHome(selection)
+	home, err := ensureResolvedCodexProviderHome(selection)
 	if err != nil {
 		t.Fatalf("ensureResolvedCodexProviderHome() error = %v", err)
 	}
@@ -58,8 +58,8 @@ func TestSelectCodexProviderHomePackagedEmptyUsesAppManagedHome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
 	}
-	if home != want || mirrorHome != want {
-		t.Fatalf("home, mirrorHome = %q, %q; want app-managed %q", home, mirrorHome, want)
+	if home != want {
+		t.Fatalf("home = %q; want app-managed %q", home, want)
 	}
 }
 

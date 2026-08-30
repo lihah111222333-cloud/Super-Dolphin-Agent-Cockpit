@@ -47,20 +47,3 @@ type ApprovalDecision struct {
 	Reason   string          `json:"reason,omitempty"`
 	Detail   json.RawMessage `json:"detail,omitempty"`
 }
-
-// ArtifactApprovalRequest 定位一次 skill artifact 审批查询。
-// prompt/catalog 通过该结构查询审批缓存，不依赖具体 skill approval 存储实现。
-type ArtifactApprovalRequest struct {
-	RepoFingerprint string
-	Name            string
-	ArtifactKind    string
-	ArtifactLocator string
-	ContentHash     string
-}
-
-// ApprovalSource 暴露只读 artifact 审批状态和单调递增 revision。
-// prompt 缓存用 revision 判断是否需要失效重算。
-type ApprovalSource interface {
-	LookupArtifactApproval(ctx context.Context, req ArtifactApprovalRequest) (bool, error)
-	ApprovalRevision() uint64
-}

@@ -138,9 +138,9 @@ func loggedInClaudeAuthStatus(context.Context, string, string, cliLaunchConfig) 
 	return claudeAuthStatus{LoggedIn: true, AuthMethod: "oauth_token", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
 }
 
-func newTestDriverWithLaunch(t *testing.T, mirror contract.SkillMirrorReconciler, fn testLaunchCLI) *driver {
+func newTestDriverWithLaunch(t *testing.T, fn testLaunchCLI) *driver {
 	t.Helper()
-	d := buildDriver(nil, nil, nil, nil, nil, nil, mirror, nil, testSkillMetrics(t)).(*driver)
+	d := buildDriver(nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 	d.launchCLI = overrideLaunchCLI(t, fn)
 	d.authStatus = loggedInClaudeAuthStatus
 	return d
@@ -277,8 +277,9 @@ func TestPrepareTurnLockedIncludesAttachmentTextAfterUserContext(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	got := decoded.Message.Content[0].Text
-	// system-reminder is now injected once at session start, not per-turn.
-	want := contract.RenderAttachmentText(attachment) + "\n\nhello"
+	// system-reminder is now injected once at session start, and legacy memory
+	// attachments must not be replayed during restart turns.
+	want := "hello"
 	if got != want {
 		t.Fatalf("payload text = %q, want %q", got, want)
 	}

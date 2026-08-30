@@ -279,9 +279,9 @@ func (k optionalDependencyBudgetKey) String() string {
 func optionalDependencyBudgets() map[optionalDependencyBudgetKey]int {
 	budgets := map[optionalDependencyBudgetKey]int{
 		{owner: "internal/app", category: optionalDependencyAbsence}:                 2,
-		{owner: "internal/app", category: optionalAdjunct}:                           10,
-		{owner: "internal/platform/toolbridge", category: optionalDependencyAbsence}: 8,
-		{owner: "internal/platform/toolbridge", category: optionalAdjunct}:           12,
+		{owner: "internal/app", category: optionalAdjunct}:                           9,
+		{owner: "internal/platform/toolbridge", category: optionalDependencyAbsence}: 6,
+		{owner: "internal/platform/toolbridge", category: optionalAdjunct}:           10,
 		{owner: "internal/provider/claudecli", category: optionalAdjunct}:            4,
 		{owner: "internal/provider/codexapp", category: optionalAdjunct}:             5,
 		{owner: "internal/provider/unified", category: optionalAdjunct}:              5,
@@ -362,9 +362,8 @@ func registeredOptionalDependencyAppClassifications() map[string]optionalDepende
 		"internal/app/runtime_reporter_adapter.go:optional_tag:Logger":                                  appAdjunct("internal/app/runtime_reporter_adapter.go", "desktopExternalRuntimeReporter uses logger only for debug diagnostics"),
 		"internal/app/runtime_reporter_adapter.go:optional_tag:Dependency":                              appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the mode-aware policy from Dependency or Config"),
 		"internal/app/runtime_reporter_adapter.go:optional_tag:Config":                                  appAdjunct("internal/app/runtime_reporter_adapter.go", "appDependencyProfile resolves the fallback dependency profile from Config"),
-		"internal/app/runner.go:optional_tag:RootCtx":                                                   appAdjunct("internal/app/runner.go", "BindRuntime validates runtime pre-drain ownership before accepting nil-adjacent root context behavior"),
+		"internal/app/runner.go:optional_tag:RootCtx":                                                   appAdjunct("internal/app/runner.go", "BindRuntime derives a cancellable runtime root from the optional owner and remains nil-safe for standalone graph validation"),
 		"internal/app/runner.go:optional_tag:Lifecycle":                                                 appAdjunct("internal/app/runner.go", "reportRuntimeExit treats Wails lifecycle as notification-only adjunct"),
-		"internal/app/runner.go:optional_tag:ExtractionDrainer":                                         appAdjunct("internal/app/runner.go", "registerRuntimePreDrain fail-fast requires the drainer before production runtime stop hooks run"),
 		"internal/app/thread_orchestration_adapter.go:typed_unsupported:thread.bind_session_generation": appDependency("internal/app/thread_orchestration_adapter.go", "thread.bind_session_generation", contract.DependencyProfileDesktopHost, "BindSessionGeneration returns MissingDependencyModeError under desktop-host facade mode"),
 		"internal/app/thread_orchestration_adapter.go:noop_success:LaunchAgent":                         appAdjunct("internal/app/thread_orchestration_adapter.go", "LaunchAgent is a documented no-op because thread Start/SpawnIfNeeded owns local provider session launch"),
 	}
@@ -400,7 +399,6 @@ func registeredOptionalDependencyToolbridgeClassifications() map[string]optional
 		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.agent_thread_lookup":          toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.agent_thread_lookup", contract.DependencyProfileDesktopHost, "validateToolbridgeDependencies maps missing BindingStore to typed dependency policy outside production"),
 		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.thread_config_override_store": toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.thread_config_override_store", contract.DependencyProfileDesktopHost, "validateToolbridgeDependencies maps missing ThreadStore to typed dependency policy outside production"),
 		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.lifecycle_backfiller":         toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.lifecycle_backfiller", contract.DependencyProfileTest, "validateToolbridgeDependencies maps missing lifecycle backfiller to test-only typed policy"),
-		"internal/platform/toolbridge/handler.go:typed_unsupported:toolbridge.skill_tools":                  toolbridgeDependency("internal/platform/toolbridge/handler.go", "toolbridge.skill_tools", contract.DependencyProfileTest, "validateToolbridgeDependencies maps missing skill tools to test-only typed policy"),
 		"internal/platform/toolbridge/module.go:optional_tag:ApprovalRequester":                             toolbridgeAdjunct("internal/platform/toolbridge/module.go", "standalone sidecar omits the host approval requester; Windows ACL flows return typed authorization_required instead of dereferencing a missing requester"),
 		"internal/platform/toolbridge/module.go:optional_tag:Resolver":                                      toolbridgeAdjunct("internal/platform/toolbridge/module.go", "validateToolbridgeDependencies in handler.go requires workdir resolver in production"),
 		"internal/platform/toolbridge/module.go:optional_tag:BindingStore":                                  toolbridgeDependency("internal/platform/toolbridge/module.go", "toolbridge.agent_thread_lookup", contract.DependencyProfileDesktopHost, "handler.go validates BindingStore before Handler construction"),
@@ -412,9 +410,6 @@ func registeredOptionalDependencyToolbridgeClassifications() map[string]optional
 		"internal/platform/toolbridge/module.go:optional_tag:Dispatcher":                                    toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideDiffEmitter fails construction when dispatcher is nil"),
 		"internal/platform/toolbridge/module.go:optional_tag:Lifecycle":                                     toolbridgeDependency("internal/platform/toolbridge/module.go", "toolbridge.lifecycle_backfiller", contract.DependencyProfileTest, "handler.go validates lifecycle backfiller before toolbridge startup"),
 		"internal/platform/toolbridge/module.go:optional_tag:HostTools":                                     toolbridgeAdjunct("internal/platform/toolbridge/module.go", "validateToolbridgeDependencies in handler.go requires host tools in production"),
-		"internal/platform/toolbridge/module.go:optional_tag:SkillTools":                                    toolbridgeDependency("internal/platform/toolbridge/module.go", "toolbridge.skill_tools", contract.DependencyProfileTest, "handler.go validates skill tools before exposing toolbridge"),
-		"internal/platform/toolbridge/module.go:optional_tag:Reader":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips memory read registry when capability is absent"),
-		"internal/platform/toolbridge/module.go:optional_tag:Writer":                                        toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips memory write registry when capability is absent"),
 		"internal/platform/toolbridge/module.go:optional_tag:History":                                       toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips history registry when status port is absent"),
 		"internal/platform/toolbridge/module.go:optional_tag:Templates":                                     toolbridgeAdjunct("internal/platform/toolbridge/module.go", "provideHostToolRegistry skips workflow template registry when template registry is absent"),
 	}

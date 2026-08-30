@@ -9,16 +9,77 @@ import (
 
 var (
 	// 记忆模块跨层错误哨兵，供 handler/toolbridge 用 errors.Is 做稳定分类。
-	ErrFeatureDisabled    = errors.New("feature_disabled")
-	ErrMemoryInvalidParam = errors.New("memory invalid params")
-	ErrMemoryPersist      = errors.New("memory persist failed")
-	ErrMemoryTimedOut     = errors.New("memory timeout")
+	ErrFeatureDisabled = errors.New("feature_disabled")
+	// ErrMemoryRuntimeUnsupported 表示当前宿主不再由 memory 模块承接 prompt/turn 运行时注入。
+	// 调用方必须通过 errors.Is 分类，不能把该能力缺席当成空上下文成功。
+	ErrMemoryRuntimeUnsupported = errors.New("memory runtime unsupported")
+	ErrMemoryInvalidParam       = errors.New("memory invalid params")
+	ErrMemoryPersist            = errors.New("memory persist failed")
+	ErrMemoryTimedOut           = errors.New("memory timeout")
 	// 溢出合并、删除与索引刷新失败跨越 memory、UI 和 toolbridge 边界。
 	// 调用方必须通过 errors.Is 分类，不能依赖底层存储错误文本。
 	ErrMemoryOverflowMergeFailed  = errors.New("memory_overflow_merge_failed")
 	ErrMemoryOverflowDeleteFailed = errors.New("memory_overflow_delete_failed")
 	ErrMemoryIndexUpdateFailed    = errors.New("memory_index_update_failed")
 )
+
+// MemoryRuntimeCapability 是 memory 运行时边界的稳定能力名。
+// prompt 和 turn 保留旧 contract 仅为兼容历史 wiring；能力是否可用由宿主显式决定。
+type MemoryRuntimeCapability string
+
+const (
+	MemoryRuntimePromptCapability      MemoryRuntimeCapability = "memory.prompt"
+	MemoryRuntimeTurnContextCapability MemoryRuntimeCapability = "memory.turn_context"
+)
+
+const memoryRuntimeUnknownCapabilityCode = "capability_unknown"
+
+// Valid 判断 capability 是否属于当前 runtime contract 的固定白名单。
+func (c MemoryRuntimeCapability) Valid() bool {
+	switch c {
+	case MemoryRuntimePromptCapability, MemoryRuntimeTurnContextCapability:
+		return true
+	default:
+		return false
+	}
+}
+
+// MemoryRuntimeFlag 表示旧 memory runtime 注入路径是否由当前宿主启用。
+// 第一阶段默认关闭，避免 prompt/turn 隐式消费 memory 模块；未来 CLI owner 可显式提供 enabled wiring。
+type MemoryRuntimeFlag bool
+
+const (
+	MemoryRuntimeDisabled MemoryRuntimeFlag = false
+	MemoryRuntimeEnabled  MemoryRuntimeFlag = true
+	MemoryRuntimeDefault  MemoryRuntimeFlag = MemoryRuntimeDisabled
+)
+
+// MemoryRuntimeUnsupportedError 为 memory runtime 缺席提供可分类的 typed error。
+// Capability 字段保留 wire/type 兼容性；错误文本只回显固定白名单中的值。
+type MemoryRuntimeUnsupportedError struct {
+	Capability MemoryRuntimeCapability
+}
+
+// Error 返回不含敏感运行时信息的稳定诊断。
+func (e MemoryRuntimeUnsupportedError) Error() string {
+	if e.Capability == "" {
+		return ErrMemoryRuntimeUnsupported.Error()
+	}
+	if e.Capability.Valid() {
+		return ErrMemoryRuntimeUnsupported.Error() + ": " + string(e.Capability)
+	}
+	return ErrMemoryRuntimeUnsupported.Error() + ": " + memoryRuntimeUnknownCapabilityCode
+}
+
+// Unwrap 允许跨层使用 errors.Is 分类 memory runtime 缺席。
+func (e MemoryRuntimeUnsupportedError) Unwrap() error {
+	return ErrMemoryRuntimeUnsupported
+}
+
+// NewMemoryRuntimeUnsupported 创建带稳定能力名的 typed unsupported error。
+func NewMemoryRuntimeUnsupported(capability MemoryRuntimeCapability) error {
+	return MemoryRuntimeUnsupportedError{Capability: capability}
+}
 
 // MemoryScope 是记忆工具 wire 参数中的作用域枚举。
 // 服务层用它决定读写落点和权限过滤，未知值必须在进入持久化前被拒绝。
@@ -186,11 +247,6 @@ type AgentMemoryWriter interface {
 	WriteAgentMemory(ctx context.Context, req AgentMemoryWriteRequest) (AgentMemoryWriteResult, error)
 	MemoryWriteEnabled() bool
 	MemoryWriteToolsEnabled() bool
-}
-
-// MemoryExtractionDrainer 是 app runtime 停止前等待后台记忆抽取收口的窄契约。
-type MemoryExtractionDrainer interface {
-	DrainPendingExtraction(ctx context.Context) error
 }
 
 // AgentMemoryError 携带稳定 code 和底层错误，供 UI 与工具层做可预测展示。

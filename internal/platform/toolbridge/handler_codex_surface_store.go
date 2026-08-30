@@ -67,6 +67,9 @@ func addSingleMCPToolToSurface(
 	disabled codexDisabledToolSet,
 ) error {
 	tool := admitted.tool
+	if isRemovedSkillToolName(tool.Name) {
+		return nil
+	}
 	if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
 		return nil
 	}

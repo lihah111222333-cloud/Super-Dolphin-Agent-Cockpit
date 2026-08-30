@@ -7,12 +7,12 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 )
 
-func TestDiagnosticsFiltersMissingImportsNoiseByDefault(t *testing.T) {
+func TestDiagnosticsRetainsAllDiagnosticsByDefault(t *testing.T) {
 	dir := t.TempDir()
 	filePath := writeDiagnosticsFixture(t, dir, "script.py")
 	targetURI := canonicalFileURI(t, filePath)
 	registry := &diagnosticsTestRegistry{diagnosticsByURI: map[string][]protocol.Diagnostic{
-		targetURI: missingImportsDiagnostics(),
+		targetURI: mixedDiagnostics(),
 	}}
 	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: dir, Registry: registry})
 	got, err := handler(testToolContext(dir), marshalDiagnosticsInput(t, fileToolInput{FilePath: "script.py"}))
@@ -31,7 +31,7 @@ func TestDiagnosticsFiltersMissingImportsNoiseByDefault(t *testing.T) {
 	}
 }
 
-func missingImportsDiagnostics() []protocol.Diagnostic {
+func mixedDiagnostics() []protocol.Diagnostic {
 	return []protocol.Diagnostic{
 		{Range: protocol.Range{Start: protocol.Position{Line: 0, Character: 0}, End: protocol.Position{Line: 0, Character: 12}}, Severity: protocol.SeverityError, Source: "Pyright", Code: "reportMissingImports", Message: "Import \"numpy\" could not be resolved (reportMissingImports)"},
 		{Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}, End: protocol.Position{Line: 1, Character: 13}}, Severity: protocol.SeverityError, Source: "Pyright", Code: "reportMissingModuleSource", Message: "Import \"pandas\" could not be resolved from source"},
@@ -39,11 +39,11 @@ func missingImportsDiagnostics() []protocol.Diagnostic {
 	}
 }
 
-func TestDiagnosticsPreservesMissingImportsOnChangedLines(t *testing.T) {
+func TestDiagnosticsPreservesErrorsOutsideChangedLines(t *testing.T) {
 	dir := t.TempDir()
 	filePath := writeDiagnosticsFixture(t, dir, "script.py")
 	targetURI := canonicalFileURI(t, filePath)
-	registry := &diagnosticsTestRegistry{diagnosticsByURI: map[string][]protocol.Diagnostic{targetURI: missingImportsDiagnostics()}}
+	registry := &diagnosticsTestRegistry{diagnosticsByURI: map[string][]protocol.Diagnostic{targetURI: mixedDiagnostics()}}
 	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: dir, Registry: registry})
 	got, err := handler(testToolContext(dir), marshalDiagnosticsInput(t, fileToolInput{FilePath: "script.py", ChangedLines: []int{1}}))
 	if err != nil {
@@ -62,11 +62,11 @@ func TestDiagnosticsPreservesMissingImportsOnChangedLines(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsAllMissingImportsFilteredReturnsCleanZeroResult(t *testing.T) {
+func TestDiagnosticsRetainsMissingImportsWithoutDiffFilter(t *testing.T) {
 	dir := t.TempDir()
 	filePath := writeDiagnosticsFixture(t, dir, "script.py")
 	targetURI := canonicalFileURI(t, filePath)
-	registry := &diagnosticsTestRegistry{diagnosticsByURI: map[string][]protocol.Diagnostic{targetURI: {missingImportsDiagnostics()[0]}}}
+	registry := &diagnosticsTestRegistry{diagnosticsByURI: map[string][]protocol.Diagnostic{targetURI: {mixedDiagnostics()[0]}}}
 	handler := NewDiagnosticsHandler(Config{WorkspaceRoot: dir, Registry: registry})
 	got, err := handler(testToolContext(dir), marshalDiagnosticsInput(t, fileToolInput{FilePath: "script.py"}))
 	if err != nil {

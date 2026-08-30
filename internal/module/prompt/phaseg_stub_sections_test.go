@@ -59,6 +59,23 @@ func TestBriefProviderRequiresFeatureAndBriefMode(t *testing.T) {
 	}
 }
 
+func TestBriefProviderRejectsRetiredMemoryKairosAlias(t *testing.T) {
+	provider := BriefProvider{}
+	ctx := SectionContext{
+		BuildCtx: BuildCtx{
+			Summary:      "brief",
+			SessionFlags: map[string]bool{"memory_kairos": true},
+		},
+	}
+	text, err := provider.Resolve(context.Background(), ctx)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if text != nil {
+		t.Fatalf("Resolve() = %v, want nil for retired memory_kairos alias", text)
+	}
+}
+
 func TestAssembleTurnBriefGateTracksSummary(t *testing.T) {
 	t.Setenv("KAIROS_BRIEF", "1")
 	svc := NewService(&Config{}, nil)

@@ -24,13 +24,6 @@
   border: 0;
 }
 
-@media (max-width: 1280px) {
-  .skill-grid,
-  .memory-cards {
-    grid-template-columns: repeat(2, minmax(260px, 1fr));
-  }
-}
-
 @media (max-width: 860px) {
   .sa-body {
     grid-template-columns: 62px minmax(0, 1fr);
@@ -82,9 +75,6 @@
     flex: 1 1 0;
   }
 
-  .skill-grid,
-  .memory-cards,
-  .memory-stats,
   .stat-grid,
   .dag-node-editor,
   .dag-node-row {

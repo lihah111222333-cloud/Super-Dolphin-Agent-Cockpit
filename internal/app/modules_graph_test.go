@@ -137,13 +137,18 @@ func TestAppModuleGraphProvidesThreadOrchestrationFacade(t *testing.T) {
 	}
 }
 
-func TestAppModuleGraphProvidesMemoryExtractionDrainer(t *testing.T) {
+// TestAppModuleGraphOmitsMemoryRuntimePorts 固定桌面生产图不再实例化 memory runtime。
+// memory contract 仍可供显式 native/unsupported 边界使用，但 app Module 不提供其运行时端口。
+func TestAppModuleGraphOmitsMemoryRuntimePorts(t *testing.T) {
 	t.Parallel()
 
-	var drainer contract.MemoryExtractionDrainer
-	opts := append(appGraphValidationOptions(), fx.Populate(&drainer))
-	if err := fx.ValidateApp(opts...); err != nil {
-		t.Fatalf("fx.ValidateApp missing memory extraction drainer: %v", err)
+	var reader contract.AgentMemoryReader
+	err := fx.ValidateApp(append(appGraphValidationOptions(), fx.Populate(&reader))...)
+	if err == nil {
+		t.Fatal("fx.ValidateApp unexpectedly provided memory runtime reader")
+	}
+	if !strings.Contains(err.Error(), "contract.AgentMemoryReader") {
+		t.Fatalf("fx.ValidateApp memory runtime omission error = %v, want AgentMemoryReader", err)
 	}
 }
 
@@ -235,12 +240,6 @@ func TestProviderScaffoldProductionGraphRequiresCriticalDependencies(t *testing.
 			want:      "contract.RuntimeReporter",
 		},
 		{
-			name:      "codexapp missing provider mirror",
-			module:    codexapp.Module,
-			omissions: []providerGraphOmission{omitProviderMirror},
-			want:      "contract.SkillMirrorReconciler",
-		},
-		{
 			name:      "codexapp missing dependency profile",
 			module:    codexapp.Module,
 			omissions: []providerGraphOmission{omitDependencyConfig, omitContractConfig},
@@ -269,12 +268,6 @@ func TestProviderScaffoldProductionGraphRequiresCriticalDependencies(t *testing.
 			module:    claudecli.Module,
 			omissions: []providerGraphOmission{omitProxyToken},
 			want:      "name=\"proxy_token_fn\"",
-		},
-		{
-			name:      "claudecli missing provider mirror",
-			module:    claudecli.Module,
-			omissions: []providerGraphOmission{omitProviderMirror},
-			want:      "contract.SkillMirrorReconciler",
 		},
 		{
 			name:      "claudecli missing dependency profile",
@@ -390,7 +383,6 @@ type providerGraphOmission string
 const (
 	omitRuntimeReporter  providerGraphOmission = "runtime_reporter"
 	omitRuntimeHooks     providerGraphOmission = "runtime_hooks"
-	omitProviderMirror   providerGraphOmission = "provider_mirror"
 	omitSessionRecovery  providerGraphOmission = "session_recovery"
 	omitDependencyConfig providerGraphOmission = "dependency_config"
 	omitContractConfig   providerGraphOmission = "contract_config"
@@ -421,9 +413,6 @@ func appendProviderGraphCoreDependencies(opts []fx.Option, omitted map[providerG
 	}
 	if !omitted[omitRuntimeHooks] {
 		opts = append(opts, fx.Supply(providershared.RuntimeHooks{}))
-	}
-	if !omitted[omitProviderMirror] {
-		opts = append(opts, fx.Provide(func() contract.SkillMirrorReconciler { return graphTestSkillMirror{} }))
 	}
 	if !omitted[omitSessionRecovery] {
 		opts = append(opts, fx.Provide(func() contract.SessionRecoveryReporter { return graphTestSessionRecovery{} }))
@@ -470,12 +459,6 @@ type graphTestRuntimeReporter struct{}
 
 func (graphTestRuntimeReporter) ReportRuntime(context.Context, contract.RuntimeReport) error {
 	return nil
-}
-
-type graphTestSkillMirror struct{}
-
-func (graphTestSkillMirror) ReconcileProviderMirrors(context.Context, string, []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
-	return contract.SkillMirrorReport{}, nil
 }
 
 type graphTestSessionRecovery struct{}

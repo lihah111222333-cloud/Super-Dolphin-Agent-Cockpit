@@ -13,9 +13,9 @@ const (
 	toolResultAggregateBudgetChars  = 200_000
 
 	// 预算单位是 Unicode 码点（rune），不能按字节截断。
-	toolResultRelevantMemoryHeadroomChars = 60_000
-	toolResultNestedMemoryHeadroomChars   = 20_000
-	toolResultPreviewBudgetChars          = toolResultAggregateBudgetChars - toolResultRelevantMemoryHeadroomChars - toolResultNestedMemoryHeadroomChars
+	// 为 system/provider 上下文保留固定空间；该预留不依赖任何 memory attachment。
+	toolResultNonToolContextHeadroomChars = 80_000
+	toolResultPreviewBudgetChars          = toolResultAggregateBudgetChars - toolResultNonToolContextHeadroomChars
 )
 
 // toolResultBudget 保存单个 thread/turn 作用域剩余的工具结果预览额度。

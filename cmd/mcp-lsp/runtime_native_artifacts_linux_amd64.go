@@ -292,6 +292,7 @@ func registerLinuxNativeArtifactManifest(
 		BinaryName:          manifest.binaryName,
 		BinaryCheckArgs:     append([]string(nil), manifest.binaryCheckArgs...),
 		AllowInstallCommand: true,
+		ManagedOnly:         true,
 		ManagedBinaryPath:   managedPath,
 		ManagedInstall: func(ctx context.Context) (string, error) {
 			result, err := nativeInstaller.InstallArtifact(ctx, spec)
@@ -327,6 +328,7 @@ func registerLinuxJavaKotlinInstallers(
 	inst.Register("java", installer.InstallerConfig{
 		BinaryName:          "jdtls",
 		AllowInstallCommand: true,
+		ManagedOnly:         true,
 		ManagedBinaryPath:   jdtlsPath,
 		ManagedInstall: func(ctx context.Context) (string, error) {
 			return installLinuxJavaLanguageServer(ctx, nativeInstaller, root, artifacts.javaRuntime, artifacts.jdtls)
@@ -335,6 +337,7 @@ func registerLinuxJavaKotlinInstallers(
 	inst.Register("kotlin", installer.InstallerConfig{
 		BinaryName:          "kotlin-language-server",
 		AllowInstallCommand: true,
+		ManagedOnly:         true,
 		ManagedBinaryPath:   kotlinPath,
 		ManagedInstall: func(ctx context.Context) (string, error) {
 			return installLinuxJavaLanguageServer(ctx, nativeInstaller, root, artifacts.javaRuntime, artifacts.kotlin)

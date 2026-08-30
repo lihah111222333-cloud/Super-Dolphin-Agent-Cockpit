@@ -439,47 +439,92 @@ func TestUncachedDynamicSectionRetainsStableLastValue(t *testing.T) {
 }
 
 func TestStartOnlyDynamicSectionCachesStartWithoutLeakingToTurn(t *testing.T) {
-	svc := NewService(&Config{}, nil)
-	calls := 0
-	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
-		Name: DynamicSectionMemory,
-		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
-			calls++
-			text := fmt.Sprintf("memory build #%d", calls)
+	fixture := newStartOnlySectionFixture(t)
+	fixture.assertTurnExcludesSection(t, 0, "first")
+	firstStart, secondStart := fixture.assembleRepeatedStarts(t)
+	fixture.assertCachedStarts(t, firstStart, secondStart)
+	fixture.assertTurnExcludesSection(t, 1, "second")
+	fixture.assertInvalidationRebuild(t)
+}
+
+type startOnlySectionFixture struct {
+	service Service
+	section string
+	calls   int
+}
+
+func newStartOnlySectionFixture(t *testing.T) *startOnlySectionFixture {
+	t.Helper()
+	fixture := &startOnlySectionFixture{service: NewService(&Config{}, nil), section: "start_only_test"}
+	if err := fixture.service.RegisterSection(PromptSection{
+		Name:        fixture.section,
+		Order:       10000,
+		Region:      PromptRegionDynamic,
+		CachePolicy: InputScoped,
+		StartOnly:   true,
+		Compute: func(context.Context, SectionContext) (*string, error) {
+			fixture.calls++
+			text := fmt.Sprintf("start-only build #%d", fixture.calls)
 			return &text, nil
 		},
-	})
-
-	firstTurn, err := svc.AssembleTurn(context.Background(), TurnInput{})
-	if err != nil {
-		t.Fatalf("first AssembleTurn() error = %v", err)
+	}); err != nil {
+		t.Fatalf("RegisterSection() error = %v", err)
 	}
-	assertMemoryProviderSkippedOnTurn(t, firstTurn, calls)
+	return fixture
+}
 
-	firstStart, err := svc.AssembleStart(context.Background(), StartInput{})
+func (f *startOnlySectionFixture) assertTurnExcludesSection(t *testing.T, wantCalls int, label string) {
+	t.Helper()
+	assembly, err := f.service.AssembleTurn(context.Background(), TurnInput{})
+	if err != nil {
+		t.Fatalf("%s AssembleTurn() error = %v", label, err)
+	}
+	if f.calls != wantCalls || resolvedSectionIndex(assembly.ResolvedSections, f.section) >= 0 {
+		t.Fatalf("%s turn ran start-only section: calls=%d sections=%#v", label, f.calls, assembly.ResolvedSections)
+	}
+}
+
+func (f *startOnlySectionFixture) assembleRepeatedStarts(t *testing.T) (StartAssembly, StartAssembly) {
+	t.Helper()
+	first, err := f.service.AssembleStart(context.Background(), StartInput{})
 	if err != nil {
 		t.Fatalf("first AssembleStart() error = %v", err)
 	}
-	secondStart, err := svc.AssembleStart(context.Background(), StartInput{})
+	second, err := f.service.AssembleStart(context.Background(), StartInput{})
 	if err != nil {
 		t.Fatalf("second AssembleStart() error = %v", err)
 	}
-	assertCachedMemoryStart(t, firstStart, secondStart, calls)
+	return first, second
+}
 
-	secondTurn, err := svc.AssembleTurn(context.Background(), TurnInput{})
-	if err != nil {
-		t.Fatalf("second AssembleTurn() error = %v", err)
+func (f *startOnlySectionFixture) assertCachedStarts(t *testing.T, first, second StartAssembly) {
+	t.Helper()
+	if f.calls != 1 {
+		t.Fatalf("start-only provider calls after repeated start = %d, want 1", f.calls)
 	}
-	assertMemoryProviderStillSkippedOnTurn(t, secondTurn, calls)
+	firstContent := requireResolvedPromptSectionContent(t, first.ResolvedSections, f.section)
+	secondContent := requireResolvedPromptSectionContent(t, second.ResolvedSections, f.section)
+	if firstContent != "start-only build #1" || secondContent != firstContent {
+		t.Fatalf("start-only section cache mismatch: first=%q second=%q", firstContent, secondContent)
+	}
+}
 
-	if err := svc.Invalidate(context.Background(), InvalidateClear); err != nil {
+func (f *startOnlySectionFixture) assertInvalidationRebuild(t *testing.T) {
+	t.Helper()
+	if err := f.service.Invalidate(context.Background(), InvalidateClear); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
 	}
-	thirdStart, err := svc.AssembleStart(context.Background(), StartInput{})
+	third, err := f.service.AssembleStart(context.Background(), StartInput{})
 	if err != nil {
 		t.Fatalf("third AssembleStart() error = %v", err)
 	}
-	assertRebuiltMemoryStart(t, thirdStart, calls)
+	if f.calls != 2 {
+		t.Fatalf("start-only provider calls after invalidate = %d, want 2", f.calls)
+	}
+	content := requireResolvedPromptSectionContent(t, third.ResolvedSections, f.section)
+	if content != "start-only build #2" {
+		t.Fatalf("start-only section did not rebuild after invalidate: %q", content)
+	}
 }
 
 func TestInputScopedSectionCachesOnlyDependencyFields(t *testing.T) {

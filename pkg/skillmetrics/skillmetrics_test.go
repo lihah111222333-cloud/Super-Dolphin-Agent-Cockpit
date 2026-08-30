@@ -2,7 +2,7 @@ package skillmetrics
 
 import "testing"
 
-// TestCountersIncrementAndSnapshot 验证独立 Registry 的七条 series 对齐。
+// TestCountersIncrementAndSnapshot 验证独立 Registry 的六条 provider history/host-tool series 对齐。
 func TestCountersIncrementAndSnapshot(t *testing.T) {
 	registry := NewRegistry()
 

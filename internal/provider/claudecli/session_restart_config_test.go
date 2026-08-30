@@ -3,6 +3,7 @@ package claudecli
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -215,6 +216,9 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 	snapshot := contract.PromptAssemblySnapshot{
 		BaseInstructions:      "assembled base",
 		DeveloperInstructions: "assembled developer",
+		Provider:              "claude",
+		Version:               contract.PromptAssemblySnapshotVersion,
+		Hash:                  "snapshot-hash",
 	}
 	s := &session{
 		threadID:        "pending",
@@ -260,5 +264,76 @@ func TestRestartIfNeededLockedUsesPromptSnapshot(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("restartIfNeededLocked() did not finish")
+	}
+}
+
+func TestPrepareSessionRestartRejectsLegacyMemorySnapshot(t *testing.T) {
+	t.Parallel()
+
+	launched := false
+	s := &session{launchCLI: func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return nil, nil, nil
+	}}
+	_, err := s.prepareSessionRestartLocked(context.Background(), stagedSessionState{
+		config: cliLaunchConfig{PromptSnapshot: contract.PromptAssemblySnapshot{
+			Version:         contract.PromptAssemblySnapshotVersion,
+			SectionSnapshot: map[string]string{contract.DynamicSectionMemory: "legacy memory"},
+		}},
+	}, "", "test")
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("prepareSessionRestartLocked() error = %v, want legacy memory sentinel", err)
+	}
+	if launched {
+		t.Fatal("restart launch callback ran before legacy memory snapshot rejection")
+	}
+}
+
+func TestPrepareSessionRestartRejectsForeignOrStaleSnapshotBeforeLaunch(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		snapshot contract.PromptAssemblySnapshot
+		want     string
+	}{
+		{
+			name: "foreign owner",
+			snapshot: contract.PromptAssemblySnapshot{
+				BaseInstructions: "assembled base",
+				Provider:         "codex",
+				Version:          contract.PromptAssemblySnapshotVersion,
+				Hash:             "snapshot-hash",
+			},
+			want: "provider mismatch",
+		},
+		{
+			name: "stale version",
+			snapshot: contract.PromptAssemblySnapshot{
+				BaseInstructions: "assembled base",
+				Provider:         "claude",
+				Version:          contract.PromptAssemblySnapshotVersion - 1,
+				Hash:             "snapshot-hash",
+			},
+			want: "version",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			launched := false
+			s := &session{launchCLI: func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+				launched = true
+				return nil, nil, nil
+			}}
+			_, err := s.prepareSessionRestartLocked(context.Background(), stagedSessionState{
+				config: cliLaunchConfig{PromptSnapshot: tc.snapshot},
+			}, "", "test")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("prepareSessionRestartLocked() error = %v, want %q", err, tc.want)
+			}
+			if launched {
+				t.Fatal("restart launch callback ran before snapshot rejection")
+			}
+		})
 	}
 }

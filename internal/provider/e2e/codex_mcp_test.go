@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -84,16 +83,16 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	}
 }
 
-func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *testing.T) {
+func TestCodexStartSession_InjectsHostHistoryReadAndFiltersPeerHistoryRead_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
 	serverURL := startCodexRPCServer(t, recorder)
 
-	handler := newCodexMemoryReadToolBridgeHandler(t)
+	handler := newCodexHistoryReadToolBridgeHandler(t)
 	factory := newCodexE2EDriverFactory(t, serverURL)
 	factory.SetListTools(handler.ListToolsForCodex)
 
 	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-memory-read",
+		AgentID: "agent-history-read",
 		CWD:     t.TempDir(),
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions: "base prompt",
@@ -105,31 +104,31 @@ func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *
 	t.Cleanup(func() { _ = session.Close(context.Background()) })
 
 	params := recorder.threadStartParamsSnapshot()
-	assertDynamicToolNames(t, params, []string{toolbridge.ToolNameMemoryRead, "launch_agent", "lsp_hover"})
+	assertDynamicToolNames(t, params, []string{toolbridge.ToolNameHistoryRead, "launch_agent", "lsp_hover"})
 	tools := dynamicToolsFromParams(t, params)
-	if countDynamicToolName(tools, toolbridge.ToolNameMemoryRead) != 1 {
-		t.Fatalf("dynamicTools = %#v, want exactly one memory_read", tools)
+	if countDynamicToolName(tools, toolbridge.ToolNameHistoryRead) != 1 {
+		t.Fatalf("dynamicTools = %#v, want exactly one history_read", tools)
 	}
-	memoryRead := dynamicToolByName(t, tools, toolbridge.ToolNameMemoryRead)
-	if memoryRead["description"] == "peer memory read must be filtered" {
-		t.Fatalf("memory_read came from peer list, want host-direct schema: %#v", memoryRead)
+	historyRead := dynamicToolByName(t, tools, toolbridge.ToolNameHistoryRead)
+	if historyRead["description"] == "peer history read must be filtered" {
+		t.Fatalf("history_read came from peer list, want host-direct schema: %#v", historyRead)
 	}
-	inputSchema, ok := memoryRead["inputSchema"].(map[string]any)
+	inputSchema, ok := historyRead["inputSchema"].(map[string]any)
 	if !ok {
-		t.Fatalf("memory_read inputSchema = %#v, want object", memoryRead["inputSchema"])
+		t.Fatalf("history_read inputSchema = %#v, want object", historyRead["inputSchema"])
 	}
 	properties, ok := inputSchema["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("memory_read schema properties = %#v, want object", inputSchema["properties"])
+		t.Fatalf("history_read schema properties = %#v, want object", inputSchema["properties"])
 	}
-	for _, key := range []string{"name", "path", "scope", "type"} {
+	for _, key := range []string{"scope", "limit", "cursor"} {
 		if _, ok := properties[key]; !ok {
-			t.Fatalf("memory_read schema properties missing %q: %#v", key, properties)
+			t.Fatalf("history_read schema properties missing %q: %#v", key, properties)
 		}
 	}
 }
 
-func newCodexMemoryReadToolBridgeHandler(t *testing.T) *toolbridge.Handler {
+func newCodexHistoryReadToolBridgeHandler(t *testing.T) *toolbridge.Handler {
 	t.Helper()
 	var handler *toolbridge.Handler
 	app := fx.New(
@@ -137,10 +136,7 @@ func newCodexMemoryReadToolBridgeHandler(t *testing.T) *toolbridge.Handler {
 		fx.Supply(newCodexToolBridgeRegistry()),
 		fx.Provide(func(reg codexToolBridgeRegistry) *toolbridge.Handler {
 			return toolbridge.NewHandlerForTesting(reg, toolbridge.NewCompositeHostToolRegistry(
-				toolbridge.NewMemoryReadHostToolRegistry(
-					&codexMemoryReaderStub{enabled: true, toolsEnabled: true},
-					toolbridge.MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true},
-				),
+				toolbridge.NewHistoryReadHostToolRegistry(&codexHistoryStatusStub{}),
 			))
 		}),
 		fx.Populate(&handler),
@@ -164,7 +160,7 @@ func newCodexToolBridgeRegistry() codexToolBridgeRegistry {
 	return codexToolBridgeRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 		mcpdto.ClientKindOrch: {
 			codexToolInstance(mcpdto.ClientKindOrch, codexListToolsPeer([]mcpdto.MCPTool{
-				{Name: toolbridge.ToolNameMemoryRead, Description: "peer memory read must be filtered", InputSchema: json.RawMessage(`{"type":"object","properties":{"peer":{"type":"boolean"}}}`)},
+				{Name: toolbridge.ToolNameHistoryRead, Description: "peer history read must be filtered", InputSchema: json.RawMessage(`{"type":"object","properties":{"peer":{"type":"boolean"}}}`)},
 				{Name: "launch_agent", Description: "peer orch", InputSchema: json.RawMessage(`{"type":"object"}`)},
 			})),
 		},
@@ -180,21 +176,14 @@ func codexToolInstance(clientKind string, peer *codexToolBridgePeer) *mcpcontrol
 	return &mcpcontrol.ToolInstance{ClientKind: clientKind, Status: mcpdto.StatusActive, Peer: peer}
 }
 
-type codexMemoryReaderStub struct {
-	enabled      bool
-	toolsEnabled bool
+type codexHistoryStatusStub struct{}
+
+func (codexHistoryStatusStub) ListSessions(context.Context) ([]contract.SessionThreadSummary, error) {
+	return nil, nil
 }
 
-func (s *codexMemoryReaderStub) ReadAgentMemory(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
-	return contract.MemoryReadResult{Entry: &contract.MemoryEntry{Name: req.Name, Type: req.Type, Content: "memory content"}, SourcePath: "feedback/read.md", IndexHit: true}, nil
-}
-
-func (s *codexMemoryReaderStub) MemoryReadEnabled() bool {
-	return s == nil || s.enabled
-}
-
-func (s *codexMemoryReaderStub) MemoryReadToolsEnabled() bool {
-	return s == nil || s.toolsEnabled
+func (codexHistoryStatusStub) ReadMessages(context.Context, string, int, string) (dto.ThreadMessagesResult, error) {
+	return dto.ThreadMessagesResult{}, nil
 }
 
 func codexListToolsPeer(tools []mcpdto.MCPTool) *codexToolBridgePeer {
@@ -270,7 +259,7 @@ func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	assertCodexUserConfigFields(t, params)
 }
 
-func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t *testing.T) {
+func TestCodexStartSession_UsesProviderNativeSkillDiscovery_E2E(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
@@ -282,11 +271,7 @@ func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t
 	serverURL := startCodexRPCServer(t, recorder)
 
 	workDir := t.TempDir()
-	mirror := &recordingCodexE2ESkillMirrorReconciler{
-		events:    &events,
-		skillName: "provider-native-proof",
-	}
-	factory := newCodexE2EDriverFactoryWithMirror(t, serverURL, mirror, func() {
+	factory := newCodexE2EDriverFactoryWithPool(t, serverURL, func() {
 		events = append(events, "pool")
 	})
 	factory.SetListTools(func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
@@ -309,20 +294,11 @@ func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t
 	if params["cwd"] != workDir {
 		t.Fatalf("thread/start cwd = %#v, want %q", params["cwd"], workDir)
 	}
-	if strings.Join(events, ",") != "reconcile,pool,thread/start" {
-		t.Fatalf("events = %v, want reconcile before provider pool and thread/start", events)
+	if strings.Join(events, ",") != "pool,thread/start" {
+		t.Fatalf("events = %v, want provider pool and thread/start without centralized skill synchronization", events)
 	}
-	if mirror.cwd != workDir {
-		t.Fatalf("mirror cwd = %q, want %q", mirror.cwd, workDir)
-	}
-	assertCodexE2EMirrorTargets(t, mirror.targets, workDir, userHome)
-	projectSkillPath := filepath.Join(codexE2EProjectSkillsRoot(t, mirror.targets), "provider-native-proof", "SKILL.md")
-	raw, err := os.ReadFile(projectSkillPath)
-	if err != nil {
-		t.Fatalf("ReadFile mirrored project skill: %v", err)
-	}
-	if !strings.Contains(string(raw), "SD_PROJECT_SKILL_OK") {
-		t.Fatalf("mirrored project skill = %q, want SD_PROJECT_SKILL_OK sentinel", raw)
+	if _, err := os.Stat(filepath.Join(workDir, ".agents", "skills")); !os.IsNotExist(err) {
+		t.Fatalf("provider-native discovery must not create a centralized skill tree, stat err = %v", err)
 	}
 }
 
@@ -353,10 +329,10 @@ func assertCodexUserConfigFields(t *testing.T, params map[string]any) {
 
 func newCodexE2EDriverFactory(t *testing.T, serverURL string) *codexapp.DriverFactory {
 	t.Helper()
-	return newCodexE2EDriverFactoryWithMirror(t, serverURL, noopCodexE2ESkillMirrorReconciler{}, nil)
+	return newCodexE2EDriverFactoryWithPool(t, serverURL, nil)
 }
 
-func newCodexE2EDriverFactoryWithMirror(t *testing.T, serverURL string, mirror contract.SkillMirrorReconciler, onPoolAcquire func()) *codexapp.DriverFactory {
+func newCodexE2EDriverFactoryWithPool(t *testing.T, serverURL string, onPoolAcquire func()) *codexapp.DriverFactory {
 	t.Helper()
 	t.Setenv(providershared.SuperDolphinHomeEnv, t.TempDir())
 	pool := codexapp.NewServerPool(nil, func(context.Context, string, string) (codexapp.SpawnedServer, error) {
@@ -366,82 +342,13 @@ func newCodexE2EDriverFactoryWithMirror(t *testing.T, serverURL string, mirror c
 		return newCodexE2EFakeServer(serverURL), nil
 	}, codexapp.PoolConfig{})
 	t.Cleanup(func() { _ = pool.Close(context.Background()) })
-	factory, err := codexapp.NewDriverFactory(nil, nil, rpc.NewApprovalManager(nil, nil), nil, nil, pool, mirror, nil)
+	factory, err := codexapp.NewDriverFactory(nil, nil, rpc.NewApprovalManager(nil, nil), nil, nil, pool, nil)
 	if err != nil {
 		t.Fatalf("codexapp.NewDriverFactory() error = %v", err)
 	}
 	factory.SetLogRuntime(pkglogger.NewRuntime(pkglogger.RuntimeConfig{}))
 	factory.SetSkillMetrics(skillmetrics.NewRegistry())
 	return factory
-}
-
-type noopCodexE2ESkillMirrorReconciler struct{}
-
-func (noopCodexE2ESkillMirrorReconciler) ReconcileProviderMirrors(context.Context, string, []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
-	return contract.SkillMirrorReport{}, nil
-}
-
-type recordingCodexE2ESkillMirrorReconciler struct {
-	events    *[]string
-	skillName string
-	cwd       string
-	targets   []contract.SkillProviderMirrorTarget
-}
-
-func (r *recordingCodexE2ESkillMirrorReconciler) ReconcileProviderMirrors(_ context.Context, cwd string, targets []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
-	if r.events != nil {
-		*r.events = append(*r.events, "reconcile")
-	}
-	r.cwd = cwd
-	r.targets = append([]contract.SkillProviderMirrorTarget(nil), targets...)
-	for _, target := range targets {
-		if target.Provider != providershared.ProviderCodex {
-			continue
-		}
-		if err := writeCodexE2ENativeSkillMirror(target.SkillsRoot, r.skillName); err != nil {
-			return contract.SkillMirrorReport{}, fmt.Errorf("write provider-native mirror target %#v: %w", target, err)
-		}
-	}
-	return contract.SkillMirrorReport{}, nil
-}
-
-func writeCodexE2ENativeSkillMirror(root, name string) error {
-	dir := filepath.Join(root, name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	body := "---\nname: " + name + "\ndescription: provider native proof\n---\n\nSD_PROJECT_SKILL_OK\n"
-	return os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644)
-}
-
-func assertCodexE2EMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, workDir, userHome string) {
-	t.Helper()
-	if len(targets) != 2 {
-		t.Fatalf("mirror targets = %#v, want personal + project targets", targets)
-	}
-	realWorkDir, err := filepath.EvalSymlinks(workDir)
-	if err != nil {
-		t.Fatalf("EvalSymlinks workDir: %v", err)
-	}
-	wantProjectSkills := filepath.Join(realWorkDir, ".agents", "skills")
-	if targets[1].Provider != providershared.ProviderCodex || targets[1].SkillsRoot != wantProjectSkills {
-		t.Fatalf("project mirror target = %#v, want codex skills root %q", targets[1], wantProjectSkills)
-	}
-	wantPersonalSkills := filepath.Join(userHome, ".agents", "skills")
-	if targets[0].Provider != providershared.ProviderCodex || targets[0].SkillsRoot != wantPersonalSkills {
-		t.Fatalf("personal mirror target = %#v, want user-global codex skills root %q", targets[0], wantPersonalSkills)
-	}
-}
-
-func codexE2EProjectSkillsRoot(t *testing.T, targets []contract.SkillProviderMirrorTarget) string {
-	t.Helper()
-	for _, target := range targets {
-		if target.Provider == providershared.ProviderCodex && strings.Contains(target.SkillsRoot, string(filepath.Separator)+".agents"+string(filepath.Separator)) {
-			return target.SkillsRoot
-		}
-	}
-	t.Fatalf("mirror targets = %#v, want project codex skills root", targets)
-	return ""
 }
 
 type codexE2EFakeServer struct {

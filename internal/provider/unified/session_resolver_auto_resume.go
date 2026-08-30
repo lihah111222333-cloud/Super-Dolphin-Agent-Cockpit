@@ -45,10 +45,49 @@ func (r *sessionResolver) buildAutoResumePlan(binding *contract.SessionBinding, 
 		return autoResumePlan{}, err
 	}
 	req := buildAutoResumeRequest(binding, runtimeConfig, promptSnapshot, provider, providerThreadID, cwd, publicThreadID)
-	if err := contract.ValidateResumePromptSnapshot(req.PromptSnapshot); err != nil {
-		return autoResumePlan{}, fmt.Errorf("resolve session: auto-resume prompt snapshot: %w", err)
+	if err := validateAutoResumePromptSnapshot(req.PromptSnapshot, provider); err != nil {
+		return autoResumePlan{}, err
 	}
 	return autoResumePlan{driver: driver, req: req}, nil
+}
+
+// validateAutoResumePromptSnapshot applies the same structural and owner gate
+// both when constructing the plan and again after a provider identity resolver
+// has had a chance to mutate the request.  Revalidation closes that otherwise
+// hidden path before the driver can launch a resumed provider session.
+func validateAutoResumePromptSnapshot(snapshot contract.PromptAssemblySnapshot, provider string) error {
+	if err := contract.ValidateResumePromptSnapshotForProvider(snapshot, provider); err != nil {
+		return fmt.Errorf("resolve session: auto-resume prompt snapshot: %w", err)
+	}
+	return nil
+}
+
+// validateExistingPromptSnapshot applies the structural gate before returning
+// an already-live session.  A blank snapshot is allowed for legacy sessions
+// that never persisted prompt metadata; any non-blank value must be an exact
+// current snapshot and may not contain retired memory sections.
+func validateExistingPromptSnapshot(snapshot contract.PromptAssemblySnapshot) error {
+	if promptSnapshotBlank(snapshot) {
+		return nil
+	}
+	return contract.ValidateResumePromptSnapshot(snapshot)
+}
+
+func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
+	return strings.TrimSpace(snapshot.DisplayName) == "" &&
+		strings.TrimSpace(snapshot.BaseInstructions) == "" &&
+		promptBoundaryBlank(snapshot.Boundary) &&
+		strings.TrimSpace(snapshot.DeveloperInstructions) == "" &&
+		strings.TrimSpace(snapshot.Provider) == "" &&
+		snapshot.Version == 0 &&
+		strings.TrimSpace(snapshot.Hash) == "" &&
+		len(snapshot.SectionSnapshot) == 0 &&
+		snapshot.Generation == 0
+}
+
+func promptBoundaryBlank(boundary *dto.PromptAssemblyBoundary) bool {
+	return boundary == nil ||
+		(strings.TrimSpace(boundary.CachedPrefix) == "" && strings.TrimSpace(boundary.UncachedTail) == "")
 }
 
 // autoResumeRecoveryError 只把明确 artifact missing 映射为 session not found。

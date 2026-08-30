@@ -20,7 +20,7 @@ type uiDashboardGetParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 }
 
-// dashboardPromptsParams 是 prompt/skill dashboard 请求的 cwd scope 参数。
+// dashboardPromptsParams 是 dashboard prompt 请求的 cwd scope 参数。
 type dashboardPromptsParams struct {
 	Cwd string `json:"cwd,omitempty"`
 }
@@ -262,11 +262,6 @@ type finalOutputSnapshotLister interface {
 	listDashboardFinalOutputRefsFromSnapshot(context.Context) ([]FinalOutputRef, error)
 }
 
-// skillsResponse 是 dashboard/skills 的响应结构。
-type skillsResponse struct {
-	Skills []contract.SkillInfo `json:"skills"`
-}
-
 // logsResponse 是 dashboard/logs 的响应结构。
 type logsResponse struct {
 	Logs []LogEntry `json:"logs"`
@@ -417,14 +412,6 @@ func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return workflowMaterialWriteResponse{Path: file.Path}, nil
-	})
-	m["dashboard/skills"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
-		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
-		page, err := svc.GetDashboardPage(ctx, "skills")
-		if err != nil {
-			return nil, err
-		}
-		return skillsResponse{Skills: page.Skills}, nil
 	})
 	m["dashboard/agent/detail"] = platformrpc.StrictHandler(func(ctx context.Context, p agentDetailParams) (any, error) {
 		return svc.GetAgentDetail(ctx, p.agentID())

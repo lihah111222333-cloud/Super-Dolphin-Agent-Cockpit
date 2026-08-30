@@ -340,6 +340,12 @@ func (s *session) stageStartingTerminal(raw dto.RawProviderEvent) bool {
 }
 
 func buildTurnStartParams(threadID string, req dto.TurnRequest) (turnStartParams, error) {
+	if err := contract.ValidateLegacyMemoryPromptSections(req.TurnAssembly.ResolvedSections); err != nil {
+		return turnStartParams{}, err
+	}
+	if err := validateSelectedSkillNames(req.Skills); err != nil {
+		return turnStartParams{}, err
+	}
 	selectedSkills := selectedSkillNames(req.Skills)
 	inputs, err := turnInputsFromRequest(req.Inputs, req.TurnAssembly)
 	if err != nil {
@@ -409,6 +415,12 @@ func trimTurnToolScopeRoots(roots []string) []string {
 }
 
 func buildTurnSteerParams(threadID string, req dto.SteerRequest) (map[string]any, error) {
+	if err := contract.ValidateLegacyMemoryPromptSections(req.TurnAssembly.ResolvedSections); err != nil {
+		return nil, err
+	}
+	if err := validateSelectedSkillNames(req.Skills); err != nil {
+		return nil, err
+	}
 	inputs, err := turnInputsFromRequest(req.Inputs, req.TurnAssembly)
 	if err != nil {
 		return nil, err
@@ -449,6 +461,18 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 		}
 	}
 	return selected
+}
+
+// validateSelectedSkillNames 拒绝 provider 直连调用中的空 skill 名称。
+// turn.Service 通常会在更早的边界执行同一检查，但 driver 也必须自守，避免
+// 直接调用 buildTurnStartParams/buildTurnSteerParams 时把损坏选择静默丢弃。
+func validateSelectedSkillNames(skills []dto.SkillRef) error {
+	for i, skill := range skills {
+		if strings.TrimSpace(skill.Name) == "" {
+			return fmt.Errorf("codexapp: selected skill[%d] name is required", i)
+		}
+	}
+	return nil
 }
 
 func turnInputsFromRequest(inputs []dto.InputItem, assembly dto.TurnAssembly) ([]turnInputItem, error) {

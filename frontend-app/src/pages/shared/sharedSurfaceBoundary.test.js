@@ -18,14 +18,7 @@ const appShellBackendApiAllowlist = new Set([
   'installLatestAppUpdate',
   'getPersonalizationProfile',
 ]);
-const ownerlessFeatureSurfaceImportAllowlist = new Map([
-  ['App.jsx', new Set([
-    'pages/memory/services/memoryPageService.js',
-  ])],
-  ['pages/shared/pageShared.js', new Set([
-    'pages/memory/services/memoryPageService.js',
-  ])],
-]);
+const ownerlessFeatureSurfaceImportAllowlist = new Map();
 
 function read(relPath) {
   return fs.readFileSync(path.join(sourceRoot, relPath), 'utf8');
@@ -140,17 +133,12 @@ function actualOwnerlessFeatureSurfaceImportViolations() {
 }
 
 describe('shared page surface boundary', () => {
-  it('keeps App memory badge and pageShared behind page-owned memory services', () => {
+  it('keeps app shell and shared page modules free of feature-owned services', () => {
     const checked = ['App.jsx', 'pages/shared/pageShared.js'];
-    const violations = [];
-    for (const relPath of checked) {
-      const source = read(relPath);
-      if (source.includes('services/modules/memoryService.js')) violations.push(`${relPath} imports memoryService`);
-    }
+    const violations = checked.filter((relPath) => read(relPath).includes('services/modules/'));
     expect(violations).toEqual([]);
-    expect(read('App.jsx')).not.toMatch(/\bfetchMemoryDashboard\b/);
-    expect(read('App.jsx')).toMatch(/memory(?:Page|Badge)Service/);
-    expect(read('pages/shared/pageShared.js')).toMatch(/memory(?:Page|Badge)Service/);
+    expect(read('App.jsx')).not.toMatch(/services\/modules\//);
+    expect(read('pages/shared/pageShared.js')).not.toMatch(/services\/modules\//);
   });
 
   it('keeps App shell backend API calls on a small explicit allowlist', () => {
@@ -167,9 +155,6 @@ describe('shared page surface boundary', () => {
     `)).toEqual([
       'App.jsx imports ownerless feature surface ./pages/chat/adapters/threadStateAdapter.js',
     ]);
-    expect(ownerlessFeatureSurfaceImportViolations('App.jsx', `
-      import { memoryPageService } from './pages/memory/services/memoryPageService.js';
-    `)).toEqual([]);
   });
 
   it('keeps pageShared away from shared module services', () => {

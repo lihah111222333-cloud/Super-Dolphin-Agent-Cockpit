@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
 )
 
 // main 运行 fixture 覆盖检查，并把 run 的返回码映射为进程退出码。

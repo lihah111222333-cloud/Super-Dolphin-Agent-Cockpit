@@ -62,8 +62,8 @@ const (
 // SkillBlockHeader 是注入 skill 块头部的解析结果。
 //
 // Mode 用原始字符串作为 rollout 标签——由上游调用方（codexapp/claudecli）自行
-// 转换。这样避免 `internal/module/skill` 反向依赖 `internal/dto/provider`（后者
-// 在导入图上处于更高层）。有效值："full" / "summary" / "none"。
+// 转换。该解析包保持独立，避免反向依赖 provider DTO（后者在导入图上处于更高层）。
+// 有效值："full" / "summary" / "none"。
 type SkillBlockHeader struct {
 	Format  SkillBlockFormat
 	Name    string // 带 footer 格式的 skill 名；旧格式为空字串

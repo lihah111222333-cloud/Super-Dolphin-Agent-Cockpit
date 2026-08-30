@@ -1,8 +1,11 @@
 /* global process */
 import { defineConfig } from '@playwright/test';
+import { resolvePlaywrightVideoMode } from './playwright-capabilities.mjs';
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
 const baseURL = process.env.SUPER_DOLPHIN_DESKTOP_WIDE_BASE_URL || 'http://127.0.0.1:5177';
+const video = resolvePlaywrightVideoMode(process.env);
+if (video === false) process.stderr.write('Playwright video disabled: ffmpeg is unavailable; set SUPER_DOLPHIN_PLAYWRIGHT_VIDEO=1 after installing ffmpeg.\n');
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -21,7 +24,7 @@ export default defineConfig({
     },
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
-    video: 'retain-on-failure',
+    video,
   },
   projects: [
     { name: 'desktop-1440', use: { viewport: { width: 1440, height: 900 } } },

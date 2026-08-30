@@ -65,11 +65,9 @@ const (
 	EventTypeUIProjectionUpdated  uint32 = 1500
 	EventTypeUITimelineAppended   uint32 = 1501
 	EventTypeUITokensUpdated      uint32 = 1502
-	EventTypeUISkillsChanged      uint32 = 1503
 	EventTypeUIThreadPatch        uint32 = 1504
 	EventTypeUIPreferencesChanged uint32 = 1505
 	EventTypeUISharedFilesChanged uint32 = 1506
-	EventTypeUIMemoryChanged      uint32 = 1507
 	EventTypeUIPromptsChanged     uint32 = 1508
 )
 

@@ -9,7 +9,7 @@ import (
 )
 
 func TestProxyToolsList_OrchIncludesHostAndSurvivesPeerDown(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "memory_write", Description: "host memory"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: ToolNameRetiredHostWrite, Description: "retired host write"}}}
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 			dto.ClientKindOrch: {listToolsPeer(nil, errors.New("orch down"))},
@@ -31,13 +31,13 @@ func TestProxyToolsList_OrchIncludesHostAndSurvivesPeerDown(t *testing.T) {
 		t.Fatalf("tools = %#v, want one host tool", result["tools"])
 	}
 	tool, ok := tools[0].(map[string]any)
-	if !ok || tool["name"] != "memory_write" {
-		t.Fatalf("tool = %#v, want memory_write", tools[0])
+	if !ok || tool["name"] != ToolNameRetiredHostWrite {
+		t.Fatalf("tool = %#v, want %s", tools[0], ToolNameRetiredHostWrite)
 	}
 }
 
 func TestProxyToolsList_LSPDoesNotIncludeHostMemory(t *testing.T) {
-	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: "memory_write", Description: "host memory"}}}
+	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: ToolNameRetiredHostWrite, Description: "retired host write"}}}
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 			dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: "inspect", Description: "lsp"}}, nil)},
@@ -85,9 +85,9 @@ func TestProxyToolsList_MultiplePeersAmbiguousLikeToolsCall(t *testing.T) {
 	assertPublicToolErrorPayload(t, got.Error.Message, ErrAmbiguousPeer.Error())
 }
 
-func TestProxyToolsList_LSPFiltersPeerMemoryRead(t *testing.T) {
+func TestProxyToolsList_LSPFiltersPeerRetiredHostRead(t *testing.T) {
 	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "inspect", Description: "lsp"}}, nil)},
+		dto.ClientKindLSP: {listToolsPeer([]dto.MCPTool{{Name: ToolNameRetiredHostRead, Description: "peer retired host"}, {Name: "inspect", Description: "lsp"}}, nil)},
 	}}, proxyAuthToken: newProxyAuthToken()}
 
 	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
@@ -96,16 +96,19 @@ func TestProxyToolsList_LSPFiltersPeerMemoryRead(t *testing.T) {
 	}
 	result := got.Result.(map[string]any)
 	tools := result["tools"].([]any)
-	if proxyToolsContainName(tools, ToolNameMemoryRead) {
-		t.Fatalf("tools = %#v, must filter peer memory_read for non-orch proxy list", tools)
+	if proxyToolsContainName(tools, ToolNameRetiredHostRead) {
+		t.Fatalf("tools = %#v, must filter retired host read for non-orch proxy list", tools)
 	}
 	if !proxyToolsContainName(tools, "inspect") {
 		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
 	}
 }
 
-func TestProxyToolsList_OrchIncludesHostMemoryRead(t *testing.T) {
-	host := NewMemoryReadHostToolRegistry(&stubAgentMemoryReader{enabled: true, toolsEnabled: true}, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true})
+func TestProxyToolsList_OrchIncludesHostRetiredRead(t *testing.T) {
+	host := &stubHostToolRegistry{
+		hasToolName: ToolNameRetiredHostRead,
+		tools:       []dto.MCPTool{{Name: ToolNameRetiredHostRead, Description: "retired host read"}},
+	}
 	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: "launch_agent", Description: "peer orch"}}, nil)}}}, hostTools: host, proxyAuthToken: newProxyAuthToken()}
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
@@ -114,17 +117,17 @@ func TestProxyToolsList_OrchIncludesHostMemoryRead(t *testing.T) {
 	}
 	result := got.Result.(map[string]any)
 	tools := result["tools"].([]any)
-	if !proxyToolsContainName(tools, ToolNameMemoryRead) {
-		t.Fatalf("tools = %#v, want memory_read", tools)
+	if !proxyToolsContainName(tools, ToolNameRetiredHostRead) {
+		t.Fatalf("tools = %#v, want %s", tools, ToolNameRetiredHostRead)
 	}
 	if !proxyToolsContainName(tools, "launch_agent") {
 		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
 	}
 }
 
-func TestProxyToolsList_OrchFiltersPeerMemoryReadWhenReaderUnavailable(t *testing.T) {
+func TestProxyToolsList_OrchFiltersPeerRetiredReadWhenHostUnavailable(t *testing.T) {
 	h := &Handler{registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameRetiredHostRead, Description: "peer retired host"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
 	}}, proxyAuthToken: newProxyAuthToken()}
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
@@ -133,19 +136,20 @@ func TestProxyToolsList_OrchFiltersPeerMemoryReadWhenReaderUnavailable(t *testin
 	}
 	result := got.Result.(map[string]any)
 	tools := result["tools"].([]any)
-	if proxyToolsContainName(tools, ToolNameMemoryRead) {
-		t.Fatalf("tools = %#v, must filter peer memory_read when host reader is unavailable", tools)
+	if proxyToolsContainName(tools, ToolNameRetiredHostRead) {
+		t.Fatalf("tools = %#v, must filter retired host read when host is unavailable", tools)
 	}
 	if !proxyToolsContainName(tools, "launch_agent") {
 		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)
 	}
 }
 
-func TestProxyToolsList_OrchFiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *testing.T) {
-	reader := &stubAgentMemoryReader{enabled: true, toolsEnabled: true}
-	host := NewMemoryReadHostToolRegistry(reader, MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: false})
+func TestProxyToolsList_OrchFiltersPeerRetiredReadWhenHostHidden(t *testing.T) {
+	// The retired name remains reserved even when no host schema is published;
+	// it must never fall through to an MCP peer.
+	host := &stubHostToolRegistry{hasToolName: ToolNameRetiredHostRead}
 	h := &Handler{hostTools: host, registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
-		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameMemoryRead, Description: "peer memory"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
+		dto.ClientKindOrch: {listToolsPeer([]dto.MCPTool{{Name: ToolNameRetiredHostRead, Description: "peer retired host"}, {Name: "launch_agent", Description: "peer orch"}}, nil)},
 	}}, proxyAuthToken: newProxyAuthToken()}
 
 	got := callProxyRequest(t, h, "/mcp/orch/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
@@ -154,8 +158,8 @@ func TestProxyToolsList_OrchFiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *
 	}
 	result := got.Result.(map[string]any)
 	tools := result["tools"].([]any)
-	if proxyToolsContainName(tools, ToolNameMemoryRead) {
-		t.Fatalf("tools = %#v, must filter peer memory_read when memory_read tools disabled", tools)
+	if proxyToolsContainName(tools, ToolNameRetiredHostRead) {
+		t.Fatalf("tools = %#v, must filter retired host read when host tool is hidden", tools)
 	}
 	if !proxyToolsContainName(tools, "launch_agent") {
 		t.Fatalf("tools = %#v, want non-memory peer tool preserved", tools)

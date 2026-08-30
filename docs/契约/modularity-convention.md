@@ -76,7 +76,6 @@ V3 的核心原则只有一句：
 - `internal/mcpserver/common`
 - `internal/module/thread`
 - `internal/module/turn`
-- `internal/module/skill`
 - `internal/module/workspace`
 - `internal/module/uistate`
 - `internal/module/lspgui`
@@ -275,11 +274,6 @@ super-agent-v3/
 │   │   │   ├── service.go
 │   │   │   ├── rpc.go
 │   │   │   └── events.go
-│   │   ├── skill/             ← 只负责技能管理，card CRUD 已迁至 cmd/mcp-orch/tools
-│   │   │   ├── module.go
-│   │   │   ├── contract.go
-│   │   │   ├── service.go
-│   │   │   └── exec.go
 │   │   ├── workspace/
 │   │   │   ├── module.go
 │   │   │   ├── contract.go
@@ -381,7 +375,7 @@ super-agent-v3/
 - `cmd/mcp-*` 禁止调用 `New*Handlers`、禁止依赖 `rpc.go` 中的 `handler.Map`、禁止 import `Module` 做整包装配。
 - MCP 工具定义中的 schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`；核心层禁止放置这些协议面定义。
 - `cmd/mcp-*` 自身代码遵守 **2026-06-28 放宽后的默认守卫**：单文件有效行数 `<=800`、包非测试文件 `<=25`、包有效行数 `<=10000`；函数 `<=80`、CC `<=10`、嵌套 `<=4`、标识符下划线 `<=3` 不变。有效行不计空行和纯注释行。
-- **核心包放宽守卫（当前唯一有意义的差异是包文件数 30 > 默认 25）**：`module/memory` 当前实测 30 文件 / 7020 有效行，已回落至新默认额度（autofix 已删除历史冻结）；仍保留核心包包文件数 `<=30` 例外以便扩展；`module/prompt`、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 维持包文件数 `<=30`、包有效行数 `<=10000`、单文件有效行数 `<=800`。当前守卫框架见 `docs/架构/skeleton-code-guard.md`；历史阈值来源可追溯到 `docs/plans/迁移/v3-code-guard-spec.md` §1 与 §1.1。
+- **核心包放宽守卫（当前唯一有意义的差异是包文件数 30 > 默认 25）**：已退役的 `module/memory` 不再是活动 owner，也不参与守卫例外；仍保留核心包包文件数 `<=30` 例外以便扩展；`module/prompt`、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 维持包文件数 `<=30`、包有效行数 `<=10000`、单文件有效行数 `<=800`。当前守卫框架见 `docs/架构/skeleton-code-guard.md`；历史阈值来源可追溯到 `docs/plans/迁移/v3-code-guard-spec.md` §1 与 §1.1。
 - `cmd/mcp-orch/orchestration/*` 是当前 `mcp-orch` 本地编排 runtime owner；桌面 app 不内嵌该模块，其他层也不得反向 import 它。
 - `cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 是当前 `mcp-orch` 本地数据层；运行时不得回退依赖 `internal/store/*` 或 `internal/store/sqlc/*`。
 - 显式架构例外：`internal/store/module.go` 作为 store 层根装配器，允许 import 各 `internal/store/*` 子包并统一装配 shared store provider；该例外不计为违规，但不得向其他根包扩散。
@@ -1585,7 +1579,7 @@ V2 当前主链路是：
 |---|---|---|---|
 | `initStores` | 构造所有 store 并塞到 `Server` | `store/*` + `platform/db` | 多个 `fx.Provide` |
 | `initRuntimeWiring` | provider adapter、LSP tool、busy checker、phase1 controller | `provider/unified`、`tool/lsp`、`platform/rpc`、`platform/runner` | `fx.Provide` + 局部 `fx.Invoke` |
-| `initSkills` | 选择 skills dir、创建 skill service / manager | `module/skill` | `fx.Provide` |
+| `initSkills` | V2 本地 skills dir 与 manager 初始化；V3 已移除，由 provider-native runtime 自行发现 | `provider/*` | provider-owned capability，无 V3 module wiring |
 | `registerMethods` | RPC 方法表注册 | `platform/rpc` + 各业务模块 | handler group `fx.Out` + `fx.Invoke(RegisterHandlers)` |
 | `applyStallConfig` | 静态配置作用到 provider adapter | `platform/config` + `provider/unified` | `fx.Invoke(ApplyStallPolicy)` |
 | `ensureStallPreferenceFromDB` | 从偏好 store 恢复 runtime timeout | `module/uistate`、`ui/runtime` 或 `module/preferences` | `fx.Invoke(RestoreRuntimePreferences)` |

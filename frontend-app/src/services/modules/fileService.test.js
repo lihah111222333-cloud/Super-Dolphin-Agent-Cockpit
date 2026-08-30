@@ -13,7 +13,6 @@ describe('fileService', () => {
     const readSharedFileBackend = vi.fn().mockResolvedValue({ file: { path: 'notes/a.md', content: 'hello' } });
     const adaptSharedFileDetail = vi.fn((response, fallbackFile) => ({ path: response.file.path, fallbackFile }));
     vi.doMock('../../shared/api/backendApi.js', () => ({
-      deleteSharedFile: vi.fn(),
       listSharedFiles: vi.fn(),
       openSharedFile: vi.fn(),
       readSharedFile: readSharedFileBackend,
@@ -37,7 +36,6 @@ describe('fileService', () => {
       throw new Error('shared file detail response must be an object');
     });
     vi.doMock('../../shared/api/backendApi.js', () => ({
-      deleteSharedFile: vi.fn(),
       listSharedFiles: vi.fn(),
       openSharedFile: vi.fn(),
       readSharedFile: readSharedFileBackend,

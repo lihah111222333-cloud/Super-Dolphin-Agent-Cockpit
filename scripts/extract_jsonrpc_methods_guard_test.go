@@ -18,7 +18,7 @@ func TestExtractJSONRPCMethodsScript_EmitsKnownMethods(t *testing.T) {
 		"observability/status",
 		"ctl/register",
 		"dashboard/insights/list",
-		"memory/consolidate",
+		"prompt-sections/list",
 		"thread/messages",
 		"turn/interrupt",
 		"ui/sidebar/get",

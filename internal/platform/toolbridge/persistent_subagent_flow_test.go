@@ -281,7 +281,9 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 type persistentFlowPromptAssembly struct{}
 
 func (*persistentFlowPromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
-	return contract.StartAssembly{}, nil
+	// The production start/resume boundary rejects an empty prompt snapshot;
+	// keep this fixture representative of a real provider-owned assembly.
+	return contract.StartAssembly{BaseInstructions: "persistent flow test instructions"}, nil
 }
 
 func (*persistentFlowPromptAssembly) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
@@ -289,7 +291,7 @@ func (*persistentFlowPromptAssembly) AssembleTurn(context.Context, contract.Turn
 }
 
 func (*persistentFlowPromptAssembly) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
-	return contract.StartAssembly{}, nil
+	return contract.StartAssembly{BaseInstructions: "persistent flow test instructions"}, nil
 }
 
 func (*persistentFlowPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {

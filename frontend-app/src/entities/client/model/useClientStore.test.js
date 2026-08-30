@@ -332,12 +332,12 @@ function registerBridgeEventHandlersForTest() {
 
     useClientStore.getState().setActivePage('settings');
     useClientStore.getState().setActivePage('settings');
-    useClientStore.getState().setActivePage('memory');
+    useClientStore.getState().setActivePage('files');
 
-    expect(useClientStore.getState().activePage).toBe('memory');
+    expect(useClientStore.getState().activePage).toBe('files');
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'app.navigation', routeId: 'settings', phase: 'complete' },
-      { actionCode: 'app.navigation', routeId: 'memory', phase: 'complete' },
+      { actionCode: 'app.navigation', routeId: 'files', phase: 'complete' },
     ]);
   });
 
@@ -3314,7 +3314,7 @@ function registerBridgeEventHandlersForTest() {
 
   it('applies window bootstrap snapshot before scoped RPCs', async () => {
     backend.getWindowBootstrap.mockResolvedValue({
-      snapshot: { cwd: '/repo/other', page: 'skills' },
+      snapshot: { cwd: '/repo/other', page: 'chat' },
     });
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
     backend.getSidebarState.mockResolvedValue({ threads: [] });
@@ -3326,7 +3326,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState()).toEqual(expect.objectContaining({
       cwd: '/repo/app',
       activeProject: '/repo/other',
-      activePage: 'skills',
+      activePage: 'chat',
     }));
   });
 
@@ -8616,23 +8616,23 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('emits failed warning entries to frontend observability traces', () => {
-    useClientStore.getState().addWarning('warn', 'memory.badge.refresh.failed', {
-      error: '记忆中心加载超时，请检查记忆数据或后端状态。',
-      traceId: 'trace-memory-1',
-      spanId: 'span-memory-1',
+    useClientStore.getState().addWarning('warn', 'workflow.refresh.failed', {
+      error: '自动化列表加载超时，请检查后端状态。',
+      traceId: 'trace-workflow-1',
+      spanId: 'span-workflow-1',
       threadId: 'thread-1',
       req_id: 17,
     });
 
     expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
       phase: 'frontend.warning',
-      method: 'memory.badge.refresh.failed',
-      trace_id: 'trace-memory-1',
-      span_id: 'span-memory-1',
+      method: 'workflow.refresh.failed',
+      trace_id: 'trace-workflow-1',
+      span_id: 'span-workflow-1',
       thread_id: 'thread-1',
       status: 'error',
       error: '[redacted]',
-      metadata: { component: 'memory', req_id: 17 },
+      metadata: { component: 'workflow', req_id: 17 },
     }));
   });
 

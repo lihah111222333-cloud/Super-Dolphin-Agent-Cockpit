@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'; import { Dialog, Modal, ModalOverlay, Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
-import { CheckCircle2, File, FileText, Upload, User } from 'lucide-react'; import {
+import { CheckCircle2, File, FileText, User } from 'lucide-react'; import {
 commitPromptIntent, copyTextToClipboard, deletePrompt, discardPromptIntent, draftPromptIntent, dryRunPromptIntent, getDashboardPrompts, getPersonalizationProfile, getPreference, getPrompt, listPromptAssets, savePersonalizationProfile, setPreference, writePrompt,
 } from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText, parseStrictJsonValue, rawTextValue } from '../../pages/shared/pageShared.js'; import './PromptPageView.css';
@@ -354,9 +354,8 @@ notifyAction('个人资料已保存', 'success', { category: 'profile' });
 } finally {
 if (isCurrentRequest()) setters.setSaving(false);
  }
-}; const handleSaveProfile = () => runUIAction('prompt.profile.save', saveProfile); const handleImportMemory = () => { setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' }); setters.setWizardOpen(true);
-}; const profileValidationErrors = useMemo(() => validatePersonalizationProfile(profileForm), [profileForm]); const handleProjectRequired = useCallback(() => { setters.setNotice('请先在聊天页选择项目，再使用个性化设置。'); }, [setters]);
-const layoutProps = { activePromptId, actioning, counts, copy, cwd, draftActions, editorActions, error, fallbackMode, isProjectPending, loading, modals, notice, personalization: { error: profileError, loading: profileLoading, onImportMemory: handleImportMemory,
+}; const handleSaveProfile = () => runUIAction('prompt.profile.save', saveProfile); const profileValidationErrors = useMemo(() => validatePersonalizationProfile(profileForm), [profileForm]); const handleProjectRequired = useCallback(() => { setters.setNotice('请先在聊天页选择项目，再使用个性化设置。'); }, [setters]);
+const layoutProps = { activePromptId, actioning, counts, copy, cwd, draftActions, editorActions, error, fallbackMode, isProjectPending, loading, modals, notice, personalization: { error: profileError, loading: profileLoading,
 onProfileChange: setProfileForm, onProjectRequired: handleProjectRequired, onSaveProfile: handleSaveProfile, profile: profileForm, saving, validationErrors: profileValidationErrors, },
 projectPath, resolveLaunchPreferences, saving, setters, showBlockingError: Boolean(error), syncError, visibleItems, };
 return <PromptPageLayout {...layoutProps} />; }
@@ -371,7 +370,6 @@ const saveProfileDisabled = !isProjectPending && (profileLoading || profileSavin
 const updateProfile = (key) => (event) => { personalization?.onProfileChange?.({ ...profile, [key]: event.target.value });
 }; const profileStatus = isProjectPending ? copy.waitingProject : personalization?.error ? copy.loadFailed : profileLoading ? copy.loadingShort : copy.connected; const overviewText = isProjectPending ? copy.overviewConnecting : fallbackMode ? copy.overviewFallback
 : copy.overviewReady; const handleSaveClick = () => { if (isProjectPending) { personalization?.onProjectRequired?.(); return; } if (saveProfileDisabled) return; personalization?.onSaveProfile?.(); };
-const handleImportClick = () => { if (isProjectPending) { personalization?.onProjectRequired?.(); return; } personalization?.onImportMemory?.(); };
 const fieldError = (key) => (profileErrors[key] ? <span className="personalization-field-error" role="alert">{profileErrors[key]}</span> : null); return (
 <section className="personalization-overview" aria-label={copy.overviewAria}>
   <div className="personalization-overview-hero fusion-surface">
@@ -404,16 +402,6 @@ const fieldError = (key) => (profileErrors[key] ? <span className="personalizati
       <button type="button" aria-disabled={isProjectPending || undefined} disabled={saveProfileDisabled} title={isProjectPending ? '请先选择项目' : undefined} onClick={handleSaveClick}>
         {profileSaving ? copy.saving : copy.saveProfile}
       </button>
-    </section>
-    <section className="personalization-profile-card super-dolphin-agent-import-memory-card" aria-label={copy.importMemoryTitle}>
-      <div className="super-dolphin-agent-import-memory-content">
-        <Upload size={28} className="super-dolphin-agent-import-memory-icon" />
-        <h3>{copy.importMemoryTitle}</h3>
-        <p>{copy.importMemoryText}</p>
-        <button type="button" aria-disabled={isProjectPending || undefined} title={isProjectPending ? '请先选择项目' : undefined} onClick={handleImportClick}>
-          {copy.importMemory}
-        </button>
-      </div>
     </section>
   </div>
 </section>

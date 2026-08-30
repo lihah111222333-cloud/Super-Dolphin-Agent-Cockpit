@@ -3,11 +3,11 @@ import { safeLogFields } from './safeLogFields.js';
 const BREADCRUMB_KEYS = new Set(['actionCode', 'routeId', 'phase', 'timestamp']);
 const BREADCRUMB_ACTION_CODES = new Set(['app.bootstrap', 'app.navigation', 'approval.submit']);
 const BREADCRUMB_ROUTE_IDS = new Set([
-  'app', 'chat', 'prompts', 'workflows', 'skills', 'memory', 'observability', 'files', 'settings',
+  'app', 'chat', 'prompts', 'workflows', 'observability', 'files', 'settings',
 ]);
 const BREADCRUMB_PHASES = new Set(['start', 'complete', 'success', 'timeout', 'failure']);
 const NAVIGATION_ROUTE_IDS = new Set([
-  'chat', 'prompts', 'workflows', 'skills', 'memory', 'observability', 'files', 'settings',
+  'chat', 'prompts', 'workflows', 'observability', 'files', 'settings',
 ]);
 const APPROVAL_PHASES = new Set(['start', 'success', 'timeout', 'failure']);
 const BREADCRUMB_TRAIL_LIMIT = 160;

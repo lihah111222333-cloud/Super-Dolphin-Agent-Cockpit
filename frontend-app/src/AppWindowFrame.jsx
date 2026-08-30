@@ -49,7 +49,6 @@ export function AppWindowFrame({ frame }) {
           theme={frame.theme}
           toggleLocale={frame.toggleLocale}
           toggleTheme={frame.toggleTheme}
-          memorySimilarCount={frame.memoryBadge.memorySimilarCount}
           onCloseSidebar={frame.closeSidebar}
         />
         <main className="sa-main">
@@ -60,8 +59,6 @@ export function AppWindowFrame({ frame }) {
               copy={frame.copy}
               store={frame.store}
               projectPath={frame.projectPath}
-              memoryRevision={frame.memoryBadge.memoryRevision}
-              setMemoryPageSimilarCount={frame.memoryBadge.setMemoryPageSimilarCount}
               onWorkflowViewChange={frame.onWorkflowViewChange}
               rightPanelOpen={frame.rightPanelOpen}
               setRightPanelOpen={frame.setRightPanelOpen}

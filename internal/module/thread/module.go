@@ -5,6 +5,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -52,9 +53,15 @@ var Module = fx.Module("thread",
 	fx.Provide(NewBindingRecoveryReporter, NewThreadLister, NewThreadConfigReader, NewThreadRuntimeConfigReader),
 )
 
-func provideThreadConcreteOutputs(svc Service) (*service, contract.ThreadStateConfigReader) {
-	concrete, _ := svc.(*service)
-	return concrete, concrete
+func provideThreadConcreteOutputs(svc Service) (*service, contract.ThreadStateConfigReader, error) {
+	if svc == nil {
+		return nil, nil, errors.New("thread service is required")
+	}
+	concrete, ok := svc.(*service)
+	if !ok || concrete == nil {
+		return nil, nil, errors.New("thread service must be the concrete thread implementation")
+	}
+	return concrete, concrete, nil
 }
 
 func provideCronThreadStarter(svc Service) contract.CronThreadStarter {
@@ -374,6 +381,18 @@ func (s *service) savePromptSnapshot(ctx context.Context, threadID string, assem
 	}
 	if promptSnapshotBlank(assembly.Snapshot) {
 		return errors.New("thread: prompt snapshot is empty")
+	}
+	if assembly.Snapshot.Version != contract.PromptAssemblySnapshotVersion {
+		return fmt.Errorf("thread: prompt snapshot version %d is invalid", assembly.Snapshot.Version)
+	}
+	if err := contract.ValidateLegacyMemoryPromptSections(assembly.ResolvedSections); err != nil {
+		return err
+	}
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(assembly.Snapshot); err != nil {
+		return err
+	}
+	if err := validatePromptSnapshotForReuse(assembly.Snapshot, assembly.Snapshot.Provider); err != nil {
+		return fmt.Errorf("thread: prompt snapshot: %w", err)
 	}
 	return s.threadStore.SavePromptSnapshot(ctx, threadID, promptSnapshotRecordToStore(toStoredPromptSnapshot(assembly.Snapshot)))
 }

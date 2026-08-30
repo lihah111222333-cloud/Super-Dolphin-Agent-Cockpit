@@ -254,7 +254,7 @@ describe('PromptPageView module', () => {
     const { notifyAction } = renderPromptPage();
 
     expect(await screen.findByRole('heading', { name: '个性化' })).toBeInTheDocument();
-    expect(screen.getByText('管理您的身份信息以及 Super Dolphin Agent 的记忆内容')).toBeInTheDocument();
+    expect(screen.getByText('管理您的身份信息以及 Super Dolphin Agent 的提示词')).toBeInTheDocument();
     const overview = screen.getByLabelText('个性化概览');
     const metricValue = (label) => {
       const term = Array.from(overview.querySelectorAll('dt')).find((node) => node.textContent === label);
@@ -357,16 +357,6 @@ describe('PromptPageView module', () => {
     expect(screen.queryByText('个人资料已保存')).not.toBeInTheDocument();
   });
 
-  it('opens the recall wizard from the import memory action', async () => {
-    renderPromptPage();
-
-    const overview = await screen.findByLabelText('个性化概览');
-    fireEvent.click(within(overview).getByRole('button', { name: '导入记忆' }));
-
-    const dialog = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
-    expect(within(dialog).getByRole('tab', { name: '参考资料' })).toHaveAttribute('aria-selected', 'true');
-  });
-
   it('shows inline validation reasons and blocks saving an invalid profile', async () => {
     renderPromptPage();
 
@@ -389,25 +379,20 @@ describe('PromptPageView module', () => {
     await waitFor(() => expect(backend.savePersonalizationProfile).toHaveBeenCalledTimes(1));
   });
 
-  it('guides project selection when saving profile or importing memory without a project', async () => {
+  it('guides project selection when saving profile without a project', async () => {
     renderPromptPage({ projectPath: '未选择项目' });
 
     const overview = await screen.findByLabelText('个性化概览');
     const saveButton = within(overview).getByRole('button', { name: '保存个人资料' });
-    const importButton = within(overview).getByRole('button', { name: '导入记忆' });
 
     // 未选择项目时按钮不再原生禁用（保留焦点与点击能力），点击后给出明确引导。
     expect(saveButton).not.toBeDisabled();
-    expect(importButton).not.toBeDisabled();
     expect(saveButton).toHaveAttribute('aria-disabled', 'true');
-    expect(importButton).toHaveAttribute('aria-disabled', 'true');
 
     fireEvent.click(saveButton);
     expect(await screen.findByText('请先在聊天页选择项目，再使用个性化设置。')).toBeInTheDocument();
     expect(backend.savePersonalizationProfile).not.toHaveBeenCalled();
 
-    fireEvent.click(importButton);
-    expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
   });
 
   it('labels the personalization overview as read-only when prompt assets fall back', async () => {

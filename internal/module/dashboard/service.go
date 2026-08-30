@@ -30,21 +30,19 @@ var (
 // service 聚合 dashboard 需要的 orchestration、store 和只读模块依赖。
 // 日志 reader 缺失会在对应读取入口 fail-fast，避免装配漂移被空列表掩盖。
 type service struct {
-	orchestration  OrchestrationReader
-	reports        OrchestrationReportReader
-	dagRuntime     contract.DAGRuntime
-	agentStatuses  AgentStatusReader
-	systemLogs     SystemLogReader
-	auditLogs      AuditLogReader
-	busLogs        BusLogReader
-	aiLogs         AILogReader
-	dbQueries      DBQueryExecutor
-	commandCards   CommandCardReader
-	prompts        PromptTemplateReader
-	sharedFiles    SharedFileReader
-	skills         contract.SkillLister
-	skillInventory contract.SkillInventoryLister
-	startedAt      time.Time
+	orchestration OrchestrationReader
+	reports       OrchestrationReportReader
+	dagRuntime    contract.DAGRuntime
+	agentStatuses AgentStatusReader
+	systemLogs    SystemLogReader
+	auditLogs     AuditLogReader
+	busLogs       BusLogReader
+	aiLogs        AILogReader
+	dbQueries     DBQueryExecutor
+	commandCards  CommandCardReader
+	prompts       PromptTemplateReader
+	sharedFiles   SharedFileReader
+	startedAt     time.Time
 }
 
 // dashboardPromptScopeCWDKey 是 dashboard prompt 过滤使用的 context 私有 key。
@@ -66,23 +64,20 @@ func NewService(
 	commandCards CommandCardReader,
 	prompts PromptTemplateReader,
 	sharedFiles SharedFileReader,
-	skills contract.SkillLister,
 ) Service {
 	return &service{
-		orchestration:  orchestrationReader,
-		reports:        reportReader,
-		agentStatuses:  agentStatuses,
-		systemLogs:     systemLogs,
-		auditLogs:      auditLogs,
-		busLogs:        busLogs,
-		aiLogs:         aiLogs,
-		dbQueries:      dbQueries,
-		commandCards:   commandCards,
-		prompts:        prompts,
-		sharedFiles:    sharedFiles,
-		skills:         skills,
-		skillInventory: skillInventoryFromLister(skills),
-		startedAt:      time.Now(),
+		orchestration: orchestrationReader,
+		reports:       reportReader,
+		agentStatuses: agentStatuses,
+		systemLogs:    systemLogs,
+		auditLogs:     auditLogs,
+		busLogs:       busLogs,
+		aiLogs:        aiLogs,
+		dbQueries:     dbQueries,
+		commandCards:  commandCards,
+		prompts:       prompts,
+		sharedFiles:   sharedFiles,
+		startedAt:     time.Now(),
 	}
 }
 
@@ -101,7 +96,6 @@ func newServiceWithDAGRuntime(
 	commandCards CommandCardReader,
 	prompts PromptTemplateReader,
 	sharedFiles SharedFileReader,
-	skills contract.SkillLister,
 ) Service {
 	svc := NewService(
 		orchestrationReader,
@@ -115,7 +109,6 @@ func newServiceWithDAGRuntime(
 		commandCards,
 		prompts,
 		sharedFiles,
-		skills,
 	)
 	if impl, ok := svc.(*service); ok && dagRuntime != nil {
 		impl.dagRuntime = dagRuntime
@@ -123,14 +116,7 @@ func newServiceWithDAGRuntime(
 	return svc
 }
 
-// skillInventoryFromLister 在 skill lister 同时支持 inventory 时提取增强接口。
-// 不支持时返回 nil，调用方再回退到 ListSkills。
-func skillInventoryFromLister(skills contract.SkillLister) contract.SkillInventoryLister {
-	inventory, _ := skills.(contract.SkillInventoryLister)
-	return inventory
-}
-
-// withDashboardPromptScopeCWD 将当前页面 cwd 放进 context，供 prompt/skill 列表过滤使用。
+// withDashboardPromptScopeCWD 将当前页面 cwd 放进 context，供 prompt 列表过滤使用。
 func withDashboardPromptScopeCWD(ctx context.Context, cwd string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()

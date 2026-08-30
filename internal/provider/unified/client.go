@@ -42,6 +42,10 @@ func (c *Client) StartSession(
 	ctx context.Context,
 	req dto.StartSessionRequest,
 ) (contract.Session, error) {
+	// LaunchSkillRefs is a compatibility carrier.  Sanitize before resolving
+	// or invoking an arbitrary Driver so direct unified callers cannot expose
+	// the legacy full-text Prompt body to provider implementations.
+	req.LaunchSkillRefs = contract.CloneProviderSkillRefsMetadataOnly(req.LaunchSkillRefs)
 	return c.open(ctx, "starting", req.Provider, req.AgentID, "", false, func(driver contract.Driver) (contract.Session, error) {
 		return driver.StartSession(ctx, req)
 	})

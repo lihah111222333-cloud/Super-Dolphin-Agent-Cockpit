@@ -32,21 +32,6 @@ type UITokensUpdated struct {
 	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
 }
 
-// SkillsChanged 报告本地 skill 清单变化，字段只暴露可展示元数据，避免泄漏完整宿主路径。
-type SkillsChanged struct {
-	shared.EventHeader
-	SkillsDir       string   `json:"skillsDir,omitempty"`
-	Name            string   `json:"name,omitempty"`
-	Action          string   `json:"action,omitempty"`
-	Actions         []string `json:"actions,omitempty"`
-	Count           int      `json:"count,omitempty"`
-	Scope           string   `json:"scope,omitempty"`            // "project" | "system"
-	PersonalType    string   `json:"personal_type,omitempty"`    // personal scope bucket, e.g. "user" | "agent"
-	RepoFingerprint string   `json:"repo_fingerprint,omitempty"` // project scope only
-	RelativePath    string   `json:"relative_path,omitempty"`    // project scope only, relative to repo root
-	Cwd             string   `json:"cwd,omitempty"`              // deprecated: intentionally left empty to avoid leaking host paths
-}
-
 // UIPreferencesChanged 报告持久化偏好发生变化。
 type UIPreferencesChanged struct {
 	shared.EventHeader
@@ -59,12 +44,6 @@ type UIPreferencesChanged struct {
 type UISharedFilesChanged struct {
 	shared.EventHeader
 	Path   string `json:"path,omitempty"`
-	Action string `json:"action,omitempty"`
-}
-
-// UIMemoryChanged 报告持久化 memory 清单或状态变化。
-type UIMemoryChanged struct {
-	shared.EventHeader
 	Action string `json:"action,omitempty"`
 }
 
@@ -148,9 +127,6 @@ func (UITimelineAppended) Type() uint32 { return shared.EventTypeUITimelineAppen
 // Type 返回事件总线使用的稳定类型编号，保持 token 用量更新事件可路由。
 func (UITokensUpdated) Type() uint32 { return shared.EventTypeUITokensUpdated }
 
-// Type 返回事件总线使用的稳定类型编号，保持 skill 清单更新事件可路由。
-func (SkillsChanged) Type() uint32 { return shared.EventTypeUISkillsChanged }
-
 // Type 返回事件总线使用的稳定类型编号，保持 thread patch 事件可路由。
 func (UIThreadPatch) Type() uint32 { return shared.EventTypeUIThreadPatch }
 
@@ -159,9 +135,6 @@ func (UIPreferencesChanged) Type() uint32 { return shared.EventTypeUIPreferences
 
 // Type 返回事件总线使用的稳定类型编号，保持共享文件更新事件可路由。
 func (UISharedFilesChanged) Type() uint32 { return shared.EventTypeUISharedFilesChanged }
-
-// Type 返回事件总线使用的稳定类型编号，保持 memory 更新事件可路由。
-func (UIMemoryChanged) Type() uint32 { return shared.EventTypeUIMemoryChanged }
 
 // Type 返回事件总线使用的稳定类型编号，保持 prompt 更新事件可路由。
 func (UIPromptsChanged) Type() uint32 { return shared.EventTypeUIPromptsChanged }

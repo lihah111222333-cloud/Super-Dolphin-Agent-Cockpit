@@ -29,15 +29,12 @@ const backend = vi.hoisted(() => {
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
     getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
-    getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
-    ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
+    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
-    readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
-    createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
+    selectProjectDir selectProjectDirs
     listMCPServers listToolbridgeTools startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
-    listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
+    readSharedFile getPreference
     forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
@@ -93,10 +90,8 @@ const {
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
   mockPromptDefaults,
-  mockMemoryDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
-  mockSkillDefaults,
   mockSharedFileDefaults,
   mockSettingsAndThreadDefaults,
   resetFrontendHealthForTest,
@@ -109,10 +104,8 @@ beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
 beforeEach(mockPromptDefaults);
-beforeEach(mockMemoryDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
-beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 beforeEach(resetFrontendHealthForTest);
@@ -265,7 +258,6 @@ it.each([
     expect(within(sidebar).getByRole('button', { name: '新对话' })).toHaveTextContent('新对话');
     expect(within(sidebar).getByRole('button', { name: '设置' })).toHaveTextContent('设置');
     expect(within(sidebar).getByRole('button', { name: '聊天页面' })).toHaveTextContent('聊天页面');
-    expect(within(sidebar).getByRole('button', { name: '插件与技能' })).toHaveTextContent('插件与技能');
     expect(within(appbar).getByRole('button', { name: '通知' })).toBeInTheDocument();
     expect(within(appbar).getByRole('button', { name: '历史记录' })).toBeInTheDocument();
     expect(document.querySelector('.super-dolphin-agent-appbar-title')).not.toBeInTheDocument();
@@ -334,8 +326,8 @@ it.each([
     const sidebar = await screen.findByTestId('app-sidebar');
     expect(sidebar).not.toHaveClass('app-sidebar--chat');
 
-    fireEvent.click(getSidebarNavButton('插件与技能'));
-    await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
+    fireEvent.click(getSidebarNavButton('自动化'));
+    await waitFor(() => expect(getSidebarNavButton('自动化')).toHaveClass('active'));
     expect(sidebar).not.toHaveClass('app-sidebar--chat');
 
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
@@ -352,8 +344,8 @@ it.each([
     expect(within(sidebar).getByRole('region', { name: '项目' })).toBeInTheDocument();
     expect(within(sidebar).getByRole('button', { name: '添加项目目录' })).toBeInTheDocument();
 
-    fireEvent.click(within(nav).getByRole('button', { name: '插件与技能' }));
-    await waitFor(() => expect(useClientStore.getState().activePage).toBe('skills'));
+    fireEvent.click(within(nav).getByRole('button', { name: '自动化' }));
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('workflows'));
     expect(within(sidebar).queryByRole('region', { name: '项目' })).not.toBeInTheDocument();
     expect(within(sidebar).queryByRole('button', { name: '添加项目目录' })).not.toBeInTheDocument();
 

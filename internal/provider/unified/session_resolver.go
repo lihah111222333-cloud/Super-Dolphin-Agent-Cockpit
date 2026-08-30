@@ -122,11 +122,21 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	if err := rejectAutoResumeLifecycle(ref); err != nil {
 		return nil, err
 	}
+	// The in-memory and auto-resume paths both apply the structural snapshot
+	// boundary.  The provider-owner lookup is deferred until the active fast
+	// path below, avoiding a duplicate binding read on cold auto-resume (whose
+	// plan performs the owner check before calling the driver).
+	if err := validateExistingPromptSnapshot(ref.PromptSnapshot); err != nil {
+		return nil, fmt.Errorf("resolve session: thread %q prompt snapshot: %w", threadID, err)
+	}
 	agentID := strings.TrimSpace(ref.AgentID)
 	if agentID == "" {
 		return nil, fmt.Errorf("resolve session: thread %q has no agent id", threadID)
 	}
 	if session, err := r.sessions.Get(agentID); err == nil {
+		if err := r.validateExistingThreadPromptSnapshotOwner(ctx, ref); err != nil {
+			return nil, fmt.Errorf("resolve session: thread %q prompt snapshot: %w", threadID, err)
+		}
 		return session, nil
 	}
 	// 内存 session 缺失通常来自应用重启，需要通过 binding 找回 provider 线程并执行 auto-resume。
@@ -138,6 +148,37 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 		runtimeConfig:  ref.RuntimeConfig,
 		promptSnapshot: ref.PromptSnapshot,
 	}, ref.ThreadID, threadID)
+}
+
+// validateExistingThreadPromptSnapshotOwner 在活跃 session 快路径校验 prompt 快照的 provider owner。
+// SessionThreadRef 保持 provider-neutral；配置了 binding backend 时必须从权威 binding 读取 owner，不能跳过校验。
+// validateExistingThreadPromptSnapshotOwner applies the provider-owner gate even
+// on the public-thread active-session fast path.  SessionThreadRef deliberately
+// stays provider-neutral, so the binding store is the authoritative owner
+// source whenever it is configured.  A configured binding backend that cannot
+// resolve an owner is an assembly/data error, not a reason to skip validation.
+func (r *sessionResolver) validateExistingThreadPromptSnapshotOwner(ctx context.Context, ref *contract.SessionThreadRef) error {
+	if ref == nil || promptSnapshotBlank(ref.PromptSnapshot) {
+		return nil
+	}
+	if r != nil && r.bindingStore != nil {
+		agentID := strings.TrimSpace(ref.AgentID)
+		if agentID == "" {
+			return errors.New("prompt snapshot owner binding requires agent id")
+		}
+		binding, err := r.bindingStore.GetByAgentID(ctx, agentID)
+		if err != nil {
+			if contract.IsNotFound(err) {
+				return fmt.Errorf("prompt snapshot owner binding for agent %q is missing", agentID)
+			}
+			return fmt.Errorf("prompt snapshot owner binding lookup for agent %q: %w", agentID, err)
+		}
+		if binding == nil || strings.TrimSpace(binding.Provider) == "" {
+			return fmt.Errorf("prompt snapshot owner binding for agent %q has no provider", agentID)
+		}
+		return contract.ValidateResumePromptSnapshotForProvider(ref.PromptSnapshot, binding.Provider)
+	}
+	return validateExistingPromptSnapshot(ref.PromptSnapshot)
 }
 
 // lookupAutoResumeBindingByAgentID 读取 public-thread 路径需要的 binding 并执行统一生命周期门禁。
@@ -165,35 +206,54 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 	}
 	var errs []error
 	for _, provider := range r.providerNames() {
-		binding, err := r.bindingStore.GetByProviderThread(ctx, provider, threadID)
-		if err != nil {
-			if !contract.IsNotFound(err) {
-				errs = append(errs, fmt.Errorf("provider %q: %w", provider, err))
-			}
-			continue
+		session, continueLookup, err := r.resolveProviderThreadCandidate(ctx, provider, threadID)
+		if !continueLookup {
+			return session, err
 		}
-		if err := r.rejectBindingAutoResumeLifecycle(ctx, binding); err != nil {
-			return nil, err
+		if err != nil && !contract.IsNotFound(err) {
+			errs = append(errs, err)
 		}
-		agentID := strings.TrimSpace(binding.AgentID)
-		if agentID == "" {
-			errs = append(errs, fmt.Errorf("resolve session: provider %q thread %q has no agent id", provider, threadID))
-			continue
-		}
-		if session, err := r.sessions.Get(agentID); err == nil {
-			return session, nil
-		}
-		// 内存未命中时从持久化 binding 恢复 provider session。
-		threadState, err := r.lookupAutoResumeThreadState(ctx, binding)
-		if err != nil {
-			return nil, err
-		}
-		return r.autoResumeSession(ctx, binding, threadState)
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
 	return nil, contract.ErrNotFound
+}
+
+// resolveProviderThreadCandidate 处理单个 provider 的 thread 绑定查找。
+// 返回 continueLookup=true 表示当前 provider 未命中或仅有可聚合错误，应继续尝试其他 owner。
+func (r *sessionResolver) resolveProviderThreadCandidate(ctx context.Context, provider, threadID string) (contract.Session, bool, error) {
+	binding, err := r.bindingStore.GetByProviderThread(ctx, provider, threadID)
+	if err != nil {
+		if contract.IsNotFound(err) {
+			return nil, true, err
+		}
+		return nil, true, fmt.Errorf("provider %q: %w", provider, err)
+	}
+	if err := r.rejectBindingAutoResumeLifecycle(ctx, binding); err != nil {
+		return nil, false, err
+	}
+	// A provider-thread lookup can succeed even when the public-thread lookup
+	// above did not.  Validate every persisted projection before returning a
+	// live or auto-resumed session, so legacy memory snapshots cannot bypass the
+	// normal public-thread guard.
+	if err := r.validateProviderThreadPromptSnapshot(ctx, binding, provider, threadID); err != nil {
+		return nil, false, err
+	}
+	agentID := strings.TrimSpace(binding.AgentID)
+	if agentID == "" {
+		return nil, true, fmt.Errorf("resolve session: provider %q thread %q has no agent id", provider, threadID)
+	}
+	if session, err := r.sessions.Get(agentID); err == nil {
+		return session, false, nil
+	}
+	// 内存未命中时从持久化 binding 恢复 provider session。
+	threadState, err := r.lookupAutoResumeThreadState(ctx, binding)
+	if err != nil {
+		return nil, false, err
+	}
+	session, err := r.autoResumeSession(ctx, binding, threadState)
+	return session, false, err
 }
 
 // autoResumeSession 根据持久化绑定重建运行时 session。
@@ -215,6 +275,17 @@ func (r *sessionResolver) runAutoResumeSession(ctx context.Context, binding *con
 	req, err := resolveAutoResumeSessionIdentity(ctx, plan.driver, plan.req)
 	if err != nil {
 		pkglogger.Warn("resolve session: auto-resume identity resolution failed",
+			"agent_id", binding.AgentID, "error", err)
+		return nil, fmt.Errorf("resolve session: auto-resume failed: %w", err)
+	}
+	if err := validateAutoResumePromptSnapshot(req.PromptSnapshot, plan.req.Provider); err != nil {
+		pkglogger.Warn("resolve session: auto-resume prompt snapshot validation failed",
+			"agent_id", binding.AgentID, "error", err)
+		return nil, fmt.Errorf("resolve session: auto-resume failed: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(req.Provider), strings.TrimSpace(plan.req.Provider)) {
+		err := fmt.Errorf("resolve session: auto-resume provider owner mismatch: request=%q binding=%q", strings.TrimSpace(req.Provider), strings.TrimSpace(plan.req.Provider))
+		pkglogger.Warn("resolve session: auto-resume provider validation failed",
 			"agent_id", binding.AgentID, "error", err)
 		return nil, fmt.Errorf("resolve session: auto-resume failed: %w", err)
 	}
@@ -263,6 +334,52 @@ func (r *sessionResolver) lookupAutoResumeThreadState(ctx context.Context, bindi
 		}, nil
 	}
 	return autoResumeThreadState{}, nil
+}
+
+// validateProviderThreadPromptSnapshot 在 provider-thread fallback 返回 session 前关闭 prompt owner 边界。
+// provider thread 可能不同于 public thread，因此需要检查所有持久化别名，阻断旧快照旁路。
+// validateProviderThreadPromptSnapshot closes the provider-thread fallback
+// boundary before an already-live session is returned.  The fallback may be
+// addressed by a provider thread ID rather than the public thread ID, so
+// probe all persisted aliases and validate every projection that exists.
+func (r *sessionResolver) validateProviderThreadPromptSnapshot(ctx context.Context, binding *contract.SessionBinding, provider, providerThreadID string) error {
+	if r == nil || r.threadStore == nil || binding == nil {
+		return nil
+	}
+	seen := make(map[string]struct{}, 3)
+	for _, candidate := range []string{providerThreadID, binding.CodexThreadID, binding.AgentID} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		if err := r.validateProviderThreadPromptSnapshotCandidate(ctx, provider, candidate); err != nil && !contract.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateProviderThreadPromptSnapshotCandidate 校验 provider-thread fallback 的单个持久化别名。
+// 缺失或空快照表示该别名没有可恢复 prompt；非 NotFound/owner 错误必须直接阻断。
+func (r *sessionResolver) validateProviderThreadPromptSnapshotCandidate(ctx context.Context, provider, candidate string) error {
+	ref, err := r.threadStore.GetByThreadID(ctx, candidate)
+	if err != nil {
+		if contract.IsNotFound(err) {
+			return err
+		}
+		return fmt.Errorf("resolve session: provider thread %q prompt snapshot lookup: %w", candidate, err)
+	}
+	if ref == nil || promptSnapshotBlank(ref.PromptSnapshot) {
+		return nil
+	}
+	if err := validateAutoResumePromptSnapshot(ref.PromptSnapshot, provider); err != nil {
+		return fmt.Errorf("resolve session: provider thread %q prompt snapshot: %w", candidate, err)
+	}
+	return nil
 }
 
 // rejectBindingAutoResumeLifecycle 在按 binding 恢复前检查线程状态，阻止 stopped 或 archived 会话被重新拉起。

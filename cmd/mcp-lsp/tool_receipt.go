@@ -328,6 +328,17 @@ func decodeReceiptJSON(raw []byte, target any) error {
 
 // validateLSPToolReceiptRecord 校验 schema、链序号、摘要和 Ed25519 签名。
 func validateLSPToolReceiptRecord(record lspToolReceiptRecord, expectedSequence uint64, previousDigest string, publicKey ed25519.PublicKey) error {
+	if err := validateLSPToolReceiptSchema(record); err != nil {
+		return err
+	}
+	if err := validateLSPToolReceiptChain(record, expectedSequence, previousDigest, publicKey); err != nil {
+		return err
+	}
+	return validateLSPToolReceiptSignature(record, publicKey)
+}
+
+// validateLSPToolReceiptSchema 校验回执版本与 canonical IO 载荷形状。
+func validateLSPToolReceiptSchema(record lspToolReceiptRecord) error {
 	if record.Schema != mcpLSPToolReceiptSchema && record.Schema != mcpLSPCanonicalReceiptSchema {
 		return fmt.Errorf("unsupported receipt schema %q", record.Schema)
 	}
@@ -339,6 +350,11 @@ func validateLSPToolReceiptRecord(record lspToolReceiptRecord, expectedSequence 
 		(len(record.Payload.Arguments) != 0 || len(record.Payload.Result) != 0) {
 		return errors.New("metadata-only receipt contains canonical IO")
 	}
+	return nil
+}
+
+// validateLSPToolReceiptChain 校验回执序号、前项摘要和签名公钥摘要。
+func validateLSPToolReceiptChain(record lspToolReceiptRecord, expectedSequence uint64, previousDigest string, publicKey ed25519.PublicKey) error {
 	if record.Sequence != expectedSequence {
 		return fmt.Errorf("sequence=%d, want %d", record.Sequence, expectedSequence)
 	}
@@ -348,6 +364,11 @@ func validateLSPToolReceiptRecord(record lspToolReceiptRecord, expectedSequence 
 	if record.SignerPublicKeySHA256 != receiptDigest(publicKey) {
 		return errors.New("signer public key digest does not match configured key")
 	}
+	return nil
+}
+
+// validateLSPToolReceiptSignature 校验无签名载荷摘要和 Ed25519 签名。
+func validateLSPToolReceiptSignature(record lspToolReceiptRecord, publicKey ed25519.PublicKey) error {
 	unsigned := lspToolReceiptUnsignedRecord{
 		Schema:                record.Schema,
 		Sequence:              record.Sequence,
@@ -389,16 +410,9 @@ func (s *lspToolReceiptSink) Append(ctx context.Context, toolName string, args j
 	if err != nil {
 		return err
 	}
-	if s.includeCanonicalIO {
-		if len(payload.Arguments)+len(payload.Result) > mcpLSPToolReceiptMaxLineBytes/2 {
-			return fmt.Errorf(
-				"mcp-lsp canonical receipt payload exceeds limit: arguments=%d result=%d",
-				len(payload.Arguments), len(payload.Result),
-			)
-		}
-	} else {
-		payload.Arguments = nil
-		payload.Result = nil
+	payload, err = s.applyReceiptIOPolicy(payload)
+	if err != nil {
+		return err
 	}
 	record, line, err := s.signLSPToolReceipt(payload)
 	if err != nil {
@@ -415,6 +429,22 @@ func (s *lspToolReceiptSink) Append(ctx context.Context, toolName string, args j
 	s.nextSequence = record.Sequence + 1
 	s.previousDigest = record.EventDigest
 	return nil
+}
+
+// applyReceiptIOPolicy 根据 sink 配置限制 canonical 参数与结果的回执大小。
+func (s *lspToolReceiptSink) applyReceiptIOPolicy(payload lspToolReceiptPayload) (lspToolReceiptPayload, error) {
+	if !s.includeCanonicalIO {
+		payload.Arguments = nil
+		payload.Result = nil
+		return payload, nil
+	}
+	if len(payload.Arguments)+len(payload.Result) > mcpLSPToolReceiptMaxLineBytes/2 {
+		return lspToolReceiptPayload{}, fmt.Errorf(
+			"mcp-lsp canonical receipt payload exceeds limit: arguments=%d result=%d",
+			len(payload.Arguments), len(payload.Result),
+		)
+	}
+	return payload, nil
 }
 
 func isReceiptToolName(toolName string) bool {
@@ -499,6 +529,7 @@ func receiptErrorClassification(toolName string, err error) (string, bool) {
 	return code, retryable
 }
 
+// signLSPToolReceipt 对回执无签名载荷计算链式摘要并生成 Ed25519 签名。
 func (s *lspToolReceiptSink) signLSPToolReceipt(payload lspToolReceiptPayload) (lspToolReceiptRecord, []byte, error) {
 	schema := mcpLSPToolReceiptSchema
 	if s.includeCanonicalIO {

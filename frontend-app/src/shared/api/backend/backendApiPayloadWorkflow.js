@@ -413,17 +413,6 @@ function promptProviderFields(payload) {
   };
 }
 
-/** @param {string} method @param {unknown} params */
-function memoryConsolidationPayload(method, params) {
-  const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(method, params));
-  return cleanObject({
-    cwd: payload.cwd,
-    provider: normalizeString(payload.provider ?? payload.modelProvider),
-    model: normalizeString(payload.model),
-    model_provider: normalizeString(payload.model_provider ?? payload.codexModelProvider),
-  });
-}
-
 /** @param {string} method @param {unknown} params @returns {WorkflowPayload & { cwd: string, draft_key: string }} */
 function promptDraftKeyPayload(method, params) {
   const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(method, params));
@@ -535,7 +524,7 @@ export {
   dashboardDagsPayload, dashboardDagRunsPayload, dashboardDagTerminatePayload, dashboardDagApplyOpsPayload, cronIdPayload, cronSetEnabledPayload,
   cronListRunsPayload, cronListPayload, cronJobMutationPayload, cronJobConfigPayload, cronJobSkillsPayload, cronJobEnabledPayload, cronJobMaxAttemptsPayload,
   codeProjectsPayload, optionalCodeInteger, codeFilePayload, promptWritePayload, promptMatchWhen, promptDeletePayload,
-  promptIntentDraftPayload, promptIntentRawInput, promptIntentEnableGlobal, promptIntentSourceFields, promptProviderFields, memoryConsolidationPayload,
+  promptIntentDraftPayload, promptIntentRawInput, promptIntentEnableGlobal, promptIntentSourceFields, promptProviderFields,
   promptDraftKeyPayload, promptIntentCommitPayload, promptIntentDiscardPayload, promptIntentDryRunPayload, personalizationProfilePayload, promptSectionPayload,
   lspPromptHintWritePayload, videoApiKeyPayload, builtinToolWritePayload, dashboardLogsPayload, hasOwn,
 };

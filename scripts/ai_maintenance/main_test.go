@@ -319,7 +319,7 @@ func TestBuildGatePlanRequiresDiagnosticsGateForGoScripts(t *testing.T) {
 func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{
 		"internal/store/thread/store.go",
-		"internal/module/memory/service.go",
+		"internal/module/prompt/service_surface.go",
 		"internal/contract/provider.go",
 	})
 
@@ -327,7 +327,7 @@ func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 	assertStringSetOmits(t, plan.RequiredGates, "repo:guard")
 	assertStringSetContains(t, plan.AffectedGoPackages,
 		"./internal/store/thread",
-		"./internal/module/memory",
+		"./internal/module/prompt",
 		"./internal/contract",
 	)
 	assertStringSetOmits(t, plan.AffectedGoPackages, "./internal/archtest")

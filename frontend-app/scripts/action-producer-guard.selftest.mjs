@@ -5,8 +5,8 @@ import path from 'node:path';
 import { discoverActionProducers, discoverP0P1Callsites, runActionProducerGuard } from './action-producer-guard.mjs';
 
 const semanticFamilies = [
-  'approval-pending', 'background-reconnect', 'file', 'invalid-response-validator', 'mcp',
-  'prompt-history', 'settings-save', 'skill', 'thread-mutation',
+  'approval-pending', 'background-reconnect', 'file', 'invalid-response-validator',
+  'prompt-history', 'settings-save', 'thread-mutation',
 ];
 const fixtureRoots = new Set();
 
@@ -208,8 +208,8 @@ try {
     entry.caseId === 'b.wrapper.promise-reject' ? { ...entry, testName: 'missing test' } : entry
   )) };
   expectFailure(() => runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: staleTest, today: '2026-07-17' }), 'evidence test is stale');
-  const missingFamily = { ...matrix(), cases: matrix().cases.filter((entry) => entry.caseId !== 'c.skill') };
-  expectFailure(() => runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: missingFamily, today: '2026-07-17' }), 'missing C-layer semantic family evidence: skill');
+  const missingFamily = { ...matrix(), cases: matrix().cases.filter((entry) => entry.caseId !== 'c.settings-save') };
+  expectFailure(() => runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: missingFamily, today: '2026-07-17' }), 'missing C-layer semantic family evidence: settings-save');
 }
 
 {

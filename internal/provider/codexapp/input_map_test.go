@@ -3,6 +3,7 @@ package codexapp
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,13 +172,20 @@ func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 		720,
 		false,
 	)
+	ordinary := dto.AttachmentEnvelope{
+		Kind:    "file",
+		Path:    "project/README.md",
+		Header:  "README",
+		Content: "Use the project README as background.",
+		MtimeMs: 1,
+	}
 	req := dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{
 			UserContext: map[string]string{
 				"currentDate": "Today's date is 2026-04-15.",
 			},
-			Attachments: []dto.AttachmentEnvelope{attachment},
+			Attachments: []dto.AttachmentEnvelope{attachment, ordinary},
 		},
 	}
 
@@ -185,12 +193,12 @@ func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildTurnStartParams() error = %v", err)
 	}
-	// system-reminder 只在会话启动时注入，单个 turn 仅保留附件和用户文本。
+	// system-reminder 只在会话启动时注入；legacy memory 被丢弃，普通附件和用户文本保留。
 	if len(got.Input) != 2 {
-		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 2", len(got.Input))
+		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 2 (ordinary attachment + user text)", len(got.Input))
 	}
-	if got.Input[0].Text != contract.RenderAttachmentText(attachment) {
-		t.Fatalf("attachment input = %q, want rendered attachment text", got.Input[0].Text)
+	if got.Input[0].Text != contract.RenderAttachmentText(ordinary) {
+		t.Fatalf("attachment input = %q, want ordinary rendered attachment text", got.Input[0].Text)
 	}
 	if got.Input[1].Text != "hello" {
 		t.Fatalf("final input = %q, want original user text", got.Input[1].Text)
@@ -290,5 +298,35 @@ func TestBuildTurnStartParamsRejectsUnknownInputType(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("buildTurnStartParams() error = nil, want unsupported input type")
+	}
+}
+
+func TestBuildTurnStartParamsRejectsEmptySkillName(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildTurnStartParams("thread-1", dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		Skills: []dto.SkillRef{{Name: "  ", Scope: "project"}},
+	})
+	if err == nil {
+		t.Fatal("buildTurnStartParams() error = nil, want empty skill name rejection")
+	}
+	if got := err.Error(); !strings.Contains(got, "selected skill[0] name is required") {
+		t.Fatalf("buildTurnStartParams() error = %v, want empty skill name diagnostic", err)
+	}
+}
+
+func TestBuildTurnSteerParamsRejectsEmptySkillName(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildTurnSteerParams("thread-1", dto.SteerRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		Skills: []dto.SkillRef{{Name: "\t"}},
+	})
+	if err == nil {
+		t.Fatal("buildTurnSteerParams() error = nil, want empty skill name rejection")
+	}
+	if got := err.Error(); !strings.Contains(got, "selected skill[0] name is required") {
+		t.Fatalf("buildTurnSteerParams() error = %v, want empty skill name diagnostic", err)
 	}
 }

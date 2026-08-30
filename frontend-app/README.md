@@ -32,4 +32,4 @@ For the full local desktop setup, run one of these from the repository root:
 The selected root script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`
 with `FRONTEND_DEVSERVER_URL` so the Wails desktop host proxies to `frontend-app`.
 
-The design follows the provided dark macOS-style screenshots: title bar, narrow left navigation, dense black workspace, chat thread rail, runtime log panel, capability pages, workflow pages, skill cards, shared files, memory center, and settings.
+The design follows the provided dark macOS-style screenshots: title bar, narrow left navigation, dense black workspace, chat thread rail, runtime log panel, capability pages, workflow pages, skill cards, shared files, and settings.

@@ -8,6 +8,7 @@ import {
   validateDesktopFailureCases,
   validateDesktopFailureReport,
 } from './desktop-failure-smoke.mjs';
+import { chromiumLaunchOptions } from '../playwright-capabilities.mjs';
 import {
   commandFailureMessage,
   DESKTOP_FAILURE_REPORT_REQUIREMENTS,
@@ -117,6 +118,14 @@ describe('desktop failure smoke contract', () => {
     )).toThrow(/invalid/);
     expect(() => resolveChromiumExecutable({}, () => false)).toThrow(/required/);
     await expect(packageScriptIncludesFailureSmoke()).resolves.toBe(true);
+  });
+
+  it('uses the installed Chrome channel without passing its app path as executablePath', () => {
+    expect(chromiumLaunchOptions('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', true, ['--no-sandbox']))
+      .toEqual({ headless: true, channel: 'chrome', args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] });
+    expect(chromiumLaunchOptions('/opt/custom-chromium', false))
+      .toEqual({ headless: false, executablePath: '/opt/custom-chromium', args: ['--disable-gpu', '--disable-dev-shm-usage'] });
+    expect(() => chromiumLaunchOptions('')).toThrow(/executable is required/);
   });
 
   it('builds isolated default ports and evidence path', () => {

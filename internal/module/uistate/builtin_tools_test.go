@@ -27,7 +27,7 @@ func TestBuiltinToolsReadReturnsDefaultsWhenNoPreferenceStored(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
 	toolIndex := testNativeToolIndex()
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, toolIndex, "/repo")
+	res, err := readBuiltinTools(context.Background(), prefs, testNativeTools, toolIndex, "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}
@@ -258,7 +258,7 @@ func TestResolveExplicitSoftFilteredBuiltinToolsReturnsStoredSoftTools(t *testin
 func TestBuiltinToolsReadReturnsEnforcementTier(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex(), "/repo")
+	res, err := readBuiltinTools(context.Background(), prefs, testNativeTools, testNativeToolIndex(), "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}
@@ -331,7 +331,7 @@ func equalSortedStrings(a, b []string) bool {
 func TestBuiltinToolsReadIncludesMultipleProviders(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, testNativeToolIndex(), "/repo")
+	res, err := readBuiltinTools(context.Background(), prefs, testNativeTools, testNativeToolIndex(), "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}
@@ -351,7 +351,7 @@ func TestBuiltinToolsReadReturnsFilterMode(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
 	toolIndex := testNativeToolIndex()
-	res, err := readBuiltinTools(context.Background(), prefs, nil, testNativeTools, toolIndex, "/repo")
+	res, err := readBuiltinTools(context.Background(), prefs, testNativeTools, toolIndex, "/repo")
 	if err != nil {
 		t.Fatalf("readBuiltinTools error = %v", err)
 	}

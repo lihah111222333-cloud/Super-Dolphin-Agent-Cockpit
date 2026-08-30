@@ -99,7 +99,7 @@ func (c *desktopShutdownCoordinator) Shutdown(ctx context.Context, cause error) 
 			c.mu.Unlock()
 
 			c.owner.Cancel()
-			joinErr := preDrainDesktopRuntime(ctx, c.owner)
+			joinErr := waitDesktopRuntime(ctx, c.owner)
 			stopErr := c.stop()
 
 			c.mu.Lock()

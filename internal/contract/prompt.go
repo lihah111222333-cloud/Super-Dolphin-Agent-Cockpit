@@ -101,7 +101,7 @@ type BuildCtx struct {
 	LaunchSkillNames  []string
 	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool
-	// SuppressedTools 是被 SkillMeta.ReplacesNative 声明替代的原生工具名列表。
+	// SuppressedTools 是由 provider/tool policy 声明替代的原生工具名列表。
 	// prompt assembler 在 tool_preferences section 中渲染为 "Do NOT use..." 指令，
 	// 引导所有模型优先使用项目 MCP 等价工具。
 	SuppressedTools []string
@@ -147,7 +147,6 @@ const (
 	InvalidateWorktree       InvalidateReason = "worktree"
 	InvalidateResumeRestore  InvalidateReason = "resume_restore"
 	InvalidateProviderSwitch InvalidateReason = "provider_switch"
-	InvalidateMemoryWrite    InvalidateReason = "memory_write"
 )
 
 const (
@@ -157,9 +156,6 @@ const (
 	DynamicSectionAvailableExperts       = "available_experts"
 	DynamicSectionRecallCatalog          = "recall_catalog"
 	DynamicSectionPersonalizationProfile = "personalization_profile"
-	DynamicSectionMemory                 = "memory"
-	DynamicSectionMemoryContext          = "memory_context"
-	DynamicSectionMemoryEntrypoint       = "memory_entrypoint"
 	DynamicSectionEnvInfoSimple          = "env_info_simple"
 	DynamicSectionDatasource             = "datasource"
 	DynamicSectionDatasourceV2           = "datasource_v2"
@@ -172,6 +168,14 @@ const (
 	DynamicSectionNumericLengthAnchors   = "numeric_length_anchors"
 	DynamicSectionTokenBudget            = "token_budget"
 	DynamicSectionBrief                  = "brief"
+)
+
+// 这些名称只用于识别已持久化的旧 V3 memory 快照；它们不再注册为动态 section。
+// 生命周期边界通过 memory_prompt_guard.go 对命中值 fail-fast，避免旧正文回流 provider。
+const (
+	DynamicSectionMemory           = "memory"
+	DynamicSectionMemoryContext    = "memory_context"
+	DynamicSectionMemoryEntrypoint = "memory_entrypoint"
 )
 
 // PromptAssemblySnapshotVersion 标记 prompt 快照的缓存布局版本。
@@ -211,8 +215,8 @@ type StartInput struct {
 	ScratchpadDir                string
 	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
-	// LaunchSkill* 保留 StartRequest 中的技能选择元数据，供审计和诊断读取。
-	// provider 驱动负责协调 provider-native mirrors，prompt 层不读取技能正文。
+	// LaunchSkill* 保留 StartRequest 中的 provider-native 技能选择元数据，供审计和诊断读取。
+	// prompt 层只透传元数据，不读取或解析技能正文。
 	LaunchSkillNames  []string
 	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool

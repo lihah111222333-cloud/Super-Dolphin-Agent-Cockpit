@@ -9,6 +9,15 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 )
 
+func TestFixtureResponsesExcludeRetiredSkillMethods(t *testing.T) {
+	responses := fixtureResponses("/tmp/failure-smoke-project")
+	for _, method := range []string{"skills/resolution_list", "skills/tools/list"} {
+		if _, ok := responses[method]; ok {
+			t.Fatalf("fixtureResponses() includes retired method %q", method)
+		}
+	}
+}
+
 func TestPublishTerminalFailurePublishesCanonicalTerminal(t *testing.T) {
 	t.Parallel()
 

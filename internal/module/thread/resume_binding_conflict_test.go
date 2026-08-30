@@ -42,7 +42,7 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 		CreatedAt:      123,
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "DAG改造执行")}
 
 	// The conflicting binding store: agent-A's binding claims
 	// provider_thread_id conflictUUID, but GetByProviderThread for
@@ -126,7 +126,8 @@ func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 			Status:         statusCreated,
 			ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 		},
-		upsertErr: errTransientDB, // simulate transient DB failure
+		promptSnapshot: validPromptSnapshotPtrForTest("codex", "test"),
+		upsertErr:      errTransientDB, // simulate transient DB failure
 	}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
@@ -179,7 +180,7 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 		CreatedAt:      123,
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "eviction-test")}
 
 	bindings := &conflictBindingStore{
 		agentBinding: &BindingRecord{

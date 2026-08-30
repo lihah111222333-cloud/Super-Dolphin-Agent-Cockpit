@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UNSAFE_PortalProvider } from 'react-aria';
 import { ConfigProvider as AntdConfigProvider } from 'antd';
 import XProvider from '@ant-design/x/es/x-provider';
@@ -10,12 +10,8 @@ import { recoveryActionMessageFromRPCError } from './shared/recovery/recoveryFai
 import { requiredAppStoragePort } from './shared/api/browser/browserStorage.js';
 import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import {
-  dashboardQueryKey,
   errorMessage,
-  optionalSettingsCwd,
-  useDashboardFocusInvalidation,
 } from './pages/shared/pageShared.js';
-import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
 import { runBackgroundAction } from './shared/ui/runUIAction.js';
 import { requiredOverlayRoot } from './shared/ui/OverlayPortal.jsx';
@@ -87,15 +83,6 @@ function createDashboardQueryClient() {
   });
 }
 
-function memorySimilarGroupCount(response) {
-  const groups = response?.overview?.health?.similarGroups;
-  return Array.isArray(groups) ? groups.length : 0;
-}
-
-function memoryBadgeQueryKey(memoryCwd) {
-  return ['memory-badge', memoryCwd];
-}
-
 function useLatestValueRef(value) {
   const ref = useRef(value);
   useEffect(() => {
@@ -159,53 +146,6 @@ function useRoutePushSync({ activePage, routeBootstrapPending, setActivePage }) 
 
 function useActivePageHistory(activePage, setActivePage, routeBootstrapPending = false) {
   useRoutePushSync({ activePage, routeBootstrapPending, setActivePage });
-}
-
-async function loadMemoryBadgeDashboard({ addWarning, memoryCwd }) {
-  try {
-    return await memoryPageService.loadBadgeDashboard(memoryCwd);
-  } catch (cause) {
-    addWarning('warn', 'memory.badge.refresh.failed', { error: 'background action failure; see Health diagnostic ID' });
-    throw cause;
-  }
-}
-
-function useMemoryBadgeState(store, projectPath) {
-  const queryClient = useQueryClient();
-  const addWarning = store.addWarning;
-  const memoryRevision = Number(store.memoryRevision || 0);
-  const memoryCwd = optionalSettingsCwd(projectPath);
-  const [memoryPageSimilarState, setMemoryPageSimilarState] = useState({ page: store.activePage, cwd: memoryCwd, count: null });
-  if (memoryPageSimilarState.page !== store.activePage || memoryPageSimilarState.cwd !== memoryCwd) {
-    setMemoryPageSimilarState({ page: store.activePage, cwd: memoryCwd, count: null });
-  }
-  const setMemoryPageSimilarCount = useCallback((count) => {
-    setMemoryPageSimilarState((current) => ({ ...current, count }));
-  }, []);
-  useDashboardFocusInvalidation(memoryCwd, 'memory');
-  const { data: memoryBadgeData } = useQuery({
-    queryKey: memoryBadgeQueryKey(memoryCwd),
-    queryFn: () => runBackgroundAction('memory.badge.load', () => loadMemoryBadgeDashboard({ addWarning, memoryCwd })),
-    enabled: Boolean(memoryCwd),
-    select: memorySimilarGroupCount,
-  });
-  const memorySimilarCount = Math.max(0, Number(memoryBadgeData) || 0);
-  const memoryPageSimilarCount = (
-    memoryPageSimilarState.page === store.activePage && memoryPageSimilarState.cwd === memoryCwd
-      ? memoryPageSimilarState.count
-      : null
-  );
-
-  useEffect(() => {
-    if (!memoryCwd || memoryRevision <= 0) return;
-    void queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
-  }, [memoryCwd, memoryRevision, queryClient]);
-
-  return {
-    memoryRevision,
-    memorySimilarCount: memoryPageSimilarCount ?? memorySimilarCount,
-    setMemoryPageSimilarCount,
-  };
 }
 
 function useAppBootstrap(bootstrap, skipBootstrap) {
@@ -293,7 +233,6 @@ function useAppShellState(store, skipBootstrap, appearanceState) {
   useActivePageHistory(store.activePage, store.setActivePage, routeBootstrapPending);
   useAppBootstrap(store.bootstrap, skipBootstrap);
   const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
-  const memoryBadge = useMemoryBadgeState(store, projectPath);
   const appearance = appearanceState;
   const toggleTheme = useCallback(() => {
     appearance.setThemeMode(appearance.resolvedTheme === 'dark' ? 'light' : 'dark');
@@ -302,7 +241,6 @@ function useAppShellState(store, skipBootstrap, appearanceState) {
   const updateBanner = useAppUpdateBanner(skipBootstrap);
   return {
     appearance,
-    memoryBadge,
     projectPath,
     theme: appearance.resolvedTheme,
     toggleTheme,

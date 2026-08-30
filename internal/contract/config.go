@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-// SkillConfig 保存技能发现和加载时使用的运行配置。
-type SkillConfig struct {
-	ProgressiveDisclosure bool
-	TokenBudget           int
-}
-
 // AgentConfig 保存 agent runtime 的默认行为配置。
 type AgentConfig struct {
 	PersistentSubagentDefault bool
@@ -146,13 +140,6 @@ func registeredDependencyAbsencePolicies() []DependencyAbsencePolicy {
 		},
 		{
 			Name:    "toolbridge.lifecycle_backfiller",
-			Profile: DependencyProfileTest,
-			Reason:  DependencyAbsenceTestHarness,
-			Owner:   "Lane D",
-			Error:   ErrUnsupportedDependencyMode,
-		},
-		{
-			Name:    "toolbridge.skill_tools",
 			Profile: DependencyProfileTest,
 			Reason:  DependencyAbsenceTestHarness,
 			Owner:   "Lane D",
@@ -349,7 +336,6 @@ type Config struct {
 	RPCAddr     string
 	LogLevel    string
 	ProjectRoot string
-	Skill       SkillConfig
 	Agent       AgentConfig
 	Notify      NotifyConfig
 	LSP         LSPConfig

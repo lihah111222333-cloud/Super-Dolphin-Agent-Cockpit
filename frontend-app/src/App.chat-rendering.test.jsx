@@ -24,15 +24,12 @@ const backend = vi.hoisted(() => {
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
     getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
-    getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
-    ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
+    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
-    readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
-    createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
+    selectProjectDir selectProjectDirs
     listMCPServers listToolbridgeTools startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
-    listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
+    readSharedFile getPreference
     forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
@@ -85,10 +82,8 @@ const {
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
   mockPromptDefaults,
-  mockMemoryDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
-  mockSkillDefaults,
   mockSharedFileDefaults,
   mockSettingsAndThreadDefaults,
   resetFrontendHealthForTest,
@@ -101,10 +96,8 @@ beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
 beforeEach(mockPromptDefaults);
-beforeEach(mockMemoryDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
-beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 beforeEach(resetFrontendHealthForTest);

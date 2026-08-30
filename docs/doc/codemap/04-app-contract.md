@@ -1,6 +1,6 @@
 # 04 App 核心与契约层代码地图
 
-> 本卷是**手工维护的当前架构说明**；`codemap` / `project-map` 生成器只刷新索引与引用，不生成本文件正文。扫描范围：`internal/app/*.go`、`internal/app/internal/storeguard/nil.go`、`internal/app/{storeadapter,runtimeadapter}/**/*.go` 与 `internal/contract/*.go`。交叉核对实现包：`internal/platform/{rpc,hooks,mcpcontrol,toolbridge}`、`internal/provider/{unified,codexapp}`、`internal/module/{dashboard,feedback,memory,prompt,skill,thread,turn,uistate}`、`internal/module/turn/observation`、`internal/module/{cron,notify,insight}`、`internal/ui/wails`、`cmd/mcp-orch`。
+> 本卷是**手工维护的当前架构说明**；`codemap` / `project-map` 生成器只刷新索引与引用，不生成本文件正文。扫描范围：`internal/app/*.go`、`internal/app/internal/storeguard/nil.go`、`internal/app/{storeadapter,runtimeadapter}/**/*.go` 与 `internal/contract/*.go`。交叉核对实现包：`internal/platform/{rpc,hooks,mcpcontrol,toolbridge}`、`internal/provider/{unified,codexapp}`、`internal/module/{dashboard,feedback,prompt,thread,turn,uistate}`、`internal/module/turn/observation`、`internal/module/{cron,notify,insight}`、`internal/ui/wails`、`cmd/mcp-orch`。旧 memory/skill 运行时已从当前图移除；这里只记录仍存在的契约声明和 fail-fast 边界。
 
 ## 1. 模块概述
 
@@ -32,10 +32,12 @@
 - 把 provider / thread / turn / hooks / mcpcontrol / orchestration 之间的依赖压缩为接口依赖；
 - 把 RPC、sqlc、provider transport、standalone orchestration 这类易变实现隔离到外层；
 - 允许桌面态在 **没有 orchestration service** 时，依靠 `optional:"true"` + noop 适配器完成大部分组装；
-- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`skill`、`agent_memory`、`memory/team/thread_metadata`，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
-- **58f19fa 接口隔离维护口径**：不要把单一模块拥有的超大 `Service` / `Store` 端口继续抬进 `internal/contract`；`internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go` 等 owner-local narrow ports 由模块自身维护，04 只记录它们和 app/root graph 的边界关系。
+- 按能力域拆分：`approval`、`hooks`、`mcp_control`、`orchestration`、`prompt`、`provider`、`runtime_reporter`、`session_resolver`、`memory` 兼容契约，以及 `agent_state`、`bootstrap_hook`、`dream`、`frc`、`message_notifier`、`pending_launch_spawner`、`prompt_attachment`、`toolbridge_runtime_required`、`ui_project_state` 等桥接/模型/helper。
+- **58f19fa 接口隔离维护口径**：不要把单一模块拥有的超大 `Service` / `Store` 端口继续抬进 `internal/contract`；owner-local narrow ports 由各自模块维护，04 只记录它们和 app/root graph 的边界关系。
 
 一句话：**`app` 负责“怎么装”，`contract` 负责“装出来的东西如何说话”。**
+
+Provider-native context 的字段、能力状态与 strict JSON 约束详见 `docs/契约/provider-native-context-convention.md`；本卷只记录其跨层契约位置。
 
 ---
 
@@ -55,14 +57,12 @@ flowchart TD
   storeadapter --> sa3["datasourcev2"]
   storeadapter --> sa4["feedback"]
   storeadapter --> sa5["insight"]
-  storeadapter --> sa6["memory"]
-  storeadapter --> sa7["personalization"]
-  storeadapter --> sa8["prompt"]
-  storeadapter --> sa9["skill"]
-  storeadapter --> sa10["thread"]
-  storeadapter --> sa11["turn"]
-  storeadapter --> sa12["uistate"]
-  app --> business["business Modules\ndashboard · datasource/v2 · feedback · mcpserver\nmemory · prompt · personalization · observability\nappupdate · skill · thread · turn/observation\ncron · notify · insight · uistate · workflowtemplate"]
+  storeadapter --> sa6["personalization"]
+  storeadapter --> sa7["prompt"]
+  storeadapter --> sa8["thread"]
+  storeadapter --> sa9["turn"]
+  storeadapter --> sa10["uistate"]
+  app --> business["business Modules\ndashboard · datasource/v2 · feedback · mcpserver\nprompt · personalization · observability\nappupdate · thread · turn/observation\ncron · notify · insight · uistate · workflowtemplate"]
   app --> provider["provider Modules\nunified · codexapp"]
   app --> runtimeadapter["runtimeadapter.Module\nfx.Options"]
   runtimeadapter --> ra1["mcpcontrol"]
@@ -97,17 +97,19 @@ flowchart TD
 | `hooks.go` | Hook 管理、生命周期、审批持久化契约；定义 hook 相关错误。 |
 | `mcp_control.go` | MCP 控制面注册/通知/回调/组合控制面的契约与 `ToolInstance` 快照。 |
 | `memory.go` | memory 契约：`MemoryService`、`AgentMemoryReader`、`AgentMemoryWriter`、`MemoryReadRequest/Result`、`AgentMemoryWriteRequest/Result`、scope/type 枚举。 |
+| `internal/contract/memory_prompt_guard.go` | 旧 memory section/attachment 的显式拒绝与过滤守卫；不提供 memory runtime。 |
 | `message_notifier.go` | 跨模块通知消息、等级与队列/alias 错误。 |
 | `orchestration.go` | agent orchestration 的总边界：生命周期、turn、runtime、report、DAG。 |
 | `pending_launch_spawner.go` | pending launch 二段式唤醒/补偿入口。 |
 | `prompt.go` | system prompt 组装契约：`PromptAssemblyService`、`DynamicSectionRegistrar`、`SectionInvalidator`、`BuildCtx`、`StartInput/TurnInput`。 |
 | `prompt_attachment.go` | relevant-memory attachment envelope 的 normalize/render helper。 |
+| `internal/contract/provider_native_context.go` | provider-native context、能力 owner/status/reason 白名单及 strict JSON/路径校验。 |
+| `internal/contract/provider_skill_ref.go` | provider skill reference 的 metadata-only clone；清除已退役的 `Prompt` 正文 carrier。 |
 | `provider.go` | provider 三层抽象：`Driver` / `Session` / `TurnHandle`。 |
 | `runtime_reporter.go` | provider 向 orchestration 回报 runtime 元信息的最小契约。 |
 | `session_resolver.go` | 由 threadID 解析运行中或可恢复 session 的契约。 |
-| `skill.go` | skill read/write/mirror 窄契约：`SkillLister`、`SkillHydrationSource`、`SkillMirrorReconciler`、provider mirror report/target DTO。 |
-| `team_memory.go` | team-memory 只读桥：`TeamMemoryManager`。 |
-| `thread_metadata.go` | memory 侧线程元数据桥：`ThreadMetadataStore`、`ThreadMetadata`。 |
+| `team_memory.go` | 保留的 team-memory 只读兼容桥：`TeamMemoryManager`；当前没有 memory runtime 实现接线。 |
+| `thread_metadata.go` | 保留的线程元数据只读兼容桥：`ThreadMetadataStore`、`ThreadMetadata`；当前没有 memory runtime consumer。 |
 | `toolbridge_runtime_required.go` | toolbridge runtime fail-closed 的哨兵错误。 |
 | `ui_project_state.go` | Wails/UI 侧读取 project state 的 facade 与快照模型。 |
 
@@ -120,7 +122,7 @@ flowchart TD
 | 接口 | 方法签名 | 使用者（RPC / Module / Store / 其它） | 实现所在包 |
 |---|---|---|---|
 | `ApprovalResponder` | `Respond(callID string, requestID *int64, decision ApprovalDecision) error` | Module：`internal/module/turn` RPC 审批回调 | `internal/platform/rpc` (`ApprovalManager`) |
-| `ApprovalRequester` | `RequestApproval(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error)` | Module：`internal/module/skill` | `internal/platform/rpc` (`approvalRequester`) |
+| `ApprovalRequester` | `RequestApproval(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error)` | Platform：`internal/platform/toolbridge` Windows ACL host-tool flow | `internal/platform/rpc` (`approvalRequester`) |
 | `HookManager` | `Subscribe(...); DispatchBefore(...); DispatchCheck(...); DispatchAfter(...); Resolve(...); GetPendingReviews(...)` | Platform：`internal/platform/mcpcontrol` | `internal/platform/hooks` (`Manager`) |
 | `HookLifecycle` | `ShutdownHooks(ctx context.Context, lease mcp.LeaseKey) error` | Platform：`internal/platform/mcpcontrol` registry cleanup | `internal/platform/hooks` (`Manager`) |
 | `HookReviewStore` | `SavePendingReview(...); GetPendingReview(...); GetResolvedReview(...); ListPendingReviews(...); ResolvePendingReview(...); CancelPendingReviewsByLease(...); CancelPendingReviewsByAgent(...); CancelExpiredReviews(...); RecoverOnStartup(...)` | Platform：`internal/platform/hooks` | `internal/store/hookstore` |
@@ -138,32 +140,31 @@ flowchart TD
 | `OrchestrationTurnStarter` | `StartTurn(ctx context.Context, submission TurnSubmission) (string, error)` | cmd：`cmd/mcp-orch/orchestration` | `internal/module/turn` (`orchestrationTurnStarter`)；standalone fallback：`cmd/mcp-orch` (`noopTurnStarter`) |
 | `RuntimeReporter` | `ReportRuntime(ctx context.Context, report RuntimeReport) error` | Provider：`internal/provider/{claudecli,codexapp}` | `internal/app`（`orchestrationRuntimeReporter` / `desktopExternalRuntimeReporter`）；`cmd/mcp-orch/orchestration` 没有额外 reporter 实现 |
 | `SessionResolver` | `ResolveSession(ctx context.Context, threadID string) (Session, error)` | RPC：`internal/platform/rpc` capability gate；Module：`internal/module/turn`；Platform：`internal/platform/cachekeepalive` | `internal/provider/unified` (`sessionResolver`) |
-| `MemoryService` | `Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)` | 当前无显式 consumer（LSP references 仅返回 `internal/contract/memory.go:145` 的声明） | 当前无生产实现或 Fx 装配证据；实际 host-direct memory tool 使用下列 `AgentMemoryReader/Writer` 契约。 |
-| `AgentMemoryReader` | `ReadAgentMemory(ctx, MemoryReadRequest) (MemoryReadResult, error); MemoryReadEnabled() bool; MemoryReadToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryReadHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
-| `AgentMemoryWriter` | `WriteAgentMemory(ctx, AgentMemoryWriteRequest) (AgentMemoryWriteResult, error); MemoryWriteEnabled() bool; MemoryWriteToolsEnabled() bool` | Platform：`internal/platform/toolbridge` (`MemoryWriteHostToolRegistry`) | `internal/module/memory` (`MemoryLifecycleHooks`) |
+| `MemoryService` | `Read(ctx context.Context, req MemoryReadRequest) (MemoryReadResult, error)` | 当前无生产 consumer；仅保留契约声明 | 当前无生产实现或 Fx 装配证据；不得据此推断存在 memory runtime。 |
+| `AgentMemoryReader` | `ReadAgentMemory(ctx, MemoryReadRequest) (MemoryReadResult, error); MemoryReadEnabled() bool; MemoryReadToolsEnabled() bool` | 当前无生产 consumer；`memory_read` 为 retired host-tool 名称 | 当前无生产实现或 Fx 装配证据。 |
+| `AgentMemoryWriter` | `WriteAgentMemory(ctx, AgentMemoryWriteRequest) (AgentMemoryWriteResult, error); MemoryWriteEnabled() bool; MemoryWriteToolsEnabled() bool` | 当前无生产 consumer；`memory_write` 为 retired host-tool 名称 | 当前无生产实现或 Fx 装配证据。 |
 
 ### 2.2 Prompt / memory / attachment 契约
 
 | 接口 | 方法签名 | 使用者（RPC / Module / Store / 其它） | 实现所在包 |
 |---|---|---|---|
-| `PromptAssemblyService` | `AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error); AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly, error); Invalidate(ctx context.Context, reason InvalidateReason) error` | Module：`internal/module/{thread,turn,memory/team}` | `internal/module/prompt` (`service`) |
-| `DynamicSectionProvider` | `SectionName() string; Resolve(ctx context.Context, input SectionContext) (*string, error)` | Module：`internal/module/prompt` registry；Module：`internal/module/memory` 注册 prompt provider | `internal/module/prompt`（内建 providers）、`internal/module/memory` |
-| `InvalidationAwareProvider` | `OnPromptInvalidate(reason InvalidateReason)` | Module：`internal/module/prompt` invalidation pipeline | `internal/module/memory`、`internal/module/memory/nested` |
-| `SectionInvalidator` | `InvalidateSections(reason InvalidateReason, names ...string) uint64` | Module：`internal/module/memory` lifecycle / extractor | `internal/module/prompt` (`service`) |
-| `DynamicSectionRegistrar` | `RegisterDynamicProvider(provider DynamicSectionProvider) error` | Module：`internal/module/memory` registerPromptProviders；旧 skill-catalog provider 不再接入生产 prompt 注入链 | `internal/module/prompt` (`service`) |
-| `ClaudeMdSourceProviderRegistrar` | `RegisterClaudeMdSourceProvider(provider ClaudeMdSourceProvider) error` | Module：`internal/module/memory` registerPromptProviders | `internal/module/prompt` (`service`) |
-| `ClaudeMdSourceProvider` | `ResolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) []ClaudeMdSource` | Module：`internal/module/prompt` build ctx / assembly；Module：`internal/module/memory` | `internal/module/memory/nested` (`ClaudeMdSourcesProvider`) |
-| `TurnAttachmentProvider` | `ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) []dto.AttachmentEnvelope` | Module：`internal/module/prompt` assembler 通过 type assertion 消费 | `internal/module/memory/nested` (`ClaudeMdSourcesProvider`) |
-| `TurnContextProvider` | `PrepareTurnContext(ctx context.Context, session Session, buildCtx BuildCtx, threadID, query string) TurnContextPayload` | Module：`internal/module/turn` | `internal/module/memory` (`MemoryContextProvider`) |
-| `DreamExecutor` | `ExecuteDream(ctx context.Context, prompt string) (string, error)` | Module：`internal/module/memory` auto-dream consolidation | 聚合器：`internal/provider/unified`；provider 侧执行器：`internal/provider/{claudecli,codexapp}` |
-| `SkillMirrorReconciler` | `ReconcileProviderMirrors(ctx, cwd, targets) (SkillMirrorReport, error)` | Provider：`internal/provider/{claudecli,codexapp}` 启动/acquire 前 mirror reconcile | `internal/module/skill` (`service`) |
-| `TeamMemoryManager` | `GetTeamMemPath(buildCtx ...BuildCtx) string; GetTeamMemEntrypoint(buildCtx ...BuildCtx) string` | Module：`internal/module/memory/nested` | `internal/module/memory/team` (`TeamMemoryManager`) |
-| `ThreadMetadataStore` | `GetByThreadID(ctx context.Context, threadID string) (*ThreadMetadata, error); ListAll(ctx context.Context) ([]ThreadMetadata, error)` | Module：`internal/module/memory/team` | `internal/store/thread` (`metadataStoreAdapter`) |
+| `PromptAssemblyService` | `AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error); AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly, error); Invalidate(ctx context.Context, reason InvalidateReason) error` | Module：`internal/module/{thread,turn}` | `internal/module/prompt` (`service`) |
+| `DynamicSectionProvider` | `SectionName() string; Resolve(ctx context.Context, input SectionContext) (*string, error)` | Module：`internal/module/prompt` registry；`datasource`、`datasource_v2`、`personalization` 通过 registrar 接入 | `internal/module/prompt`（内建 registry 与 provider） |
+| `InvalidationAwareProvider` | `OnPromptInvalidate(reason InvalidateReason)` | Module：`internal/module/prompt` invalidation pipeline | 当前生产 providers 未声明该可选扩展；memory 实现已移除。 |
+| `SectionInvalidator` | `InvalidateSections(reason InvalidateReason, names ...string) uint64` | Module：`internal/module/prompt` cache / invalidation | `internal/module/prompt` (`service`) |
+| `DynamicSectionRegistrar` | `RegisterDynamicProvider(provider DynamicSectionProvider) error` | Module：`internal/module/{datasource,datasource_v2,personalization,threadprompt}` | `internal/module/prompt` (`service`) |
+| `ClaudeMdSourceProviderRegistrar` | `RegisterClaudeMdSourceProvider(provider ClaudeMdSourceProvider) error` | 当前仅由 prompt service 保留的可选扩展；没有 memory 注册方 | `internal/module/prompt` (`service`) |
+| `ClaudeMdSourceProvider` | `ResolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) ([]ClaudeMdSource, error)` | 当前 prompt assembly 的可选来源；默认未注入 | 生产实现未在当前树中注册；测试 doubles 位于 `internal/module/prompt`。 |
+| `TurnAttachmentProvider` | `ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) []dto.AttachmentEnvelope` | Module：`internal/module/prompt` assembler 通过 type assertion 消费 | 当前无 memory concrete 实现。 |
+| `TurnContextProvider` | `PrepareTurnContext(ctx context.Context, session Session, buildCtx BuildCtx, threadID, query string) TurnContextPayload` | Module：`internal/module/turn` compatibility constructor | 当前无 memory implementation；误注入由 `internal/module/turn` 返回 typed unsupported。 |
+| `DreamExecutor` | `ExecuteDream(ctx context.Context, prompt string) (string, error)` | Module：`internal/module/prompt` optional dream RPC | 聚合器：`internal/provider/unified`；provider 侧执行器：`internal/provider/{claudecli,codexapp}` |
+| `TeamMemoryManager` | `GetTeamMemPath(buildCtx ...BuildCtx) string; GetTeamMemEntrypoint(buildCtx ...BuildCtx) string` | 当前无生产 consumer | 仅保留 `internal/contract/memory.go` 契约声明。 |
+| `ThreadMetadataStore` | `GetByThreadID(ctx context.Context, threadID string) (*ThreadMetadata, error); ListAll(ctx context.Context) ([]ThreadMetadata, error)` | 当前无 memory runtime consumer | `internal/store/thread` (`metadataStoreAdapter`) 保留窄只读适配器。 |
 
 | 接口 | 定义文件 | 核心职责 | 生产实现者 | Fx / 备注 |
 | --- | --- | --- | --- | --- |
 | `ApprovalResponder` | `approval.go` | 响应工具审批结果 | `*internal/platform/rpc.ApprovalManager` | 由 `internal/platform/rpc.Module` 导出。 |
-| `ApprovalRequester` | `approval.go` | 主动向 UI / 活跃 RPC peer 请求审批决定 | `internal/platform/rpc.approvalRequester` | 由 `internal/platform/rpc.Module` 中的闭包 provider 导出；`module/skill.NewSkillHandlers` 消费。 |
+| `ApprovalRequester` | `approval.go` | 主动向 UI / 活跃 RPC peer 请求审批决定 | `internal/platform/rpc.approvalRequester` | 由 `internal/platform/rpc.Module` 中的闭包 provider 导出；toolbridge 的受保护 host-tool 流程消费。 |
 | `HookManager` | `hooks.go` | Hook 订阅、三阶段分发、resolve、查询待审批 | `*internal/platform/hooks.Manager` | 由 `internal/platform/hooks.Module` 导出。 |
 | `HookLifecycle` | `hooks.go` | Hook 关闭与清理 | `*internal/platform/hooks.Manager` | 由 `internal/platform/hooks.Module` 导出。 |
 | `HookReviewStore` | `hooks.go` | 持久化 pending hook review | `*internal/store/hookstore.Store` | `hookstore.NewStore` 返回 `contract.HookReviewStore`。 |
@@ -172,9 +173,9 @@ flowchart TD
 | `ToolHookCallback` | `mcp_control.go` | 向订阅 peer 分发 hook callback | `*internal/platform/mcpcontrol.ToolRegistry` | 同上。 |
 | `PeerCallback` | `mcp_control.go` | 对单个 lease 做 before/check/after callback | `*internal/platform/mcpcontrol.ToolRegistry` | 同上。 |
 | `ToolControlPlane` | `mcp_control.go` | 上述 4 个 MCP 控制面接口的组合 | `*internal/platform/mcpcontrol.ToolRegistry` | 组合接口，无单独实现。 |
-| `MemoryService` | `memory.go` | 当前无显式 consumer | — | LSP references 仅返回 `memory.go:145` 的声明，不能映射为 `memory_read` 实现；当前 host-direct 工具链使用 `AgentMemoryReader/Writer`。 |
-| `AgentMemoryReader` | `memory.go` | agent 侧 memory 读取（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryReader` 导出；`toolbridge.Module` 消费。 |
-| `AgentMemoryWriter` | `memory.go` | agent 侧 memory 写入（host tool 注册） | `*internal/module/memory.MemoryLifecycleHooks` | 由 `memory.Module` 通过 `provideAgentMemoryWriter` 导出；`toolbridge.Module` 消费。 |
+| `MemoryService` | `memory.go` | 当前无显式 consumer | — | 仅保留契约声明；没有 `memory_read` 生产实现。 |
+| `AgentMemoryReader` | `memory.go` | 当前无显式 consumer | — | `memory_read` 名称已退役，不能映射为生产工具。 |
+| `AgentMemoryWriter` | `memory.go` | 当前无显式 consumer | — | `memory_write` 名称已退役，不能映射为生产工具。 |
 | `AgentLifecyclePort` / `AgentRuntimePort` / `AgentReportPort` / `TurnSubmissionPort` | `orchestration.go` | agent 生命周期、runtime、report、turn 提交的拆分端口 | `*cmd/mcp-orch/orchestration.service` | `cmd/mcp-orch/fx_orchestration_lifecycle.go:9-18` 通过 `orchestration.ProvideServiceResult` 分别导出窄端口；生产消费侧不得重新聚合成总接口。 |
 | `DAGRuntime` / `DAGCreateRuntime` / `DAGDeleteRuntime` / `DAGNodeStatusRuntime` / `DAGNodeDispatchRuntime` | `orchestration.go` | DAG 模板、运行、节点状态和派发的拆分端口 | `*cmd/mcp-orch/orchestration.service` | StartDAG 路径 N 幂等：重复 idempotency_key 复用既有 run，达上限返 `ErrIdempotencyKeyExhausted`。 |
 | `OrchestrationSessionCleaner` | `orchestration.go` | orchestration 关闭 agent 时清理本地 session | `*internal/provider/unified.sessionCleanerAdapter`；standalone noop 见 `cmd/mcp-orch/runtime.go:122` | app 侧由 `unified.NewSessionCleaner` 提供；`mcp-orch` standalone 图由 `newNoopSessionCleaner` 提供。`sessionCleanerAdapter` 额外实现了非契约方法 `RemoveSessionGeneration(...)`，供 orchestration 通过类型断言使用。 |
@@ -185,9 +186,8 @@ flowchart TD
 | `TurnHandle` | `provider.go` | 运行中 turn 的句柄 | `*internal/provider/claudecli.turnHandle`、`*internal/provider/codexapp.turnHandle` | 分别由 provider 的 `Session.StartTurn` 返回。 |
 | `RuntimeReporter` | `runtime_reporter.go` | provider 上报 runtime 信息 | `internal/app/runtime_reporter_adapter.go:57`、`:67` | `internal/app/modules.go:121` 提供 app 侧实现（`Run` / `RunDesktop` 均会加载）。另有 orchestration 辅助类型定义在 `service.go`，但当前 Fx 图未导出它。 |
 | `SessionResolver` | `session_resolver.go` | 由 threadID 解析/自动恢复 session | `*internal/provider/unified.sessionResolver` | 由 `internal/provider/unified.Module` 导出。 |
-| `SkillMirrorReconciler` | `skill.go` | provider-native mirror reconcile 窄端口 | `*internal/module/skill.service` | `skill.Module` 导出给 `claudecli` / `codexapp`；mirror 为生成物，错误阻断 provider 启动/acquire。 |
-| `TeamMemoryManager` | `team_memory.go` | 暴露 team memory path / entrypoint 的只读桥 | `*internal/module/memory/team.TeamMemoryManager` | `internal/module/memory.Module` 通过 `provideTeamMemoryManagerContract` 导出。 |
-| `ThreadMetadataStore` | `thread_metadata.go` | 向 memory 域暴露线程元数据查找最小面 | `*internal/store/thread.metadataStoreAdapter` | `internal/store/thread.NewMetadataStore` 返回该契约；`memory` 生命周期 / team sync 消费。 |
+| `TeamMemoryManager` | `team_memory.go` | 暴露 team memory path / entrypoint 的只读兼容桥 | — | 当前没有生产 consumer 或 Fx 装配。 |
+| `ThreadMetadataStore` | `thread_metadata.go` | 暴露线程元数据查找的最小只读面 | `*internal/store/thread.metadataStoreAdapter` | `internal/store/thread.NewMetadataStore` 返回该契约；当前没有 memory runtime consumer。 |
 
 ### 3.3 `app` 包实现的外部桥接
 
@@ -242,17 +242,16 @@ flowchart TD
 | 契约 | Fx 接线位置 | 实现映射 | 备注 |
 |---|---|---|---|
 | `contract.ApprovalResponder` | `internal/platform/rpc/module.go` | `func(m *ApprovalManager) contract.ApprovalResponder { return m }` | `turn` 只依赖契约，不碰 RPC concrete。 |
-| `contract.ApprovalRequester` | `internal/platform/rpc/module.go` | `approvalRequester{manager, bridge, server}` | `skill` 发审批请求的反向桥。 |
+| `contract.ApprovalRequester` | `internal/platform/rpc/module.go` | `approvalRequester{manager, bridge, server}` | toolbridge 受保护 host-tool 流程发审批请求的反向桥。 |
 | `contract.SessionResolver` | `internal/provider/unified/module.go` | `NewSessionResolver -> *sessionResolver` | 由 threadID / binding / providerThreadID 自动恢复 session。 |
 | `contract.OrchestrationSessionCleaner` | `internal/provider/unified/module.go`；`cmd/mcp-orch/fx.go` | 真实：`sessionCleanerAdapter`；standalone：`noopSessionCleaner` | standalone 图只保留占位，不回连桌面 runtime。 |
 | `contract.OrchestrationTurnStarter` | `internal/module/turn/module.go`；`cmd/mcp-orch/fx.go` | 真实：`NewOrchestrationTurnStarter`；standalone：`noopTurnStarter` | 同一契约，两张 Fx 图不同实现。 |
 | `contract.RuntimeReporter` | `internal/app/modules.go` | `newRuntimeReporter -> orchestrationRuntimeReporter/desktopExternalRuntimeReporter` | provider 只依赖最小 runtime 上报口。 |
-| `contract.ClaudeMdSourceProvider` | `internal/module/memory/nested/module.go` | `fx.Annotate(NewClaudeMdSourcesProvider, fx.As(new(contract.ClaudeMdSourceProvider)))` | 同一 concrete 额外实现 `TurnAttachmentProvider`，由 prompt assembler 用 type assertion 消费。 |
-| `contract.TurnContextProvider` | `internal/module/memory/module.go` | `AsTurnContextProvider(*MemoryContextProvider)` | turn 模块不直接 import memory concrete。 |
+| `contract.ClaudeMdSourceProvider` | `internal/module/prompt/service.go` | `RegisterClaudeMdSourceProvider(provider)` | prompt assembly 保留可选来源扩展；当前默认没有 production provider。 |
+| `contract.TurnContextProvider` | `internal/module/turn/service_helpers.go` | `syntheticMemoryContext(...)` | 仅兼容旧 wiring；误注入时返回 typed unsupported，不读取 memory concrete。 |
 | `contract.DynamicSectionRegistrar` / `SectionInvalidator` / `PromptAssemblyService` | `internal/module/prompt/module.go` | `AsDynamicSectionRegistrar/AsSectionInvalidator/AsPromptAssemblyService` -> `*prompt.service` | prompt 模块一份实现对外投影三种契约面。 |
 | `group:"drivers"` | `internal/provider/{claudecli,codexapp}/module.go` | `contract.DriverFactory` fan-in 到 `internal/provider/unified.RegistryParams` | 新 provider 走 group 扩展，不改 thread/turn。 |
 | `group:"dream_executors"` | `internal/provider/{claudecli,codexapp}/module.go` | `contract.DreamExecutorProvider` fan-in 到 `unified.NewDreamExecutor` | dream 执行器也是 group 聚合。 |
-| `contract.SkillMirrorReconciler` | `internal/module/skill/module.go` | `*skill.service` 以 `fx.As(new(contract.SkillMirrorReconciler))` 导出 | provider-native mirror reconcile 由 provider 启动/acquire 前主动调用。 |
 
 ---
 
@@ -353,7 +352,7 @@ uiwails.NewHTTPAssetServer() [desktop only] -----┼--> []platformrunner.Runner
 | 输出接口 / 值 | 提供者 | 主要消费者 |
 | --- | --- | --- |
 | `contract.ApprovalResponder` | `rpc.Module` 中 `func(m *ApprovalManager) contract.ApprovalResponder { return m }` | `module/turn`、provider 审批回调 |
-| `contract.ApprovalRequester` | `rpc.Module` 中返回 `approvalRequester{manager, bridge, server}` 的闭包 provider | `module/skill.NewSkillHandlers` |
+| `contract.ApprovalRequester` | `rpc.Module` 中返回 `approvalRequester{manager, bridge, server}` 的闭包 provider | `platform/toolbridge` host-tool approval flow |
 | `contract.HookManager` / `HookLifecycle` | `platform/hooks.Module` | `platform/mcpcontrol` |
 | `contract.HookReviewStore` | `store/hookstore.NewStore` | `platform/hooks.HookResolver` |
 | `contract.ToolRegistry` / `ToolNotifier` / `ToolHookCallback` / `PeerCallback` / `ToolControlPlane` | `platform/mcpcontrol.Module` | hooks / MCP 控制面 / 相关集成 |
@@ -365,14 +364,13 @@ uiwails.NewHTTPAssetServer() [desktop only] -----┼--> []platformrunner.Runner
 | `rpc.CapabilityResolver` | `rpc.NewCapabilityResolver(contract.SessionResolver)` | `thread.NewThreadHandlers`、`turn.NewTurnHandlers` |
 | `group:"drivers"` (`contract.DriverFactory`) | `provider/claudecli.Module`、`provider/codexapp.Module` | `unified.NewRegistry` |
 | `contract.OrchestrationTurnStarter` | `turn.NewOrchestrationTurnStarter`；`mcp-orch` standalone 图中为 `newNoopTurnStarter` | `cmd/mcp-orch/orchestration.NewService`（由 `orchestration.ProvideServiceResult` 间接构造；当前 `app.Module` 导出但不消费真实 starter） |
-| `contract.PromptAssemblyService` | `prompt.AsPromptAssemblyService` | `module/thread.NewService`、`turn.NewServiceWithPromptAssembly...`、`memory/team` prompt 失效链 |
-| `contract.SkillMirrorReconciler` | `skill.Module` | `provider/claudecli`、`provider/codexapp` |
-| `contract.TeamMemoryManager` | `memory.provideTeamMemoryManagerContract` | `memory/nested.NewClaudeMdSourcesProvider`、`memory.NewRulesProvider` |
-| `contract.ThreadMetadataStore` | `store/thread.NewMetadataStore` | `memory` 生命周期 / team sync |
+| `contract.PromptAssemblyService` | `prompt.AsPromptAssemblyService` | `module/thread.NewService`、`turn.NewServiceWithPromptAssembly...` |
+| `contract.TeamMemoryManager` | — | 当前没有生产 consumer；契约保留用于兼容性审计。 |
+| `contract.ThreadMetadataStore` | `store/thread.NewMetadataStore` | 当前没有 memory runtime consumer。 |
 | `contract.RuntimeReporter` | `app.newRuntimeReporter` | `provider/claudecli.NewDriverFactory`、`provider/codexapp.NewDriverFactory` |
 | `thread.OrchestrationFacade` | `app.newMCPOrchOrchestrationFacade` | `module/thread.NewService` |
 
-> 另：`contract.MemoryService` 当前只有声明、没有显式 consumer 或 Fx 装配证据（`internal/contract/memory.go:145-147`）。实际 `memory_read` / `memory_write` 链路由 `internal/module/memory/module.go:456-465` 导出 `AgentMemoryReader/Writer`，再由 `internal/platform/toolbridge/memory_read_tool.go:14-74` 与 `module.go:84-123` 组装 host-direct registry；`cmd/mcp-orch/runtime_memory_test.go:8-17` 和 `tools/memory_tools_test.go:5-12` 则锁定 mcp-orch 不注册这两项工具。
+> 另：`contract.MemoryService`、`contract.AgentMemoryReader`、`contract.AgentMemoryWriter` 当前只保留声明，没有生产 consumer 或 Fx 装配。`memory_read` / `memory_write` 是退役名称；`cmd/mcp-orch/runtime_memory_test.go:8-17` 和 `tools/memory_tools_test.go:5-12` 仅锁定 mcp-orch 不注册它们，不能被解释为运行时实现。
 
 ### 4.5 关键注入链（按职责）
 
@@ -473,7 +471,6 @@ type RegistryParams struct {
 
 - `group:"drivers"`：`claudecli/codexapp -> unified.Registry`
 - `group:"dream_executors"`：`claudecli/codexapp -> unified.NewDreamExecutor`
-- `contract.SkillMirrorReconciler`：`skill.Module -> claudecli/codexapp provider mirror reconcile`
 
 ### 5.3 standalone / optional 场景
 
@@ -703,7 +700,7 @@ type TurnHandle interface {
 }
 ```
 
-#### Memory / Prompt / Skill / Thread Metadata
+#### Memory compatibility / Prompt / Thread Metadata
 
 ```go
 type MemoryService interface {
@@ -714,10 +711,6 @@ type PromptAssemblyService interface {
     AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error)
     AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly, error)
     Invalidate(ctx context.Context, reason InvalidateReason) error
-}
-
-type SkillMirrorReconciler interface {
-    ReconcileProviderMirrors(ctx context.Context, cwd string, targets []SkillProviderMirrorTarget) (SkillMirrorReport, error)
 }
 
 type TeamMemoryManager interface {
@@ -757,18 +750,16 @@ type SessionResolver interface {
 | `internal/platform/mcpcontrol` | `ToolRegistry`、`ToolNotifier`、`ToolHookCallback`、`PeerCallback`、`ToolControlPlane`、`ToolInstance`、`HookManager`、`HookLifecycle`、`AgentSnapshot`、`ApprovalDecision`、`RuntimeReport`、`ReportEvent`、hook 错误 |
 | `internal/store/hookstore` | `HookReviewStore`、`ErrHookReviewNotFound` |
 | `internal/provider/unified` | `DriverFactory`、`Driver`、`Session`、`SessionResolver`、`OrchestrationSessionCleaner`、`ErrSessionNotFound` |
-| `internal/provider/claudecli` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`SkillMirrorReconciler` |
-| `internal/provider/codexapp` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`ApprovalDecision`、`SkillMirrorReconciler` |
+| `internal/provider/claudecli` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport` |
+| `internal/provider/codexapp` | `DriverFactory`、`Driver`、`Session`、`TurnHandle`、`RuntimeReporter`、`RuntimeReport`、`ApprovalDecision` |
 | `internal/module/prompt` | `PromptAssemblyService`、`DynamicSectionRegistrar`、`SectionInvalidator`、`BuildCtx` |
 | `internal/module/thread` | `Session`、`PromptAssemblyService`、`ErrAgentNotFound` |
 | `internal/module/turn` | `Session`、`TurnHandle`、`SessionResolver`、`ApprovalResponder`、`OrchestrationTurnStarter`、`PromptAssemblyService`、`ErrSessionNotFound` |
-| `internal/module/skill` | `ApprovalRequester`、`SkillMirrorReconciler`、`SkillLister`、`SkillHydrationSource` |
-| `internal/module/memory` | `PromptAssemblyService`、`ThreadMetadataStore`、`TeamMemoryManager`、`BuildCtx`、`InvalidateReason` |
 | `internal/module/dashboard` | `AgentLifecyclePort` 适配后的 `OrchestrationReader`、`AgentReportPort` 适配后的 `OrchestrationReportReader`、`DAG*Runtime`、`AgentSnapshot`、`AgentReportResult`、`ListDAGsFilter`、`DAGSummary`、`DAGDetail`、`Run`、`FinalOutputRef` |
 | `internal/module/uistate` | `AgentLifecyclePort` 适配后的 agent 列表读面、`AgentSnapshot` |
 | `internal/ui/wails` | `AgentLifecyclePort` 的 `ListAgents` 读面 |
 | `internal/store/thread` | `ThreadMetadataStore` |
-| `cmd/mcp-orch` / `cmd/mcp-orch/orchestration` | `AgentLifecyclePort`、`AgentRuntimePort`、`AgentReportPort`、`TurnSubmissionPort`、`DAG*Runtime`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`、`MemoryService`、`RuntimeReport`、DAG/report 相关请求/响应模型 |
+| `cmd/mcp-orch` / `cmd/mcp-orch/orchestration` | `AgentLifecyclePort`、`AgentRuntimePort`、`AgentReportPort`、`TurnSubmissionPort`、`DAG*Runtime`、`OrchestrationSessionCleaner`、`OrchestrationTurnStarter`、`RuntimeReport`、DAG/report 相关请求/响应模型 |
 
 ### 6.2 `app.Module` 直接纳入的模块
 
@@ -789,16 +780,14 @@ type SessionResolver interface {
 **Store 层**
 
 - `store.Module`
-- `storeadapter.Module`，透明聚合以下 12 个 child：
+- `storeadapter.Module`，透明聚合以下 10 个 child：
   - `cronadapter.Module`
   - `dashboardadapter.Module`
   - `datasourcev2adapter.Module`
   - `feedbackadapter.Module`
   - `insightadapter.Module`
-  - `memoryadapter.Module`
   - `personalizationadapter.Module`
   - `promptadapter.Module`
-  - `skilladapter.Module`
   - `threadadapter.Module`
   - `turnadapter.Module`
   - `uistateadapter.Module`
@@ -810,12 +799,10 @@ type SessionResolver interface {
 - `datasourcev2.Module`
 - `feedback.Module`
 - `mcpserver.Module`
-- `memory.Module`
 - `prompt.Module`
 - `personalization.Module`
 - `moduleobservability.Module`
 - `appupdate.Module`
-- `skill.Module`
 - `thread.Module`
 - `turn.Module`
 - `turnobservation.Module`
@@ -870,7 +857,7 @@ type SessionResolver interface {
 
 ### 6.4 关键依赖结论
 
-1. **`contract` 是全局横向边界层，但不是所有接口的收容所。** provider、thread、turn、rpc、hooks、mcpcontrol、dashboard、uistate、wails、`cmd/mcp-orch` 仍通过稳定契约解耦；58f19fa 后，skill/taskdag 这类 owner-local 超大端口应拆在 owning package 的窄接口里。
+1. **`contract` 是全局横向边界层，但不是所有接口的收容所。** provider、thread、turn、rpc、hooks、mcpcontrol、dashboard、uistate、wails、`cmd/mcp-orch` 仍通过稳定契约解耦；58f19fa 后，owner-local 超大端口应拆在 owning package 的窄接口里。
 2. **`app` 是根组装层，不是业务层。** 它只决定“装哪些模块、以什么生命周期运行”。
 3. **桌面端对 orchestration 是可选依赖。** mcp-orch 相关能力必须通过 `AgentLifecyclePort`、`AgentRuntimePort`、`AgentReportPort` 与 DAG runtime 窄端口声明消费面，缺失时由 noop 或 typed dependency error 表达。
 4. **provider 装配采用 `group:"drivers"`。** 新增 provider 只需追加一个 `contract.DriverFactory`，无需改 thread / turn / rpc 调用链。
@@ -885,8 +872,8 @@ internal/app
   ├─ NewApp / Run / RunDesktop
   ├─ Module = 平台模块 + store.Module + storeadapter.Module + 业务模块 + provider 模块 + runtimeadapter.Module
   ├─ storeadapter.Module
-  │    └─ cron / dashboard / datasourcev2 / feedback / insight / memory /
-  │       personalization / prompt / skill / thread / turn / uistate
+  │    └─ cron / dashboard / datasourcev2 / feedback / insight /
+  │       personalization / prompt / thread / turn / uistate
   ├─ runtimeadapter.Module
   │    └─ mcpcontrol / toolbridge / cachekeepalive / builtintools
   ├─ AsRPCRunner ------------------------------------┐
@@ -899,16 +886,14 @@ internal/contract
   ├─ errors           -> session / hook / orchestration 通用哨兵错误
   ├─ hooks            -> hooks / mcpcontrol / hookstore
   ├─ mcp_control      -> mcpcontrol / hooks
-  ├─ memory           -> 当前无显式 consumer 的 MemoryService（仅保留 contract）
-  ├─ agent_memory     -> memory module -> toolbridge host-direct (AgentMemoryReader/Writer)
+  ├─ memory           -> 仅保留兼容 contract；无生产 consumer
   ├─ orchestration    -> cmd/mcp-orch / dashboard / uistate / wails / app
-  ├─ prompt           -> prompt / thread / turn / memory
+  ├─ prompt           -> prompt / thread / turn
   ├─ provider         -> unified / claudecli / codexapp / thread / turn
   ├─ runtime_reporter -> app / providers
   ├─ session_resolver -> unified / rpc / turn
-  ├─ skill            -> skill mirror/lister/hydration contracts
-  ├─ team_memory      -> memory
-  └─ thread_metadata  -> store/thread / memory
+  ├─ team_memory      -> 仅保留兼容 contract
+  └─ thread_metadata  -> store/thread
 
 provider/unified
   ├─ group:"drivers" -> Registry
@@ -919,16 +904,13 @@ provider/unified
   └─ SessionResolver -------------> contract.SessionResolver -> rpc.CapabilityResolver
 
 module/prompt
-  └─ AsPromptAssemblyService ------> contract.PromptAssemblyService -> thread / turn / memory
-
-module/skill
-  └─ Service aggregate -> SkillLister / SkillHydrationSource / SkillMirrorReconciler -> dashboard / turn / providers
+  └─ AsPromptAssemblyService ------> contract.PromptAssemblyService -> thread / turn
 
 platform/rpc
-  └─ approvalRequester -----------> contract.ApprovalRequester -> skill
+  └─ approvalRequester -----------> contract.ApprovalRequester -> toolbridge
 
 store/thread
-  └─ NewMetadataStore -----------> contract.ThreadMetadataStore -> memory
+  └─ NewMetadataStore -----------> contract.ThreadMetadataStore
 ```
 
 ## 8. 测试入口 + archtest freeze 映射
@@ -940,7 +922,7 @@ store/thread
 | `archtest` | `app_adapter_package_boundary_test.go` | `TestAppRootDoesNotOwnLeafStoreAdapters` | — |
 | `archtest` | `backend_boundary_governance_test.go` | `TestAppAdapterBoundaryUsesAuditedProductionImports`、`TestAppAdapterProductionAllowRegistryRejectsTestOnlyImports` | canonical registry |
 | `archtest` | `backend_boundary_guard_coverage_test.go` | `TestAppAdapterBoundaryFixturesRejectCrossDomainPollution` | canonical evaluator fixtures |
-| `archtest` | `interface_isolation_guard_test.go` | `TestInterfaceIsolationBudgets`、`TestSkillServiceConsumersUseNarrowPorts`、`TestTaskDAGStoreConsumersUseNarrowPort` | 58f19fa 接口隔离预算 |
+| `archtest` | `interface_isolation_guard_test.go` | `TestInterfaceIsolationBudgets`、`TestTaskDAGStoreConsumersUseNarrowPort` | 58f19fa 接口隔离预算 |
 
 补充：`04` 这卷自身没有第二套 freeze registry；冻结债务统一以 `internal/archtest/freeze_baseline.json` 为唯一真值，接口隔离另由 `internal/archtest/interface_isolation_guard_test.go` 管住。
 
@@ -957,7 +939,7 @@ _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** e
 | App adapter canonical guard | adapter 新增真实 production import 或 child | 1. 更新 Go registry 中 `app_adapter_boundary` / `app_adapter_narrow_import_surface`；2. 保持逐文件精确 allow，禁止宽 `internal/module` / `internal/store` / adapter 根前缀；3. 同步 governance 与污染 fixture。 | `internal/archtest/backend_boundary_registry_app_adapter.go`、governance / coverage tests | `./scripts/test_with_guard.sh ./internal/archtest -run 'TestAppAdapter|TestAppRootDoesNotOwnLeafStoreAdapters' -count=1` |
 | RPC 收编 | 新模块需要暴露 JSON-RPC / Wails RPC | 1. 返回 `rpc.HandlerMapResult`；2. 在模块侧提供 `New*Handlers`；3. 由 `internal/platform/rpc.registerAllHandlers` 统一收编。 | `internal/platform/rpc/module.go`、`registerAllHandlers` | `internal/platform/rpc/server_minimal_test.go` |
 | freeze | 适配层膨胀 / bridge 临时收口触发架构 guard | 1. 优先把 helper / adapter 收回 owning module；2. 对照统一 `freeze_baseline.json` 找当前真值；3. 用 `TestCodeSizeGuard` 校验是否需要同步收缩 freeze。 | `internal/archtest/freeze_baseline.json`、`internal/archtest/code_size_guard_test.go` | `go test ./internal/archtest -run TestCodeSizeGuard` |
-| 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `internal/module/skill/contract.go`、`cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestSkillService|TestTaskDAG'` |
+| 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestTaskDAG'` |
 
 ## 审查补遗
 

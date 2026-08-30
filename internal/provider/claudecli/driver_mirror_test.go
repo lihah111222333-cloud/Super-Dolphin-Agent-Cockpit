@@ -8,172 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 )
 
-type recordingMirrorReconciler struct {
-	events  *[]string
-	err     error
-	report  contract.SkillMirrorReport
-	cwd     string
-	targets []contract.SkillProviderMirrorTarget
-}
-
-func (r *recordingMirrorReconciler) ReconcileProviderMirrors(ctx context.Context, cwd string, targets []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
-	if r.events != nil {
-		*r.events = append(*r.events, "reconcile")
-	}
-	r.cwd = cwd
-	r.targets = append([]contract.SkillProviderMirrorTarget(nil), targets...)
-	return r.report, r.err
-}
-
 func validClaudeStartAssemblyForTest() dto.StartAssembly {
 	return dto.StartAssembly{BaseInstructions: "test base instructions"}
-}
-
-func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.T) {
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	userHome := filepath.Join(t.TempDir(), "user-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("HOME", userHome)
-	t.Setenv("USERPROFILE", userHome)
-	workDir := t.TempDir()
-	events := []string{}
-	mirror := &recordingMirrorReconciler{
-		events: &events,
-	}
-	next := newBufferedTransport(t, "claude-session-1")
-	d := newTestDriverWithLaunch(t, mirror, func(_, cwd, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
-		events = append(events, "launch")
-		if cwd != workDir {
-			t.Fatalf("launch cwd = %q, want %q", cwd, workDir)
-		}
-		if cfg.ClaudeHome != "" {
-			t.Fatalf("ClaudeHome = %q, want empty default so Claude uses user CLI identity", cfg.ClaudeHome)
-		}
-		return next.tr, func() { next.finish() }, nil
-	})
-
-	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-claude",
-		CWD:           workDir,
-		StartAssembly: validClaudeStartAssemblyForTest(),
-	})
-	if err != nil {
-		t.Fatalf("StartSession() error = %v", err)
-	}
-	next.finish()
-	defer got.Close(context.Background())
-	if strings.Join(events, ",") != "reconcile,launch" {
-		t.Fatalf("events = %v, want reconcile before launch", events)
-	}
-	assertClaudeMirrorTargets(t, mirror.targets, workDir, userHome)
-}
-
-func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.T) {
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	userHome := filepath.Join(t.TempDir(), "user-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("HOME", userHome)
-	t.Setenv("USERPROFILE", userHome)
-	repoRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
-		t.Fatalf("MkdirAll .git: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repoRoot, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile .git/HEAD: %v", err)
-	}
-	subdir := filepath.Join(repoRoot, "cmd", "agent-terminal")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatalf("MkdirAll subdir: %v", err)
-	}
-	events := []string{}
-	mirror := &recordingMirrorReconciler{events: &events}
-	next := newBufferedTransport(t, "claude-session-subdir")
-	d := newTestDriverWithLaunch(t, mirror, func(_, cwd, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
-		events = append(events, "launch")
-		if cwd != subdir {
-			t.Fatalf("launch cwd = %q, want request cwd %q", cwd, subdir)
-		}
-		return next.tr, func() { next.finish() }, nil
-	})
-
-	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-claude-subdir",
-		CWD:           subdir,
-		StartAssembly: validClaudeStartAssemblyForTest(),
-	})
-	if err != nil {
-		t.Fatalf("StartSession() error = %v", err)
-	}
-	next.finish()
-	defer got.Close(context.Background())
-	if strings.Join(events, ",") != "reconcile,launch" {
-		t.Fatalf("events = %v, want reconcile before launch", events)
-	}
-	assertClaudeMirrorTargets(t, mirror.targets, repoRoot, userHome)
-}
-
-func TestStartSessionMirrorContentConflictBlocksClaudeLaunch(t *testing.T) {
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	launched := false
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
-		TargetID:     "claude:project:conflict",
-		Scope:        "project",
-		ConflictKind: "drift",
-	}}}}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
-		launched = true
-		t.Fatal("launchCLI was called with active project mirror drift")
-		return nil, nil, nil
-	})
-
-	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-claude-conflict",
-		CWD:           t.TempDir(),
-		StartAssembly: validClaudeStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "drift") {
-		t.Fatalf("StartSession() error = %v, want active mirror drift startup error", err)
-	}
-	if got != nil {
-		_ = got.Close(context.Background())
-	}
-	if launched {
-		t.Fatalf("launchCLI was called")
-	}
-}
-
-func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	launched := false
-	next := newBufferedTransport(t, "claude-session-mirror-safety-conflict")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
-		TargetID:     "claude:project:conflict",
-		ConflictKind: "mirror_root_symlink",
-	}}}}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
-		launched = true
-		return next.tr, func() { next.finish() }, nil
-	})
-
-	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-claude-safety-conflict",
-		CWD:           t.TempDir(),
-		StartAssembly: validClaudeStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "mirror_root_symlink") {
-		t.Fatalf("StartSession() error = %v, want blocking mirror safety conflict", err)
-	}
-	if got != nil {
-		t.Fatalf("StartSession() session = %#v, want nil", got)
-	}
-	if launched {
-		t.Fatalf("launchCLI was called")
-	}
 }
 
 func TestStartSessionProviderHomeChmodFailureBlocksStart(t *testing.T) {
@@ -183,7 +23,7 @@ func TestStartSessionProviderHomeChmodFailureBlocksStart(t *testing.T) {
 	}
 	explicitHome := filepath.Join(blocker, "claude")
 	launched := false
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		t.Fatal("launchCLI was called after provider home permission failure")
 		return nil, nil, nil
@@ -215,7 +55,7 @@ func TestDisallowedToolsRejectsMalformedConfig(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	launched := false
 	next := newBufferedTransport(t, "claude-session-malformed-security-config")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return next.tr, func() { next.finish() }, nil
 	})
@@ -245,7 +85,7 @@ func TestStartSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	launched := false
 	next := newBufferedTransport(t, "claude-session-malformed-auto-approve")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return next.tr, func() { next.finish() }, nil
 	})
@@ -270,23 +110,6 @@ func TestStartSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
 	}
 }
 
-func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
-	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
-	d := newTestDriverWithLaunch(t, nil, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
-		t.Fatal("launchCLI called without skill mirror reconciler")
-		return nil, nil, nil
-	})
-
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-claude-no-mirror",
-		CWD:           t.TempDir(),
-		StartAssembly: validClaudeStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "skill mirror reconciler") {
-		t.Fatalf("StartSession() error = %v, want skill mirror reconciler requirement", err)
-	}
-}
-
 func TestStartSessionKeepsExplicitClaudeHome(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	explicitHome := filepath.Join(t.TempDir(), "explicit-claude")
@@ -299,9 +122,8 @@ func TestStartSessionKeepsExplicitClaudeHome(t *testing.T) {
 	}
 	workDir := t.TempDir()
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	mirror := &recordingMirrorReconciler{}
 	next := newBufferedTransport(t, "claude-session-explicit")
-	d := newTestDriverWithLaunch(t, mirror, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want explicit %q", cfg.ClaudeHome, wantHome)
 		}
@@ -323,7 +145,6 @@ func TestStartSessionKeepsExplicitClaudeHome(t *testing.T) {
 	if s.history == nil || s.history.sessionDir != wantHome {
 		t.Fatalf("history sessionDir = %#v, want %q", s.history, wantHome)
 	}
-	assertExplicitClaudeMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
 func TestStartSessionAcceptsCamelCaseClaudeHomeAndPreservesSettings(t *testing.T) {
@@ -347,7 +168,7 @@ func TestStartSessionAcceptsCamelCaseClaudeHomeAndPreservesSettings(t *testing.T
 	}
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	next := newBufferedTransport(t, "claude-session-camel-home")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want explicit %q", cfg.ClaudeHome, wantHome)
 		}
@@ -376,7 +197,7 @@ func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
 	next := newBufferedTransport(t, "claude-session-runtime-home")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != "" {
 			t.Fatalf("ClaudeHome = %q, want empty default so Claude uses user CLI identity", cfg.ClaudeHome)
 		}
@@ -401,7 +222,7 @@ func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 	}
 }
 
-func TestStartSessionNormalizesExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T) {
+func TestStartSessionNormalizesExplicitClaudeHomeBeforeProviderNativeLaunch(t *testing.T) {
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
@@ -414,9 +235,8 @@ func TestStartSessionNormalizesExplicitClaudeHomeBeforeLaunchAndMirror(t *testin
 		t.Fatalf("EvalSymlinks explicit home: %v", err)
 	}
 	workDir := t.TempDir()
-	mirror := &recordingMirrorReconciler{}
 	next := newBufferedTransport(t, "claude-session-normalized")
-	d := newTestDriverWithLaunch(t, mirror, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want normalized %q", cfg.ClaudeHome, wantHome)
 		}
@@ -438,10 +258,9 @@ func TestStartSessionNormalizesExplicitClaudeHomeBeforeLaunchAndMirror(t *testin
 	if s.history == nil || s.history.sessionDir != wantHome {
 		t.Fatalf("history sessionDir = %#v, want %q", s.history, wantHome)
 	}
-	assertExplicitClaudeMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
-func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T) {
+func TestResumeSessionKeepsExplicitClaudeHomeBeforeProviderNativeLaunch(t *testing.T) {
 	explicitHome := filepath.Join(t.TempDir(), "explicit-claude")
 	if err := os.MkdirAll(explicitHome, 0o700); err != nil {
 		t.Fatalf("MkdirAll explicit home: %v", err)
@@ -451,9 +270,8 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 		t.Fatalf("EvalSymlinks explicit home: %v", err)
 	}
 	workDir := t.TempDir()
-	mirror := &recordingMirrorReconciler{}
 	next := newBufferedTransport(t, "claude-session-resumed")
-	d := newTestDriverWithLaunch(t, mirror, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, cfg cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		if cfg.ClaudeHome != wantHome {
 			t.Fatalf("ClaudeHome = %q, want explicit %q", cfg.ClaudeHome, wantHome)
 		}
@@ -477,13 +295,12 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 	if s.history == nil || s.history.sessionDir != wantHome {
 		t.Fatalf("history sessionDir = %#v, want %q", s.history, wantHome)
 	}
-	assertExplicitClaudeMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
 func TestResumeSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
 	launched := false
 	next := newBufferedTransport(t, "provider-thread-malformed-auto-approve")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
 		return next.tr, func() { next.finish() }, nil
 	})
@@ -513,7 +330,7 @@ func TestResumeSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
 func TestResumeSessionRuntimeConfigSnapshotIncludesCWDAndRequestConfig(t *testing.T) {
 	workDir := t.TempDir()
 	next := newBufferedTransport(t, "claude-session-runtime-cwd")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
+	d := newTestDriverWithLaunch(t, func(_, _, _, _ string, _ cliLaunchConfig, _ dto.MCPManifest, _ string) (*transport, func(), error) {
 		return next.tr, func() { next.finish() }, nil
 	})
 
@@ -567,68 +384,5 @@ func assertProviderStartupGateCode(t *testing.T, err error, want string) {
 	}
 	if got := coded.GateCode(); got != want {
 		t.Fatalf("GateCode() = %q, want %q; error=%v", got, want, err)
-	}
-}
-
-func TestStartSessionMirrorFailureBlocksClaudeLaunch(t *testing.T) {
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	launched := false
-	next := newBufferedTransport(t, "claude-session-mirror-failure")
-	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{err: errors.New("mirror unavailable")}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
-		launched = true
-		return next.tr, func() { next.finish() }, nil
-	})
-
-	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-claude-blocked",
-		CWD:           t.TempDir(),
-		StartAssembly: validClaudeStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "mirror unavailable") {
-		t.Fatalf("StartSession() error = %v, want mirror failure", err)
-	}
-	if got != nil {
-		t.Fatalf("StartSession() session = %#v, want nil", got)
-	}
-	if launched {
-		t.Fatalf("launchCLI was called")
-	}
-}
-
-func assertClaudeMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, userHome string) {
-	t.Helper()
-	wantPersonalHome := filepath.Join(userHome, ".claude")
-	wantPersonalSkills := filepath.Join(wantPersonalHome, "skills")
-	wantProject, err := filepath.EvalSymlinks(project)
-	if err != nil {
-		t.Fatalf("EvalSymlinks project: %v", err)
-	}
-	wantProjectSkills := filepath.Join(wantProject, ".claude", "skills")
-	if len(targets) != 2 {
-		t.Fatalf("mirror targets = %#v, want personal + project", targets)
-	}
-	if targets[0].Provider != "claude" || targets[0].HomeRoot != wantPersonalHome || targets[0].SkillsRoot != wantPersonalSkills {
-		t.Fatalf("personal target = %#v, want home %q skills %q", targets[0], wantPersonalHome, wantPersonalSkills)
-	}
-	if targets[1].Provider != "claude" || targets[1].SkillsRoot != wantProjectSkills {
-		t.Fatalf("project target = %#v, want skills %q", targets[1], wantProjectSkills)
-	}
-}
-
-func assertExplicitClaudeMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, explicitHome string) {
-	t.Helper()
-	if len(targets) != 2 {
-		t.Fatalf("mirror targets = %#v, want personal + project", targets)
-	}
-	if targets[0].Provider != "claude" || targets[0].HomeRoot != explicitHome || targets[0].SkillsRoot != filepath.Join(explicitHome, "skills") || !targets[0].AllowExplicitHome {
-		t.Fatalf("explicit personal target = %#v, want home %q", targets[0], explicitHome)
-	}
-	wantProject, err := filepath.EvalSymlinks(project)
-	if err != nil {
-		t.Fatalf("EvalSymlinks project: %v", err)
-	}
-	if targets[1].Provider != "claude" || targets[1].SkillsRoot != filepath.Join(wantProject, ".claude", "skills") {
-		t.Fatalf("project target = %#v, want project skills under %q", targets[1], wantProject)
 	}
 }

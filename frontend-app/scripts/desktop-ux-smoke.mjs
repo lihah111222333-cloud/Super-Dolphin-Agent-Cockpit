@@ -5,23 +5,20 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
+import { resolveChromiumExecutable } from './desktop-failure-smoke.mjs';
+
 const DEFAULT_HTTP_ADDR = '127.0.0.1:4513';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5176';
 const DEFAULT_CTL_ADDR = '127.0.0.1:8093';
 const DEFAULT_TIMEOUT_MS = 180000;
-const DEFAULT_CHROME_PATH = '/usr/bin/google-chrome';
 
 export function repoRootFromScript(metaURL = import.meta.url) {
   return path.resolve(path.dirname(fileURLToPath(metaURL)), '..', '..');
 }
 
-export function resolveChromeExecutable(env = process.env, exists = existsSync) {
-  if (env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) return env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
-  if (exists(DEFAULT_CHROME_PATH)) return DEFAULT_CHROME_PATH;
-  throw new Error(`PLAYWRIGHT_CHROMIUM_EXECUTABLE is required; ${DEFAULT_CHROME_PATH} was not found`);
-}
+export { resolveChromiumExecutable as resolveChromeExecutable } from './desktop-failure-smoke.mjs';
 
-export function desktopUXSmokeConfig(env = process.env, repoRoot = repoRootFromScript()) {
+export function desktopUXSmokeConfig(env = process.env, repoRoot = repoRootFromScript(), chromiumResolver = resolveChromiumExecutable) {
   const runID = `${process.pid}`;
   const superDolphinHome = env.SUPER_DOLPHIN_PLAYWRIGHT_HOME
     || path.join(repoRoot, '.tmp', `playwright-super-dolphin-home-${runID}`);
@@ -36,7 +33,7 @@ export function desktopUXSmokeConfig(env = process.env, repoRoot = repoRootFromS
     ctlAddr: env.SUPER_DOLPHIN_PLAYWRIGHT_CTL_ADDR || DEFAULT_CTL_ADDR,
     superDolphinHome,
     sqlitePath,
-    chromeExecutable: resolveChromeExecutable(env),
+    chromeExecutable: chromiumResolver(env),
     timeoutMs: positiveInt(env.SUPER_DOLPHIN_PLAYWRIGHT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
   };
 }

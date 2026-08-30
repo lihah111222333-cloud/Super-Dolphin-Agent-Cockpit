@@ -16,15 +16,6 @@ export const pageSurfaceManifest = {
     dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
     ownedStateFiles: ['pages/files/FilesPage.jsx'],
   },
-  memory: {
-    entry: 'pages/memory/MemoryPage.jsx',
-    servicePrefix: 'pages/memory/services/',
-    adapterPrefix: 'pages/memory/adapters/',
-    serviceEntry: 'pages/memory/services/memoryPageService.js',
-    ownershipMode: 'dto-golden',
-    dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
-    ownedStateFiles: ['pages/memory/MemoryPage.jsx'],
-  },
   observability: {
     entry: 'pages/observability/ObservabilityPage.jsx',
     servicePrefix: 'pages/observability/services/',
@@ -50,14 +41,6 @@ export const pageSurfaceManifest = {
     serviceEntry: 'pages/settings/services/settingsPageService.js',
     ownershipMode: 'service-boundary',
     ownedStateFiles: ['pages/settings/SettingsPage.jsx'],
-  },
-  skills: {
-    entry: 'pages/skills/SkillsPage.jsx',
-    servicePrefix: 'pages/skills/services/',
-    adapterPrefix: 'pages/skills/adapters/',
-    serviceEntry: 'pages/skills/services/skillsPageService.js',
-    ownershipMode: 'service-boundary',
-    ownedStateFiles: ['pages/skills/SkillsPage.jsx'],
   },
   workflows: {
     entry: 'pages/workflows/WorkflowPage.jsx',

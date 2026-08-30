@@ -99,8 +99,8 @@ func assertAppAdapterAllowPolicies(t *testing.T, rule archtest.BackendBoundaryRu
 			t.Fatalf("non-aggregator %q may not import sibling adapter %q", policy.FilePattern, policy.ImportPrefix)
 		}
 	}
-	if storeguardPolicies != 10 {
-		t.Fatalf("storeguard production policies = %d, want 10 actual adapter users", storeguardPolicies)
+	if storeguardPolicies != 9 {
+		t.Fatalf("storeguard production policies = %d, want 9 actual adapter users", storeguardPolicies)
 	}
 	return storeguardPolicies
 }

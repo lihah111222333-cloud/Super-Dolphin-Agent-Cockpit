@@ -14,7 +14,7 @@ vi.mock('./observabilityService.js', () => ({
 describe('ObservabilityPage tail degradation display', () => {
   beforeEach(() => {
     listObservabilityRecent.mockResolvedValue({
-      source: 'memory',
+      source: 'buffer',
       degraded: true,
       tailError: 'tail reader unavailable',
       tailTimedOut: true,
@@ -29,7 +29,7 @@ describe('ObservabilityPage tail degradation display', () => {
         durationMs: 12,
       }],
     });
-    getObservabilityTrace.mockResolvedValue({ source: 'memory', events: [] });
+    getObservabilityTrace.mockResolvedValue({ source: 'buffer', events: [] });
     copyTextToClipboard.mockResolvedValue(true);
   });
 

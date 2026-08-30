@@ -824,8 +824,7 @@
   color: var(--text-sec);
 }
 
-.stat-grid,
-.memory-stats {
+.stat-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;

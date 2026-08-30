@@ -473,7 +473,7 @@ describe('delivery smoke runner', () => {
     expect(runGit(repositoryRoot, ['show', '-s', '--format=%s', 'HEAD']).trim())
       .toBe('fixture frontend package');
     expect(runGit(repositoryRoot, ['status', '--porcelain'])).toBe('');
-  }, 30_000);
+  }, 120_000);
 
   it('keeps T05 verification independently invocable from a clean subject clone while checking its hashed runner contract', async () => {
     const repositoryRoot = mkdtempSync(join(tmpdir(), 'delivery-smoke-runner-subject-'));

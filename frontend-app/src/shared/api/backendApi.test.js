@@ -187,10 +187,8 @@ function dashboardPageResponse() {
   return {
     agents: [],
     dags: [],
-    skills: [],
     commandCards: [],
     prompts: [],
-    memory: [],
     finalOutputRefs: [],
     sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
   };
@@ -438,10 +436,8 @@ function guardedBackendResponse(method) {
     || method === RPC_METHODS.OBSERVABILITY_SLOW_LIST
     || method === RPC_METHODS.OBSERVABILITY_THREAD_RECENT
     || method === RPC_METHODS.OBSERVABILITY_TRACE_GET
-  ) return { source: 'memory', events: [] };
-  if (method === RPC_METHODS.UI_MEMORY_GET) return { overview: { writeAvailable: true }, private: { entries: [] }, team: { entries: [] } };
+  ) return { source: 'buffer', events: [] };
   if (method === RPC_METHODS.UI_STATE_GET) return { threads: [], agents: [], token_usage: {} };
-  if (method === RPC_METHODS.UI_SHARED_FILE_GET) return { path: 'reports/final.md', content: '' };
   if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
   if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
   if ([RPC_METHODS.THREAD_ARCHIVE, RPC_METHODS.THREAD_UNARCHIVE, RPC_METHODS.THREAD_DELETE, RPC_METHODS.THREAD_NAME_SET, RPC_METHODS.APPROVAL_RESPOND].includes(method)) return null;
@@ -457,14 +453,6 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.DASHBOARD_DAG_RUNS) return { runs: [dashboardDagRun()] };
   if (method === RPC_METHODS.DASHBOARD_DAG_RUN) return { run: dashboardDagRun(), nodes: [dashboardDagNode()] };
   if (method === RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE) return { path: 'reports/workflows/uploads/dag-1/material.md' };
-  if (method === RPC_METHODS.UI_MEMORY_ENTRY_GET || method === RPC_METHODS.UI_MEMORY_ENTRY_UPSERT || method === RPC_METHODS.UI_MEMORY_ENTRY_MERGE) {
-    return { target: 'private', path: 'feedback/tdd.md', name: 'tdd-rule', type: 'feedback', content: '规则' };
-  }
-  if (method === RPC_METHODS.UI_MEMORY_ENTRY_DELETE || method === RPC_METHODS.UI_SHARED_FILE_DELETE) return { deleted: true };
-  if (method === RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT) return { ok: true, enabled: true };
-  if (method === RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE) return { ignored: true, key: 'private:a.md|team:b.md' };
-  if (method === RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START) return { jobId: 'memory-job-1', status: 'running' };
-  if (method === RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS) return { jobId: 'memory-job-1', status: 'running' };
   if (method === RPC_METHODS.PROMPT_ASSETS_LIST) return { prompts: [promptWireItem()] };
   if (method === RPC_METHODS.DASHBOARD_PROMPTS) return dashboardPromptResponse();
   if (method === RPC_METHODS.PROMPTS_GET || method === RPC_METHODS.PROMPTS_WRITE) return { prompt: promptWireItem() };
@@ -485,11 +473,11 @@ function guardedBackendResponse(method) {
   });
 
   it('maps observability query helpers to dedicated RPC methods', async () => {
-    const response = { source: 'memory', events: [{ traceId: 'trace-1' }] };
+    const response = { source: 'buffer', events: [{ traceId: 'trace-1' }] };
     const callAPI = vi.fn().mockResolvedValue(response);
     const api = createBackendApi({ callAPI });
 
-    await expect(api.getObservabilityTrace({ trace_id: 'trace-1', limit: 5 })).resolves.toMatchObject({ source: 'memory', events: [expect.objectContaining({ traceId: 'trace-1' })] });
+    await expect(api.getObservabilityTrace({ trace_id: 'trace-1', limit: 5 })).resolves.toMatchObject({ source: 'buffer', events: [expect.objectContaining({ traceId: 'trace-1' })] });
     await api.getObservabilityThreadRecent({ thread_id: 'thread-1', limit: 7 });
     await api.listObservabilityRecent({ limit: 20, status: 'error', component: 'frontend', keyword: 'thread/start', includeTail: false });
     await api.listObservabilitySlow({ component: 'rpc' });
@@ -506,7 +494,6 @@ function guardedBackendResponse(method) {
 
   it('rejects malformed registered dashboard response boundaries', async () => {
     const callAPI = vi.fn((method) => {
-      if (method === RPC_METHODS.UI_MEMORY_GET) return Promise.resolve({ overview: { writeAvailable: true }, private: null, team: { entries: [] } });
       if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return Promise.resolve({ files: null });
       if (method === RPC_METHODS.MODEL_PROVIDERS_LIST) return Promise.resolve(null);
       if (method === RPC_METHODS.OBSERVABILITY_TRACE_GET) return Promise.resolve(null);
@@ -514,19 +501,9 @@ function guardedBackendResponse(method) {
     });
     const api = createBackendApi({ callAPI });
 
-    await expect(api.getMemorySnapshot({ cwd: '/repo/app' })).rejects.toThrow(/memory private entries must be an array/);
     await expect(api.listSharedFiles()).rejects.toThrow(/shared files dashboard response files must be an array/);
     await expect(api.listModelProviders({ cwd: '/repo/app' })).rejects.toThrow(/model provider registry/);
     await expect(api.getObservabilityTrace({ traceId: 'trace-1' })).rejects.toThrow(/observability response must be an object/);
-  });
-
-  it('rejects memory snapshot responses whose section entries are null at the facade boundary', async () => {
-    // 生产端（internal/module/memory/ui_rpc.go loadUIMemoryScope）始终输出数组；
-    // null entries 属于非法 wire 形状，facade 必须 fail-fast，不得归一为空列表。
-    const callAPI = vi.fn().mockResolvedValue({ overview: { writeAvailable: true }, private: { entries: null }, team: { entries: [] } });
-    const api = createBackendApi({ callAPI });
-
-    await expect(api.getMemorySnapshot({ cwd: '/repo/app' })).rejects.toThrow(/memory private entries must be an array/);
   });
 
   it('fails fast without extra backend calls for representative invalid facade inputs', () => {
@@ -1042,7 +1019,7 @@ function guardedBackendResponse(method) {
     }
   });
 
-  it('rejects malformed skill and datasource responses', async () => {
+  it('rejects malformed datasource responses', async () => {
     const document = {
       documentId: 7, sourcePath: '/data/a.txt', fileName: 'a.txt', extension: '.txt',
       sizeBytes: 12, contentHash: 'hash', chunkCount: 1, totalChars: 4,
@@ -1055,13 +1032,6 @@ function guardedBackendResponse(method) {
       createdAt: '2026-07-13T00:00:00Z',
     };
     const cases = [
-      { call: (api) => api.listSkillFiles({ cwd: '/repo', dir: '/repo/.agents/skills/a' }), response: { dir: '/repo/.agents/skills/a', files: [{ name: 'SKILL.md', path: '/repo/.agents/skills/a/SKILL.md', size: 10, is_main: 'yes' }] } },
-      { call: (api) => api.importSkillDirectories({ cwd: '/repo', paths: ['/tmp/a'], scope: 'project' }), response: { requested: 1, imported: [{ name: 'a', dir: '/repo/.agents/skills/a', skill_file: '/repo/.agents/skills/a/SKILL.md', source: '/tmp/a', files: 1, bytes: '4' }] } },
-      { call: (api) => api.suggestSkillSummary({ cwd: '/repo', name: 'a', description: 'desc' }), response: { description: 1 } },
-      { call: (api) => api.listSkillResolutions({ cwd: '/repo' }), response: { items: [{ conflict_id: 'c1', kind: 'mirror_drift', name: 'a', available_actions: [1] }] } },
-      { call: (api) => api.previewSkillResolution({ cwd: '/repo', conflictId: 'c1', action: 'view_diff' }), response: { conflict_id: 'c1', kind: 'mirror_drift', items: [{ action: 'view_diff', preview_hash: 1 }] } },
-      { call: (api) => api.applySkillResolution({ cwd: '/repo', conflict_id: 'c1', action: 'canonical_overwrite_mirror', previewId: 'p1', previewHash: 'h1' }), response: { Action: 'canonical_overwrite_mirror', Name: 'a', ResultingHash: 'h1', PartialFailure: false, FollowUpAction: '' } },
-      { call: (api) => api.listSkillTools({ cwd: '/repo', limit: 20 }), response: { tools: [{ id: 1, cwd: '/repo', methodName: 'read', description: 'read', enabled: 'yes', createdAt: '2026-07-13T00:00:00Z', updatedAt: '2026-07-13T00:00:00Z' }] } },
       { call: (api) => api.listDatasourceDocuments({ keyword: 'a', limit: 20 }), response: { documents: [{ ...document, status: false }] } },
       { call: (api) => api.getDatasourceDocument({ documentId: 7 }), response: { document, chunks: [{ ...chunk, documentId: 8 }], hasMore: false, nextCursor: 0 } },
       { call: (api) => api.listDatasourceChunks({ documentId: 7, limit: 20, cursor: 0 }), response: { chunks: [chunk], hasMore: false, nextCursor: '0' } },
@@ -1074,33 +1044,8 @@ function guardedBackendResponse(method) {
     }
   });
 
-  it('rejects malformed memory prompt dashboard and UI responses', async () => {
-    const memoryIdentity = { cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' };
-    const memoryPair = {
-      cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md',
-    };
+  it('rejects malformed prompt dashboard and UI responses', async () => {
     const cases = [
-      { call: (api) => api.getMemoryEntry(memoryIdentity), response: { name: 7 } },
-      {
-        call: (api) => api.upsertMemoryEntry({
-          cwd: '/repo/app', target: 'private', existingPath: '', name: 'tdd-rule',
-          description: '先写红测', type: 'feedback', content: '规则',
-        }),
-        response: { name: 7 },
-      },
-      { call: (api) => api.mergeMemoryEntries(memoryPair), response: { name: 7 } },
-      { call: (api) => api.deleteMemoryEntry(memoryIdentity), response: { deleted: 'yes' } },
-      { call: (api) => api.setMemoryAutoDreamIntent({ cwd: '/repo/app', enabled: true }), response: { ok: true, enabled: 'yes' } },
-      { call: (api) => api.ignoreMemorySimilarity(memoryPair), response: { ignored: true, key: 7 } },
-      {
-        call: (api) => api.startConsolidateMemorySimilarities({ cwd: '/repo/app' }),
-        response: { jobId: 'job-1', status: 'succeeded', result: { merged: '1', ignored: 0, failed: 0, skipped: 0 } },
-      },
-      {
-        call: (api) => api.getMemoryConsolidationStatus({ cwd: '/repo/app', jobId: 'job-1' }),
-        response: { jobId: 'job-1', status: 'unknown' },
-      },
-      { call: (api) => api.deleteSharedFile({ path: 'scratch/work.json' }), response: { deleted: 'yes' } },
       { call: (api) => api.writeWorkflowMaterial({ path: 'workflow/material.md', content: 'body' }), response: { path: 9 } },
       { call: (api) => api.listPromptAssets({ cwd: '/repo/app' }), response: { prompts: [{ id: 'prompt-1', issues: 'broken' }] } },
       { call: (api) => api.getDashboardPrompts({ cwd: '/repo/app' }), response: { prompts: [{ id: '7' }] } },
@@ -1708,78 +1653,6 @@ function guardedBackendResponse(method) {
     await expect(api.getWindowBootstrap()).resolves.toEqual({ snapshot: null });
   });
 
-  it('validates skills/tools/create responses at the facade boundary', async () => {
-    const created = {
-      id: 9,
-      cwd: '/repo/app',
-      methodName: 'deploy_frontend',
-      description: '部署前端到本地预览',
-      enabled: true,
-      createdAt: '2026-07-17T10:00:00+08:00',
-      updatedAt: '2026-07-17T10:00:00+08:00',
-    };
-    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(created) });
-    await expect(api.createSkillTool({
-      cwd: '/repo/app',
-      methodName: 'deploy_frontend',
-      description: '部署前端到本地预览',
-      enabled: true,
-    })).resolves.toEqual(created);
-
-    const malformed = [
-      { ...created, id: 0 },
-      { ...created, id: -3 },
-      { ...created, id: '9' },
-      { ...created, cwd: '' },
-      { ...created, cwd: '   ' },
-      { ...created, methodName: '' },
-      { ...created, methodName: 'bad name' },
-      { ...created, methodName: 'bad/name' },
-      { ...created, description: '' },
-      { ...created, enabled: 'true' },
-      { ...created, createdAt: 'not-a-time' },
-      { ...created, createdAt: '' },
-      { ...created, updatedAt: '2026-13-99' },
-      { ...created, surprise: true },
-    ];
-    for (const response of malformed) {
-      const failingApi = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
-      await expect(failingApi.createSkillTool({
-        cwd: '/repo/app',
-        methodName: 'deploy_frontend',
-        description: '部署前端到本地预览',
-        enabled: true,
-      })).rejects.toThrow(/skills\/tools\/create response/);
-    }
-  });
-
-  it('reuses the same SkillTool DTO contract for skills/tools/list responses', async () => {
-    const tool = {
-      id: 3,
-      cwd: '/repo/app',
-      methodName: 'backend',
-      description: '后端技能',
-      enabled: true,
-      createdAt: '2026-07-17T10:00:00Z',
-      updatedAt: '2026-07-17T10:00:00Z',
-    };
-    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ tools: [tool] }) });
-    await expect(api.listSkillTools({ cwd: '/repo/app', keyword: '', limit: 10 })).resolves.toEqual({ tools: [tool] });
-
-    const malformed = [
-      { ...tool, id: 0 },
-      { ...tool, cwd: '' },
-      { ...tool, methodName: 'bad name' },
-      { ...tool, description: '' },
-      { ...tool, createdAt: 'not-a-time' },
-      { ...tool, extra: 'field' },
-    ];
-    for (const badTool of malformed) {
-      const failingApi = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ tools: [badTool] }) });
-      await expect(failingApi.listSkillTools({ cwd: '/repo/app', keyword: '', limit: 10 })).rejects.toThrow(/skills\/tools\/list response/);
-    }
-  });
-
   it('fails fast on malformed guarded backend responses before consumers normalize them', async () => {
     const cases = [
       {
@@ -1949,31 +1822,6 @@ function guardedBackendResponse(method) {
         response: { runKey: 'run-created' },
         message: 'dashboard/dagCreateAndStart response missing dagKey or dag_key',
       },
-      {
-        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
-        response: {},
-        message: 'skills/local/read response skill must be an object',
-      },
-      {
-        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
-        response: { skill: [] },
-        message: 'skills/local/read response skill must be an object',
-      },
-      {
-        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
-        response: { skill: { content: '# Demo' } },
-        message: 'skills/local/read response missing path',
-      },
-      {
-        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
-        response: { skill: { path: '.agents/skills/demo/SKILL.md' } },
-        message: 'skills/local/read response skill.content must be a string',
-      },
-      {
-        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
-        response: { skill: { path: '.agents/skills/demo/SKILL.md', content: null } },
-        message: 'skills/local/read response skill.content must be a string',
-      },
     ];
 
     for (const item of cases) {
@@ -1982,18 +1830,6 @@ function guardedBackendResponse(method) {
       await expect(item.call(api)).rejects.toThrow(item.message);
       expect(callAPI).toHaveBeenCalledTimes(1);
     }
-  });
-
-  it('allows explicit empty skill content from skills/local/read', async () => {
-    const response = { skill: { path: '.agents/skills/demo/SKILL.md', content: '' } };
-    const callAPI = vi.fn().mockResolvedValue(response);
-    const api = createBackendApi({ callAPI });
-
-    await expect(api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' })).resolves.toBe(response);
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_READ, {
-      cwd: '/repo/app',
-      path: '.agents/skills/demo/SKILL.md',
-    });
   });
 
   it('rejects turn/start legacy prompt with legacy attachments before calling the backend', () => {
@@ -2411,261 +2247,6 @@ function guardedBackendResponse(method) {
 
     expectInvalidInputDoesNotCall(callAPI, () => api.getProjects({ cwd: '' }), 'cwd is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.startThread({ cwd: '/repo/app', name: 'Hello' }), 'provider is required');
-  });
-
-  it('deletes skills with cwd, scope, and personal type', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
-    const api = createBackendApi({ callAPI });
-
-    await api.deleteSkill({
-      cwd: '/repo/app',
-      name: 'DocsSkill',
-      scope: 'personal',
-      personalType: 'user',
-    });
-
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_DELETE, {
-      cwd: '/repo/app',
-      name: 'DocsSkill',
-      scope: 'personal',
-      personal_type: 'user',
-    });
-    expect(() => api.deleteSkill({ cwd: '/repo/app', name: 'DocsSkill', scope: 'system' }))
-      .toThrow('scope must be project or personal');
-  });
-
-  it('creates project skills through the dedicated internal skills/create RPC', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ path: '/repo/app/.agents/skills/DocsSkill/SKILL.md' });
-    const api = createBackendApi({ callAPI });
-
-    await api.createSkill({
-      cwd: '/repo/app',
-      name: 'DocsSkill',
-      content: '---\nname: "DocsSkill"\n---\n\n## Docs',
-    });
-
-    expect(RPC_METHODS.SKILLS_CREATE).toBe('skills/create');
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_CREATE, {
-      cwd: '/repo/app',
-      name: 'DocsSkill',
-      content: '---\nname: "DocsSkill"\n---\n\n## Docs',
-    });
-    expect(() => api.createSkill({ cwd: '/repo/app', name: '', content: 'body' }))
-      .toThrow('skills/create: name is required');
-    expect(() => api.createSkill({ cwd: '/repo/app', name: 'DocsSkill' }))
-      .toThrow('skills/create: content is required');
-  });
-
-  it('wraps skill editor and import RPCs with legacy payload shapes', async () => {
-    const importedSkill = {
-      name: 'a', dir: '/repo/app/.agents/skills/a',
-      skill_file: '/repo/app/.agents/skills/a/SKILL.md',
-      source: '/imports/a', files: 1, bytes: 10,
-    };
-    const callAPI = vi.fn((method) => Promise.resolve(
-      method === RPC_METHODS.SKILLS_SUMMARY_SUGGEST
-        ? { description: '当你需要编写文档时使用。' }
-        : method === RPC_METHODS.SKILLS_LOCAL_READ
-          ? { skill: { path: '/repo/app/.agents/skills/docs/SKILL.md', content: '# DocsSkill' } }
-          : method === RPC_METHODS.SKILLS_LOCAL_LIST_FILES
-            ? { dir: '/repo/app/.agents/skills/docs', files: [{ name: 'SKILL.md', path: '/repo/app/.agents/skills/docs/SKILL.md', size: 10, is_main: true }] }
-            : method === RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR
-              ? { requested: 1, imported: [importedSkill], skill: importedSkill, mirror_publish: {} }
-              : { ok: true },
-    ));
-    const selectProjectDirs = vi.fn().mockResolvedValue(['/imports/a']);
-    const api = createBackendApi({ callAPI, selectProjectDirs });
-
-    await callSkillEditorApis(api);
-    await api.selectProjectDirs();
-
-    expectSkillEditorCalls(callAPI);
-    expect(selectProjectDirs).toHaveBeenCalledTimes(1);
-  });
-
-async function callSkillEditorApis(api) {
-  await api.readSkill({ cwd: '/repo/app', path: '/repo/app/.agents/skills/docs/SKILL.md' });
-  await api.listSkillFiles({ cwd: '/repo/app', dir: '/repo/app/.agents/skills/docs' });
-  await api.writeSkill({ cwd: '/repo/app', path: 'DocsSkill', content: '---', scope: 'personal', personalType: 'user' });
-  await api.importSkillDirectories({ cwd: '/repo/app', paths: ['/imports/a'], scope: 'personal', personal_type: 'imported' });
-  await api.suggestSkillSummary({ cwd: '/repo/app', name: 'DocsSkill', description: '', content: 'body', scenario_words: ['docs'], scope: 'project' });
-}
-
-function expectSkillEditorCalls(callAPI) {
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_READ, {
-    cwd: '/repo/app',
-    path: '/repo/app/.agents/skills/docs/SKILL.md',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, {
-    cwd: '/repo/app',
-    dir: '/repo/app/.agents/skills/docs',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_WRITE, {
-    cwd: '/repo/app',
-    path: 'DocsSkill',
-    content: '---',
-    scope: 'personal',
-    personal_type: 'user',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, {
-    cwd: '/repo/app',
-    paths: ['/imports/a'],
-    scope: 'personal',
-    personal_type: 'imported',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, {
-    cwd: '/repo/app',
-    name: 'DocsSkill',
-    description: '',
-    content: 'body',
-    scenario_words: ['docs'],
-    scope: 'project',
-  });
-}
-
-  it('normalizes skill summary suggestions to description text', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ description: ' 当你需要部署服务时使用。 ' });
-    const api = createBackendApi({ callAPI });
-
-    await expect(api.suggestSkillSummary({
-      cwd: '/repo/app',
-      name: 'DeploySkill',
-      description: '',
-      content: 'body',
-      scenario_words: ['deploy'],
-      scope: 'project',
-      provider: 'codex',
-      model: 'gpt-5.5',
-      codexModelProvider: 'openrouter',
-    })).resolves.toBe('当你需要部署服务时使用。');
-
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, {
-      cwd: '/repo/app',
-      name: 'DeploySkill',
-      description: '',
-      content: 'body',
-      scenario_words: ['deploy'],
-      scope: 'project',
-      provider: 'codex',
-      model: 'gpt-5.5',
-      model_provider: 'openrouter',
-    });
-  });
-
-  it('does not duplicate skill summary retry at the frontend facade', async () => {
-    const callAPI = vi.fn().mockRejectedValueOnce(new Error('parse skill summary suggestion: invalid character'));
-    const api = createBackendApi({ callAPI });
-
-    await expect(api.suggestSkillSummary({
-      cwd: '/repo/app',
-      name: '部署技能',
-      description: '',
-      content: 'body',
-      scenario_words: ['deploy'],
-      scope: 'project',
-    })).rejects.toThrow('parse skill summary suggestion');
-
-    expect(callAPI).toHaveBeenCalledTimes(1);
-  });
-
-  it('wraps skill resolution preview and apply payloads', async () => {
-    const callAPI = vi.fn((method) => Promise.resolve({
-      [RPC_METHODS.SKILLS_RESOLUTION_LIST]: { items: [] },
-      [RPC_METHODS.SKILLS_RESOLUTION_PREVIEW]: {
-        conflict_id: 'c1', kind: 'mirror_drift',
-        items: [{ action: 'view_diff', preview_id: 'p1', preview_hash: 'h1' }],
-      },
-      [RPC_METHODS.SKILLS_RESOLUTION_APPLY]: {
-        action: 'canonical_overwrite_mirror', name: 'DocsSkill',
-        resultingHash: 'h1', partialFailure: false, followUpAction: '',
-      },
-    }[method]));
-    const api = createBackendApi({ callAPI });
-
-    await api.listSkillResolutions({ cwd: '/repo/app' });
-    await api.previewSkillResolution({
-      cwd: '/repo/app',
-      conflictId: 'c1',
-      action: 'view_diff',
-      sourceProvider: 'codex',
-      sourcePathId: 'codex:docs',
-    });
-    await api.applySkillResolution({
-      cwd: '/repo/app',
-      conflict_id: 'c1',
-      action: 'canonical_overwrite_mirror',
-      previewId: 'p1',
-      previewHash: 'h1',
-    });
-
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_RESOLUTION_LIST, { cwd: '/repo/app' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, {
-      cwd: '/repo/app',
-      conflict_id: 'c1',
-      action: 'view_diff',
-      source_provider: 'codex',
-      source_path_id: 'codex:docs',
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_RESOLUTION_APPLY, {
-      cwd: '/repo/app',
-      conflict_id: 'c1',
-      action: 'canonical_overwrite_mirror',
-      preview_id: 'p1',
-      preview_hash: 'h1',
-    });
-  });
-
-  it('rejects skill resolution apply without preview proof', () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
-    const api = createBackendApi({ callAPI });
-    const validApplyPayload = {
-      cwd: '/repo/app',
-      conflict_id: 'c1',
-      action: 'canonical_overwrite_mirror',
-      previewId: 'p1',
-      previewHash: 'h1',
-    };
-
-    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
-      ...validApplyPayload,
-      previewId: '',
-    }), 'preview_id is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
-      ...validApplyPayload,
-      previewHash: '',
-    }), 'preview_hash is required');
-  });
-
-  it('rejects skill resolution payloads without required conflict fields', () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
-    const api = createBackendApi({ callAPI });
-    const validPreviewPayload = {
-      cwd: '/repo/app',
-      conflictId: 'c1',
-      action: 'canonical_overwrite_mirror',
-    };
-    const validApplyPayload = {
-      ...validPreviewPayload,
-      previewId: 'p1',
-      previewHash: 'h1',
-    };
-
-    expectInvalidInputDoesNotCall(callAPI, () => api.previewSkillResolution({
-      ...validPreviewPayload,
-      conflictId: '',
-    }), 'conflict_id is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.previewSkillResolution({
-      ...validPreviewPayload,
-      action: '',
-    }), 'action is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
-      ...validApplyPayload,
-      conflictId: '',
-    }), 'conflict_id is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.applySkillResolution({
-      ...validApplyPayload,
-      action: '',
-    }), 'action is required');
   });
 
   it('wraps DAG dashboard RPCs with the legacy payload shapes', async () => {
@@ -3189,97 +2770,6 @@ function expectPromptFacadeValidation(api) {
     expectPromptFacadeValidation(api);
   });
 
-  it('wraps memory center RPCs with the legacy payload shapes', async () => {
-    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
-    const api = createBackendApi({ callAPI });
-
-    await callMemoryCenterApis(api);
-
-    expectMemoryCenterCalls(callAPI);
-    expectMemoryCenterValidation(api);
-  });
-
-  it('rejects malformed memory target payloads before calling the backend', () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
-    const api = createBackendApi({ callAPI });
-
-    expect(() => api.getMemoryEntry({ cwd: '/repo/app', target: '', path: 'feedback/tdd.md' }))
-      .toThrow('ui/memory/entry/get: target must be private or team');
-    expect(() => api.deleteMemoryEntry({ cwd: '/repo/app', target: 'public', path: 'feedback/tdd.md' }))
-      .toThrow('ui/memory/entry/delete: target must be private or team');
-    expect(() => api.upsertMemoryEntry({
-      cwd: '/repo/app',
-      target: 'global',
-      name: 'tdd-rule',
-      description: '先写红测',
-      type: 'feedback',
-      content: '规则',
-    })).toThrow('ui/memory/entry/upsert: target must be private or team');
-    expect(() => api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'global', pathB: 'b.md' }))
-      .toThrow('ui/memory/entry/merge: targetB must be private or team');
-    expect(() => api.ignoreMemorySimilarity({ cwd: '/repo/app', targetA: 'global', pathA: 'a.md', targetB: 'team', pathB: 'b.md' }))
-      .toThrow('ui/memory/similarity/ignore: targetA must be private or team');
-    expect(callAPI).not.toHaveBeenCalled();
-  });
-
-async function callMemoryCenterApis(api) {
-  await api.getMemorySnapshot({ cwd: '/repo/app' });
-  await api.getMemoryEntry({ cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
-  await api.upsertMemoryEntry({
-    cwd: '/repo/app', target: 'private', existingPath: 'feedback/tdd.md',
-    name: 'tdd-rule', description: '先写红测', type: 'feedback', content: '规则', title: '遵守 TDD',
-  });
-  await api.deleteMemoryEntry({ cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
-  await api.setMemoryAutoDreamIntent({ cwd: '/repo/app', enabled: true });
-  await callMemorySimilarityApis(api);
-}
-
-async function callMemorySimilarityApis(api) {
-  await api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
-  await api.ignoreMemorySimilarity({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
-  await api.consolidateMemorySimilarities({ cwd: '/repo/app' });
-  await api.startConsolidateMemorySimilarities({
-    cwd: '/repo/app',
-    provider: 'codex',
-    model: 'gpt-5.5',
-    codexModelProvider: 'openai',
-  });
-  await api.getMemoryConsolidationStatus({ cwd: '/repo/app', jobId: 'memory-job-1' });
-}
-
-function expectMemoryCenterCalls(callAPI) {
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_GET, { cwd: '/repo/app' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_ENTRY_GET, { cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_ENTRY_UPSERT, {
-    cwd: '/repo/app', target: 'private', existingPath: 'feedback/tdd.md',
-    name: 'tdd-rule', description: '先写红测', type: 'feedback', content: '规则', title: '遵守 TDD',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_ENTRY_DELETE, { cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT, { cwd: '/repo/app', enabled: true });
-  expectMemorySimilarityCalls(callAPI);
-}
-
-function expectMemorySimilarityCalls(callAPI) {
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, { cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, { cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team', pathB: 'b.md' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL, { cwd: '/repo/app' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_START, {
-    cwd: '/repo/app',
-    provider: 'codex',
-    model: 'gpt-5.5',
-    model_provider: 'openai',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_SIMILARITY_CONSOLIDATE_ALL_STATUS, { cwd: '/repo/app', jobId: 'memory-job-1' });
-}
-
-function expectMemoryCenterValidation(api) {
-  expect(() => api.getMemoryEntry({ cwd: '/repo/app', path: '' })).toThrow('path is required');
-  expect(() => api.upsertMemoryEntry({ cwd: '/repo/app', name: 'x', description: 'd', type: 'feedback', content: '' })).toThrow('content is required');
-  expect(() => api.setMemoryAutoDreamIntent({ enabled: true })).toThrow('cwd is required');
-  expect(() => api.setMemoryAutoDreamIntent({})).toThrow('enabled is required');
-  expect(() => api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team' })).toThrow('pathB is required');
-}
-
   it('wraps the independent new-window RPC with cwd validation', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true, windowId: 'window-2', cwd: '/repo/window' });
     const api = createBackendApi({ callAPI });
@@ -3290,30 +2780,27 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
   });
 
-  it('wraps shared file list, read, delete, open and preview helpers with the expected payload shapes', async () => {
-    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
+  it('wraps shared file list, read, open and preview helpers with the expected payload shapes', async () => {
+    const callAPI = vi.fn((method) => Promise.resolve(
+      method === RPC_METHODS.DASHBOARD_SHARED_FILES
+        ? { files: [{ path: 'reports/final.md', content: '' }], finalOutputRefs: [], sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 } }
+        : guardedBackendResponse(method),
+    ));
     const openSharedFile = vi.fn().mockResolvedValue({ opened: true });
     const previewSharedFile = vi.fn().mockResolvedValue({ url: '/shared-file-preview?id=sf_1' });
     const api = createBackendApi({ callAPI, openSharedFile, previewSharedFile });
 
     await api.listSharedFiles();
     await api.readSharedFile({ path: 'reports/final.md' });
-    await api.deleteSharedFile({ path: 'scratch/work.json' });
     await api.openSharedFile({ path: 'dag/video/final.mp4' });
     await api.previewSharedFile({ path: 'dag/video/final.mp4' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_GET, {
-      path: 'reports/final.md',
-    });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_DELETE, {
-      path: 'scratch/work.json',
-    });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     expect(openSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
     expect(previewSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
     expect(() => api.listSharedFiles([])).toThrow('params must be an object');
-    expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
-    expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
+    await expect(api.readSharedFile({ path: '' })).rejects.toThrow('path is required');
     expect(() => api.previewSharedFile({ path: '' })).toThrow('path is required');
   });
 
@@ -3322,7 +2809,7 @@ function expectMemoryCenterValidation(api) {
     const api = createBackendApi({ callAPI });
 
     await expect(api.readSharedFile({ path: 'reports/final.md' }))
-      .rejects.toThrow(/shared file detail path is required/);
+      .rejects.toThrow(/shared files dashboard response files must be an array/);
   });
 
   it('wraps runtime code locate, open and save RPCs with scoped payloads', async () => {

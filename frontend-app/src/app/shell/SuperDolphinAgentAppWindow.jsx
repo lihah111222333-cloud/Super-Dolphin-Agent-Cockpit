@@ -1,7 +1,6 @@
 import React, { Suspense, useCallback, useMemo, useState } from 'react';
 import {
   Bell,
-  Brain,
   ChevronLeft,
   CircleUserRound,
   Clock3,
@@ -10,7 +9,6 @@ import {
   Menu,
   MessageSquareText,
   Moon,
-  Puzzle,
   Sailboat,
   Settings as SettingsIcon,
   SlidersHorizontal,
@@ -41,20 +39,16 @@ import { ChatActionsTrigger } from '../../pages/chat/components/ChatPageHeader.j
 
 const SUPER_DOLPHIN_AGENT_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
-  { id: 'skills', label: 'Plugins', labelKey: 'skills', icon: Puzzle },
   { id: 'workflows', label: 'Automation', labelKey: 'workflows', icon: SlidersHorizontal },
   { id: 'prompts', label: 'Roles', labelKey: 'prompts', icon: CircleUserRound },
   { id: 'files', label: 'Files', labelKey: 'files', icon: FolderOpen },
-  { id: 'memory', label: 'Memory', labelKey: 'memory', icon: Brain },
   { id: 'observability', label: 'Logs', labelKey: 'observability', icon: Database },
 ]);
 
 // 移动端底部导航：仅保留核心目的地，完整导航仍由抽屉侧栏提供。
 const SUPER_DOLPHIN_AGENT_MOBILE_NAV_ITEMS = Object.freeze([
   { id: 'chat', labelKey: 'chatShort', icon: MessageSquareText },
-  { id: 'skills', labelKey: 'skillsShort', icon: Puzzle },
   { id: 'prompts', labelKey: 'promptsShort', icon: CircleUserRound },
-  { id: 'memory', labelKey: 'memoryShort', icon: Brain },
   { id: 'settings', labelKey: 'settings', icon: SettingsIcon },
 ]);
 function hasOpenLocalEscapeSurface() {
@@ -98,11 +92,10 @@ function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
   );
 }
 
-function SuperDolphinAgentNavButton({ activePage, copy, item, memoryBadgeCount, setActivePage }) {
+function SuperDolphinAgentNavButton({ activePage, copy, item, setActivePage }) {
   const Icon = item.icon;
   const active = activePage === item.id;
   const label = copy.nav[item.labelKey] || item.label;
-  const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
   return (
     <button
       type="button"
@@ -113,7 +106,6 @@ function SuperDolphinAgentNavButton({ activePage, copy, item, memoryBadgeCount, 
     >
       <Icon size={16} aria-hidden="true" />
       <span>{label}</span>
-      {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} ${copy.workbench.memoryBadgeTitle}`} /> : null}
     </button>
   );
 }
@@ -126,7 +118,6 @@ function SuperDolphinAgentChatNavGroup({ copy, item, projectPath, sidebar, store
         activePage={activePage}
         copy={copy}
         item={item}
-        memoryBadgeCount={0}
         setActivePage={setActivePage}
       />
       {activePage === 'chat' ? (
@@ -139,8 +130,7 @@ function SuperDolphinAgentChatNavGroup({ copy, item, projectPath, sidebar, store
 }
 
 function SuperDolphinAgentSidebar({ copy, layout, projectPath, sidebar, store }) {
-  const { activePage, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
-  const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
+  const { activePage, isOpen, setActivePage, startNewChat } = sidebar;
 
   return (
     <aside
@@ -177,7 +167,6 @@ function SuperDolphinAgentSidebar({ copy, layout, projectPath, sidebar, store })
             activePage={activePage}
             copy={copy}
             item={item}
-            memoryBadgeCount={memoryBadgeCount}
             setActivePage={setActivePage}
           />
         ))}
@@ -380,10 +369,8 @@ function SuperDolphinAgentMainSurface(model) {
             copy={copy}
             store={store}
             projectPath={content.projectPath}
-            memoryRevision={content.memoryBadge.memoryRevision}
             geometrySnapshot={content.geometrySnapshot}
             layoutActions={content.layoutActions}
-            setMemoryPageSimilarCount={content.memoryBadge.setMemoryPageSimilarCount}
             onWorkflowViewChange={content.handleWorkflowViewChange}
             rightPanelOpen={content.rightPanelOpen}
             shortcutController={content.shortcutController}
@@ -403,7 +390,6 @@ function SuperDolphinAgentMainSurface(model) {
 
 export function SuperDolphinAgentAppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
   const {
-    memoryBadge,
     projectPath,
     rightPanelOpen,
     setRightPanelOpen,
@@ -495,7 +481,6 @@ export function SuperDolphinAgentAppWindow({ language, shell, shellLayoutStore, 
           sidebar={{
             activePage: store.activePage,
             isOpen: sidebarOpen,
-            memorySimilarCount: memoryBadge.memorySimilarCount,
             setActivePage: setActivePageFromSidebar,
             startNewChat,
           }}
@@ -517,7 +502,7 @@ export function SuperDolphinAgentAppWindow({ language, shell, shellLayoutStore, 
         ) : null}
         <SuperDolphinAgentMainSurface
           appearance={shell.appearance}
-          content={{ geometrySnapshot, layoutActions, memoryBadge, projectPath, rightPanelOpen, shortcutController }}
+          content={{ geometrySnapshot, layoutActions, projectPath, rightPanelOpen, shortcutController }}
           copy={copy}
           header={{
             controls: { isDark, setActivePage: setActivePageFromSidebar, themeLabel, toggleLocale, toggleTheme },

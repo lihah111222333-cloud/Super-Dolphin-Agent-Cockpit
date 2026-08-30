@@ -81,17 +81,11 @@ func assertDashboardCoreSlices(t *testing.T, got *DashboardPage) {
 func assertDashboardPageSlices(t *testing.T, got *DashboardPage) {
 	t.Helper()
 
-	if got.Skills == nil {
-		t.Fatalf("GetDashboardPage() missing skills slice: %#v", got)
-	}
 	if got.CommandCards == nil {
 		t.Fatalf("GetDashboardPage() missing command cards slice: %#v", got)
 	}
 	if got.Prompts == nil {
 		t.Fatalf("GetDashboardPage() missing prompts slice: %#v", got)
-	}
-	if got.Memory == nil {
-		t.Fatalf("GetDashboardPage() missing memory slice: %#v", got)
 	}
 }
 
@@ -116,153 +110,6 @@ func TestGetDashboardPageDAGsWithoutOrchestrationIsEmpty(t *testing.T) {
 	}
 	if got == nil || got.DAGs == nil || len(got.DAGs) != 0 {
 		t.Fatalf("GetDashboardPage(dags) = %#v, want empty dag slice", got)
-	}
-}
-
-func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
-	t.Parallel()
-
-	shared := &stubSharedFileReader{
-		result: []SharedFile{
-			{Path: "reports/daily-brief.pptx", Content: "deck"},
-			{Path: "scratch/intermediate.json", Content: "{}"},
-		},
-	}
-	orchestration := &stubDashboardOrchestration{
-		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
-		listRunsResult: contract.ListRunsResponse{Runs: []contract.Run{{
-			RunKey: "run-1",
-			DagKey: "dag-1",
-			Status: "succeeded",
-			Metadata: json.RawMessage(`{
-				"final_output": {
-					"kind": "file",
-					"role": "final_output",
-					"path": "reports/daily-brief.pptx",
-					"source_node_key": "report"
-				}
-			}`),
-		}}},
-	}
-	svc := &service{sharedFiles: shared, dagRuntime: orchestration}
-
-	got, err := svc.GetDashboardPage(context.Background(), "memory")
-	if err != nil {
-		t.Fatalf("GetDashboardPage(memory) error = %v", err)
-	}
-	if shared.lastFilter.Limit != dashboardMemoryLimit {
-		t.Fatalf("shared file List() filter = %#v", shared.lastFilter)
-	}
-	if orchestration.listRunsRequest.DagKey != "dag-1" || orchestration.listRunsRequest.Limit != dashboardFinalOutputRunLimit {
-		t.Fatalf("ListRuns() request = %#v", orchestration.listRunsRequest)
-	}
-	if len(got.Memory) != 2 {
-		t.Fatalf("GetDashboardPage(memory).Memory = %#v", got.Memory)
-	}
-	assertDashboardFinalOutputRefs(t, got)
-	assertDashboardRetentionSummary(t, got)
-}
-
-func TestGetDashboardPageMemorySurfacesFinalOutputRefErrors(t *testing.T) {
-	t.Parallel()
-
-	shared := &stubSharedFileReader{
-		result: []SharedFile{{Path: "reports/daily-brief.pptx", Content: "deck"}},
-	}
-	orchestration := &stubDashboardOrchestration{
-		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
-		listRunsErr:    errDashboardStub,
-	}
-	svc := &service{sharedFiles: shared, dagRuntime: orchestration}
-
-	got, err := svc.GetDashboardPage(context.Background(), "memory")
-	if !errors.Is(err, errDashboardStub) {
-		t.Fatalf("GetDashboardPage(memory) error = %v, want final output refs error", err)
-	}
-	if got != nil {
-		t.Fatalf("GetDashboardPage(memory) = %#v, want nil page on final output refs error", got)
-	}
-}
-
-func assertDashboardFinalOutputRefs(t *testing.T, got *DashboardPage) {
-	t.Helper()
-
-	if len(got.FinalOutputRefs) != 1 {
-		t.Fatalf("FinalOutputRefs len = %d, want 1 (%#v)", len(got.FinalOutputRefs), got.FinalOutputRefs)
-	}
-	ref := got.FinalOutputRefs[0]
-	if ref.Path != "reports/daily-brief.pptx" {
-		t.Fatalf("FinalOutputRefs[0].Path = %q, want final output path", ref.Path)
-	}
-	if ref.RunKey != "run-1" || ref.DagKey != "dag-1" || ref.SourceNodeKey != "report" {
-		t.Fatalf("FinalOutputRefs[0] = %#v", ref)
-	}
-}
-
-func assertDashboardRetentionSummary(t *testing.T, got *DashboardPage) {
-	t.Helper()
-
-	if got.SharedFileRetention.ProtectedCount != 1 {
-		t.Fatalf("SharedFileRetention protected count = %#v", got.SharedFileRetention)
-	}
-	if got.SharedFileRetention.CleanupCandidateCount != 1 {
-		t.Fatalf("SharedFileRetention cleanup count = %#v", got.SharedFileRetention)
-	}
-	retentionByPath := dashboardRetentionByPath(got.SharedFileRetention.Items)
-	assertDashboardRetentionItem(t, retentionByPath["reports/daily-brief.pptx"], true, false, "final_output")
-	assertDashboardRetentionItem(t, retentionByPath["scratch/intermediate.json"], false, true, "unreferenced")
-}
-
-func dashboardRetentionByPath(items []SharedFileRetentionItem) map[string]SharedFileRetentionItem {
-	retentionByPath := map[string]SharedFileRetentionItem{}
-	for _, item := range items {
-		retentionByPath[item.Path] = item
-	}
-	return retentionByPath
-}
-
-func assertDashboardRetentionItem(t *testing.T, item SharedFileRetentionItem, protected, cleanup bool, reason string) {
-	t.Helper()
-
-	if item.Protected != protected || item.CleanupCandidate != cleanup || item.Reason != reason {
-		t.Fatalf("retention item = %#v, want protected=%t cleanup=%t reason=%q", item, protected, cleanup, reason)
-	}
-}
-
-type stubSkillLister struct {
-	items []contract.SkillInfo
-	err   error
-}
-
-func (s stubSkillLister) ListSkills(context.Context) ([]contract.SkillInfo, error) {
-	return s.items, s.err
-}
-
-func TestGetDashboardPageSkillsKeepsVisibleSkillsWhenSameNameConflictExists(t *testing.T) {
-	t.Parallel()
-
-	svc := &service{skills: stubSkillLister{
-		items: []contract.SkillInfo{{Name: "safe", Scope: "project"}},
-		err:   contract.ErrSkillSameNameConflict,
-	}}
-
-	got, err := svc.GetDashboardPage(context.Background(), "skills")
-	if err != nil {
-		t.Fatalf("GetDashboardPage(skills) error = %v, want nil for same-name conflict", err)
-	}
-	if len(got.Skills) != 1 || got.Skills[0].Name != "safe" {
-		t.Fatalf("GetDashboardPage(skills).Skills = %+v, want visible non-conflicted skills", got.Skills)
-	}
-}
-
-func TestGetDashboardPageSkillsStillReturnsUnexpectedSkillErrors(t *testing.T) {
-	t.Parallel()
-
-	svc := &service{skills: stubSkillLister{err: errors.New("boom")}}
-
-	_, err := svc.GetDashboardPage(context.Background(), "skills")
-	if err == nil {
-		t.Fatal("GetDashboardPage(skills) error = nil, want unexpected skill error")
 	}
 }
 

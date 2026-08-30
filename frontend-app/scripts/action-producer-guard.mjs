@@ -28,10 +28,8 @@ const REQUIRED_SEMANTIC_FAMILIES = new Set([
   'background-reconnect',
   'file',
   'invalid-response-validator',
-  'mcp',
   'prompt-history',
   'settings-save',
-  'skill',
   'thread-mutation',
 ]);
 

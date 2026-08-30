@@ -237,13 +237,16 @@ func startRequestFromSession(req contract.SessionStartRequest) StartRequest {
 		SessionFlags:                 cloneSessionBoolMap(req.SessionFlags),
 		Config:                       clone.RuntimeConfigMap(req.Config),
 		LaunchSkillNames:             clone.Strings(req.LaunchSkillNames),
-		LaunchSkillRefs:              append([]dto.SkillRef(nil), req.LaunchSkillRefs...),
-		ForceLaunchSkills:            req.ForceLaunchSkills,
-		AgentKey:                     req.AgentKey,
-		PromptKey:                    req.PromptKey,
-		OwnerThreadID:                req.OwnerThreadID,
-		LaunchIntentID:               req.LaunchIntentID,
-		DeferSpawn:                   req.DeferSpawn,
+		// Prompt is the legacy full-text carrier; strip it at the session-port
+		// boundary so even direct adapter callers cannot retain body text in the
+		// internal start request before normalizeStartRequest runs.
+		LaunchSkillRefs:   cloneProviderSkillRefs(req.LaunchSkillRefs),
+		ForceLaunchSkills: req.ForceLaunchSkills,
+		AgentKey:          req.AgentKey,
+		PromptKey:         req.PromptKey,
+		OwnerThreadID:     req.OwnerThreadID,
+		LaunchIntentID:    req.LaunchIntentID,
+		DeferSpawn:        req.DeferSpawn,
 	}
 }
 

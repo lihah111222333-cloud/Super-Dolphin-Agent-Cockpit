@@ -1,5 +1,5 @@
 import { isCancelledError } from '@tanstack/react-query';
-import { dashboardQueryErrorState, firstText, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, numberOrNull, objectValue, textValue, withTimeout, wordListFromText } from '../../shared/pageShared.js';
+import { dashboardQueryErrorState, firstText, queryHasSnapshot, WORKFLOW_ACTION_TIMEOUT_MS, numberOrNull, objectValue, textValue, withTimeout, wordListFromText } from '../../shared/pageShared.js';
 import { getDashboardPage } from './workflowPageService.js';
 import { firstPresent } from './workflowEnterpriseTemplateModel.js';
 import { scheduleLabelFromCron } from './workflowScheduleModel.js';
@@ -26,7 +26,7 @@ const WORKFLOW_ACTION_TIMEOUT_MESSAGE = '自动化操作超时，请检查任务
  */
 
 function withWorkflowActionTimeout(promise) {
-  return withTimeout(promise, SKILLS_REQUEST_TIMEOUT_MS, WORKFLOW_ACTION_TIMEOUT_MESSAGE);
+  return withTimeout(promise, WORKFLOW_ACTION_TIMEOUT_MS, WORKFLOW_ACTION_TIMEOUT_MESSAGE);
 }
 
 function workflowDashboardQueryErrorState(query, hasSnapshot = queryHasSnapshot(query)) {
@@ -37,7 +37,7 @@ function workflowDashboardQueryErrorState(query, hasSnapshot = queryHasSnapshot(
 async function fetchDagsDashboard(cwd) {
   const response = await withTimeout(
     getDashboardPage({ cwd, page: 'dags' }),
-    SKILLS_REQUEST_TIMEOUT_MS,
+    WORKFLOW_ACTION_TIMEOUT_MS,
     '自动化加载超时，请检查任务数据或后端状态。',
   );
   return normalizeDagsResponse(response);

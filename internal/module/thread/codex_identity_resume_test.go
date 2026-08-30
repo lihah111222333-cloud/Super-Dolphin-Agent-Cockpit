@@ -425,6 +425,10 @@ func resumeCodexIdentityStores(
 		binding.RolloutPath = writeExistingProviderHistoryFile(t, providerThreadID, binding.Provider)
 	}
 	binding.Cwd = cwd
+	// Resume now requires an exact persisted prompt snapshot before it reaches
+	// provider identity/recovery code. Identity-focused cases must carry a
+	// valid native snapshot so their assertions exercise the intended branch.
+	threads.promptSnapshot = validPromptSnapshotPtrForTest(binding.Provider, "resume")
 	return threads, &stubBindingStore{binding: &binding}
 }
 

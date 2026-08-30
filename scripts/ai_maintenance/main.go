@@ -85,7 +85,6 @@ func newGatePlanPolicy() gatePlanPolicy {
 		archtestNonGoInputFiles: map[string]bool{
 			"cmd/mcp-orch/sqlc.yaml": true, "docs/契约/modularity-convention.md": true,
 			"frontend-app/src/App.jsx": true, "frontend-app/src/app/appShellModel.js": true,
-			"frontend-app/src/features/slash-commands/adapters/skillInfoFieldRegistry.json": true,
 			"go.mod": true, "internal/archtest/freeze_baseline.json": true, "scripts/ci_cross_platform_smoke.ps1": true,
 			"scripts/ai_maintenance_gates.sh": true, "scripts/codemap_policy.txt": true,
 			"scripts/test_with_guard.ps1": true, "scripts/test_with_guard.sh": true, "sqlc.yaml": true,

@@ -22,7 +22,6 @@ type serviceParams struct {
 	CommandCards  CommandCardReader
 	Prompts       PromptTemplateReader
 	SharedFiles   SharedFileReader
-	Skills        contract.SkillLister
 }
 
 // dashboardHandlersParams 是 fx 注入 dashboard handler 的依赖声明。
@@ -57,7 +56,6 @@ var Module = fx.Module("dashboard",
 			p.CommandCards,
 			p.Prompts,
 			p.SharedFiles,
-			p.Skills,
 		)
 	}),
 	fx.Provide(NewDashboardHandlersWithInsights),

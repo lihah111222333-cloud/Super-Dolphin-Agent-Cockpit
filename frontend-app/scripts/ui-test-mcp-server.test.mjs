@@ -21,11 +21,9 @@ const CONTRACT = Object.freeze({
     chat: '/',
     settings: '/settings',
     observability: '/observability',
-    skills: '/skills',
     automation: '/dags',
     prompts: '/prompts',
     files: '/files',
-    memory: '/memory',
   },
   UI_TEST_WAIT_STATES: ['frontend_ready', 'composer_text_length', 'route'],
   UI_TEST_SCENARIOS: {

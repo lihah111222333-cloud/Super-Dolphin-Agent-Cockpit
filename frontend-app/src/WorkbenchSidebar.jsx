@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, CircleUserRound, FolderOpen, Moon, PanelLeftClose, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun } from 'lucide-react';
+import { CircleUserRound, FolderOpen, Moon, PanelLeftClose, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun } from 'lucide-react';
 import { errorMessage, textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { runUIAction } from './shared/ui/runUIAction.js';
@@ -13,16 +13,12 @@ const WORKBENCH_SIDEBAR_DEFAULT_WIDTH = 340;
 const WORKBENCH_SIDEBAR_MAX_WIDTH = 460;
 
 const primaryNavItems = [
-  { id: 'skills', labelKey: 'skills', displayLabelKey: 'skillsShort', icon: Puzzle },
   { id: 'workflows', labelKey: 'workflows', icon: RefreshCw },
   { id: 'prompts', labelKey: 'prompts', displayLabelKey: 'promptsShort', icon: CircleUserRound },
   { id: 'files', labelKey: 'files', icon: FolderOpen },
 ];
 
-const secondaryNavItems = [
-  { id: 'memory', labelKey: 'memory', icon: Brain },
-  { id: 'observability', labelKey: 'observability', icon: Search },
-];
+const secondaryNavItems = [{ id: 'observability', labelKey: 'observability', icon: Search }];
 
 function uiActionOptions(store) {
   return {
@@ -32,7 +28,7 @@ function uiActionOptions(store) {
   };
 }
 
-function SidebarNavButton({ activePage, badgeCount, copy, item, setActivePage }) {
+function SidebarNavButton({ activePage, copy, item, setActivePage }) {
   const Icon = item.icon;
   const label = copy.nav[item.labelKey];
   const displayLabel = item.displayLabelKey ? copy.nav[item.displayLabelKey] : label;
@@ -45,18 +41,16 @@ function SidebarNavButton({ activePage, badgeCount, copy, item, setActivePage })
     >
       <Icon size={22} aria-hidden="true" />
       <span>{displayLabel}</span>
-      {badgeCount > 0 ? <i aria-hidden="true" title={`${badgeCount} ${copy.workbench.memoryBadgeTitle}`} /> : null}
     </button>
   );
 }
 
 function SidebarNavList(props) {
-  const { activePage, className, copy, items, memoryBadgeCount = 0, setActivePage, testId } = props;
+  const { activePage, className, copy, items, setActivePage, testId } = props;
   return (
     <nav className={`app-sidebar-nav ${textValue(className)}`} data-testid={testId}>
       {items.map((item) => {
-        const badgeCount = item.id === 'memory' ? memoryBadgeCount : 0;
-        return <SidebarNavButton key={item.id} activePage={activePage} badgeCount={badgeCount} copy={copy} item={item} setActivePage={setActivePage} />;
+        return <SidebarNavButton key={item.id} activePage={activePage} copy={copy} item={item} setActivePage={setActivePage} />;
       })}
     </nav>
   );
@@ -76,11 +70,9 @@ export function WorkbenchSidebar({
   theme,
   toggleLocale,
   toggleTheme,
-  memorySimilarCount = 0,
   onCloseSidebar,
 }) {
   const actionOptions = uiActionOptions(store);
-  const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   const isDark = theme === COLOR_THEMES.dark;
   const ThemeIcon = isDark ? Sun : Moon;
   const themeLabel = isDark ? copy.workbench.dayMode : copy.workbench.nightMode;
@@ -138,7 +130,6 @@ export function WorkbenchSidebar({
         items={primaryNavItems}
         activePage={activePage}
         setActivePage={setActivePage}
-        memoryBadgeCount={0}
         testId="sidebar-nav"
         className="sidebar-primary-nav"
       />
@@ -147,7 +138,6 @@ export function WorkbenchSidebar({
         items={secondaryNavItems}
         activePage={activePage}
         setActivePage={setActivePage}
-        memoryBadgeCount={memoryBadgeCount}
         testId="sidebar-secondary-nav"
         className="sidebar-secondary-nav"
       />

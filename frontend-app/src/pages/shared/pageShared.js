@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { memoryHealth, normalizeMemorySnapshot, normalizeSimilarityGroups } from '../../adapters/memoryAdapter.js';
-import { MEMORY_TYPE_INFO, normalizeMemoryEntry, normalizeMemorySection } from '../../shared/api/backendSchemas.js';
-import { memoryPageService } from '../memory/services/memoryPageService.js';
 
-const SKILLS_REQUEST_TIMEOUT_MS = 8000;
+const WORKFLOW_ACTION_TIMEOUT_MS = 8000;
 const DASHBOARD_FOCUS_INVALIDATION_COALESCE_MS = 50;
 
 async function withTimeout(promise, timeoutMs, message) {
@@ -75,10 +72,6 @@ function optionalSettingsCwd(value) {
 
 function dashboardQueryKey(cwd, page, ...parts) {
   return ['dashboard', 'project', cwd, page, ...parts.map((part) => textValue(part)).filter(Boolean)];
-}
-
-async function loadMemoryDashboard(cwd, options) {
-  return memoryPageService.loadDashboard(cwd, options);
 }
 
 function queryErrorMessage(query) { return query?.error ? errorMessage(query.error) : ''; }
@@ -277,13 +270,13 @@ function sharedFileTimestamp(value) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
-function memoryNoticeText(value) {
+function noticeText(value) {
   const text = textValue(value);
   return text.length > 120 ? `${text.slice(0, 119)}…` : text;
 }
 
 function errorMessage(error) {
-  return memoryNoticeText(firstPresentRawText(error?.message, error));
+  return noticeText(firstPresentRawText(error?.message, error));
 }
 
 function listToText(words) {
@@ -291,8 +284,8 @@ function listToText(words) {
 }
 
 export {
-  appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, currentTimestampMillis, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentRawText, firstPresentText, firstText, listToText, loadMemoryDashboard, MEMORY_TYPE_INFO,
-  memoryHealth, memoryNoticeText, MODEL_OPTIONS_BY_PROVIDER, modelOptionFor, normalizeConfigText, normalizeMemoryEntry, normalizeMemorySection, normalizeMemorySnapshot, normalizeProviderKey, normalizeSimilarityGroups, numberOrNull, objectValue, optionalArrayValue,
+  appendCurrentModelOption, canonicalizeModelValue, CLAUDE_LONG_TO_SHORT, cleanScalar, currentTimestampMillis, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentRawText, firstPresentText, firstText, listToText, MODEL_OPTIONS_BY_PROVIDER,
+  modelOptionFor, normalizeConfigText, normalizeProviderKey, noticeText, numberOrNull, objectValue, optionalArrayValue,
   optionalDateFromValue, optionalPlainObjectValue, optionalSettingsCwd, optionalTimestampMillis, parseJsonObjectValue, parseStrictJsonValue, queryErrorMessage, queryHasSnapshot, rawTextValue, requireArrayValue, requirePlainObjectValue, requireTimestampMillis, sharedFileTimestamp,
-  SKILLS_REQUEST_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText,
+  WORKFLOW_ACTION_TIMEOUT_MS, textValue, useDashboardFocusInvalidation, useDashboardQueryFocusInvalidation, withTimeout, wordListFromText,
 };

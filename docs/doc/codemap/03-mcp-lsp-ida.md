@@ -318,7 +318,7 @@ sequenceDiagram
 | `search` | `cmd/mcp-lsp/search/language_inference_test.go` | `TestInferLanguage` (`cmd/mcp-lsp/search/language_inference_test.go:5`) | — |
 | `tools` | `cmd/mcp-lsp/tools/tool_diagnostics_test.go` | `TestDiagnosticsHandler` | — |
 
-补充：本卷覆盖的 5 个子包当前都**没有独立 archtest freeze 数字**；冻结压力仍主要落在 11 卷 `memory/prompt` 等包，而 03 卷更像“运行时与工具语义”地图。
+补充：本卷覆盖的 5 个子包当前都**没有独立 archtest freeze 数字**；冻结压力主要落在 prompt/contract 等相邻包，而 03 卷更像“运行时与工具语义”地图。
 
 ## 11. how-to（新增 tool / language / action）
 

@@ -84,7 +84,6 @@ func approvalRestoreDriverForTest(t *testing.T, serverURL string) *driver {
 	return &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		skillMetrics: testSkillMetrics(t),
 		listTools:    noopCodexToolLister,
 	}

@@ -17,7 +17,7 @@ import (
 )
 
 // Module 把 prompt 的注册表、组装器和 RPC 接起来。
-// prompt 只负责组 start/turn 内容；memory 写入、skill mirror 和 provider 启动在别处做。
+// prompt 只负责组 start/turn 内容；memory 写入、provider-native skill discovery 和 provider 启动在别处做。
 var Module = fx.Module("prompt",
 	fx.Provide(
 		NewConfig,

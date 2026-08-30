@@ -150,7 +150,7 @@ func Run() error {
 type DesktopACKPublisher func(write func() error) error
 
 // RunDesktop 启动桌面 Wails 应用，并在 backend 与前端 Wails RPC 握手就绪后调用 ready。
-// 前端 filesystem 为空时由 wails 模块降级到内置占位页；运行结束前会先 drain runtime。
+// 前端 filesystem 为空时由 wails 模块降级到内置占位页。
 func RunDesktop(
 	parent context.Context,
 	frontendFS fs.FS,
@@ -240,9 +240,8 @@ func RunHeadlessDesktop(
 		}
 	}
 	owner.Cancel()
-	preDrainErr := preDrainDesktopRuntime(ctx, owner)
 	stopErr := stopper.Stop()
-	return errors.Join(runErr, preDrainErr, stopErr)
+	return errors.Join(runErr, stopErr)
 }
 
 // validateDesktopRuntime 校验 Fx 已提供真实 Wails 应用与生命周期组件。
@@ -540,15 +539,15 @@ func stopFXApp(parent context.Context, app *fx.App) error {
 	return app.Stop(ctx)
 }
 
-// preDrainDesktopRuntime 在 Wails 退出后等待 runtime 完成并 drain 内存提取。
-func preDrainDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
+// waitDesktopRuntime 在 Wails 退出后等待 runtime 完成。
+func waitDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// 误判防护：preDrainDesktopRuntime 用 ShutdownTimeout 包住 runtime drain 和 WaitRuntimeDone。
-	drainCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), platformconfig.ShutdownTimeout)
+	// 误判防护：waitDesktopRuntime 用 ShutdownTimeout 包住 runtime 等待。
+	waitCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), platformconfig.ShutdownTimeout)
 	defer cancel()
-	return errors.Join(owner.WaitRuntimeDone(drainCtx), owner.DrainRuntime(drainCtx))
+	return owner.WaitRuntimeDone(waitCtx)
 }
 
 // desktopFXStopper 确保桌面 Fx Stop 只执行一次。

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -347,9 +347,9 @@ func (s *session) attemptRecovery(reason string) error {
 		return s.failRecovery(reason, err)
 	}
 	if err := s.completeRecoveryReplay(reason); err != nil {
-		// replay 失败说明 transport 已恢复但 session 层状态无法继续复用。
-		// 通过 failRecovery 分发 connection.dead，让 thread 层升级为完整重启。
-		return s.failRecovery(reason, err)
+		// completeRecoveryReplay 已在失败边界调用 failRecovery；这里直接
+		// 传播错误，避免同一次恢复失败重复分发 connection.dead。
+		return err
 	}
 	s.recoveryCount.Store(0)
 	s.recoveryGeneration.Add(1)
@@ -389,6 +389,16 @@ func (s *session) dispatchRecoveryAttempt(reason string, attempt int32) {
 // completeRecoveryReplay 按固定顺序重建 reader、恢复线程并重放未完成 turn。
 // 任一步失败都会进入 failRecovery，交给线程层决定是否重启 provider。
 func (s *session) completeRecoveryReplay(reason string) error {
+	// Validate the persisted prompt snapshot before touching the reader or
+	// transport generation.  resumeThreadAfterRecovery repeats this check at
+	// the wire boundary, but doing it here keeps a rejected legacy snapshot
+	// from causing recovery side effects before the failure is surfaced.
+	if err := s.validateRecoveryPromptSnapshot(); err != nil {
+		return s.failRecovery(reason, err)
+	}
+	if err := s.validateRecoveryNativeContext(); err != nil {
+		return s.failRecovery(reason, err)
+	}
 	if s.runtime != nil {
 		if !s.runtime.restartReader() {
 			return s.failRecovery(reason, errRuntimeStopped)
@@ -414,6 +424,15 @@ func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 	threadID := s.ThreadID()
 	if threadID == "" {
 		return nil
+	}
+	// Recovery used to send only thread ID and cwd, which allowed a session
+	// carrying an old memory snapshot to reconnect without crossing the same
+	// prompt boundary as normal resume.  Validate before any wire write.
+	if err := s.validateRecoveryPromptSnapshot(); err != nil {
+		return err
+	}
+	if err := s.validateRecoveryNativeContext(); err != nil {
+		return err
 	}
 	cwd, err := s.recoveryResumeCWD()
 	if err != nil {
@@ -445,18 +464,30 @@ func (s *session) recoveryResumeCWD() (string, error) {
 	if s == nil {
 		return "", errors.New("codexapp: recovery cwd is required")
 	}
+	// A production session records the canonical CWD in provider-native
+	// context at start/resume.  Treat that snapshot as the wire authority;
+	// re-reading mutable runtimeConfig here would allow a second valid path to
+	// replace the path that was just validated by validateRecoveryNativeContext.
+	if native := s.nativeContextSnapshot(); native.SchemaVersion != 0 {
+		if err := providershared.ValidateProviderNativeContextForProvider(native, "codex"); err != nil {
+			return "", fmt.Errorf("codexapp: recovery native context: %w", err)
+		}
+		return native.CWD, nil
+	}
 	cwd := strings.TrimSpace(s.runtimeConfigString("cwd"))
 	if cwd == "" || cwd == "." {
 		return "", fmt.Errorf("codexapp: recovery cwd is required for thread %q", s.ThreadID())
 	}
-	info, err := os.Stat(cwd)
+	canonical, err := contract.CanonicalizeProviderNativeCWD(cwd)
 	if err != nil {
-		return "", fmt.Errorf("codexapp: recovery cwd stat %q: %w", cwd, err)
+		return "", fmt.Errorf("codexapp: recovery cwd: %w", err)
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("codexapp: recovery cwd is not a directory: %q", cwd)
+	if canonical != cwd {
+		// Keep subsequent tool calls and another recovery attempt on the same
+		// canonical path that crossed the provider-native boundary.
+		s.setRuntimeConfigValue(contract.RuntimeConfigCWD().Canonical, canonical)
 	}
-	return cwd, nil
+	return canonical, nil
 }
 
 // replayPendingTurn 只在 provider 明确确认丢失且没有本地 Stop owner 时重放。

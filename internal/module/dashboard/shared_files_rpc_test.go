@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -65,32 +64,6 @@ func TestDashboardSharedFilesHandlerDoesNotRequireDAGRuntime(t *testing.T) {
 	}
 	if orchestration.listDAGsFilter.Limit != 0 {
 		t.Fatalf("dashboard/sharedFiles called DAG runtime with filter %#v", orchestration.listDAGsFilter)
-	}
-}
-
-func TestGetDashboardPageMemorySurfacesMalformedFinalOutputMetadata(t *testing.T) {
-	t.Parallel()
-
-	shared := &stubSharedFileReader{
-		result: []SharedFile{{Path: "reports/daily-brief.pptx", Content: "deck"}},
-	}
-	orchestration := &stubDashboardOrchestration{
-		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
-		listRunsResult: contract.ListRunsResponse{Runs: []contract.Run{{
-			RunKey:   "run-1",
-			DagKey:   "dag-1",
-			Status:   "succeeded",
-			Metadata: json.RawMessage(`{"final_output":{"sharedfile":"reports/daily-brief.pptx"}}`),
-		}}},
-	}
-	svc := &service{sharedFiles: shared, dagRuntime: orchestration}
-
-	got, err := svc.GetDashboardPage(context.Background(), "memory")
-	if err == nil || !strings.Contains(err.Error(), "final_output") {
-		t.Fatalf("GetDashboardPage(memory) error = %v, want final_output metadata error", err)
-	}
-	if got != nil {
-		t.Fatalf("GetDashboardPage(memory) = %#v, want nil page on malformed final_output metadata", got)
 	}
 }
 

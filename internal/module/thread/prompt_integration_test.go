@@ -203,7 +203,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 		DeveloperInstructions: "assembled dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  "snapshot-hash",
+		Hash:                  promptSnapshotHash("assembled name", "assembled system", "assembled dev", "codex", nil, nil, 7),
 		Generation:            7,
 	}
 	threads := &stubThreadStore{thread: &ThreadRecord{
@@ -216,6 +216,8 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	record := promptSnapshotRecordToStore(toStoredPromptSnapshot(snapshot))
+	threads.promptSnapshot = &record
 	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f608"
 	rolloutPath := writeExistingProviderHistoryFile(t, providerThreadID)
 	bindings := &stubBindingStore{binding: &BindingRecord{
@@ -279,6 +281,7 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("codex", "resume name")
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-resume",
 		Provider:      "codex",
@@ -320,6 +323,7 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("codex", "resume name")
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-resume",
 		Provider:      "codex",
@@ -392,6 +396,7 @@ func TestForkPreservesPromptAssembly(t *testing.T) {
 		CreatedAt:      123,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("codex", "assembled name")
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 			if req.AgentID != "thread-fork" || req.ThreadID != "thread-fork" {

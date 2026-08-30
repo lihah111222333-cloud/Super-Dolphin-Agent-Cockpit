@@ -45,9 +45,9 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 func TestNewDriverDefaultsLoggerAndBinaryPath(t *testing.T) {
 	t.Parallel()
 
-	got, ok := buildDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
+	got, ok := buildDriver(nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 	if !ok {
-		t.Fatalf("buildDriver() type = %T, want *driver", buildDriver(nil, nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)))
+		t.Fatalf("buildDriver() type = %T, want *driver", buildDriver(nil, nil, nil, nil, nil, nil, nil, testSkillMetrics(t)))
 	}
 	if got.logger == nil {
 		t.Fatal("buildDriver() logger = nil")
@@ -118,7 +118,7 @@ func TestDriverReportRuntimeUsesProviderWithoutPort(t *testing.T) {
 	t.Parallel()
 
 	reporter := &stubRuntimeReporter{}
-	got := buildDriver(nil, nil, reporter, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
+	got := buildDriver(nil, nil, reporter, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 	if err := got.reportRuntime(" agent-1 "); err != nil {
 		t.Fatalf("reportRuntime() error = %v", err)
 	}
@@ -215,7 +215,7 @@ func newClaudeDriverWithRuntimeReporterForTest(t *testing.T, reporter contract.R
 	if err != nil {
 		t.Fatalf("newModeAwareRuntimeReporter() error = %v", err)
 	}
-	driver := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+	driver := newTestDriverWithLaunch(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		return closedTransport(), func() {}, nil
 	})
 	driver.reporter = modeReporter

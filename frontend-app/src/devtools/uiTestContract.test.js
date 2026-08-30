@@ -59,11 +59,9 @@ describe('uiTestContract constants', () => {
       chat: '/',
       settings: '/settings',
       observability: '/observability',
-      skills: '/skills',
       automation: '/dags',
       prompts: '/prompts',
       files: '/files',
-      memory: '/memory',
     });
     expectExactUniqueValues(UI_TEST_WAIT_STATES, [
       'frontend_ready',

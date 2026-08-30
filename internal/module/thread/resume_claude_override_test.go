@@ -20,7 +20,7 @@ func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *
 		Model: "sonnet", Cwd: "/repo", CreatedAt: 123,
 		Status: statusCreated, LastEventType: "",
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("claude", "resume")}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID: "agent-1", Provider: "claude", ProviderThreadID: providerThreadID,
 		CodexThreadID: "thread-1", RolloutPath: rolloutPath, Cwd: "/repo",
@@ -62,7 +62,7 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 				"legacyPromptSnapshotMigration": true,
 			},
 		}),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("claude", "resume")}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID: "agent-1", Provider: "claude", ProviderThreadID: providerThreadID,
 		CodexThreadID: "thread-1", RolloutPath: rolloutPath, Cwd: "/repo",

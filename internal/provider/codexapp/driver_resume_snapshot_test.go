@@ -2,6 +2,9 @@ package codexapp
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -34,5 +37,32 @@ func TestResumeSessionRejectsEmptyPromptSnapshot(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "prompt snapshot") {
 		t.Fatalf("ResumeSession() error = %v, want prompt snapshot error", err)
+	}
+}
+
+func TestStartSessionRejectsPartialPromptSnapshotBeforePersistence(t *testing.T) {
+	requestedHome := filepath.Join(t.TempDir(), "codex-home")
+	d := &driver{approvals: testApprovalManager()}
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider: "codex",
+		AgentID:  "agent-partial-snapshot",
+		CWD:      t.TempDir(),
+		Config: map[string]any{
+			contract.CodexHomeKey: requestedHome,
+		},
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "base instructions",
+			Snapshot: dto.PromptAssemblySnapshot{
+				BaseInstructions: "partial snapshot",
+				Hash:             "partial-hash",
+				Version:          contract.PromptAssemblySnapshotVersion,
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "start prompt snapshot") {
+		t.Fatalf("StartSession() error = %v, want partial prompt snapshot rejection", err)
+	}
+	if _, statErr := os.Stat(requestedHome); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Codex home stat = %v, want no persistence before snapshot validation", statErr)
 	}
 }

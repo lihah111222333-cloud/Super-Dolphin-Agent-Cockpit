@@ -20,23 +20,18 @@ import (
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
-// skillHydrationPort 是 turn 服务解析 name-only skill 引用所需的最小依赖。
-type skillHydrationPort = contract.SkillHydrationSource
-
 // peerBinDirEnv 指定 provider manifest 查找内置 MCP peer 二进制的目录。
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
 
-// service 是 turn.Service 的核心实现，持有组装器、技能解析器、manifest 构建器和 tracker 等依赖。
+// service 是 turn.Service 的核心实现，持有输入组装器、manifest 构建器和 tracker 等依赖。
 // tracker 负责进程内状态收敛；dedupe store 一旦注入，StartTurn 的持久化写入失败会阻断提交。
 type service struct {
 	logger                 *slog.Logger
 	assembler              *inputAssembler
-	skills                 *skillResolver
 	manifest               *manifestBuilder
 	tracker                *turnTracker
 	promptAssembly         contract.PromptAssemblyService
 	turnContextProvider    contract.TurnContextProvider
-	skillLookup            skillHydrationPort
 	observation            turnobservation.Contract
 	mcpServers             contract.MCPServerConfigProvider
 	tracing                *platformobs.Service
@@ -58,21 +53,20 @@ type steerableSession interface {
 
 // NewService 创建只包含默认组装能力的 turn 服务，主要用于轻量测试和旧 wiring。
 func NewService(logger *slog.Logger, toolResults *ToolResultRuntime) Service {
-	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest, nil, toolResults)
+	return newService(logger, nil, nil, nil, nil, contract.BuildManifest, nil, toolResults)
 }
 
 // NewServiceWithPromptAssembly 创建带 prompt assembly 能力的 turn 服务。
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService, toolResults *ToolResultRuntime) Service {
-	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest, nil, toolResults)
+	return newService(logger, promptAssembly, nil, nil, nil, contract.BuildManifest, nil, toolResults)
 }
 
 // NewServiceWithPromptAssemblyAndTurnContext 创建完整 wiring 使用的 turn 服务。
-// skill、observation、dedupe、MCP 和 tracing 依赖均允许 optional 注入，缺失时只跳过对应能力。
+// observation、dedupe、MCP 和 tracing 依赖均允许 optional 注入，skills 由 provider-native discovery 负责。
 func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
-	skillSvc contract.SkillHydrationSource,
 	observation turnobservation.Contract,
 	dedupeStore DedupeStore,
 	manifestBuild contract.ManifestBuildFunc,
@@ -80,11 +74,7 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	tracing *platformobs.Service,
 	toolResults *ToolResultRuntime,
 ) Service {
-	var lookup skillHydrationPort
-	if skillSvc != nil {
-		lookup = skillSvc
-	}
-	svc := newService(logger, promptAssembly, turnContextProvider, lookup, observation, dedupeStore, manifestBuild, tracing, toolResults)
+	svc := newService(logger, promptAssembly, turnContextProvider, observation, dedupeStore, manifestBuild, tracing, toolResults)
 	if typed, ok := svc.(*service); ok {
 		typed.mcpServers = mcpServers
 	}
@@ -96,7 +86,6 @@ func newService(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
 	turnContextProvider contract.TurnContextProvider,
-	skillLookup skillHydrationPort,
 	observation turnobservation.Contract,
 	dedupeStore DedupeStore,
 	manifestBuild contract.ManifestBuildFunc,
@@ -117,11 +106,9 @@ func newService(
 	svc := &service{
 		logger:                 logger,
 		assembler:              &inputAssembler{},
-		skills:                 &skillResolver{},
 		manifest:               newManifestBuilder(resolveBinaryDir(), manifestBuild),
 		tracker:                newTurnTracker(),
 		promptAssembly:         promptAssembly,
-		skillLookup:            skillLookup,
 		observation:            observation,
 		tracing:                tracing,
 		toolResults:            toolResults,
@@ -151,6 +138,10 @@ func (s *service) prepareTurn(ctx context.Context, session contract.Session, inp
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	input = hydratePrepareInput(input, session)
+	input.Skills, err = prepareProviderNativeSkills(input)
+	if err != nil {
+		return dto.TurnRequest{}, err
+	}
 	localID, cleanupPreparingCancellation, err := beginPreparingCancellation(s, ctx, session, threadID, input, trackPreparing)
 	if err != nil {
 		return dto.TurnRequest{}, err
@@ -164,35 +155,41 @@ func (s *service) prepareTurn(ctx context.Context, session contract.Session, inp
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
-	// provider-native skill discovery 只在 turn 侧补全元数据，正文由
-	// Claude/Codex 从 provider-native mirror 自行发现；hydrate 是 optional 依赖，
-	// skillLookup 未注入时原路直通。
-	hydrated, hydrateErr := s.hydrateSkillRefs(contract.WithSkillCWD(ctx, input.CWD), input.Skills, input.ManualSkillSelection)
-	if hydrateErr != nil {
-		return dto.TurnRequest{}, hydrateErr
-	}
-	input.Skills = hydrated
-	candidateSkills := prepareCandidateSkills(input)
 	userText := s.assembler.PromptText(input)
 	s.cleanupStaleToolResults(threadID, input)
 	mcp := s.manifest.Build(input, threadID)
 	span.metadata = turnPrepareTraceMetadata(input, mcp)
+	req, err = s.buildPreparedTurnRequest(ctx, session, input, threadID, localID, userText, mcp)
+	if err != nil {
+		return dto.TurnRequest{}, err
+	}
+	s.recordSkillsSelected(req.LocalID, req.Skills)
+	return req, nil
+}
+
+// buildPreparedTurnRequest 组装 provider turn DTO，并在提交前执行 legacy memory 边界校验。
+func (s *service) buildPreparedTurnRequest(
+	ctx context.Context,
+	session contract.Session,
+	input PrepareInput,
+	threadID, localID, userText string,
+	mcp dto.MCPManifest,
+) (dto.TurnRequest, error) {
 	synthetic, err := s.syntheticMemoryContext(ctx, session, input, threadID, userText, mcp)
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
-	resolvedSkills := s.skills.Resolve(input.Skills, candidateSkills, userText)
 	assembledInputs := s.assembler.Assemble(input)
 	if len(synthetic.Inputs) > 0 {
 		assembledInputs = append(synthetic.Inputs, assembledInputs...)
 	}
-	req = dto.TurnRequest{
+	req := dto.TurnRequest{
 		LocalID:                      localID,
 		PreparingCancelRequestID:     strings.TrimSpace(input.PreparingCancelRequestID),
 		ThreadID:                     threadID,
 		CWD:                          strings.TrimSpace(input.CWD),
 		Inputs:                       assembledInputs,
-		Skills:                       resolvedSkills,
+		Skills:                       input.Skills,
 		ManualSkillSelection:         input.ManualSkillSelection,
 		OutputSchema:                 input.OutputSchema,
 		Overrides:                    s.buildOverrides(session.Capabilities(), input),
@@ -207,8 +204,13 @@ func (s *service) prepareTurn(ctx context.Context, session contract.Session, inp
 	if len(synthetic.Attachments) > 0 {
 		assembly.Attachments = append(append([]dto.AttachmentEnvelope(nil), assembly.Attachments...), synthetic.Attachments...)
 	}
+	if err := contract.ValidateLegacyMemoryPromptSections(assembly.ResolvedSections); err != nil {
+		return dto.TurnRequest{}, err
+	}
+	// 旧 V3 memory attachments 不能从任何 turn context provider 回流到 provider wire。
+	// 普通附件保持原顺序，过滤在组装边界完成后 provider 侧仍有 Render guard 兜底。
+	assembly.Attachments = contract.FilterLegacyMemoryAttachments(assembly.Attachments)
 	req.TurnAssembly = assembly
-	s.recordSkillsSelected(req.LocalID, resolvedSkills)
 	return req, nil
 }
 
@@ -239,11 +241,24 @@ func beginPreparingCancellation(s *service, ctx context.Context, session contrac
 	return localID, cleanup, nil
 }
 
-func prepareCandidateSkills(input PrepareInput) []dto.SkillRef {
-	if input.ManualSkillSelection {
-		return nil
+// prepareProviderNativeSkills 仅允许显式 provider-native skill 引用。
+// CandidateSkills 代表 V3 auto-match 候选；旧 lookup 依赖已移除，必须显式报告 unsupported。
+// Name 与可选的 key/scope/path 等身份字段直接透传；摘要和版本不是 provider
+// discovery 的必填项，不能因为旧客户端未携带它们而重新触发 V3 hydration。
+func prepareProviderNativeSkills(input PrepareInput) ([]dto.SkillRef, error) {
+	if len(input.CandidateSkills) > 0 {
+		return nil, fmt.Errorf("%w: automatic skill selection requires provider-native discovery", contract.ErrProviderNativeCapabilityUnsupported)
 	}
-	return input.CandidateSkills
+	for i, ref := range input.Skills {
+		if strings.TrimSpace(ref.Name) == "" {
+			return nil, fmt.Errorf("%w: selected skill[%d] name is required", contract.ErrProviderNativeCapabilityUnsupported, i)
+		}
+	}
+	normalized := normalizeSkillRefs(input.Skills)
+	if len(input.Skills) > 0 && len(normalized) == 0 {
+		return nil, fmt.Errorf("%w: selected skill metadata is invalid", contract.ErrProviderNativeCapabilityUnsupported)
+	}
+	return normalized, nil
 }
 
 // registerPreparingCancellation 将客户端已生成的 Stop identity 绑定到本次 prepare 的唯一 tracker 键。
@@ -283,6 +298,19 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	if err != nil {
 		return nil, err
 	}
+	// StartTurn 可由 cron/orchestration 直接调用而绕过 PrepareTurn；复用同一
+	// provider-native skill gate，拒绝旧正文、自动候选和不完整元数据在 provider
+	// RPC 前穿透。规范化结果同时清空兼容 payload 中可能携带的正文。
+	req.Skills, err = prepareProviderNativeSkills(PrepareInput{Skills: req.Skills})
+	if err != nil {
+		return nil, err
+	}
+	// StartTurn 也可能被 orchestration/cron 直接调用而绕过 PrepareTurn；
+	// 在 tracker、dedupe 和 provider RPC 之前复核结构化 section，并过滤旧附件。
+	if err = contract.ValidateLegacyMemoryPromptSections(req.TurnAssembly.ResolvedSections); err != nil {
+		return nil, err
+	}
+	req.TurnAssembly.Attachments = contract.FilterLegacyMemoryAttachments(req.TurnAssembly.Attachments)
 	span := s.beginTurnTraceSpan(ctx, "turn.start", threadID, "", req.LocalID, platformobs.NewCodeAnchor("internal/module/turn/service.go", "turn.(*service).StartTurn", 254), nil)
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()

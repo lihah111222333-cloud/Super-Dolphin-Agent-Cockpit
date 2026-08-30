@@ -31,7 +31,6 @@ func TestInterfaceIsolationBudgets(t *testing.T) {
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "NodeFlowStore", maxMethods: 3, maxEmbedded: 0},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WakeupStore", maxMethods: 10, maxEmbedded: 0},
 		{relPath: "cmd/mcp-orch/store/taskdag/contract.go", name: "WorkerLeaseStore", maxMethods: 3, maxEmbedded: 0},
-		{relPath: "internal/module/skill/contract.go", name: "Service", maxMethods: 0, maxEmbedded: 12},
 		{relPath: "cmd/mcp-lsp/multilsp/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 3},
 		{relPath: "cmd/mcp-lsp/manager/manager.go", name: "Manager", maxMethods: 0, maxEmbedded: 8},
 	}...)
@@ -126,33 +125,10 @@ func TestSkillServiceConsumersUseNarrowPorts(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
-	checks := []struct {
-		relPath    string
-		structName string
-		fieldName  string
-		want       string
-	}{
-		{relPath: "internal/module/dashboard/service.go", structName: "service", fieldName: "skills", want: "contract.SkillLister"},
-		{relPath: "internal/module/dashboard/module.go", structName: "serviceParams", fieldName: "Skills", want: "contract.SkillLister"},
-		// skillCatalogProviderDeps + registerSkillCatalogDeps removed in skill refactor P2 Task 7;
-		// SkillCatalogProvider is gone, Claude uses native discovery via workspace symlink instead.
-	}
 	var violations []string
-	for _, check := range checks {
-		actual, ok := structFieldType(t, root, check.relPath, check.structName, check.fieldName)
-		if !ok {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s not found", check.relPath, check.structName, check.fieldName))
-			continue
-		}
-		if actual != check.want {
-			violations = append(violations, fmt.Sprintf("%s: %s.%s must depend on %s, got %s", check.relPath, check.structName, check.fieldName, check.want, actual))
-		}
-	}
 
-	if actual, ok := functionParamType(t, root, "internal/module/turn/service.go", "NewServiceWithPromptAssemblyAndTurnContext", "skillSvc"); !ok {
-		violations = append(violations, "internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc not found")
-	} else if actual != "contract.SkillHydrationSource" {
-		violations = append(violations, fmt.Sprintf("internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc must depend on contract.SkillHydrationSource, got %s", actual))
+	if _, ok := functionParamType(t, root, "internal/module/turn/service.go", "NewServiceWithPromptAssemblyAndTurnContext", "skillSvc"); ok {
+		violations = append(violations, "internal/module/turn/service.go: NewServiceWithPromptAssemblyAndTurnContext.skillSvc must be removed; provider-native owner controls skill discovery")
 	}
 	// provideHostToolRegistry.svc check removed in skill refactor P3 Task 3.
 	// V1 no longer exposes skill_read_section through the Codex host registry.

@@ -9,14 +9,15 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
-// 不可恢复的 resume 失败（provider 会话历史已丢失）走降级路径。
+// 不可恢复的 resume 失败（provider 会话历史或 prompt artifact 已不可重放）走降级路径。
 //
 // 当 provider 侧 rollout/历史文件已经不存在时，重试恢复永远不可能成功；
 // 继续保留 binding 和 resumeInFlight 只会让线程永远卡在“无法恢复”的死局里。
 // 降级路径清理 binding、把线程标记为 failed 并发布 stopped 事件，
 // 让用户可以通过新建会话重新开始，而不是被旧 binding 永久堵死。
 
-// isUnrecoverableResumeError 判断 resume 错误是否表示 provider 会话历史不可恢复地丢失。
+// isUnrecoverableResumeError 判断 resume 错误是否表示 provider 会话历史或
+// prompt artifact 不可恢复地丢失/退役。
 // 匹配片段覆盖远端 codex app-server 的 "no rollout found"、本地 rollout 扫描的
 // "rollout not found" 以及历史读取的 "persisted thread history not found"。
 // 只有这类错误才允许降级清理 binding；网络、认证、超时等暂时性失败必须原样保留，
@@ -24,6 +25,13 @@ import (
 func isUnrecoverableResumeError(err error) bool {
 	if err == nil {
 		return false
+	}
+	// A persisted legacy-memory prompt snapshot can never be replayed by the
+	// provider-native runtime.  Treat this as a terminal artifact failure so
+	// background resume converges to the same failed/stopped state as a lost
+	// rollout instead of retaining resumeInFlight and retrying forever.
+	if errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		return true
 	}
 	msg := strings.ToLower(err.Error())
 	for _, pattern := range []string{"no rollout found", "rollout not found", "persisted thread history not found"} {

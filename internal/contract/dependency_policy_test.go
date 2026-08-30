@@ -60,7 +60,6 @@ func TestDependencyAbsencePolicyAllowsOnlyNamedTestDependencies(t *testing.T) {
 	for _, dependency := range []string{
 		"runtime_reporter.orchestration_service",
 		"toolbridge.lifecycle_backfiller",
-		"toolbridge.skill_tools",
 		"thread.bind_session_generation",
 		"dynamic_tools",
 		"approval_or_tool_diff",

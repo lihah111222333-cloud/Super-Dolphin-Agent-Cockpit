@@ -29,12 +29,6 @@
   .fork-draft-card,
   .prompt-card,
   .personalization-profile-card,
-  .memory-card,
-  .memory-similar-item,
-  .skill-card,
-  .mcp-tool-card,
-  .datasource-card,
-  .datasource-empty-card,
   .enterprise-template-card,
   .settings-mobile-card,
   .settings-update-card,
@@ -55,37 +49,11 @@
   backdrop-filter: blur(20px) saturate(145%);
 }
 
-/* MCP 卡片原先使用深底白字；切换为玻璃底后同步恢复主题前景色。 */
-.sa-window .mcp-tool-card {
-  color: var(--text-pri) !important;
-}
-
-.sa-window .mcp-tool-card :is(.mcp-tool-title-line h2, .add-new-title) {
-  color: var(--text-pri) !important;
-}
-
-.sa-window .mcp-tool-card .mcp-tool-notice,
-.sa-window .mcp-tool-card .mcp-tool-status {
-  color: var(--text-sec) !important;
-}
-
-.sa-window .mcp-tool-card .mcp-tool-icon.playwright {
-  color: var(--info) !important;
-}
-
-.sa-window .mcp-tool-card .super-dolphin-agent-switch-thumb {
-  background: var(--text-pri) !important;
-}
-
 .sa-window :is(
   .chat-intro-card,
   .thread-card,
   .prompt-card,
-  .skill-card,
-  .mcp-tool-card,
-  .datasource-card,
-  .enterprise-template-card,
-  .memory-similar-item
+  .enterprise-template-card
 ):is(:hover, :focus-visible) {
   border-color: color-mix(in srgb, var(--primary) 32%, var(--glass-card-border)) !important;
   background: var(--glass-card-background-hover) !important;
@@ -106,10 +74,6 @@
     .chat-intro-card,
     .composer-card,
     .prompt-card,
-    .memory-card,
-    .skill-card,
-    .mcp-tool-card,
-    .datasource-card,
     .enterprise-template-card
   ) {
     -webkit-backdrop-filter: blur(14px) saturate(135%);

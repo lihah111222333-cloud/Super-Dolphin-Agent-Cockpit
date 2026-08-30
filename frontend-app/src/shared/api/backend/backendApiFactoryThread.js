@@ -29,14 +29,14 @@ import {
   createBackendCaller,
   createConfigProjectApi,
   createAppUpdateApi,
-  createObservabilityMemoryApi,
+  createObservabilityApi,
+  createSharedFilesApi,
   createDatasourceApi,
   createPromptDagApi,
 } from './backendApiFactoryCore.js';
 import {
   createCronApi,
   createCodeApi,
-  createSkillApi,
   createMCPServerApi,
 } from './backendApiFactoryOps.js';
 
@@ -436,11 +436,11 @@ export function createBackendApi(deps = {}) {
     callBackend,
     ...createConfigProjectApi(callBackend),
     ...createAppUpdateApi(callBackend),
-    ...createObservabilityMemoryApi(callBackend),
+    ...createObservabilityApi(callBackend),
+    ...createSharedFilesApi(callBackend),
     ...createPromptDagApi(callBackend),
     ...createCronApi(callBackend),
     ...createCodeApi(callBackend),
-    ...createSkillApi(callBackend),
     ...createDatasourceApi(callBackend),
     ...createMCPServerApi(callBackend),
     ...createThreadApi(callBackend),

@@ -546,7 +546,8 @@ func cloneTurnStringMap(input map[string]string) map[string]string {
 	return out
 }
 
-// syntheticMemoryContext 调用 turn context provider 生成注入 provider 的合成上下文。
+// syntheticMemoryContext 保留旧 turn context 参数但不再调用 memory provider。
+// 运行时 memory 已由 CLI owner 承接；误注入旧 provider 时返回 typed unsupported，阻止静默丢失上下文。
 func (s *service) syntheticMemoryContext(
 	ctx context.Context,
 	session contract.Session,
@@ -557,49 +558,7 @@ func (s *service) syntheticMemoryContext(
 	if s == nil || s.turnContextProvider == nil {
 		return contract.TurnContextPayload{}, nil
 	}
-	buildCtx := contract.BuildCtx{
-		CWD:                          strings.TrimSpace(input.CWD),
-		GitRoot:                      strings.TrimSpace(input.GitRoot),
-		IsWorktree:                   input.IsWorktree,
-		Language:                     strings.TrimSpace(input.Language),
-		Provider:                     strings.TrimSpace(input.Provider),
-		Model:                        strings.TrimSpace(input.Model),
-		EnabledTools:                 append([]string(nil), input.EnabledTools...),
-		AdditionalWorkingDirectories: append([]string(nil), input.AdditionalWorkingDirectories...),
-		MCPSnapshot:                  turnMCPSnapshot(input.MCPSnapshot, mcp),
-		SessionFlags:                 clonePrepareFlags(input.SessionFlags),
-	}
-	if provider, ok := s.turnContextProvider.(turnContextProviderWithError); ok {
-		payload, err := provider.PrepareTurnContextWithError(ctx, session, buildCtx, threadID, userText)
-		if err != nil {
-			s.logMemoryContextError(threadID, err)
-			return contract.TurnContextPayload{}, err
-		}
-		return payload, nil
-	}
-	return s.turnContextProvider.PrepareTurnContext(ctx, session, buildCtx, threadID, userText), nil
-}
-
-type turnContextProviderWithError interface {
-	PrepareTurnContextWithError(
-		context.Context,
-		contract.Session,
-		contract.BuildCtx,
-		string,
-		string,
-	) (contract.TurnContextPayload, error)
-}
-
-func (s *service) logMemoryContextError(threadID string, err error) {
-	if s == nil || s.logger == nil || err == nil {
-		return
-	}
-	attrs := []any{"thread_id", strings.TrimSpace(threadID), "error", err}
-	var logged interface {
-		LogFields() []any
-	}
-	if errors.As(err, &logged) {
-		attrs = append(attrs, logged.LogFields()...)
-	}
-	s.logger.Warn("turn: memory context failed", attrs...)
+	// 保留原参数以兼容旧 wiring；不读取 session、input 或 mcp，避免再次把 memory
+	// 上下文带入 provider 请求。调用方可以通过 errors.Is 识别并切换到 CLI owner。
+	return contract.TurnContextPayload{}, contract.NewMemoryRuntimeUnsupported(contract.MemoryRuntimeTurnContextCapability)
 }

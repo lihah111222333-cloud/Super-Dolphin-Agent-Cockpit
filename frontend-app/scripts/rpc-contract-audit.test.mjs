@@ -23,7 +23,6 @@ const SHADOW_FILES = [
   'frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js',
   'frontend-app/src/entities/client/model/contractStoreModel.js',
   'frontend-app/src/pages/files/services/filesPageService.js',
-  'frontend-app/src/pages/memory/services/memoryPageService.js',
   'frontend-app/src/pages/observability/services/observabilityPageService.js',
   'frontend-app/src/pages/prompts/services/promptPageService.js',
 ]

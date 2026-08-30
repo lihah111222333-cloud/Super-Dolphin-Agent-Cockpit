@@ -92,8 +92,8 @@ type StartRequest struct {
 	MCPSnapshot                  contract.MCPSnapshot
 	SessionFlags                 map[string]bool
 	Config                       map[string]any
-	// LaunchSkillNames / ForceLaunchSkills 保留启动 payload 的旧 skill 选择字段。
-	// 当前 skill runtime 通过 provider-native mirror 注入；这些字段只用于兼容已有调用方。
+	// LaunchSkillNames / ForceLaunchSkills 保留启动 payload 的 provider-native 选择元数据。
+	// thread 层只透传这些字段，不执行本地技能扫描或正文注入。
 	LaunchSkillNames  []string
 	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool

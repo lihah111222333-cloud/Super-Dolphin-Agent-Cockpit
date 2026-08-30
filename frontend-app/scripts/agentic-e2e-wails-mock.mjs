@@ -34,14 +34,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
         ts: '2026-07-04T00:00:00Z',
       }],
     };
-    const allowedProviderPreferenceKeys = new Set([
-      'settings.provider.codex.personality',
-      'settings.provider.codex.sandbox',
-      'settings.provider.codex.model',
-      'settings.provider.codex.effort',
-      'settings.provider.codex.codexHome',
-      'settings.provider.codex.codexInstanceKey',
-    ]);
+    const allowedProviderPreferenceKeys = new Set(['settings.provider.codex.personality', 'settings.provider.codex.sandbox', 'settings.provider.codex.model', 'settings.provider.codex.effort', 'settings.provider.codex.codexHome', 'settings.provider.codex.codexInstanceKey']);
     const allowedPreferencePayloadFields = new Set(['cwd', 'key', 'value', '_aoTraceparent', '_aoTraceId', '_aoSpanId']);
     const allowedSandboxAccessFields = new Set(['readableRoots', 'writableRoots']);
     const allowedSandboxPolicies = new Set(['workspaceWrite', 'readOnly', 'dangerFullAccess']);
@@ -164,7 +157,6 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       if (method === 'thread/delete') return { ok: true };
       if (method === 'app/update/check') return { enabled: false, available: false };
       if (method === 'ui/dashboard/get') return dashboardPage(params.page);
-      if (method === 'ui/memory/get') return memorySnapshot();
       if (method === 'dashboard/sharedFiles') return sharedFilesDashboard();
       if (method === 'observability/status') return { enabled: true, schema_version: 1, index_trace_keys: 1, sink_events_written: 1, sink_write_errors: 0 };
       if (method === 'observability/recent/list') return observabilityResult();
@@ -184,8 +176,6 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       if (method === 'dashboard/dagRuns') return { runs: [] };
       if (method === 'workflowTemplates/list') return { templates: [] };
       if (method === 'cronjob/list') return { jobs: [] };
-      if (method === 'skills/resolution_list') return { items: [] };
-      if (method === 'skills/tools/list') return { tools: [] };
       if (method === 'mcpServer/list') return { mcpServers: { sqlite: { enabled: false }, playwright: { enabled: false } } };
       if (method === 'datasourceV2/list') return { documents: [] };
       state.unhandledRPC.push(method);
@@ -497,35 +487,8 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     }
 
     function dashboardPage(page) {
-      if (page === 'skills') return {
-        skills: [{
-          name: 'backend',
-          display_name: '后端',
-          dir: `${sandboxConfig.projectDir}/.agents/skills/e2e-fixture`,
-          description: 'agentic e2e skill fixture',
-          trigger_words: ['go'],
-          scope: 'project',
-        }],
-      };
-      if (page === 'memory') return memorySnapshot();
       if (page === 'dags') return { dags: [] };
       return {};
-    }
-
-    function memorySnapshot() {
-      return {
-        overview: {
-          enabled: true,
-          autoDreamEnabled: false,
-          autoDreamIntent: null,
-          projectRoot: sandboxConfig.projectDir,
-          health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
-        },
-        private: { entries: [] },
-        team: { entries: [] },
-        finalOutputRefs: [],
-        sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-      };
     }
 
     function sharedFilesDashboard() {
@@ -572,19 +535,26 @@ export async function installAgenticE2EMockWails(page, options = {}) {
 }
 
 export async function readAgenticE2EMockWailsState(page) {
-  return page.evaluate(() => window.__AGENTIC_E2E_MOCK_WAILS__ || null).catch(() => null);
+  if (!page || typeof page.evaluate !== 'function') throw new TypeError('agentic e2e mock Wails page is required to read runtime state');
+  return page.evaluate(() => window.__AGENTIC_E2E_MOCK_WAILS__ || null);
 }
 
 export function assertAgenticE2EMockWailsClean(state) {
-  if (!state) return;
-  const failures = [
-    ...(state.unhandledRPC || []).map((method) => `unhandled RPC ${method}`),
-    ...(state.failures || []).map((failure) => `${failure.method}: ${failure.message}`),
-    ...(state.sandboxViolations || []).map((violation) => `${violation.method}: ${violation.message || `outside sandbox path ${violation.path}`}`),
-  ];
-  if (failures.length > 0) {
-    throw new Error(`agentic e2e mock Wails failures: ${failures.join('; ')}`);
+  if (!state || typeof state !== 'object' || Array.isArray(state)) throw new Error('agentic e2e mock Wails state is unavailable');
+  for (const field of ['unhandledRPC', 'failures', 'nonWailsSockets', 'sandboxViolations']) {
+    if (!Array.isArray(state[field])) throw new Error(`agentic e2e mock Wails state ${field} must be an array`);
   }
+  const failures = [
+    ...state.unhandledRPC.map((method) => `unhandled RPC ${method}`),
+    ...state.failures.map((failure) => `${failure?.method || 'unknown'}: ${failure?.message || String(failure)}`),
+    ...state.nonWailsSockets.filter((url) => !isAllowedNonWailsSocket(url)).map((url) => `non-Wails WebSocket ${url}`),
+    ...state.sandboxViolations.map((violation) => `${violation?.method || 'unknown'}: ${violation?.message || `outside sandbox path ${violation?.path || 'unknown'}`}`),
+  ];
+  if (failures.length > 0) throw new Error(`agentic e2e mock Wails failures: ${failures.join('; ')}`);
+}
+
+function isAllowedNonWailsSocket(value) {
+  try { const url = new URL(value); return (url.protocol === 'ws:' || url.protocol === 'wss:') && (url.hostname === '127.0.0.1' || url.hostname === 'localhost') && url.pathname === '/' && url.searchParams.has('token'); } catch { return false; }
 }
 
 function normalizeMockSandbox(sandbox) {

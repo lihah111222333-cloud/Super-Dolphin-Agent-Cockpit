@@ -7,11 +7,9 @@ function lazyNamedPage(loader, exportName) {
 
 const ChatPage = lazyNamedPage(() => import('./pages/chat/ChatPage.jsx'), 'ChatPage');
 const FilesPage = lazyNamedPage(() => import('./pages/files/FilesPage.jsx'), 'FilesPage');
-const MemoryPage = lazyNamedPage(() => import('./pages/memory/MemoryPage.jsx'), 'MemoryPage');
 const ObservabilityPage = lazyNamedPage(() => import('./pages/observability/ObservabilityPage.jsx'), 'ObservabilityPage');
 const PromptPage = lazyNamedPage(() => import('./pages/prompts/PromptPage.jsx'), 'PromptPage');
 const SettingsPage = lazyNamedPage(() => import('./pages/settings/SettingsPage.jsx'), 'SettingsPage');
-const SkillsPage = lazyNamedPage(() => import('./pages/skills/SkillsPage.jsx'), 'SkillsPage');
 const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
 export function PageLoadingFallback() {
@@ -64,12 +62,10 @@ export function ActivePageContent(props) {
     copy,
     geometrySnapshot,
     layoutActions,
-    memoryRevision,
     onWorkflowViewChange,
     projectPath,
     rightPanelOpen,
     shortcutController,
-    setMemoryPageSimilarCount,
     setRightPanelOpen,
     store,
   } = props;
@@ -88,20 +84,6 @@ export function ActivePageContent(props) {
   }
   if (activePage === 'prompts') return <PromptPageRoute copy={copy} projectPath={projectPath} refreshKey={store.promptRevision} store={store} />;
   if (activePage === 'workflows') return <WorkflowPageRoute copy={copy} onWorkflowViewChange={onWorkflowViewChange} projectPath={projectPath} refreshKey={store.workflowRevision} store={store} />;
-  if (activePage === 'skills') {
-    return <SkillsPage copy={copy.skills} projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} />;
-  }
-  if (activePage === 'memory') {
-    return (
-      <MemoryPage
-        projectPath={projectPath}
-        refreshKey={memoryRevision}
-        onSimilarCountChange={setMemoryPageSimilarCount}
-        copy={copy.memory}
-        resolveLaunchPreferences={store.resolveLaunchPreferences}
-      />
-    );
-  }
   if (activePage === 'files') return <FilesPageRoute copy={copy} projectPath={projectPath} store={store} />;
   if (activePage === 'observability') return <ObservabilityPage copy={copy.observability} />;
   if (activePage === 'settings') return <SettingsPage appearance={appearance} copy={copy.settings} projectPath={projectPath} shortcutController={shortcutController} />;

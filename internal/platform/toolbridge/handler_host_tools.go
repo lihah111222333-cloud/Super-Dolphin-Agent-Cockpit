@@ -314,7 +314,7 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 // isReservedHostOnlyToolName 判断工具名是否只能由 host-direct registry 处理。
 func isReservedHostOnlyToolName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameHistoryRead, ToolNameObservabilityTraceGet:
+	case ToolNameRetiredHostRead, ToolNameRetiredHostWrite, ToolNameHistoryRead, ToolNameObservabilityTraceGet:
 		return true
 	default:
 		return false
@@ -357,7 +357,14 @@ func reservedHostOnlyToolNameCandidates(family, name string) []string {
 
 // isRemovedSkillToolName 判断旧 skill 工具名是否已从 Codex surface 下线。
 func isRemovedSkillToolName(name string) bool {
-	switch strings.TrimSpace(name) {
+	trimmed := strings.TrimSpace(name)
+	if strings.HasPrefix(trimmed, "skill__") {
+		return true
+	}
+	if namespace, ok := SplitMCPToolName(trimmed); ok && strings.HasPrefix(strings.TrimSpace(namespace.Tool), "skill__") {
+		return true
+	}
+	switch trimmed {
 	case ToolNameReadSection, ToolNameLegacySkillExpandBody, ToolNameLegacySkillReadResource:
 		return true
 	default:
@@ -484,9 +491,9 @@ func hostToolStructuredBool(envelope map[string]json.RawMessage, key string) (bo
 
 // hostToolErrorOutcome 将 host-direct 错误归类到 metrics label。
 func hostToolErrorOutcome(err error) string {
-	var required contract.SkillApprovalRequiredError
+	var required contract.ApprovalRequiredError
 	switch {
-	case errors.Is(err, contract.ErrSkillMissingCWD):
+	case errors.Is(err, contract.ErrCWDRequired):
 		return skillmetrics.HostToolOutcomeCWDMissing
 	case errors.As(err, &required):
 		return skillmetrics.HostToolOutcomeApprovalRequired
@@ -537,7 +544,7 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 		"hint":      hint,
 		"meta":      meta,
 	}
-	var required contract.SkillApprovalRequiredError
+	var required contract.ApprovalRequiredError
 	switch {
 	case errors.As(err, &required):
 		kind = "approval_required"
@@ -546,7 +553,7 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 		envelope["hint"] = hostToolErrorHint("approval_required")
 		meta["kind"] = kind
 		envelope["approval"] = approvalRequestEnvelope(required.Request)
-	case isSkillApprovalDenied(err):
+	case isApprovalDenied(err):
 		kind = "approval_denied"
 		envelope["kind"] = kind
 		envelope["code"] = "approval_denied"
@@ -637,15 +644,15 @@ func hostToolErrorHint(code string) string {
 	}
 }
 
-// skillApprovalDeniedMarker 是 approval denial 错误的窄接口标记。
-type skillApprovalDeniedMarker interface {
-	SkillApprovalDenied() bool
+// approvalDeniedMarker 是 approval denial 错误的窄接口标记。
+type approvalDeniedMarker interface {
+	ApprovalDenied() bool
 }
 
-// isSkillApprovalDenied 判断错误链中是否带有 approval denied 标记。
-func isSkillApprovalDenied(err error) bool {
-	var marker skillApprovalDeniedMarker
-	return errors.As(err, &marker) && marker.SkillApprovalDenied()
+// isApprovalDenied 判断错误链中是否带有 approval denied 标记。
+func isApprovalDenied(err error) bool {
+	var marker approvalDeniedMarker
+	return errors.As(err, &marker) && marker.ApprovalDenied()
 }
 
 // approvalRequestEnvelope 生成传给模型和前端的授权请求摘要。
@@ -690,12 +697,12 @@ func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRe
 		}
 	}
 	if cwd == "" {
-		return "", fmt.Errorf("%w: host tool cwd is required", contract.ErrSkillMissingCWD)
+		return "", fmt.Errorf("%w: host tool cwd is required", contract.ErrCWDRequired)
 	}
 	if info, err := os.Stat(cwd); err != nil {
-		return "", fmt.Errorf("%w: host tool cwd stat %q: %v", contract.ErrSkillMissingCWD, cwd, err)
+		return "", fmt.Errorf("%w: host tool cwd stat %q: %v", contract.ErrCWDRequired, cwd, err)
 	} else if !info.IsDir() {
-		return "", fmt.Errorf("%w: host tool cwd is not a directory: %q", contract.ErrSkillMissingCWD, cwd)
+		return "", fmt.Errorf("%w: host tool cwd is not a directory: %q", contract.ErrCWDRequired, cwd)
 	}
 	return cwd, nil
 }
@@ -703,11 +710,11 @@ func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRe
 // resolveAgentCWD 通过 WorkDirResolver 反查 agent cwd，并把所有失败折叠为 cwd 缺失错误。
 func (h *Handler) resolveAgentCWD(ctx context.Context, agentID string) (string, error) {
 	if h == nil || h.resolver == nil {
-		return "", fmt.Errorf("%w: work dir resolver is not configured", contract.ErrSkillMissingCWD)
+		return "", fmt.Errorf("%w: work dir resolver is not configured", contract.ErrCWDRequired)
 	}
 	cwd, err := h.resolver.ResolveAgentCWD(ctx, agentID)
 	if err != nil {
-		return "", fmt.Errorf("%w: resolve agent cwd: %v", contract.ErrSkillMissingCWD, err)
+		return "", fmt.Errorf("%w: resolve agent cwd: %v", contract.ErrCWDRequired, err)
 	}
 	return normalizeToolCallCWD(cwd), nil
 }

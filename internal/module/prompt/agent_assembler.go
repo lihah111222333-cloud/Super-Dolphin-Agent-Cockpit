@@ -34,7 +34,12 @@ func (s *service) AssembleAgent(ctx context.Context, in AgentInput) (StartAssemb
 	if err != nil {
 		return StartAssembly{}, err
 	}
-	return applyAgentPostProcessing(assembly, in.AgentType), nil
+	assembly = applyAgentPostProcessing(assembly, in.AgentType)
+	// applyAgentPostProcessing may append provider-facing guardrails or redact
+	// inherited context. Refresh the immutable snapshot after that mutation so
+	// resume/fork replay the exact bytes that were sent on start.
+	assembly.Snapshot = refreshedAssemblySnapshot(assembly)
+	return assembly, nil
 }
 
 // overrideAgentAssembly 构造只使用 override system prompt 的子 agent assembly。
@@ -62,6 +67,29 @@ func applyAgentPostProcessing(assembly StartAssembly, agentType AgentType) Start
 		joinBlocks(assembly.BaseInstructions, sectionAgentEnvDetails),
 	)
 	return assembly
+}
+
+// refreshedAssemblySnapshot keeps snapshot fields and hash aligned with the
+// final StartAssembly after agent-specific post-processing. The generation is
+// preserved because post-processing must not look up or advance cache state.
+func refreshedAssemblySnapshot(assembly StartAssembly) PromptAssemblySnapshot {
+	snapshot := assembly.Snapshot
+	snapshot.DisplayName = strings.TrimSpace(assembly.DisplayName)
+	snapshot.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
+	snapshot.Boundary = clonePromptBoundary(assembly.Boundary)
+	snapshot.DeveloperInstructions = strings.TrimSpace(assembly.DeveloperInstructions)
+	snapshot.SectionSnapshot = resolvedSectionSnapshot(assembly.ResolvedSections)
+	snapshot.Version = SnapshotVersion
+	snapshot.Hash = snapshotHash(snapshotHashPartsWithSections(
+		snapshot.DisplayName,
+		snapshot.BaseInstructions,
+		snapshot.DeveloperInstructions,
+		snapshot.Provider,
+		snapshot.Boundary,
+		snapshot.SectionSnapshot,
+		snapshot.Generation,
+	)...)
+	return snapshot
 }
 
 // redactsClaudeMd 判断子 agent 类型是否需要删除父线程上下文中的 claudeMd/gitStatus。

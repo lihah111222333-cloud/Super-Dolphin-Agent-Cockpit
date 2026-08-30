@@ -38,7 +38,7 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -73,7 +73,7 @@ func TestToolBridge_StartSession_ChatModeCarriesDynamicTools(t *testing.T) {
 	manager := &ServerManager{}
 
 	listToolsCalls := 0
-	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
 		listToolsCalls++
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "tool.echo",
@@ -104,7 +104,7 @@ func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 
 	var gotScope contract.CodexToolSurfaceScope
 	var gotBindScope contract.CodexToolSurfaceScope
-	d := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), nil, nil))
 	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 		gotScope = scope
 		return []codexprotocol.DynamicToolSchema{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}, nil
@@ -170,16 +170,14 @@ func sliceSet(values []string) map[string]bool {
 	return out
 }
 
-func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
+func TestToolBridge_StartSessionUsesProviderNativeDynamicToolsWithoutRetiredMemory(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
-		return []codexprotocol.DynamicToolSchema{{
-			Name:        "memory_read",
-			Description: "host direct memory read",
-			InputSchema: json.RawMessage(`{"type":"object"}`),
-		}}, nil
+	got := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), nil, func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
+		// Provider-native tool discovery owns this list. Retired memory names
+		// are rejected by toolbridge and must never be injected into the wire.
+		return []codexprotocol.DynamicToolSchema{dynamicToolSchema()}, nil
 	}))
 
 	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{
@@ -201,18 +199,26 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 	if !ok {
 		t.Fatalf("dynamicTools = %#v, want array", params["dynamicTools"])
 	}
+	if len(tools) != 1 {
+		t.Fatalf("dynamicTools = %#v, want one provider-native tool", tools)
+	}
 	for _, raw := range tools {
 		tool, ok := raw.(map[string]any)
-		if ok && tool["name"] == "memory_read" {
-			return
+		if !ok {
+			t.Fatalf("dynamicTools item = %#v, want object", raw)
+		}
+		if tool["name"] == "memory_read" || tool["name"] == "memory_write" {
+			t.Fatalf("dynamicTools = %#v, contains retired memory tool", tools)
+		}
+		if tool["name"] != testDynamicToolName {
+			t.Fatalf("dynamicTools = %#v, want provider-native tool %q", tools, testDynamicToolName)
 		}
 	}
-	t.Fatalf("dynamicTools = %#v, want memory_read", tools)
 }
 
 const testDynamicToolName = "test_dynamic_echo"
 
-func TestResumeSession_DynamicSkillToolsStillCallable(t *testing.T) {
+func TestResumeSession_DynamicToolsStillCallable(t *testing.T) {
 	obs := runDynamicToolsResumeScenario(t)
 	if obs.toolMethod != "item/tool/call" {
 		t.Fatalf("tool method = %q, want item/tool/call", obs.toolMethod)
@@ -261,7 +267,6 @@ func TestResumeSession_RebuildsCodexToolSurfaceWithoutDynamicTools(t *testing.T)
 	d := &driver{logRuntime: testLoggerRuntime(t),
 		approvals:    testApprovalManager(),
 		pool:         newSingleURLPoolForTest(t, "ws"+strings.TrimPrefix(server.URL, "http")),
-		mirror:       &recordingSkillMirrorReconciler{},
 		skillMetrics: testSkillMetrics(t),
 		prepareTools: func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
 			gotScope = scope
@@ -376,10 +381,9 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 		approvals:    testApprovalManager(),
 		manager:      manager,
 		pool:         pool,
-		mirror:       &recordingSkillMirrorReconciler{},
 		skillMetrics: testSkillMetrics(t),
 		listTools: func(context.Context) ([]codexprotocol.DynamicToolSchema, error) {
-			return []codexprotocol.DynamicToolSchema{dynamicSkillToolSchema()}, nil
+			return []codexprotocol.DynamicToolSchema{dynamicToolSchema()}, nil
 		},
 	}
 	workDir := t.TempDir()
@@ -419,7 +423,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	select {
 	case msg = <-toolCalls:
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for dynamic skill tool call after resume")
+		t.Fatal("timed out waiting for dynamic tool call after resume")
 	}
 	assertToolResponse(t, toolResponses, "99")
 
@@ -437,7 +441,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 	}
 }
 
-func dynamicSkillToolSchema() codexprotocol.DynamicToolSchema {
+func dynamicToolSchema() codexprotocol.DynamicToolSchema {
 	return codexprotocol.DynamicToolSchema{
 		Name:        testDynamicToolName,
 		Description: "echo test payload",

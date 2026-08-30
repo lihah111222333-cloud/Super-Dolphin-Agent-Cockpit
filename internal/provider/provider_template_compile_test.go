@@ -176,10 +176,6 @@ type TemplateApprovalBridge interface {
 	Approve(context.Context, string) (contract.ApprovalDecision, error)
 }
 
-type TemplateProviderMirror interface {
-	contract.SkillMirrorReconciler
-}
-
 type TemplateSessionRecovery interface {
 	contract.SessionRecoveryReporter
 }
@@ -192,7 +188,6 @@ type DriverConfig struct {
 	Reporter        contract.RuntimeReporter
 	ToolbridgeProxy TemplateToolbridgeProxy
 	Approvals       TemplateApprovalBridge
-	Mirror          TemplateProviderMirror
 	Recovery        TemplateSessionRecovery
 	Tracer          TemplateTracer
 	Dependency      contract.DependencyConfig
@@ -273,15 +268,6 @@ func TestRenderedTemplateProductionOmissions(t *testing.T) {
 			omitModule: omitRenderedTemplateToolbridgeProxy,
 			wantDirect: "provider.template.toolbridge_proxy",
 			wantFx:     "TemplateToolbridgeProxy",
-		},
-		{
-			name: "provider mirror",
-			mutate: func(p *driverFactoryParams) {
-				p.Mirror = nil
-			},
-			omitModule: omitRenderedTemplateMirror,
-			wantDirect: "provider.template.mirror",
-			wantFx:     "TemplateProviderMirror",
 		},
 		{
 			name: "session recovery",
@@ -372,7 +358,6 @@ func completeRenderedTemplateParams() driverFactoryParams {
 		Reporter:        renderedTemplateReporter{},
 		ToolbridgeProxy: renderedTemplateToolbridge{},
 		Approvals:       renderedTemplateApproval{},
-		Mirror:          renderedTemplateMirror{},
 		Recovery:        renderedTemplateRecovery{},
 		Tracer:          renderedTemplateTracer{},
 		Dependency:      contract.DependencyConfig{Profile: contract.DependencyProfileProduction},
@@ -399,7 +384,6 @@ type renderedTemplateModuleOmission string
 const (
 	omitRenderedTemplateRuntimeReporter renderedTemplateModuleOmission = "runtime_reporter"
 	omitRenderedTemplateToolbridgeProxy renderedTemplateModuleOmission = "toolbridge_proxy"
-	omitRenderedTemplateMirror          renderedTemplateModuleOmission = "mirror"
 	omitRenderedTemplateRecovery        renderedTemplateModuleOmission = "recovery"
 )
 
@@ -412,9 +396,6 @@ func renderedTemplateModuleOptions(params driverFactoryParams, omission rendered
 		opts = append(opts, fx.Provide(func() TemplateToolbridgeProxy { return params.ToolbridgeProxy }))
 	}
 	opts = append(opts, fx.Provide(func() TemplateApprovalBridge { return params.Approvals }))
-	if omission != omitRenderedTemplateMirror {
-		opts = append(opts, fx.Provide(func() TemplateProviderMirror { return params.Mirror }))
-	}
 	if omission != omitRenderedTemplateRecovery {
 		opts = append(opts, fx.Provide(func() TemplateSessionRecovery { return params.Recovery }))
 	}
@@ -456,12 +437,6 @@ type renderedTemplateApproval struct{}
 
 func (renderedTemplateApproval) Approve(context.Context, string) (contract.ApprovalDecision, error) {
 	return contract.ApprovalDecision{}, nil
-}
-
-type renderedTemplateMirror struct{}
-
-func (renderedTemplateMirror) ReconcileProviderMirrors(context.Context, string, []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
-	return contract.SkillMirrorReport{}, nil
 }
 
 type renderedTemplateRecovery struct{}

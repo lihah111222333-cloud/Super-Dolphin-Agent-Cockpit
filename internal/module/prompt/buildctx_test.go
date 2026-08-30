@@ -9,8 +9,12 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	memshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/memory/shared"
 )
+
+// errSafeReadContainment is a test-local identity for the containment failure
+// contract.  The memory/shared owner was removed; prompt only needs to verify
+// that a provider error is preserved through assembly, not import that owner.
+var errSafeReadContainment = errors.New("safe read containment")
 
 type stubClaudeMdSourceProvider struct {
 	calls int
@@ -74,7 +78,7 @@ func TestAssembleTurnFailsOnClaudeMdSourceError(t *testing.T) {
 func TestAssembleStartFailsOnClaudeMdSourceContainmentError(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	provider := &stubClaudeMdSourceProvider{
-		err: fmt.Errorf("ClaudeMd candidate containment %q under %q: %w", "/tmp/outside/CLAUDE.md", "/tmp/project", memshared.ErrSafeReadContainment),
+		err: fmt.Errorf("ClaudeMd candidate containment %q under %q: %w", "/tmp/outside/CLAUDE.md", "/tmp/project", errSafeReadContainment),
 	}
 	if err := svc.RegisterClaudeMdSourceProvider(provider); err != nil {
 		t.Fatalf("RegisterClaudeMdSourceProvider() error = %v", err)
@@ -84,7 +88,7 @@ func TestAssembleStartFailsOnClaudeMdSourceContainmentError(t *testing.T) {
 	if err == nil {
 		t.Fatal("AssembleStart() error = nil, want ClaudeMd containment error")
 	}
-	if !errors.Is(err, memshared.ErrSafeReadContainment) {
+	if !errors.Is(err, errSafeReadContainment) {
 		t.Fatalf("AssembleStart() error = %v, want ErrSafeReadContainment", err)
 	}
 	if !strings.Contains(err.Error(), "ClaudeMd") || !strings.Contains(err.Error(), "safe read") {

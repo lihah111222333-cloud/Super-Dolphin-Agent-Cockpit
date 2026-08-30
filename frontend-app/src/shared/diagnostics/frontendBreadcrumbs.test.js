@@ -88,15 +88,13 @@ describe('frontend breadcrumb buffer', () => {
     expect(breadcrumbs.snapshot()).toEqual([]);
   });
 
-  it('accepts app plus the eight current page route identifiers without importing client state', () => {
-    const breadcrumbs = createFrontendBreadcrumbBuffer({ capacity: 9 });
+  it('accepts app plus the current page route identifiers without importing client state', () => {
+    const breadcrumbs = createFrontendBreadcrumbBuffer({ capacity: 8 });
     const routeIds = [
       'app',
       'chat',
       'prompts',
       'workflows',
-      'skills',
-      'memory',
       'observability',
       'files',
       'settings',

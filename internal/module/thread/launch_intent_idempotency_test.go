@@ -474,13 +474,20 @@ func (s *cleanupCountingThreadStore) UpdateStatus(_ context.Context, params Thre
 type snapshotPromptAssembly struct{}
 
 func (snapshotPromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	const (
+		displayName = "hello"
+		base        = "snapshot base"
+		provider    = "codex"
+	)
 	return contract.StartAssembly{
-		DisplayName: "hello",
+		DisplayName:      displayName,
+		BaseInstructions: base,
 		Snapshot: contract.PromptAssemblySnapshot{
-			DisplayName: "hello",
-			Provider:    "codex",
-			Version:     contract.PromptAssemblySnapshotVersion,
-			Hash:        "hash",
+			DisplayName:      displayName,
+			BaseInstructions: base,
+			Provider:         provider,
+			Version:          contract.PromptAssemblySnapshotVersion,
+			Hash:             promptSnapshotHash(displayName, base, "", provider, nil, nil, 0),
 		},
 	}, nil
 }

@@ -773,7 +773,6 @@ var Module = fx.Module("store",
     promptstore.Module,
     routingtest.Module,
     sharedfile.Module,
-    skilltool.Module,
     systemlog.Module,
     thread.Module,
     topologyapproval.Module,
@@ -846,7 +845,7 @@ var Module = fx.Module("store",
 | `prompt` | `PromptTemplate` / `PromptTemplateVersion` | `prompt_template.sql` | `internal/module/prompt` / `internal/module/dashboard` / `cmd/mcp-orch/tools` |
 | `sharedfile` | `SharedFile` | `shared_file.sql` | `internal/module/dashboard` / `internal/module/uistate` |
 | `systemlog` | `SystemLog` | `system_log.sql` | `internal/module/dashboard` |
-| `thread` | `Thread` / `PromptSnapshot` / `ThreadCwd` | `agent_thread.sql` + `agent_thread_prompt_snapshot.sql` | `internal/module/thread` / `internal/provider/unified` / `internal/platform/cachekeepalive` / `internal/module/memory`（经 metadata adapter） |
+| `thread` | `Thread` / `PromptSnapshot` / `ThreadCwd` | `agent_thread.sql` + `agent_thread_prompt_snapshot.sql` | `internal/module/thread` / `internal/provider/unified` / `internal/platform/cachekeepalive` |
 | `topologyapproval` | `TopologyApproval` | `topology_approval.sql` | `internal/store/module.go:43` |
 | `uipreference` | `UIPreference` | `ui_preference.sql` | `internal/module/uistate` |
 

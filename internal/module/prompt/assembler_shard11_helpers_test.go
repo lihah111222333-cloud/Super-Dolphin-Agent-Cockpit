@@ -92,49 +92,6 @@ func assertSimpleStartContextEmpty(t *testing.T, assembly StartAssembly) {
 	}
 }
 
-func assertMemoryProviderSkippedOnTurn(t *testing.T, assembly TurnAssembly, calls int) {
-	t.Helper()
-	if calls != 0 {
-		t.Fatalf("memory provider calls after turn = %d, want 0", calls)
-	}
-	if strings.Contains(assembly.UserContextText, "memory build #") {
-		t.Fatalf("turn unexpectedly rendered memory content: %q", assembly.UserContextText)
-	}
-}
-
-func assertCachedMemoryStart(t *testing.T, firstStart, secondStart StartAssembly, calls int) {
-	t.Helper()
-	if calls != 1 {
-		t.Fatalf("memory provider calls after repeated start = %d, want 1", calls)
-	}
-	if !strings.Contains(firstStart.BaseInstructions, "memory build #1") {
-		t.Fatalf("start missing cached memory content: %q", firstStart.BaseInstructions)
-	}
-	if firstStart.BaseInstructions != secondStart.BaseInstructions {
-		t.Fatalf("cached start mismatch: first=%q second=%q", firstStart.BaseInstructions, secondStart.BaseInstructions)
-	}
-}
-
-func assertMemoryProviderStillSkippedOnTurn(t *testing.T, assembly TurnAssembly, calls int) {
-	t.Helper()
-	if calls != 1 {
-		t.Fatalf("memory provider calls after second turn = %d, want 1", calls)
-	}
-	if strings.Contains(assembly.UserContextText, "memory build #") {
-		t.Fatalf("turn unexpectedly reused cached memory content: %q", assembly.UserContextText)
-	}
-}
-
-func assertRebuiltMemoryStart(t *testing.T, assembly StartAssembly, calls int) {
-	t.Helper()
-	if calls != 2 {
-		t.Fatalf("memory provider calls after invalidate = %d, want 2", calls)
-	}
-	if !strings.Contains(assembly.BaseInstructions, "memory build #2") {
-		t.Fatalf("start missing rebuilt memory content: %q", assembly.BaseInstructions)
-	}
-}
-
 func assertInputScopedLanguageCache(t *testing.T, firstLanguage, secondLanguage, thirdLanguage string) {
 	t.Helper()
 	if firstLanguage != secondLanguage {

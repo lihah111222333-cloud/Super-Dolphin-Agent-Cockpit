@@ -8,7 +8,7 @@ Required checks before integration:
 
 - `Module` registers a `contract.DriverFactory` in `group:"drivers"`.
 - `NewDriverFactory` calls `ValidateProviderDependencies` before returning.
-- Production profile rejects missing runtime reporter, toolbridge/proxy, mirror,
+- Production profile rejects missing runtime reporter, toolbridge/proxy,
   session recovery, and dependency profile.
 - `NativeTools` are declared with explicit governance.
 - `provider_contract_test.go` calls `contracttest.Run`, passes

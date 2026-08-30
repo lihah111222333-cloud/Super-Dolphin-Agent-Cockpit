@@ -61,7 +61,7 @@ type codexToolEntry struct {
 	client         mcpClient
 }
 
-// PrepareCodexToolSurface 为 Codex 会话准备 host、skill 和 MCP 动态工具面。
+// PrepareCodexToolSurface 为 Codex 会话准备 host 和 MCP 动态工具面。
 // 任一 MCP binary 初始化失败会关闭已启动 client，避免半成品 surface 被绑定。
 func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.CodexToolSurfaceScope) ([]contract.DynamicToolSchema, error) {
 	if err := validateCodexToolSurfaceScope(scope); err != nil {
@@ -82,9 +82,6 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	out := make([]contract.DynamicToolSchema, 0)
 	disabled := newCodexDisabledToolSet(scope.DisabledTools)
 	if err := h.addHostSurfaceTools(surface, &out, disabled); err != nil {
-		return nil, err
-	}
-	if err := h.addSkillSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
 		return nil, err
 	}
 	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
@@ -300,6 +297,9 @@ func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicTool
 // 这里不发布 schema、不保存 client，也不把工具放入可调用 tools 表。
 func addHiddenMCPToolAliases(surface *codexToolSurface, family string, tools []mcpdto.MCPTool) error {
 	for _, tool := range tools {
+		if isRemovedSkillToolName(tool.Name) {
+			continue
+		}
 		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
 			continue
 		}
@@ -441,6 +441,9 @@ func nonEmptyUnique(values ...string) []string {
 // routeCodexSurfaceToolCall 优先把 scoped Codex 工具调用路由到已准备的 surface。
 // scoped 调用缺失 surface 时 fail-fast，避免退回全局 peer 造成错线程执行。
 func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
+	if isRemovedSkillToolName(req.Name) {
+		return removedSkillToolResult(req.Name), true, nil
+	}
 	surface := h.lookupCodexToolSurface(req)
 	if surface == nil {
 		if req.Scoped && requiresCodexToolSurface(req.Name) {
@@ -501,7 +504,7 @@ func bindCodexSurfaceToolCallScope(surface *codexToolSurface, req ToolCallReques
 	return req, nil
 }
 
-// callCodexSurfaceTool 根据 surface entry 调用 host、skill 或 stdio MCP 工具。
+// callCodexSurfaceTool 根据 surface entry 调用 host 或 stdio MCP 工具。
 // 本函数负责补发 proxy lifecycle 事件，除非上游 context 已声明事件已发布。
 func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSurface, req ToolCallRequest) (*ToolCallResult, error) {
 	var err error
@@ -590,9 +593,6 @@ func (h *Handler) executeCodexSurfaceEntry(
 	}
 	if entry.executionKind == "host" {
 		return h.callHostTool(ctx, req)
-	}
-	if entry.executionKind == "skill" {
-		return h.callSkillSurfaceTool(ctx, surface, req)
 	}
 	if err := validateCodexSurfaceTaskSupport(entry); err != nil {
 		return nil, err

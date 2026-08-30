@@ -185,6 +185,9 @@ func (s *service) CompleteLaunchIntent(_ context.Context, threadID string) {
 // 临时字段和路由副产物会被清空，避免同一用户意图因内部补全字段不同而重复启动。
 func startRequestFingerprint(req StartRequest) StartRequest {
 	req.LaunchIntentID, req.AgentTitle, req.PromptAssemblyRef, req.PromptVersionID, req.PromptKeyStale = "", "", nil, nil, false
+	// Fingerprinting happens before prepareStartRequest; sanitize the legacy
+	// skill body carrier here so idempotency state never retains full skill text.
+	req.LaunchSkillRefs = cloneProviderSkillRefs(req.LaunchSkillRefs)
 	return req
 }
 
@@ -225,6 +228,14 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	displayName := resolveDisplayName(ctx, s.threadStore, req.AgentID, "", state.Prompt)
 	snapshot, err := s.resolveResumePromptSnapshot(ctx, req, state)
 	if err != nil {
+		// A legacy-memory snapshot is a terminal persisted artifact: it cannot
+		// be replayed by provider-native runtime.  Resolve it before launch, but
+		// still converge explicit/background resume to failed+stopped so the
+		// caller does not retain a permanently retryable binding.
+		if isUnrecoverableResumeError(err) {
+			cleanupErr := s.degradeLostResume(ctx, req.ThreadID, req.AgentID, err)
+			return ResumeResult{}, errors.Join(resumeLostError(err), cleanupErr)
+		}
 		return ResumeResult{}, err
 	}
 	req.PromptSnapshot = snapshot
@@ -356,6 +367,13 @@ func (s *service) establishResumedSession(
 	state resumeState,
 	displayName string,
 ) (contract.Session, error) {
+	// Keep the snapshot gate immediately before orchestration launch as well as
+	// inside resumeResolvedSession.  Alternate callers can enter this helper
+	// with a hand-built request; rejecting it here prevents a legacy memory or
+	// stale-owner snapshot from leaving an orphaned agent before provider resume.
+	if err := validatePromptSnapshotForReuse(req.PromptSnapshot, req.Provider); err != nil {
+		return nil, fmt.Errorf("thread: resume prompt snapshot: %w", err)
+	}
 	if reason, blocked := s.resumeLifecycleBlockReason(ctx, req.ThreadID, nil); blocked {
 		return nil, resumeLifecycleError(req.ThreadID, reason)
 	}
@@ -656,10 +674,7 @@ func (s *service) persistThreadStateWithPromptSnapshot(
 	if err := s.upsertPublicThread(ctx, state, bindingOutcome); err != nil {
 		return err
 	}
-	if err := s.savePromptSnapshot(ctx, state.PublicThreadID, assembly); err != nil {
-		if cleanupErr := s.cleanupThreadStateAfterSnapshotFailure(ctx, state); cleanupErr != nil {
-			return idempotency.Retain(errors.Join(err, cleanupErr))
-		}
+	if err := s.savePromptSnapshotOrRollback(ctx, state, assembly); err != nil {
 		return err
 	}
 	if publishStarted {
@@ -667,6 +682,26 @@ func (s *service) persistThreadStateWithPromptSnapshot(
 		s.publishThreadStarted(state)
 	}
 	return nil
+}
+
+// savePromptSnapshotOrRollback 校验并保存启动快照；任一失败都撤销已写入的线程状态。
+func (s *service) savePromptSnapshotOrRollback(ctx context.Context, state threadState, assembly contract.StartAssembly) error {
+	if err := validatePromptSnapshotForReuse(assembly.Snapshot, state.Provider); err != nil {
+		return s.rollbackSnapshotPersistence(ctx, state, err)
+	}
+	if err := s.savePromptSnapshot(ctx, state.PublicThreadID, assembly); err != nil {
+		return s.rollbackSnapshotPersistence(ctx, state, err)
+	}
+	return nil
+}
+
+// rollbackSnapshotPersistence 清理快照失败留下的 durable row/binding，并保留原始错误。
+func (s *service) rollbackSnapshotPersistence(ctx context.Context, state threadState, cause error) error {
+	cleanupErr := s.cleanupThreadStateAfterSnapshotFailure(ctx, state)
+	if cleanupErr != nil {
+		return idempotency.Retain(errors.Join(cause, cleanupErr))
+	}
+	return cause
 }
 
 func (s *service) cleanupThreadStateAfterSnapshotFailure(ctx context.Context, state threadState) error {

@@ -304,7 +304,7 @@ func isWorkflowTemplateWriteToolName(name string) bool {
 // workflowTemplateWriteApprovalRequired 构造模板写工具的审批请求，阻断未授权调用。
 func workflowTemplateWriteApprovalRequired(_ context.Context, call HostToolCall) error {
 	toolName := strings.TrimSpace(call.Name)
-	return contract.SkillApprovalRequiredError{Request: contract.ApprovalRequest{
+	return contract.ApprovalRequiredError{Request: contract.ApprovalRequest{
 		CallID:       strings.TrimSpace(call.CallID),
 		ToolName:     toolName,
 		AgentID:      strings.TrimSpace(call.AgentID),

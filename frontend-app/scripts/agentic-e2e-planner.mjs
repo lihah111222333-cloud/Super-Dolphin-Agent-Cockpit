@@ -16,12 +16,12 @@ export function decideNextAction(rawFacts = {}, rawGoal = DEFAULT_AGENTIC_GOAL) 
   if (!facts.url || facts.url === 'about:blank') {
     return action('goto', { path: '/', reason: 'open app root before reading UI structure' });
   }
-  if (!facts.hasFrontendApp) {
-    return action('fail', { reason: 'frontend app root is not visible' });
+  if (!facts.hasFrontendApp) return action('fail', { reason: 'frontend app root is not visible' });
+  if (facts.shortcutConfigErrorVisible) {
+    return action('fail', { reason: 'shortcut configuration error is visible' });
   }
   if (facts.consoleErrors.length > 0) {
-    return action('fail', { reason: `console errors detected: ${facts.consoleErrors.join('; ')}` });
-  }
+    return action('fail', { reason: `console errors detected: ${facts.consoleErrors.join('; ')}` }); }
   if (goal.kind === 'chat-composer') return decideChatComposer(facts, goal);
   if (goal.kind === 'chat-send-mocked') return decideChatSendMocked(facts, goal);
   if (goal.kind === 'project-add-sandbox') return decideProjectAddSandbox(facts, goal);
@@ -63,7 +63,7 @@ export function decideNextAction(rawFacts = {}, rawGoal = DEFAULT_AGENTIC_GOAL) 
     return action('click', {
       target: {
         type: 'nestedRole',
-        parentTestId: 'sidebar-secondary-nav',
+        parentTestId: 'sidebar-nav',
         role: 'button',
         name: '链路追踪',
       },
@@ -278,7 +278,7 @@ export function normalizeFacts(facts = {}) {
   return {
     url: normalizeString(facts.url),
     hasFrontendApp: Boolean(facts.hasFrontendApp),
-    hasChatPage: Boolean(facts.hasChatPage),
+    hasChatPage: Boolean(facts.hasChatPage), shortcutConfigErrorVisible: Boolean(facts.shortcutConfigErrorVisible),
     composerVisible: Boolean(facts.composerVisible),
     composerValue: normalizeString(facts.composerValue),
     chatActionsMenuVisible: Boolean(facts.chatActionsMenuVisible),

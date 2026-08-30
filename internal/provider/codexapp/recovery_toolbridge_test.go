@@ -265,7 +265,7 @@ func TestToolBridge_Recovery_ResumeToolCall(t *testing.T) {
 	assertRecoveryCounters(t, &mu, &initializeCount, &threadResumes)
 }
 
-func TestRecoveryResume_DynamicSkillToolsStillCallable(t *testing.T) {
+func TestRecoveryResume_DynamicToolsStillCallable(t *testing.T) {
 	toolCalls := make(chan RawMessage, 1)
 	responses := make(chan jsonRPCMessage, 1)
 	connections := make(chan *websocket.Conn, 2)
@@ -282,7 +282,7 @@ func TestRecoveryResume_DynamicSkillToolsStillCallable(t *testing.T) {
 	defer closeCodexTestSession(t, s)
 	second := reconnectRecoverySession(t, s, connections)
 	sendCodexToolCall(t, &writeMu, second, 89, testDynamicToolName, map[string]any{"payload": "demo"})
-	assertRecoveredDynamicSkillToolCall(t, toolCalls)
+	assertRecoveredDynamicToolCall(t, toolCalls)
 	assertToolResponse(t, responses, "89")
 	assertRecoveryCounters(t, &mu, &initializeCount, &threadResumes)
 }
@@ -333,17 +333,17 @@ func assertRecoveredToolCall(t *testing.T, toolCalls <-chan RawMessage) {
 	}
 }
 
-func assertRecoveredDynamicSkillToolCall(t *testing.T, toolCalls <-chan RawMessage) {
+func assertRecoveredDynamicToolCall(t *testing.T, toolCalls <-chan RawMessage) {
 	t.Helper()
 	select {
 	case msg := <-toolCalls:
-		assertDynamicSkillToolCall(t, msg)
+		assertDynamicToolCall(t, msg)
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for resumed dynamic skill tool call")
+		t.Fatal("timed out waiting for resumed dynamic tool call")
 	}
 }
 
-func assertDynamicSkillToolCall(t *testing.T, msg RawMessage) {
+func assertDynamicToolCall(t *testing.T, msg RawMessage) {
 	t.Helper()
 	if msg.Method != "item/tool/call" {
 		t.Fatalf("tool method = %q, want item/tool/call", msg.Method)

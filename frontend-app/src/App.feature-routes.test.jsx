@@ -24,15 +24,12 @@ const backend = vi.hoisted(() => {
     listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
     readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
     getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent getMemorySnapshot
-    getMemoryEntry upsertMemoryEntry deleteMemoryEntry setMemoryAutoDreamIntent mergeMemoryEntries
-    ignoreMemorySimilarity consolidateMemorySimilarities startConsolidateMemorySimilarities getMemoryConsolidationStatus
-    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
+    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
-    readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
-    createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
+    selectProjectDir selectProjectDirs
     listMCPServers listToolbridgeTools startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
-    listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
+    readSharedFile getPreference
     forkThread startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
     deleteThread getThreadConfig setThreadConfig renameThread setPreference setVideoApiKey selectFiles saveClipboardImage saveTextFile
     locateCodeFile openCodeFile openPath saveCodeFile beginTextClipboardWrite copyTextToClipboard emitFrontendTraceEvent
@@ -77,7 +74,6 @@ const appTestSupport = createAppTestSupport({
   },
 });
 const {
-  deferred,
   waitForBackendThreadHeading,
   createSharedFileState,
   mockSharedFileWorkflow,
@@ -85,7 +81,7 @@ const {
   refreshSharedFilesFromBridge,
   refreshSharedFilesFromFocus,
   previewFinalSharedFile,
-  exportAndDeleteWorkSharedFile,
+  exportWorkSharedFile,
   continueChatFromFinalSharedFile,
   installAppOverlayHost,
   resetConnectedShellTestState,
@@ -93,10 +89,8 @@ const {
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
   mockPromptDefaults,
-  mockMemoryDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
-  mockSkillDefaults,
   mockSharedFileDefaults,
   mockSettingsAndThreadDefaults,
   resetFrontendHealthForTest,
@@ -109,16 +103,14 @@ beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
 beforeEach(mockPromptDefaults);
-beforeEach(mockMemoryDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
-beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
 beforeEach(resetFrontendHealthForTest);
 afterEach(cleanupAppTest);
 
-  it('loads shared files from the shared-files RPC and wires open, export, delete, and continue actions', async () => {
+  it('loads shared files from the shared-files RPC and wires open, export, and continue actions', async () => {
     const sharedFiles = createSharedFileState();
     mockSharedFileWorkflow(sharedFiles);
 
@@ -126,7 +118,7 @@ afterEach(cleanupAppTest);
     await refreshSharedFilesFromBridge(sharedFiles);
     await refreshSharedFilesFromFocus(sharedFiles);
     await previewFinalSharedFile();
-    await exportAndDeleteWorkSharedFile();
+    await exportWorkSharedFile();
     await continueChatFromFinalSharedFile();
   });
 
@@ -237,57 +229,9 @@ afterEach(cleanupAppTest);
     expect(preview?.textContent).not.toMatch(/JSON 格式化失败|JSON Parse error|Unrecognized token|```json/);
   });
 
-  it('keeps the shared-file delete dialog open while deletion is pending', async () => {
-    const deletePending = deferred();
+  it('accepts a shared-files response without final-output metadata', async () => {
     backend.listSharedFiles.mockResolvedValue({
       files: [{
-        path: 'scratch/work.json',
-        content: '{"step":1}',
-        updated_by: 'agent',
-        updated_at: '2026-05-30T07:00:00Z',
-      }],
-      memory: [{
-        path: 'scratch/work.json',
-        content: '{"step":1}',
-        updated_by: 'agent',
-        updated_at: '2026-05-30T07:00:00Z',
-      }],
-      finalOutputRefs: [],
-      sharedFileRetention: {
-        items: [{ path: 'scratch/work.json', protected: false, cleanupCandidate: true, reason: 'unreferenced' }],
-        protectedCount: 0,
-        cleanupCandidateCount: 1,
-      },
-    });
-    backend.deleteSharedFile.mockReturnValue(deletePending.promise);
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    fireEvent.click(screen.getByLabelText('共享文件'));
-
-    const workCard = (await screen.findByText('work.json')).closest('article');
-    fireEvent.click(within(workCard).getByRole('button', { name: '删除' }));
-    let dialog = await screen.findByRole('dialog', { name: '删除文件' });
-    fireEvent.click(within(dialog).getByRole('button', { name: '确认删除' }));
-    await waitFor(() => {
-      expect(within(screen.getByRole('dialog', { name: '删除文件' })).getByRole('button', { name: '删除中...' })).toBeDisabled();
-    });
-
-    dialog = screen.getByRole('dialog', { name: '删除文件' });
-    fireEvent.keyDown(dialog, { key: 'Escape', code: 'Escape' });
-    expect(screen.getByRole('dialog', { name: '删除文件' })).toBeInTheDocument();
-
-    await act(async () => {
-      deletePending.resolve({ deleted: true });
-    });
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: '删除文件' })).not.toBeInTheDocument();
-    });
-  });
-
-  it('accepts the legacy shared-files response without final-output metadata', async () => {
-    backend.listSharedFiles.mockResolvedValue({
-      memory: [{
         path: 'scratch/legacy.md',
         content: 'legacy shared file',
         updated_by: 'agent',
@@ -306,15 +250,14 @@ afterEach(cleanupAppTest);
   });
 
   it('keeps cached shared files visible when navigating back and refreshes silently', async () => {
-    let memoryFiles = [{
+    let sharedFiles = [{
       path: 'reports/final.md',
       content: 'final summary',
       updated_by: 'dag-runner',
       updated_at: '2026-05-30T08:00:00Z',
     }];
-    const memoryPayload = () => ({
-      files: memoryFiles,
-      memory: memoryFiles,
+    const sharedFilesPayload = () => ({
+      files: sharedFiles,
       finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
       sharedFileRetention: {
         items: [{ path: 'reports/final.md', protected: true, cleanupCandidate: false, reason: 'final_output' }],
@@ -322,7 +265,7 @@ afterEach(cleanupAppTest);
         cleanupCandidateCount: 0,
       },
     });
-    backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
+    backend.listSharedFiles.mockImplementation(() => Promise.resolve(sharedFilesPayload()));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -330,7 +273,7 @@ afterEach(cleanupAppTest);
     expect(await screen.findByText('final.md')).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('新对话'));
-    memoryFiles = [{
+    sharedFiles = [{
       path: 'scratch/notes.md',
       content: 'fresh notes',
       updated_by: 'agent',
@@ -375,15 +318,14 @@ afterEach(cleanupAppTest);
   });
 
   it('keeps cached shared files visible and exposes retry when a background sync fails', async () => {
-    let memoryFiles = [{
+    let sharedFiles = [{
       path: 'reports/final.md',
       content: 'final summary',
       updated_by: 'dag-runner',
       updated_at: '2026-05-30T08:00:00Z',
     }];
-    const memoryPayload = () => ({
-      files: memoryFiles,
-      memory: memoryFiles,
+    const sharedFilesPayload = () => ({
+      files: sharedFiles,
       finalOutputRefs: [{ path: 'reports/final.md', runKey: 'run-1', dagKey: 'daily-brief', sourceNodeKey: 'report' }],
       sharedFileRetention: {
         items: [{ path: 'reports/final.md', protected: true, cleanupCandidate: false, reason: 'final_output' }],
@@ -391,7 +333,7 @@ afterEach(cleanupAppTest);
         cleanupCandidateCount: 0,
       },
     });
-    backend.listSharedFiles.mockImplementation(() => Promise.resolve(memoryPayload()));
+    backend.listSharedFiles.mockImplementation(() => Promise.resolve(sharedFilesPayload()));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -412,7 +354,7 @@ afterEach(cleanupAppTest);
       expect.objectContaining({ actionId: 'file.dashboard.load', diagnosticId: expect.any(String) }),
     ]));
 
-    memoryFiles = [{
+    sharedFiles = [{
       path: 'scratch/notes.md',
       content: 'fresh notes',
       updated_by: 'agent',
@@ -474,7 +416,7 @@ afterEach(cleanupAppTest);
             { dag_key: 'done-flow', title: 'Done Flow', status: 'done', trigger: 'manual', latest_run: { run_key: 'run-done', status: 'done' } },
           ],
         }
-        : { skills: [] },
+        : {},
     ));
     backend.getDagDetail.mockResolvedValue({
       dag: runningDag,

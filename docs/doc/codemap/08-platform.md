@@ -217,9 +217,9 @@
 
 **实现要点**
 
-- `Bind()` 覆盖的不只是 thread/turn/tool，也包括 `AgentLaunched/Stopped/Recovering/Failed/RuntimeReported`、`SkillsChanged`、`UIPreferencesChanged`、`UIProjectionUpdated`、`UIThreadPatch`
+- `Bind()` 覆盖的不只是 thread/turn/tool，也包括 `AgentLaunched/Stopped/Recovering/Failed/RuntimeReported`、`UIPreferencesChanged`、`UIProjectionUpdated`、`UIThreadPatch`；本地 SkillsChanged 事件面已删除
 - `TurnOutputDelta` 会按 `stream` 细分：`message -> item/agentMessage/delta`、`reasoning -> item/reasoning/textDelta`、`stdout -> item/commandExecution/outputDelta`，其他 stream 仍走 `turn/output/delta`
-- `ToolApprovalRequested` 会按 `Kind` 路由到 command/fileChange/skill 不同方法名
+- `ToolApprovalRequested` 会按 `Kind` 路由到 command/fileChange 方法名；skill-specific approval method 已删除
 - `UIProjectionUpdated` 会直接映射到 `ui/thread/changed` 或 `ui/sidebar/changed`
 - `UITokensUpdated` 仍会发出兼容性方法 `thread/tokenusage/updated`
 - `legacy.go` 会跳过 `ui/thread/patch`、`thread/compacted`、token usage 与 streaming delta 的 legacy refresh；`workspace/run/*` 不发 thread refresh，但会追加 `ui/sidebar/changed`
@@ -588,10 +588,12 @@
 **文件导览**
 
 - `handler.go`：tool call 解析、peer 路由、`beginToolDiffSnapshot()` / `emitToolDiff()`
-- `handler_host_tools.go`：memory host tools 列表合并、去重/shadow warning、`callHostTool()`、结果脱敏与 metrics
+- `handler_host_tools.go`：host-direct tools 列表合并、去重/shadow warning、`callHostTool()`、结果脱敏与 metrics
 - `host_tools.go`：`HostToolRegistry` 接口 + `skill_read_section` 保留名称；旧 `SkillReadSectionRegistry` 实现已物理删除，生产 Codex graph 不再接入该工具
-- `memory_read_tool.go`：`MemoryReadHostToolRegistry`（memory_read host-direct）
-- `memory_write_tool.go`：`MemoryWriteHostToolRegistry` + `CompositeHostToolRegistry`（多 registry 聚合）
+- `internal/platform/toolbridge/host_tool_registry.go`：`CompositeHostToolRegistry` 聚合当前仍存在的 host-direct registry；退役 memory 名称只用于本地拒绝
+- `internal/platform/toolbridge/history_read_tool.go`：`HistoryReadHostToolRegistry`（当前线程有界历史读取）
+- `observability_trace_tool.go`：`ObservabilityTraceHostToolRegistry`（本地 trace 诊断）
+- `host_tools.go`：`WorkflowTemplateHostToolRegistry`（模板读取/渲染）
 - `diff_gen.go`：Phase 1 snapshot 触发条件、`emitToolDiff()`、`shouldTrackDiff()`
 - `diff_fallback.go`：`diffFallbackTracker`、`handleToolCallEnd()`、`shouldFallbackDiffTool()`
 - `proxy.go`：HTTP JSON-RPC proxy，支持 `initialize` / `notifications/initialized` / `tools/list` / `tools/call`
@@ -601,14 +603,15 @@
 
 - `decodeToolCallRequest()` 会兼容多种字段别名，并能从嵌套 `item` / `thread` 结构里补出 `name/threadId/callId`
 - `classifyTool()` 目前把 7 个 LSP 短名路由到 `ClientKindLSP`，其余走 `ClientKindOrch`
-- Codex 生产 host-direct 只保留 memory tools：`routeToolCall()` 顶层 switch 拦截 `memory_read`/`memory_write` → `routeHostOnlyToolCall()`（只走 host，绝不 fallback peer）
+- Codex 生产 host-direct 由 `history_read`、`observability_trace_get` 和 workflow-template registry 按依赖配置提供；`routeToolCall()` 对保留名称统一走 `routeHostOnlyToolCall()`，绝不 fallback peer
+- `memory_read` / `memory_write` 是退役名称；命中时返回结构化 unavailable，不得被 host registry 或 peer 重新注册
 - `skill_read_section` 已退出 Codex 动态工具主链；若历史请求仍命中，`routeToolCall()` 顶层 switch 返回不可用结果，不应把它当成当前 skill 读取链路
-- `CompositeHostToolRegistry` 聚合当前生产 registry：`MemoryReadHostToolRegistry` + `MemoryWriteHostToolRegistry`
+- `CompositeHostToolRegistry` 只聚合当前已装配的 history / observability / workflow-template registry，首个声明者优先
 - `routeToolCall()` 对非 host-direct 工具通过 `mcpcontrol.ToolRegistry.FindActiveByKind()` 找活跃 peer；0 个报 `ErrNoPeerAvailable`，多个报 `ErrAmbiguousPeer`
 - 对 `tools/call` 的 peer callback 若返回错误，不会上抛 Go error，而是转换成 `ToolCallResult{Success:false}` 返给 Provider
-- `ListToolsForCodex()` 先加入 memory host tools，再并发等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），同名工具保留先出现者并记录 shadow warning，最后转换成 `codexapp.DynamicToolSchema`
+- `ListToolsForCodex()` 先加入 host registry tools，再并发等待 orch / lsp peer 就绪（默认最多 10s、300ms 轮询），同名工具保留先出现者并记录 shadow warning，最后转换成 `codexapp.DynamicToolSchema`
 - `tools/call` peer callback 的 timeout 是 `toolCallTimeout = 120s`
-- peer 侧 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 peer `tools/call` 则要求同类 peer 唯一；memory host tools 不参与 peer 唯一性判定
+- peer 侧 `tools/list` 只取每类 client kind 的第一个活跃 peer；而 peer `tools/call` 则要求同类 peer 唯一；host-only 保留名称不参与 peer 唯一性判定
 - Phase 1 只有 `patch_edit(rename/replace_range)` 会在调用前进入 `beginToolDiffSnapshot()`；`patch_edit` 的 bus 侧 fallback 负责补发未捕获 diff
 - `emitToolDiff()` 成功发出 `ToolDiffUpdated` 后会 `MarkSeen(callID)`，避免 fallback 重复补发
 - `diffFallbackTracker.handleToolCallEnd()` 会在 `ToolCallEnd` 上检查 `shouldFallbackDiffTool()`，命中时走 `difftracker.EmitCurrentGitDiff()`
@@ -743,9 +746,9 @@ flowchart LR
 
 ### 3.1 发布
 
-- **2026-04-20 / `7a1f49c`**：`internal/platform/rpc/module.go` 增补 approval restore / cleanup 生命周期，给 `skill/expand` 新接入的 approval cache 生产链兜底。
-- **2026-04-18 / `af7f81a`**：新增 `runtimesafe.SafeGo`，`shared.SafeGo` 改为 deprecated wrapper；`rpc.Server`、`memory/team`、`skill/events`、`thread`、`turn` 等后台 goroutine 改走统一安全启动。
-- **2026-04-17 / `8172367`**：memory 路径/项目 key helper 收敛，`internal/module/memory/*` 统一复用 `platform/shared.ContainsPath` / `SanitizeProjectKey` / `ProjectKeyFromCwd`。
+- **2026-04-20 / `7a1f49c`**：`internal/platform/rpc/module.go` 增补 approval restore / cleanup 生命周期；历史 `skill/expand` approval 入口随后退出生产注册表。
+- **2026-04-18 / `af7f81a`**：新增 `runtimesafe.SafeGo`，`shared.SafeGo` 改为 deprecated wrapper；`rpc.Server`、thread、turn 等后台 goroutine 改走统一安全启动。
+- **2026-04-17 / `8172367`**：历史 memory 路径 helper 曾收敛到 `platform/shared`；对应业务 runtime 已退出当前生产图。
 - **2026-04-14 ~ 2026-04-12**：`cachekeepalive` 补齐注册后首轮 timer 调度；`difftracker` 收敛成 git snapshot/diff 原语，`toolbridge` 只负责接线和 fallback。
 
 ## 8. 读图结论
@@ -895,8 +898,10 @@ Codex session 收到 inbound tool request
   -> toolbridge.Handler.HandleToolCall()
   -> decodeToolCallRequest()
    -> routeToolCall()
-        ├─ memory_read/write: routeHostOnlyToolCall() -> callHostTool()
-        │   -> MemoryReadHostToolRegistry / MemoryWriteHostToolRegistry
+        ├─ history_read / observability_trace_get / workflow_template_*:
+        │   routeHostOnlyToolCall() -> callHostTool()
+        │   -> configured host registry
+        ├─ memory_read/write: deterministic retired-tool rejection
         ├─ skill_read_section: return unavailable (historical/non-production residual)
         ├─ routePrePeerToolCall()
         │   └─ non-host tool continues to peer route
@@ -930,15 +935,18 @@ Codex session 收到 inbound tool request
   - `OnToolsList`
   - `OnToolsCall`
 - proxy 模式下，非 host-direct 工具仍然回到 `routeToolCall()` -> `mcpcontrol.ToolRegistry.FindActiveByKind()` -> peer callback 这条路径
-- 生产 host-direct 工具只包括 `memory_read`、`memory_write`，由主进程内 `CompositeHostToolRegistry` 执行，不经过 mcp-orch 子进程；其余工具仍面向一组**注册到 mcpcontrol 的外部工具 peer**
+- 生产 host-direct 工具由主进程内 `CompositeHostToolRegistry` 按依赖配置执行（当前为 `history_read`、`observability_trace_get` 与 workflow-template 工具），不经过 mcp-orch 子进程；其余工具仍面向一组**注册到 mcpcontrol 的外部工具 peer**
+- `memory_read`、`memory_write` 只保留退役名称与确定性拒绝，不属于生产 host tool
 - `skill_read_section` 仅保留名称用于历史/错误态拒绝，不再作为 Codex dynamic tools 或 skill 主链路暴露
 
 ### 6.2.1 工具路由表
 
 | 工具名 | 执行路径 | 实现位置 |
 |--------|---------|----------|
-| `memory_read` | host-direct (routeHostOnlyToolCall) | `memory_read_tool.go` |
-| `memory_write` | host-direct (routeHostOnlyToolCall) | `memory_write_tool.go` |
+| `history_read` | host-direct (routeHostOnlyToolCall) | `internal/platform/toolbridge/history_read_tool.go` |
+| `observability_trace_get` | host-direct (routeHostOnlyToolCall) | `observability_trace_tool.go` |
+| `workflow_template_*` | host-direct (routeHostOnlyToolCall) | `host_tools.go` |
+| `memory_read` / `memory_write` | retired-name rejection only | `internal/platform/toolbridge/host_tool_registry.go` / `handler.go` |
 | `skill_read_section` | stale-call rejection only; unavailable to Codex production path | `host_tools.go` / `handler.go` |
 | `orchestration_*` (5) | peer → mcp-orch | `cmd/mcp-orch/tools/orchestration_tools.go` |
 | `task_*` (3) | peer → mcp-orch | `cmd/mcp-orch/tools/task_tools.go` |
@@ -948,7 +956,7 @@ Codex session 收到 inbound tool request
 | `shared_file_*` (2) | peer → mcp-orch | `cmd/mcp-orch/tools/shared_file_tools.go` |
 | `lsp_*` (7) | peer → mcp-lsp | `cmd/mcp-lsp/tools/` |
 
-> 注：Claude CLI 通过 proxy HTTP endpoint 进入，所有工具前缀为 `mcp__orch__`（orch family）或 `mcp__lsp__`（lsp family）。memory host tools 虽然前缀是 `mcp__orch__`，但从不经过 mcp-orch 子进程。
+> 注：Claude CLI 通过 proxy HTTP endpoint 进入，所有 peer 工具前缀为 `mcp__orch__`（orch family）或 `mcp__lsp__`（lsp family）。host-direct 工具仍在主进程执行，不经过 mcp-orch 子进程。
 
 ### 6.3 路由规则
 
@@ -956,7 +964,7 @@ Codex session 收到 inbound tool request
   - `lsp_*` 及 7 个 LSP 短名 -> `ClientKindLSP`
   - 其他 -> `ClientKindOrch`
 - 非 host-direct 的 `routeToolCall()` peer 路径要求同类活跃 peer 唯一；否则直接 fail fast
-- `ListToolsForCodex()` 会先加入 memory host tools，再分别等待 orch / lsp peer 就绪后调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
+- `ListToolsForCodex()` 会先加入已配置 host tools，再分别等待 orch / lsp peer 就绪后调 `tools/list`；默认最多等待 10 秒，每 300ms 轮询一次
 - peer `tools/list` 当前只使用每类 client kind 的第一个活跃 peer；host-direct 与 peer 同名时保留 host 入口并记录 shadow warning
 - `ServeProxy()` 还会校验 URL family 与 tool 归属是否一致，避免把 `orch` tool 误打到 `lsp` family
 
@@ -974,7 +982,7 @@ Codex session 收到 inbound tool request
 - 已找到 peer 但 `tools/call` callback 失败时，会返回 `Success=false` 的 `ToolCallResult` 给 Provider，而不是直接上抛异常
 - diff 发射是 best-effort：无论是 `emitToolDiff()` 还是 fallback 失败，都只记 warning，不影响主工具结果
 
-**结论**：`toolbridge` 不是通用工具执行器；生产 Codex path 只保留 memory host tools，skills 由 provider-native mirror 让 Claude/Codex 自己发现，不再通过 `skill_read_section` host-direct 动态暴露。
+**结论**：`toolbridge` 不是通用工具执行器；生产 Codex path 只保留显式配置的 history/observability/workflow-template host tools，退役 memory/skill 名称仅做确定性拒绝，provider-native capability 负责自身 metadata 发现。
 
 ---
 
@@ -1002,7 +1010,7 @@ Codex session 收到 inbound tool request
 - `internal/module/thread`：大量使用 `bus`、`db`、`rpc`、`historyjsonl`、`shared`
 - `internal/module/turn`：使用 `config`、`rpc`、`shared`
 - `internal/module/uistate`：使用 `bus`、`config`、`db`、`rpc`、`shared`
-- `internal/module/skill`：使用 `bus`、`config`、`rpc`、`shared`
+- 本地 skill module 已删除；provider-native skill capability 不进入 platform Fx 依赖图
 - `internal/module/dashboard`：使用 `rpc`、`shared`
 
 ## 7.3 Provider 层
@@ -1024,7 +1032,7 @@ Codex session 收到 inbound tool request
 
 ## 7.6 关键跨模块链路
 
-1. **thread / skill / uistate emit bus events**
+1. **thread / provider metadata / uistate emit bus events**
    - `bus` -> `eventsurface` -> `rpc.PushBridge` -> UI
 2. **bus events -> hooks event relay**
    - 运行态事件 -> Hook after

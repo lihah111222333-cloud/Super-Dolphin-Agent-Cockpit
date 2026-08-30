@@ -6,20 +6,11 @@ import {
   assertNoExtraPayloadFields,
   takePayloadField,
   normalizeString,
-  normalizeOptionalString,
   optionalPayloadObject,
-  requireCwd,
   requireKey,
   cleanObject,
-  requireSkillScope,
-  requireContent,
-  requirePaths,
-  normalizeOptionalLimit,
 } from './backendApiCommon.js';
 import {
-  skillPersonalType,
-  normalizeSkillSummarySuggestion,
-  skillResolutionPayload,
   requireNumber,
   cronIdPayload,
   cronSetEnabledPayload,
@@ -155,165 +146,6 @@ function createCodeApi(callBackend) {
   };
 }
 
-/** @param {BackendCaller} callBackend */
-function createSkillApi(callBackend) {
-  return {
-    readSkill: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.SKILLS_LOCAL_READ,
-      requireKey(RPC_METHODS.SKILLS_LOCAL_READ, requireCwd(RPC_METHODS.SKILLS_LOCAL_READ, params), 'path'),
-    ),
-    listSkillFiles: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.SKILLS_LOCAL_LIST_FILES,
-      requireKey(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, requireCwd(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, params), 'dir'),
-    ),
-    writeSkill: (/** @type {unknown} */ params) => writeSkillPayload(callBackend, params),
-    createSkill: (/** @type {unknown} */ params) => createSkillPayload(callBackend, params),
-    importSkillDirectories: (/** @type {unknown} */ params) => importSkillDirectoriesPayload(callBackend, params),
-    suggestSkillSummary: (/** @type {unknown} */ params) => suggestSkillSummaryPayload(callBackend, params),
-    listSkillResolutions: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_LIST, requireCwd(RPC_METHODS.SKILLS_RESOLUTION_LIST, params)),
-    previewSkillResolution: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, {
-      cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params).cwd,
-      ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_PREVIEW, params),
-    }),
-    applySkillResolution: (/** @type {unknown} */ params) => applySkillResolutionPayload(callBackend, params),
-    deleteSkill: (/** @type {unknown} */ params) => deleteSkillPayload(callBackend, params),
-    createSkillTool: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.SKILL_TOOLS_CREATE, skillToolMutationPayload(RPC_METHODS.SKILL_TOOLS_CREATE, params)),
-    listSkillTools: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.SKILL_TOOLS_LIST, skillToolListPayload(params)),
-    getSkillTool: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.SKILL_TOOLS_GET, skillToolIDPayload(RPC_METHODS.SKILL_TOOLS_GET, params)),
-    updateSkillTool: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.SKILL_TOOLS_UPDATE, skillToolUpdatePayload(params)),
-    deleteSkillTool: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.SKILL_TOOLS_DELETE, skillToolIDPayload(RPC_METHODS.SKILL_TOOLS_DELETE, params)),
-  };
-}
-
-/** @param {unknown} params */
-function skillToolListPayload(params = {}) {
-  const method = RPC_METHODS.SKILL_TOOLS_LIST;
-  const payload = /** @type {OpsPayload & { cwd: string }} */ (requireCwd(method, params));
-  const limit = normalizeOptionalLimit(method, payload);
-  if (!limit) throw new Error(`${method}: limit must be a positive integer`);
-  return cleanObject({ cwd: payload.cwd, keyword: normalizeString(payload.keyword), limit });
-}
-
-/** @param {string} method @param {unknown} params */
-function skillToolIDPayload(method, params) {
-  const payload = /** @type {OpsPayload & { cwd: string }} */ (requireCwd(method, params));
-  const id = Number(payload.id);
-  if (!Number.isInteger(id) || id <= 0) throw new Error(`${method}: id is required`);
-  return { cwd: payload.cwd, id };
-}
-
-/** @param {string} method @param {unknown} params */
-function skillToolMutationPayload(method, params) {
-  const payload = /** @type {OpsPayload & { cwd: string }} */ (requireCwd(method, params));
-  const methodName = normalizeString(payload.methodName || payload.method_name || payload.name);
-  const description = normalizeString(payload.description);
-  if (!methodName) throw new Error(`${method}: methodName is required`);
-  if (!description) throw new Error(`${method}: description is required`);
-  if (typeof payload.enabled !== 'boolean') throw new Error(`${method}: enabled is required`);
-  return { cwd: payload.cwd, methodName, description, enabled: payload.enabled };
-}
-
-/** @param {unknown} params */
-function skillToolUpdatePayload(params) {
-  const method = RPC_METHODS.SKILL_TOOLS_UPDATE;
-  return { ...skillToolMutationPayload(method, params), id: skillToolIDPayload(method, params).id };
-}
-
-/** @param {BackendCaller} callBackend @param {unknown} params */
-function createSkillPayload(callBackend, params) {
-  const payload = /** @type {OpsPayload & { content: string, cwd: string, name: string }} */ (requireContent(
-    RPC_METHODS.SKILLS_CREATE,
-    requireKey(RPC_METHODS.SKILLS_CREATE, requireCwd(RPC_METHODS.SKILLS_CREATE, params), 'name'),
-  ));
-  if (!payload.content.trim()) throw new Error(`${RPC_METHODS.SKILLS_CREATE}: content is required`);
-  return callBackend(RPC_METHODS.SKILLS_CREATE, {
-    cwd: payload.cwd,
-    name: payload.name,
-    content: payload.content,
-  });
-}
-
-/** @param {BackendCaller} callBackend @param {unknown} params */
-function writeSkillPayload(callBackend, params) {
-  const payload = /** @type {OpsPayload & { content: string, cwd: string, path: string, scope: string }} */ (requireSkillScope(
-    RPC_METHODS.SKILLS_LOCAL_WRITE,
-    requireContent(RPC_METHODS.SKILLS_LOCAL_WRITE, requireKey(RPC_METHODS.SKILLS_LOCAL_WRITE, requireCwd(RPC_METHODS.SKILLS_LOCAL_WRITE, params), 'path')),
-  ));
-  return callBackend(RPC_METHODS.SKILLS_LOCAL_WRITE, cleanObject({
-    cwd: payload.cwd,
-    path: payload.path,
-    content: payload.content,
-    scope: payload.scope,
-    personal_type: skillPersonalType(payload),
-  }));
-}
-
-/** @param {BackendCaller} callBackend @param {unknown} params */
-function importSkillDirectoriesPayload(callBackend, params) {
-  const payload = /** @type {OpsPayload & { cwd: string, paths: unknown[], scope: string }} */ (requireSkillScope(
-    RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR,
-    requirePaths(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, requireCwd(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, params)),
-  ));
-  return callBackend(RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR, cleanObject({
-    cwd: payload.cwd,
-    paths: payload.paths,
-    scope: payload.scope,
-    personal_type: skillPersonalType(payload),
-  }));
-}
-
-/** @param {BackendCaller} callBackend @param {unknown} params */
-async function suggestSkillSummaryPayload(callBackend, params) {
-  const payload = /** @type {OpsPayload & { cwd: string }} */ (requireCwd(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, params));
-  /** @type {OpsPayload} */
-  const summaryPayload = {
-    cwd: payload.cwd,
-    name: normalizeString(payload.name),
-    description: normalizeString(payload.description),
-    content: normalizeOptionalString(payload.content),
-    scenario_words: Array.isArray(payload.scenario_words) ? payload.scenario_words : [],
-    scope: normalizeString(payload.scope),
-  };
-  const provider = normalizeString(payload.provider ?? payload.modelProvider);
-  const model = normalizeString(payload.model);
-  const modelProvider = normalizeString(payload.model_provider ?? payload.codexModelProvider);
-  if (provider) summaryPayload.provider = provider;
-  if (model) summaryPayload.model = model;
-  if (modelProvider) summaryPayload.model_provider = modelProvider;
-  const raw = await callBackend(RPC_METHODS.SKILLS_SUMMARY_SUGGEST, summaryPayload);
-  return normalizeSkillSummarySuggestion(raw);
-}
-
-/** @param {BackendCaller} callBackend @param {unknown} params */
-function applySkillResolutionPayload(callBackend, params) {
-  const payload = assertPlainObject(RPC_METHODS.SKILLS_RESOLUTION_APPLY, params);
-  const previewID = normalizeString(payload.preview_id ?? payload.previewId);
-  const previewHash = normalizeString(payload.preview_hash ?? payload.previewHash);
-  if (!previewID) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_id is required`);
-  if (!previewHash) throw new Error(`${RPC_METHODS.SKILLS_RESOLUTION_APPLY}: preview_hash is required`);
-  return callBackend(RPC_METHODS.SKILLS_RESOLUTION_APPLY, cleanObject({
-    cwd: requireCwd(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload).cwd,
-    ...skillResolutionPayload(RPC_METHODS.SKILLS_RESOLUTION_APPLY, payload),
-    preview_id: previewID,
-    preview_hash: previewHash,
-  }));
-}
-
-/** @param {BackendCaller} callBackend @param {unknown} params */
-function deleteSkillPayload(callBackend, params) {
-  const payload = requireKey(RPC_METHODS.SKILLS_LOCAL_DELETE, requireCwd(RPC_METHODS.SKILLS_LOCAL_DELETE, params), 'name');
-  const scope = normalizeString(payload.scope);
-  if (scope !== 'project' && scope !== 'personal') {
-    throw new Error(`${RPC_METHODS.SKILLS_LOCAL_DELETE}: scope must be project or personal`);
-  }
-  return callBackend(RPC_METHODS.SKILLS_LOCAL_DELETE, cleanObject({
-    cwd: payload.cwd,
-    name: payload.name,
-    scope,
-    personal_type: normalizeString(payload.personal_type || payload.personalType),
-  }));
-}
-
 /** @param {string} method @param {unknown} params */
 function rejectUnsupportedParamsPayload(method, params = {}) {
   const payload = assertPlainObject(method, params);
@@ -445,8 +277,6 @@ function toolbridgeToolsListPayload(params) {
 
 export {
   requirePositiveInteger, requireObjectField, workflowTemplateRenderPayload, workflowTemplateSavePayload, workflowTemplateRollbackPayload, workflowTemplateListPayload,
-  createCronApi, createCodeApi, createSkillApi, skillToolListPayload, skillToolIDPayload, skillToolMutationPayload,
-  skillToolUpdatePayload, createSkillPayload, writeSkillPayload, importSkillDirectoriesPayload, suggestSkillSummaryPayload, applySkillResolutionPayload,
-  deleteSkillPayload, rejectUnsupportedParamsPayload, normalizeMCPToolLifecycleString, mcpToolLifecycleString, mcpToolLifecycleSetPayload, mcpToolLifecycleListPayload,
+  createCronApi, createCodeApi, rejectUnsupportedParamsPayload, normalizeMCPToolLifecycleString, mcpToolLifecycleString, mcpToolLifecycleSetPayload, mcpToolLifecycleListPayload,
   mcpToolLifecycleExportPayload, createMCPServerApi,
 };

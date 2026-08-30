@@ -9,7 +9,6 @@ const copy = {
   ariaLabel: '命令与能力',
   categories: {
     builtin: '快捷命令',
-    skill: '技能',
     prompt: '提示词',
     automation: '自动化',
     mcp_tool: 'MCP 工具',
@@ -25,31 +24,6 @@ const copy = {
     clearLabel: '清空输入',
     clearDescription: '清空文字、附件与能力',
   },
-};
-
-const reviewCapability = {
-  kind: 'skill',
-  key: 'skill:project::review:/repo/.agents/skills/review',
-  name: 'review',
-  label: 'Code Review',
-  ref: {
-    name: 'review',
-    scope: 'project',
-    personalType: '',
-    path: '/repo/.agents/skills/review',
-  },
-};
-
-const skillItem = {
-  id: reviewCapability.key,
-  kind: 'skill',
-  name: 'review',
-  label: 'Code Review',
-  description: 'Review a change',
-  keywords: ['review'],
-  payload: { capability: reviewCapability },
-  disabled: false,
-  disabledReason: '',
 };
 
 const promptItem = {
@@ -98,7 +72,6 @@ const toolItem = {
 
 function createService() {
   return {
-    loadSkills: vi.fn().mockResolvedValue([skillItem]),
     loadPrompts: vi.fn().mockResolvedValue([promptItem]),
     loadAutomations: vi.fn().mockResolvedValue([automationItem]),
     loadMCPTools: vi.fn().mockResolvedValue([toolItem]),
@@ -185,72 +158,6 @@ function renderHarness(options = {}) {
   return { service, setDraftSpy, store, textarea: screen.getByRole('textbox', { name: '输入' }) };
 }
 
-it('opens the catalog for a slash trigger and binds a selected Skill', async () => {
-  const { setDraftSpy, store, textarea } = renderHarness();
-
-  fireEvent.change(textarea, { target: { value: '/rev' } });
-  expect(await screen.findByRole('listbox', { name: '命令与能力' })).toBeVisible();
-  await screen.findByRole('option', { name: /Code Review/ });
-  fireEvent.keyDown(textarea, { key: 'Enter' });
-
-  await waitFor(() => expect(store.addComposerCapability).toHaveBeenCalledWith(
-    expect.objectContaining({ kind: 'skill', name: 'review' }),
-  ));
-  expect(setDraftSpy).toHaveBeenCalledWith('');
-});
-
-it.each(['Enter', 'Tab'])('selects the active option with %s', async (key) => {
-  const { store, textarea } = renderHarness();
-
-  fireEvent.change(textarea, { target: { value: '/rev' } });
-  await screen.findByRole('option', { name: /Code Review/ });
-  fireEvent.keyDown(textarea, { key });
-
-  await waitFor(() => expect(store.addComposerCapability).toHaveBeenCalledTimes(1));
-});
-
-it('resets the active option when a new slash query opens', async () => {
-  const { store, textarea } = renderHarness();
-
-  fireEvent.change(textarea, { target: { value: '/rev' } });
-  await screen.findByRole('option', { name: /Code Review/ });
-  fireEvent.keyDown(textarea, { key: 'Enter' });
-  await waitFor(() => expect(store.addComposerCapability).toHaveBeenCalledTimes(1));
-
-  fireEvent.change(textarea, { target: { value: '/' } });
-  const newThread = await screen.findByRole('option', { name: /新建对话/ });
-  expect(newThread).toHaveAttribute('aria-selected', 'true');
-  fireEvent.keyDown(textarea, { key: 'Enter' });
-
-  expect(store.newThread).toHaveBeenCalledTimes(1);
-  expect(store.addComposerCapability).toHaveBeenCalledTimes(1);
-});
-
-it('dismisses with Escape without mutating the trigger', async () => {
-  const { setDraftSpy, textarea } = renderHarness();
-
-  fireEvent.change(textarea, { target: { value: '/rev' } });
-  expect(await screen.findByRole('listbox')).toBeVisible();
-  fireEvent.keyDown(textarea, { key: 'Escape' });
-
-  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
-  expect(setDraftSpy).not.toHaveBeenCalledWith('');
-  expect(textarea).toHaveValue('/rev');
-});
-
-it.each([
-  { isComposing: true, keyCode: 13 },
-  { isComposing: false, keyCode: 229 },
-])('does not consume IME key events: %o', async ({ isComposing, keyCode }) => {
-  const { store, textarea } = renderHarness();
-
-  fireEvent.change(textarea, { target: { value: '/rev' } });
-  await screen.findByRole('option', { name: /Code Review/ });
-  fireEvent.keyDown(textarea, { key: 'Enter', keyCode, isComposing });
-
-  expect(store.addComposerCapability).not.toHaveBeenCalled();
-});
-
 it('loads prompt content before replacing the trigger', async () => {
   const { service, setDraftSpy, textarea } = renderHarness();
 
@@ -317,16 +224,4 @@ it('wraps keyboard navigation across enabled options', async () => {
   expect(first).toHaveAttribute('aria-selected', 'true');
   fireEvent.keyDown(textarea, { key: 'ArrowUp' });
   expect(last).toHaveAttribute('aria-selected', 'true');
-});
-
-it('reconciles selected capability categories even while the palette is closed', async () => {
-  const store = createStore({ composerCapabilities: [{ ...reviewCapability, availability: 'unverified' }] });
-  const { service } = renderHarness({ initialDraft: 'ordinary text', store });
-
-  await waitFor(() => expect(service.loadSkills).toHaveBeenCalledWith('/repo'));
-  await waitFor(() => expect(store.reconcileComposerCapabilities).toHaveBeenCalledWith({
-    kind: 'skill',
-    status: 'success',
-    items: [skillItem],
-  }));
 });

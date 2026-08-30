@@ -145,7 +145,7 @@ func adapterDependencyOptions() fx.Option {
 
 func newTestCodexDriverFactory(t *testing.T) *codexapp.DriverFactory {
 	t.Helper()
-	factory, err := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory, err := codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("codexapp.NewDriverFactory() error = %v", err)
 	}

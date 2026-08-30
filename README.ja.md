@@ -34,7 +34,7 @@ AI は人間の数十倍から数百倍の速度でコードを生成できる�
 
 Super Dolphin は、test または実利用で問題だと証明された bug fix evidence を定期的に統合し、再利用可能な engineering knowledge にします。安定したパターンは、リポジトリ所有の test、fixture、AST/SSA rule、dependency policy、その他の実行可能な gate に昇格されます。AI が既知の bad smell を再生成すると、gate が変更を拒否し、delivery の前に修正を強制します。
 
-Skill と prompt は生成を導けますが、guard は何を受け入れられるかを強制します。候補となる guard には、再現可能な evidence、一般化可能な invariant、決定的な acceptance check が必要です。これは無制限な自己変更ではなく、evidence-driven な ratchet です。現在のリポジトリは自動 memory consolidation と広範な guard infrastructure を実装していますが、すべての修正を新しい実行可能な guard へ完全自動で end-to-end 昇格させることは、継続中の engineering direction であり、完全な網羅を主張するものではありません。
+Skill と prompt は生成を導けますが、guard は何を受け入れられるかを強制します。候補となる guard には、再現可能な evidence、一般化可能な invariant、決定的な acceptance check が必要です。これは無制限な自己変更ではなく、evidence-driven な ratchet です。Provider-native CLI が skill と context の探索を自ら管理し、リポジトリは型付き互換契約と広範な guard infrastructure を保持します。すべての修正を新しい実行可能な guard へ完全自動で end-to-end 昇格させることは、継続中の engineering direction であり、完全な網羅を主張するものではありません。
 
 これは AI-native vibe coding が進む方向です。人間が intent、architecture、acceptance boundary を定義し、AI はその specification 内でのみコードを生成します。リポジトリは欠陥から学び、同種の bug を人手で何度も発見・処理することに頼らず、より堅牢で明快になっていきます。
 

@@ -84,7 +84,7 @@
   line-height: 1.25;
 }
 
-/* 个人资料 / 导入记忆：白色 16px 卡片，平静的细边框，无悬浮位移。 */
+/* 个人资料卡片：白色 16px 卡片，平静的细边框，无悬浮位移。 */
 .personalization-profile-card {
   min-width: 0;
   gap: 16px;
@@ -178,9 +178,8 @@
   cursor: not-allowed;
 }
 
-/* 暖橙主操作药丸：保存个人资料左对齐，导入记忆在卡片底部居中。 */
-.personalization-profile-card > button,
-.super-dolphin-agent-import-memory-content button {
+/* 暖橙主操作药丸：保存个人资料左对齐。 */
+.personalization-profile-card > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -197,8 +196,7 @@
   transition: background var(--transition), border-color var(--transition);
 }
 
-.personalization-profile-card > button:hover:not(:disabled),
-.super-dolphin-agent-import-memory-content button:hover:not(:disabled) {
+.personalization-profile-card > button:hover:not(:disabled) {
   border-color: var(--primary-action-border);
   background: var(--primary-action-bg-hover);
 }
@@ -208,36 +206,6 @@
   background: var(--surface-2);
   color: var(--text-muted);
   cursor: not-allowed;
-}
-
-/* 导入记忆卡片：图标在顶部，标题居中，按钮落在卡片底部。 */
-.super-dolphin-agent-import-memory-content {
-  gap: 14px;
-}
-
-.super-dolphin-agent-import-memory-icon {
-  box-sizing: content-box;
-  flex: 0 0 auto;
-  border-radius: 12px;
-  background: var(--super-dolphin-agent-primary-fixed);
-  color: var(--primary);
-  padding: 10px;
-}
-
-.super-dolphin-agent-import-memory-content h3 {
-  color: var(--text-pri);
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.super-dolphin-agent-import-memory-content p {
-  color: var(--text-sec);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.super-dolphin-agent-import-memory-content button {
-  align-self: center;
 }
 
 /* 字段级校验错误（role=alert）。 */

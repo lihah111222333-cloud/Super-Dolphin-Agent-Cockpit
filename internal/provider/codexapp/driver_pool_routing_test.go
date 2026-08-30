@@ -136,25 +136,6 @@ func anyStringSlice(raw any) []string {
 	}
 }
 
-type recordingSkillMirrorReconciler struct {
-	events  *[]string
-	err     error
-	report  contract.SkillMirrorReport
-	cwd     string
-	targets []contract.SkillProviderMirrorTarget
-	calls   int
-}
-
-func (r *recordingSkillMirrorReconciler) ReconcileProviderMirrors(ctx context.Context, cwd string, targets []contract.SkillProviderMirrorTarget) (contract.SkillMirrorReport, error) {
-	if r.events != nil {
-		*r.events = append(*r.events, "reconcile")
-	}
-	r.calls++
-	r.cwd = cwd
-	r.targets = append([]contract.SkillProviderMirrorTarget(nil), targets...)
-	return r.report, r.err
-}
-
 func TestPoolRoutingExplicitlyDisabledAllowsMissingIdentity(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "0")
 	spawnCalls := atomic.Int32{}
@@ -204,98 +185,6 @@ func TestResolveSessionOptionsFailsClosedOnIdentityError(t *testing.T) {
 	}
 }
 
-// TestPoolRoutingSuccessPath exercises the happy path: flag on +
-// valid identity + cooperative pool. The returned option slice must
-// attach the pool-provided URL to the next session.
-func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	userHome := filepath.Join(t.TempDir(), "user-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
-	t.Setenv("HOME", userHome)
-	t.Setenv("USERPROFILE", userHome)
-	workDir := t.TempDir()
-	events := []string{}
-	var gotHome string
-	pool := NewServerPool(slog.Default(), func(_ context.Context, home, _ string) (SpawnedServer, error) {
-		events = append(events, "acquire")
-		gotHome = home
-		return nil, errors.New("stop after acquire")
-	}, PoolConfig{SpawnBackoff: 1})
-	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{
-		events: &events,
-	}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
-
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-default",
-		CWD:           workDir,
-		StartAssembly: validStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
-		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
-	}
-	if strings.Join(events, ",") != "reconcile,acquire" {
-		t.Fatalf("events = %v, want reconcile before acquire", events)
-	}
-	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
-	if err != nil {
-		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
-	}
-	if gotHome != wantHome {
-		t.Fatalf("pool codex home = %q, want %q", gotHome, wantHome)
-	}
-	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
-}
-
-func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	userHome := filepath.Join(t.TempDir(), "user-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
-	t.Setenv("HOME", userHome)
-	t.Setenv("USERPROFILE", userHome)
-	repoRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repoRoot, ".git"), 0o755); err != nil {
-		t.Fatalf("MkdirAll .git: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repoRoot, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile .git/HEAD: %v", err)
-	}
-	subdir := filepath.Join(repoRoot, "cmd", "agent-terminal")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatalf("MkdirAll subdir: %v", err)
-	}
-	events := []string{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
-		events = append(events, "acquire")
-		return nil, errors.New("stop after acquire")
-	}, PoolConfig{SpawnBackoff: 1})
-	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{events: &events}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
-
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-subdir",
-		CWD:           subdir,
-		StartAssembly: validStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
-		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
-	}
-	if strings.Join(events, ",") != "reconcile,acquire" {
-		t.Fatalf("events = %v, want reconcile before acquire", events)
-	}
-	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
-	if err != nil {
-		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
-	}
-	assertExplicitCodexMirrorTargets(t, mirror.targets, repoRoot, wantHome)
-}
-
 func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
@@ -305,8 +194,7 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
 	workDir := t.TempDir()
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default()}
 
 	session, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-no-pool",
@@ -318,85 +206,6 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	}
 	if session != nil {
 		t.Fatalf("StartSession() session = %#v, want nil", session)
-	}
-	if mirror.calls != 1 {
-		t.Fatalf("mirror reconcile calls = %d, want 1 before routing guard", mirror.calls)
-	}
-	wantHome, err := filepath.EvalSymlinks(filepath.Join(superHome, "providers", "codex"))
-	if err != nil {
-		t.Fatalf("EvalSymlinks app-managed codex home: %v", err)
-	}
-	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
-}
-
-func TestStartSessionMirrorContentConflictBlocksPoolAcquire(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
-	workDir := t.TempDir()
-	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
-		acquires.Add(1)
-		return nil, errors.New("stop after acquire")
-	}, PoolConfig{SpawnBackoff: 1})
-	defer pool.Close(context.Background())
-	d := &driver{logRuntime: testLoggerRuntime(t),
-		approvals: testApprovalManager(),
-		logger:    slog.Default(),
-		pool:      pool,
-		mirror: &recordingSkillMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
-			TargetID:     "codex:project:conflict",
-			Scope:        "project",
-			ConflictKind: "drift",
-		}}}},
-	}
-
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-conflict",
-		CWD:           workDir,
-		StartAssembly: validStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "drift") {
-		t.Fatalf("StartSession() error = %v, want blocking project mirror content conflict", err)
-	}
-	if acquires.Load() != 0 {
-		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
-	}
-}
-
-func TestStartSessionMirrorSafetyConflictBlocksPoolAcquire(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
-	workDir := t.TempDir()
-	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
-		acquires.Add(1)
-		return nil, errors.New("stop after acquire")
-	}, PoolConfig{SpawnBackoff: 1})
-	defer pool.Close(context.Background())
-	d := &driver{logRuntime: testLoggerRuntime(t),
-		approvals: testApprovalManager(),
-		logger:    slog.Default(),
-		pool:      pool,
-		mirror: &recordingSkillMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
-			TargetID:     "codex:project:conflict",
-			ConflictKind: "mirror_root_symlink",
-		}}}},
-	}
-
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-safety-conflict",
-		CWD:           workDir,
-		StartAssembly: validStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "mirror_root_symlink") {
-		t.Fatalf("StartSession() error = %v, want blocking mirror safety conflict", err)
-	}
-	if acquires.Load() != 0 {
-		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
 	}
 }
 
@@ -415,8 +224,7 @@ func TestStartSessionProviderHomeChmodFailureBlocksStart(t *testing.T) {
 		return nil, nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-codex-home-permission",
@@ -430,72 +238,12 @@ func TestStartSessionProviderHomeChmodFailureBlocksStart(t *testing.T) {
 	if !strings.Contains(err.Error(), providershared.ProviderCodex) || !strings.Contains(err.Error(), filepath.Join(blocker, "sd-home")) {
 		t.Fatalf("StartSession() error = %v, want provider and path context", err)
 	}
-	if mirror.calls != 0 {
-		t.Fatalf("mirror reconcile calls = %d, want 0", mirror.calls)
-	}
 	if acquires.Load() != 0 {
 		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
 	}
 }
 
-func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
-	workDir := t.TempDir()
-	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
-		acquires.Add(1)
-		return newFakeServer("ws://unused"), nil
-	}, PoolConfig{})
-	defer pool.Close(context.Background())
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
-
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-no-mirror",
-		CWD:           workDir,
-		StartAssembly: validStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "skill mirror reconciler") {
-		t.Fatalf("StartSession() error = %v, want skill mirror reconciler requirement", err)
-	}
-	if acquires.Load() != 0 {
-		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
-	}
-}
-
-func TestStartSessionMirrorReconcileFailureBlocksPoolAcquire(t *testing.T) {
-	t.Setenv(poolRoutingEnvVar, "1")
-	superHome := filepath.Join(t.TempDir(), "sd-home")
-	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
-	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
-	workDir := t.TempDir()
-	acquires := atomic.Int32{}
-	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
-		acquires.Add(1)
-		return nil, errors.New("stop after acquire")
-	}, PoolConfig{SpawnBackoff: 1})
-	defer pool.Close(context.Background())
-	d := &driver{logRuntime: testLoggerRuntime(t),
-		approvals: testApprovalManager(),
-		logger:    slog.Default(),
-		pool:      pool,
-		mirror:    &recordingSkillMirrorReconciler{err: errors.New("mirror unavailable")},
-	}
-
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID:       "agent-blocked",
-		CWD:           workDir,
-		StartAssembly: validStartAssemblyForTest(),
-	})
-	if err == nil || !strings.Contains(err.Error(), "mirror unavailable") {
-		t.Fatalf("StartSession() error = %v, want mirror reconcile failure", err)
-	}
-	if acquires.Load() != 0 {
-		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
-	}
-}
-
-func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
+func TestStartSessionUsesExplicitCodexHomeForProviderNativeDiscovery(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	explicitHome := filepath.Join(t.TempDir(), "explicit-codex")
@@ -508,8 +256,7 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-explicit",
@@ -522,7 +269,7 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
-		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
+		t.Fatalf("StartSession() error = %v, want acquire error after provider-native preparation", err)
 	}
 	wantHome, err := filepath.EvalSymlinks(explicitHome)
 	if err != nil {
@@ -531,7 +278,6 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 	if gotHome != wantHome {
 		t.Fatalf("pool codex home = %q, want %q", gotHome, wantHome)
 	}
-	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, explicitHome)
 }
 
 func TestStartSessionRejectsRelativeExplicitCodexHome(t *testing.T) {
@@ -542,7 +288,7 @@ func TestStartSessionRejectsRelativeExplicitCodexHome(t *testing.T) {
 		return nil, nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-relative-home",
@@ -559,7 +305,7 @@ func TestStartSessionRejectsRelativeExplicitCodexHome(t *testing.T) {
 	}
 }
 
-func TestStartSessionRejectsMalformedCodexIdentityBeforeHomeOrMirror(t *testing.T) {
+func TestStartSessionRejectsMalformedCodexIdentityBeforeHome(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
@@ -570,8 +316,7 @@ func TestStartSessionRejectsMalformedCodexIdentityBeforeHomeOrMirror(t *testing.
 		return nil, nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-malformed-home",
@@ -586,15 +331,12 @@ func TestStartSessionRejectsMalformedCodexIdentityBeforeHomeOrMirror(t *testing.
 	if err == nil || !strings.Contains(err.Error(), "must be string") {
 		t.Fatalf("StartSession() error = %v, want invalid type rejection", err)
 	}
-	if mirror.calls != 0 {
-		t.Fatalf("mirror reconcile calls = %d, want 0", mirror.calls)
-	}
 	if _, statErr := os.Stat(filepath.Join(superHome, "providers", "codex")); !os.IsNotExist(statErr) {
 		t.Fatalf("provider home stat = %v, want not created", statErr)
 	}
 }
 
-func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T) {
+func TestStartSessionNormalizesExplicitCodexHomeBeforeProviderNativePoolLaunch(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
@@ -619,8 +361,7 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 		return nil, errors.New("stop after acquire")
 	}, PoolConfig{SpawnBackoff: 1})
 	defer pool.Close(context.Background())
-	mirror := &recordingSkillMirrorReconciler{}
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: mirror}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err = d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID:       "agent-explicit-normalized",
@@ -633,52 +374,10 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
-		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
+		t.Fatalf("StartSession() error = %v, want acquire error after provider-native preparation", err)
 	}
 	if gotHome != wantHome {
 		t.Fatalf("pool codex home = %q, want %q", gotHome, wantHome)
-	}
-	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
-}
-
-func assertCodexMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, userHome string) {
-	t.Helper()
-	wantPersonalHome := filepath.Join(userHome, ".agents")
-	wantPersonalSkills := filepath.Join(wantPersonalHome, "skills")
-	wantProject, err := filepath.EvalSymlinks(project)
-	if err != nil {
-		t.Fatalf("EvalSymlinks project: %v", err)
-	}
-	wantProjectSkills := filepath.Join(wantProject, ".agents", "skills")
-	if len(targets) != 2 {
-		t.Fatalf("mirror targets = %#v, want personal + project", targets)
-	}
-	if targets[0].Provider != "codex" || targets[0].HomeRoot != wantPersonalHome || targets[0].SkillsRoot != wantPersonalSkills {
-		t.Fatalf("personal target = %#v, want home %q skills %q", targets[0], wantPersonalHome, wantPersonalSkills)
-	}
-	if targets[1].Provider != "codex" || targets[1].SkillsRoot != wantProjectSkills {
-		t.Fatalf("project target = %#v, want skills %q", targets[1], wantProjectSkills)
-	}
-}
-
-func assertExplicitCodexMirrorTargets(t *testing.T, targets []contract.SkillProviderMirrorTarget, project, explicitHome string) {
-	t.Helper()
-	if len(targets) != 2 {
-		t.Fatalf("mirror targets = %#v, want personal + project", targets)
-	}
-	wantHome, err := filepath.EvalSymlinks(explicitHome)
-	if err != nil {
-		t.Fatalf("EvalSymlinks explicit home: %v", err)
-	}
-	if targets[0].Provider != "codex" || targets[0].HomeRoot != wantHome || targets[0].SkillsRoot != filepath.Join(wantHome, "skills") || !targets[0].AllowExplicitHome {
-		t.Fatalf("explicit personal target = %#v, want home %q", targets[0], wantHome)
-	}
-	wantProject, err := filepath.EvalSymlinks(project)
-	if err != nil {
-		t.Fatalf("EvalSymlinks project: %v", err)
-	}
-	if targets[1].Provider != "codex" || targets[1].SkillsRoot != filepath.Join(wantProject, ".agents", "skills") {
-		t.Fatalf("project target = %#v, want project skills under %q", targets[1], wantProject)
 	}
 }
 
@@ -695,19 +394,153 @@ func assertProviderStartupGateCode(t *testing.T, err error, want string) {
 	}
 }
 
-func TestStartSessionRejectsEmptyCWDBeforeMirrorReconcile(t *testing.T) {
+func TestStartSessionRejectsEmptyCWD(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
 		t.Fatal("pool acquire called with empty cwd")
 		return nil, nil
 	}, PoolConfig{})
 	defer pool.Close(context.Background())
-	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool, mirror: &recordingSkillMirrorReconciler{}}
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-empty-cwd"})
-	if err == nil || !strings.Contains(err.Error(), "provider project cwd is required") {
-		t.Fatalf("StartSession() error = %v, want cwd rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "provider-native skills cwd is required") {
+		t.Fatalf("StartSession() error = %v, want provider-native cwd rejection", err)
 	}
+}
+
+func TestStartSessionRejectsUnsafeCWDBeforeCreatingCodexHome(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "1")
+	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
+	t.Setenv(providershared.RuntimeModeEnv, providershared.RuntimeModePackaged)
+	root := t.TempDir()
+	missingCWD := filepath.Join(root, "missing-worktree")
+	explicitHome := filepath.Join(root, "explicit-codex-home")
+
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
+		t.Fatal("pool acquire called before unsafe cwd validation")
+		return nil, nil
+	}, PoolConfig{})
+	defer pool.Close(context.Background())
+	d := &driver{logRuntime: testLoggerRuntime(t), approvals: testApprovalManager(), logger: slog.Default(), pool: pool}
+
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-cwd-before-codex-home",
+		CWD:           missingCWD,
+		StartAssembly: validStartAssemblyForTest(),
+		Config: map[string]any{
+			contract.CodexHomeKey:          explicitHome,
+			contract.CodexInstanceKeyKey:   "explicit",
+			contract.CodexModelProviderKey: "openai",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider-native skills cwd") {
+		t.Fatalf("StartSession() error = %v, want unsafe cwd rejection", err)
+	}
+	if _, statErr := os.Stat(explicitHome); !os.IsNotExist(statErr) {
+		t.Fatalf("explicit Codex home stat = %v, want no home creation", statErr)
+	}
+}
+
+func TestPrepareProviderNativeRequestsCanonicalizeCWD(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(t.TempDir(), "cwd-link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	d := &driver{}
+	start, err := d.prepareStartSessionRequest(context.Background(), dto.StartSessionRequest{
+		Provider: "codex",
+		CWD:      filepath.Join(link, "."),
+		Config:   identityConfig(t, "canonical-start"),
+	})
+	if err != nil {
+		t.Fatalf("prepareStartSessionRequest() error = %v", err)
+	}
+	if start.CWD != root {
+		t.Fatalf("start CWD = %q, want canonical %q", start.CWD, root)
+	}
+	resume, err := d.prepareResumeSessionRequest(context.Background(), dto.ResumeSessionRequest{
+		Provider:         "codex",
+		AgentID:          "agent-canonical-resume",
+		ThreadID:         "thread-canonical-resume",
+		ProviderThreadID: "provider-thread-canonical-resume",
+		CWD:              " " + link + " ",
+		Config:           identityConfig(t, "canonical-resume"),
+	})
+	if err != nil {
+		t.Fatalf("prepareResumeSessionRequest() error = %v", err)
+	}
+	if resume.CWD != root {
+		t.Fatalf("resume CWD = %q, want canonical %q", resume.CWD, root)
+	}
+}
+
+func TestBuildCodexProviderNativeContextUsesCanonicalRequest(t *testing.T) {
+	root := t.TempDir()
+	request := dto.StartSessionRequest{
+		CWD:    root,
+		Config: identityConfig(t, "native-context"),
+	}
+	ctx, err := buildCodexProviderNativeContext(request)
+	if err != nil {
+		t.Fatalf("buildCodexProviderNativeContext() error = %v", err)
+	}
+	if ctx.Provider != contract.ProviderNativeProviderCodex || ctx.CWD != root {
+		t.Fatalf("native context identity = (%q,%q), want (codex,%q)", ctx.Provider, ctx.CWD, root)
+	}
+	if err := providershared.ValidateProviderNativeContext(ctx); err != nil {
+		t.Fatalf("ValidateProviderNativeContext() error = %v", err)
+	}
+	if err := ctx.RequireProviderFeature(contract.ProviderNativeFeatureSkills); !errors.Is(err, contract.ErrProviderNativeCapabilityUnknown) {
+		t.Fatalf("RequireProviderFeature(skills) error = %v, want explicit unknown", err)
+	}
+}
+
+func TestRecoveryResumeCWDUsesCanonicalNativePath(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(t.TempDir(), "cwd-link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	s := &session{}
+	s.setRuntimeConfig(map[string]any{"cwd": filepath.Join(link, ".")})
+	got, err := s.recoveryResumeCWD()
+	if err != nil {
+		t.Fatalf("recoveryResumeCWD() error = %v", err)
+	}
+	if got != root {
+		t.Fatalf("recovery cwd = %q, want canonical %q", got, root)
+	}
+}
+
+func TestRecoveryResumeCWDPrefersNativeContextOverMutableRuntimeConfig(t *testing.T) {
+	nativeRoot := t.TempDir()
+	mutableRoot := t.TempDir()
+	s := &session{}
+	s.setNativeContext(mustCodexNativeContextForTest(t, nativeRoot))
+	s.setRuntimeConfig(map[string]any{"cwd": mutableRoot})
+
+	got, err := s.recoveryResumeCWD()
+	if err != nil {
+		t.Fatalf("recoveryResumeCWD() error = %v", err)
+	}
+	if got != nativeRoot {
+		t.Fatalf("recovery cwd = %q, want native context cwd %q", got, nativeRoot)
+	}
+}
+
+func mustCodexNativeContextForTest(t *testing.T, cwd string) contract.ProviderNativeContext {
+	t.Helper()
+	ctx, err := providershared.BuildProviderNativeContext(providershared.ProviderNativeContextInput{
+		Provider:     contract.ProviderNativeProviderCodex,
+		CWD:          cwd,
+		Capabilities: providershared.UnknownProviderNativeCapabilities(),
+	})
+	if err != nil {
+		t.Fatalf("BuildProviderNativeContext() error = %v", err)
+	}
+	return ctx
 }
 
 func TestPoolRoutingPassesStartCWDToSpawnerWorkDir(t *testing.T) {

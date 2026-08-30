@@ -108,7 +108,6 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 	})
 
 	d := &driver{
-		mirror:     &recordingMirrorReconciler{},
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}
@@ -128,6 +127,9 @@ func TestDriverStartCanonicalizesEffectiveEffort(t *testing.T) {
 			Snapshot: contract.PromptAssemblySnapshot{
 				BaseInstructions:      "assembled base",
 				DeveloperInstructions: "assembled developer",
+				Provider:              "claude",
+				Version:               contract.PromptAssemblySnapshotVersion,
+				Hash:                  "assembled-prompt-hash",
 			},
 		},
 	})

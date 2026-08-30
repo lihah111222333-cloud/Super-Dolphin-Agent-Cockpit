@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,7 @@ func TestIsUnrecoverableResumeError(t *testing.T) {
 		{name: "remote no rollout", err: errors.New("rpc error: code = -32600 desc = no rollout found for thread id 11111111-2222-3333-4444-555555555597"), want: true},
 		{name: "local rollout not found", err: errors.New("codexapp: rollout not found for thread-1"), want: true},
 		{name: "persisted history not found", err: errors.New("persisted thread history not found: lstat rollout-1.jsonl"), want: true},
+		{name: "legacy prompt snapshot", err: fmt.Errorf("resume prompt snapshot: %w", contract.ErrLegacyMemoryPromptInjection), want: true},
 		{name: "transient network", err: errors.New("rpc error: code = -32000 desc = connection refused"), want: false},
 		{name: "authentication", err: errors.New("rpc error: code = -32001 desc = authentication failed"), want: false},
 		{name: "unrelated error", err: errors.New("thread: cwd is required"), want: false},
@@ -78,7 +80,7 @@ func TestBackgroundResumeDegradesOnLostHistory(t *testing.T) {
 		CreatedAt:      123,
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "resume")}
 	bindings := resumeDegradeCodexBinding(t)
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, _ dto.ResumeSessionRequest) (contract.Session, error) {
@@ -119,6 +121,79 @@ func TestBackgroundResumeDegradesOnLostHistory(t *testing.T) {
 	assertNoResumeStarted(t, resumeReqCh)
 }
 
+func TestBackgroundResumeDegradesOnLegacyPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &ThreadRecord{
+		ThreadID:       "thread-legacy-resume",
+		AgentID:        "agent-legacy-resume",
+		Prompt:         "resume",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "resume")}
+	threads.promptSnapshot.SectionSnapshot = map[string]string{
+		contract.DynamicSectionMemoryContext: "retired memory context",
+	}
+	threads.promptSnapshot.Hash = promptSnapshotHash(
+		threads.promptSnapshot.DisplayName,
+		threads.promptSnapshot.BaseInstructions,
+		threads.promptSnapshot.DeveloperInstructions,
+		threads.promptSnapshot.Provider,
+		nil,
+		threads.promptSnapshot.SectionSnapshot,
+		threads.promptSnapshot.Generation,
+	)
+	codexHome, err := contract.CanonicalizeCodexHome(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test codex home: %v", err)
+	}
+	bindings := &stubBindingStore{binding: &BindingRecord{
+		AgentID:            "agent-legacy-resume",
+		Provider:           "codex",
+		ProviderThreadID:   "11111111-2222-3333-4444-555555555598",
+		CodexThreadID:      "thread-legacy-resume",
+		Cwd:                "/repo",
+		CodexHome:          codexHome,
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+	}}
+	resumeCalled := make(chan struct{}, 1)
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		resumeCalled <- struct{}{}
+		return nil, errors.New("resume must not reach provider")
+	}}
+	stopped := make(chan threaddto.Stopped, 1)
+	svc := NewService(silentLogger(), threads, bindings, &stubSessionProvider{}, starter, nil, resumeDegradeOrchestration{}, nil).(*service)
+	svc.emitStopped = func(evt threaddto.Stopped) { stopped <- evt }
+
+	svc.backgroundResumeIfNeeded(context.Background(), "thread-legacy-resume")
+	var stoppedEvent threaddto.Stopped
+	select {
+	case stoppedEvent = <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stopped event was not published for legacy prompt snapshot")
+	}
+
+	select {
+	case <-resumeCalled:
+		t.Fatal("provider ResumeSession was called for legacy prompt snapshot")
+	default:
+	}
+	if len(bindings.deleteAgentIDs) != 1 || bindings.deleteAgentIDs[0] != "agent-legacy-resume" {
+		t.Fatalf("binding delete agents = %v, want [agent-legacy-resume]", bindings.deleteAgentIDs)
+	}
+	if threads.status.Status != statusFailed {
+		t.Fatalf("thread status = %q, want %q", threads.status.Status, statusFailed)
+	}
+	if stoppedEvent.ThreadID != "thread-legacy-resume" || stoppedEvent.Status != statusFailed {
+		t.Fatalf("stopped event = %#v, want failed legacy snapshot event", stoppedEvent)
+	}
+	assertResumeNotInFlight(t, svc, "agent-legacy-resume")
+}
+
 func TestBackgroundResumeKeepsStateOnTransientError(t *testing.T) {
 	t.Parallel()
 
@@ -131,7 +206,7 @@ func TestBackgroundResumeKeepsStateOnTransientError(t *testing.T) {
 		CreatedAt:      123,
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "resume")}
 	bindings := resumeDegradeCodexBinding(t)
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, _ dto.ResumeSessionRequest) (contract.Session, error) {
@@ -184,7 +259,7 @@ func TestExplicitResumeDegradesOnLostHistory(t *testing.T) {
 		CreatedAt:      123,
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "resume")}
 	bindings := resumeDegradeCodexBinding(t)
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, _ dto.ResumeSessionRequest) (contract.Session, error) {
@@ -228,7 +303,7 @@ func TestExplicitResumeDoesNotPublishStoppedWhenDegradeCleanupFails(t *testing.T
 		CreatedAt:      123,
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "resume")}
 	bindings := resumeDegradeCodexBinding(t)
 	bindings.deleteErr = errors.New("delete binding failed")
 	starter := &stubSessionStarter{
@@ -262,4 +337,11 @@ func waitForDegradeCondition(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("condition not met before timeout")
+}
+
+func assertResumeNotInFlight(t *testing.T, svc *service, agentID string) {
+	t.Helper()
+	if _, loaded := svc.resumeInFlight.Load(agentID); loaded {
+		t.Fatalf("resumeInFlight retained for %s after degrade", agentID)
+	}
 }

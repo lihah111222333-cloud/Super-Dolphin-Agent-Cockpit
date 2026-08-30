@@ -14,7 +14,6 @@ func TestStartAssemblyGolden(t *testing.T) {
 	t.Setenv(envPromptStartCurrentDate, "2026-04-17")
 
 	svc := NewService(&Config{}, nil)
-	registerGoldenPromptProvider(t, svc, DynamicSectionMemory, "# Memory\n- Durable user preferences only.\n- Never store secrets.")
 	registerGoldenPromptProvider(t, svc, DynamicSectionEnvInfoSimple, "# Environment\n- Primary working directory: /repo\n- Git root: /repo\n- Provider: codex\n- Model: gpt-5.5\n- Language server status: enabled (file, grep)")
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{

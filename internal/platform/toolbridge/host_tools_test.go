@@ -14,7 +14,6 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
-	skillpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/skill"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
@@ -72,9 +71,9 @@ func (s *stubCWDResolver) ResolveAgentCWD(_ context.Context, agentID string) (st
 
 type deniedHostToolError struct{}
 
-func (deniedHostToolError) Error() string { return "skill expand approval denied: user denied" }
+func (deniedHostToolError) Error() string { return "protected host tool approval denied: user denied" }
 
-func (deniedHostToolError) SkillApprovalDenied() bool { return true }
+func (deniedHostToolError) ApprovalDenied() bool { return true }
 
 func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 	host := &stubHostToolRegistry{
@@ -124,19 +123,18 @@ func approvalRequiredHostToolRegistry() *stubHostToolRegistry {
 		AgentID:      "agent-1",
 		ThreadID:     "thread-1",
 		TurnID:       "turn-1",
-		Reason:       "skill artifact requires approval",
-		Kind:         "skill_artifact",
+		Reason:       "protected host tool requires approval",
+		Kind:         "host_tool",
 		SourceMethod: testHostToolName,
 		Payload: map[string]any{
-			"artifact_kind":    skillpkg.ArtifactKindBody,
-			"artifact_locator": "SKILL.md",
-			"callId":           "call-1",
-			"toolName":         testHostToolName,
+			"operation": "write",
+			"callId":    "call-1",
+			"toolName":  testHostToolName,
 		},
 	}
 	return &stubHostToolRegistry{
 		hasToolName: testHostToolName,
-		err:         skillpkg.SkillApprovalRequiredError{Request: approvalReq},
+		err:         contract.ApprovalRequiredError{Request: approvalReq},
 	}
 }
 
@@ -183,7 +181,7 @@ func assertApprovalEnvelopeField(t *testing.T, approval map[string]any, key, wan
 func assertApprovalPayload(t *testing.T, approval map[string]any) {
 	t.Helper()
 	payload, ok := approval["payload"].(map[string]any)
-	if !ok || payload["artifact_kind"] != skillpkg.ArtifactKindBody || payload["callId"] != "call-1" {
+	if !ok || payload["operation"] != "write" || payload["callId"] != "call-1" {
 		t.Fatalf("approval payload = %#v", approval["payload"])
 	}
 }
@@ -357,7 +355,7 @@ func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 	metricSource := skillmetrics.NewRegistry()
 	host := &stubHostToolRegistry{
 		hasToolName: testHostToolName,
-		err:         skillpkg.ErrMissingCWD,
+		err:         contract.ErrCWDRequired,
 	}
 	var logs bytes.Buffer
 	h := &Handler{

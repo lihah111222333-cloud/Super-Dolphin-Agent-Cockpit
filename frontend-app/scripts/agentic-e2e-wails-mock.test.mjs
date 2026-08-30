@@ -1,11 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { chromium } from 'playwright';
+import { chromiumLaunchOptions } from '../playwright-capabilities.mjs';
+import { resolveChromiumExecutable } from './desktop-failure-smoke.mjs';
 
-import { installAgenticE2EMockWails, readAgenticE2EMockWailsState } from './agentic-e2e-wails-mock.mjs';
+import {
+  assertAgenticE2EMockWailsClean,
+  installAgenticE2EMockWails,
+  readAgenticE2EMockWailsState,
+} from './agentic-e2e-wails-mock.mjs';
+
+it('fails closed when strict Wails state is unavailable or incomplete', async () => {
+  expect(() => assertAgenticE2EMockWailsClean(null)).toThrow(/state is unavailable/);
+  expect(() => assertAgenticE2EMockWailsClean({})).toThrow(/state unhandledRPC must be an array/);
+  await expect(readAgenticE2EMockWailsState({ evaluate: async () => { throw new Error('page closed'); } }))
+    .rejects.toThrow('page closed');
+});
+
+it('checks non-Wails sockets and only allows the local Vite HMR contract', () => {
+  expect(() => assertAgenticE2EMockWailsClean({
+    unhandledRPC: [],
+    failures: [],
+    nonWailsSockets: ['ws://127.0.0.1:5177/?token=hmr'],
+    sandboxViolations: [],
+  })).not.toThrow();
+  expect(() => assertAgenticE2EMockWailsClean({
+    unhandledRPC: [],
+    failures: [],
+    nonWailsSockets: ['wss://evil.example/ws'],
+    sandboxViolations: [],
+  })).toThrow(/non-Wails WebSocket/);
+});
 
 describe('agentic e2e strict Wails mock readiness and ACK contracts', () => {
   it('implements the frontend readiness probe and commit epoch contract', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+    const browser = await chromium.launch(chromiumLaunchOptions(resolveChromiumExecutable(), true, ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']));
     try {
       const page = await browser.newPage();
       await installAgenticE2EMockWails(page, { sandbox: sandboxFixture('/tmp/agentic-e2e-readiness') });
@@ -41,7 +69,7 @@ describe('agentic e2e strict Wails mock readiness and ACK contracts', () => {
   });
 
   it('responds to exact trace-ingest and ui/log ACKs while recording unhandled RPCs', async () => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] });
+    const browser = await chromium.launch(chromiumLaunchOptions(resolveChromiumExecutable(), true, ['--no-sandbox', '--disable-setuid-sandbox', '--single-process']));
     try {
       const page = await browser.newPage();
       const sandbox = sandboxFixture('/tmp/agentic-e2e-known');
@@ -74,6 +102,12 @@ describe('agentic e2e strict Wails mock readiness and ACK contracts', () => {
       const log = await callMockWailsRPC(page, 'ui/log', { level: 'info' });
       expect(log.result).toEqual({ ok: true });
 
+      const absentShortcutPreference = await callMockWailsRPC(page, 'ui/preferences/get', {
+        cwd: sandbox.projectDir,
+        key: 'settings.shortcuts.bindings',
+      });
+      expect(absentShortcutPreference).toEqual(expect.objectContaining({ result: null }));
+
       const unknown = await callMockWailsRPC(page, 'missing/method', {});
       expect(unknown.error.message).toMatch(/unhandled agentic e2e mock RPC/);
       const state = await readAgenticE2EMockWailsState(page);
@@ -81,6 +115,7 @@ describe('agentic e2e strict Wails mock readiness and ACK contracts', () => {
         'config/read',
         'observability/frontend/ingest',
         'ui/log',
+        'ui/preferences/get',
         'missing/method',
       ]);
       expect(state.unhandledRPC).toEqual(['missing/method']);

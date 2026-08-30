@@ -13,7 +13,7 @@ import (
 
 // SendCommand 处理仍未拆成独立 typed handler 的线程命令。
 // 当前 provider-neutral Session 只暴露 Configure、Interrupt 等少量能力；低频命令会明确返回 unsupported，
-// `thread/skills/list` 语义上读取线程绑定的 active skills，不扫描本地全量 skill 目录。
+// `thread/skills/list` 仅读取 provider 返回的线程 active skills，不扫描本地目录。
 func (s *service) SendCommand(ctx context.Context, threadID, command, args string) (any, error) {
 	cmd := normalizeCommand(command)
 	if cmd == "/clear" {

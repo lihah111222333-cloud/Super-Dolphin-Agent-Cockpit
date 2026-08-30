@@ -1,8 +1,6 @@
 package prompt
 
 import (
-	"fmt"
-	"os"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -26,22 +24,6 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 		return availableExpertsSectionDependency(section, input)
 	case DynamicSectionRecallCatalog, DynamicSectionProjectDefaultRules, DynamicSectionPersonalizationProfile:
 		return cwdScopedSectionDependency(section, input)
-	case DynamicSectionMemory:
-		return memorySectionDependency(section, input)
-	case DynamicSectionMemoryContext:
-		threadID := ""
-		userText := ""
-		if input.Turn != nil {
-			threadID = strings.TrimSpace(input.Turn.ThreadID)
-			userText = strings.TrimSpace(input.Turn.UserText)
-		}
-		return struct {
-			Section  string `json:"section"`
-			ThreadID string `json:"threadId,omitempty"`
-			UserText string `json:"userText,omitempty"`
-		}{Section: section.Name, ThreadID: threadID, UserText: userText}
-	case DynamicSectionMemoryEntrypoint:
-		return memoryEntrypointSectionDependency(section, input)
 	case DynamicSectionEnvInfoSimple:
 		return envInfoSimpleSectionDependency(section, input)
 	case DynamicSectionLanguage:
@@ -96,58 +78,6 @@ func cwdScopedSectionDependency(section PromptSection, input SectionContext) any
 		Section: section.Name,
 		CWD:     contract.SectionContextCWD(input),
 	}
-}
-
-// memorySectionDependency 汇总会改变记忆注入结果的 cwd、子代理身份、session flags 和记忆环境变量。
-// 记忆 section 读取外部路径和 feature gate，必须把这些边界放进 hash，避免跨项目或跨模式串用缓存。
-func memorySectionDependency(section PromptSection, input SectionContext) any {
-	isChild, agentType := childAgentCacheDependency(input)
-	return struct {
-		Section                      string   `json:"section"`
-		CWD                          string   `json:"cwd,omitempty"`
-		GitRoot                      string   `json:"gitRoot,omitempty"`
-		IsChild                      bool     `json:"isChild,omitempty"`
-		AgentType                    string   `json:"agentType,omitempty"`
-		AdditionalWorkingDirectories []string `json:"additionalWorkingDirectories,omitempty"`
-		SessionFlags                 []string `json:"sessionFlags,omitempty"`
-		Harness                      string   `json:"harness,omitempty"`
-		DisableAutoMemory            string   `json:"disableAutoMemory,omitempty"`
-		DisableClaudeMds             string   `json:"disableClaudeMds,omitempty"`
-		SimpleMode                   string   `json:"simpleMode,omitempty"`
-		RemoteMode                   string   `json:"remoteMode,omitempty"`
-		MemoryRootEnv                string   `json:"memoryRootEnv,omitempty"`
-		RemoteMemDirEnv              string   `json:"remoteMemDirEnv,omitempty"`
-		MemoryPathOverride           string   `json:"memoryPathOverride,omitempty"`
-		CoworkPathOverride           string   `json:"coworkPathOverride,omitempty"`
-		TeamMemFeat                  string   `json:"teamMemFeat,omitempty"`
-		KairosFeat                   string   `json:"kairosFeat,omitempty"`
-		SearchPastContextFeat        string   `json:"searchPastContextFeat,omitempty"`
-	}{
-		Section:                      section.Name,
-		CWD:                          currentPromptCWD(input.BuildCtx),
-		GitRoot:                      strings.TrimSpace(input.BuildCtx.GitRoot),
-		IsChild:                      isChild,
-		AgentType:                    agentType,
-		AdditionalWorkingDirectories: sortedPromptValues(input.BuildCtx.AdditionalWorkingDirectories),
-		SessionFlags:                 sortedPromptFlagPairs(input.BuildCtx.SessionFlags),
-		Harness:                      os.Getenv("MULTI_AGENT_HARNESS_CLI"),
-		DisableAutoMemory:            os.Getenv("CLAUDE_CODE_DISABLE_AUTO_MEMORY"),
-		DisableClaudeMds:             os.Getenv("CLAUDE_CODE_DISABLE_CLAUDE_MDS"),
-		SimpleMode:                   os.Getenv("CLAUDE_CODE_SIMPLE"),
-		RemoteMode:                   os.Getenv("CLAUDE_CODE_REMOTE"),
-		MemoryRootEnv:                os.Getenv("MULTI_AGENT_MEMORY_DIR"),
-		RemoteMemDirEnv:              os.Getenv("CLAUDE_CODE_REMOTE_MEMORY_DIR"),
-		MemoryPathOverride:           os.Getenv("MULTI_AGENT_MEMORY_PATH_OVERRIDE"),
-		CoworkPathOverride:           os.Getenv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"),
-		TeamMemFeat:                  os.Getenv("MULTI_AGENT_MEMORY_FEATURE_TEAMMEM"),
-		KairosFeat:                   os.Getenv("MULTI_AGENT_MEMORY_FEATURE_KAIROS"),
-		SearchPastContextFeat:        os.Getenv("MULTI_AGENT_MEMORY_FEATURE_SEARCH_PAST_CONTEXT"),
-	}
-}
-
-// memoryEntrypointSectionDependency 与完整记忆 section 共用缓存依赖，保证入口提示随同一组记忆配置失效。
-func memoryEntrypointSectionDependency(section PromptSection, input SectionContext) any {
-	return memorySectionDependency(section, input)
 }
 
 // envInfoSimpleSectionDependency 记录环境提示会展示的工作区、平台、LSP 工具和模型元数据。
@@ -254,22 +184,6 @@ func cacheByNameSectionDependency(section PromptSection, input SectionContext) a
 	}
 }
 
-// childAgentCacheDependency 判断 start-only 调用是否来自子代理，并返回可读的 agent type。
-// turn 阶段不再使用这条依赖，避免普通会话因为残留 parent 信息误判成子代理。
-func childAgentCacheDependency(input SectionContext) (bool, string) {
-	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
-		return false, ""
-	}
-	agentType := strings.TrimSpace(input.Start.AgentType)
-	if agentType == "" {
-		agentType = strings.TrimSpace(input.Start.Name)
-	}
-	if agentType == "" {
-		return false, ""
-	}
-	return true, agentType
-}
-
 // trueFlagKeys 返回开启状态的 session flag，排序后用于稳定缓存 hash。
 func trueFlagKeys(flags map[string]bool) []string {
 	keys := make([]string, 0, len(flags))
@@ -279,15 +193,6 @@ func trueFlagKeys(flags map[string]bool) []string {
 		}
 	}
 	return sortedPromptValues(keys)
-}
-
-// sortedPromptFlagPairs 保留 true/false 两种 flag 状态，供需要区分显式关闭的 section 使用。
-func sortedPromptFlagPairs(flags map[string]bool) []string {
-	pairs := make([]string, 0, len(flags))
-	for key, enabled := range flags {
-		pairs = append(pairs, fmt.Sprintf("%s=%t", strings.TrimSpace(key), enabled))
-	}
-	return sortedPromptValues(pairs)
 }
 
 // sectionLanguageServerTools 提取当前会话可见的 LSP 工具名，保持与环境提示展示内容一致。

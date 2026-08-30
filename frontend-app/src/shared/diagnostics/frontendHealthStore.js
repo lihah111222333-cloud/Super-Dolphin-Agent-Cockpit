@@ -217,7 +217,7 @@ export function recordFrontendHealth(failure) {
 
 /**
  * This is the single finite terminal state for a reporting sink failure. It is
- * deliberately memory-only because retrying the failed persistence path here
+ * deliberately process-local because retrying the failed persistence path here
  * would recurse.
  * @param {FrontendHealthFailure} failure
  */

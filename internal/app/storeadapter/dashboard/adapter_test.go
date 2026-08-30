@@ -179,7 +179,7 @@ func TestDashboardWriteWorkflowMaterialUsesAppAdapter(t *testing.T) {
 	stored := &sharedfilestore.SharedFile{Path: "reports/workflows/uploads/spec.md", Content: "body", UpdatedBy: "dashboard-ui"}
 	root := &dashboardSharedFileStoreTestDouble{dashboardSharedFileReaderTestDouble: dashboardSharedFileReaderTestDouble{file: stored}}
 	port := provideDashboardSharedFileReader(root)
-	svc := dashboard.NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, port, nil)
+	svc := dashboard.NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, port)
 	got, err := svc.WriteWorkflowMaterial(context.Background(), dashboard.WorkflowMaterialWriteRequest{Path: stored.Path, Content: stored.Content})
 	if err != nil || got == nil || got.Path != stored.Path || got.Content != stored.Content {
 		t.Fatalf("WriteWorkflowMaterial = (%#v, %v)", got, err)

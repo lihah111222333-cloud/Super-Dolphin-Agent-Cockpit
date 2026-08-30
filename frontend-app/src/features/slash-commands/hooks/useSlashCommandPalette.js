@@ -77,7 +77,7 @@ async function selectPrompt(item, context) {
 async function applySelection(item, context) {
   const { draft, setDraft, store } = context;
   if (item.kind === 'builtin') selectBuiltin(item, store);
-  if (item.kind === 'skill' || item.kind === 'mcp_tool') {
+  if (item.kind === 'mcp_tool') {
     selectCapability(item, draft, setDraft, store);
   }
   if (item.kind === 'prompt') return selectPrompt(item, context);

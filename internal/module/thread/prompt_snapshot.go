@@ -169,7 +169,10 @@ func promptSnapshotSectionMap(sections []contract.ResolvedPromptSection) map[str
 	for _, section := range sections {
 		name := strings.TrimSpace(section.Name)
 		content := strings.TrimSpace(section.Content)
-		if name != "" && content != "" {
+		// Do not let direct callers of ensureStartAssemblySnapshot reintroduce
+		// retired memory sections into a persisted snapshot. Lifecycle boundaries
+		// still validate and reject already-persisted legacy maps separately.
+		if name != "" && content != "" && !contract.IsLegacyMemoryPromptSection(name) {
 			out[name] = content
 		}
 	}
@@ -196,6 +199,24 @@ func clonePromptSectionMap(src map[string]string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+// uniquePromptSnapshotIDs 规范化并去重快照别名，同时保留调用方提供的顺序。
+func uniquePromptSnapshotIDs(threadIDs []string) []string {
+	seen := make(map[string]struct{}, len(threadIDs))
+	ids := make([]string, 0, len(threadIDs))
+	for _, rawID := range threadIDs {
+		threadID := strings.TrimSpace(rawID)
+		if threadID == "" {
+			continue
+		}
+		if _, ok := seen[threadID]; ok {
+			continue
+		}
+		seen[threadID] = struct{}{}
+		ids = append(ids, threadID)
+	}
+	return ids
 }
 
 func promptSnapshotHash(
@@ -280,20 +301,88 @@ func (s *service) resolveStablePromptSnapshot(
 	if err != nil {
 		return contract.PromptAssemblySnapshot{}, fmt.Errorf("load stable prompt snapshot for %q: %w", strings.TrimSpace(threadID), err)
 	}
-	if storedPromptSnapshotValid(stored, provider) {
-		return stored, nil
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(stored); err != nil {
+		return contract.PromptAssemblySnapshot{}, errors.Join(invalidPromptSnapshotError(threadID), err)
 	}
-	if !promptSnapshotBlank(stored) && s.logger != nil {
+	if snapshot, ok, err := s.acceptStoredPromptSnapshot(stored, provider, threadID); err != nil || ok {
+		return snapshot, err
+	}
+	fallback = normalizeCallerPromptSnapshot(fallback, provider)
+	if snapshot, ok, err := acceptCallerPromptSnapshot(fallback, provider, threadID); err != nil || ok {
+		return snapshot, err
+	}
+	return s.rebuildMissingPromptSnapshot(ctx, threadID, provider)
+}
+
+// resolveStablePromptSnapshotForAliases 跨 public thread/runtime 别名查找并校验持久化快照。
+// 调用方可能使用 agent/provider 别名，而 durable snapshot 以 public thread id 为键；
+// 所有非空别名都必须通过校验，避免别名差异绕过 legacy memory 防线。
+func (s *service) resolveStablePromptSnapshotForAliases(
+	ctx context.Context,
+	threadIDs []string,
+	provider string,
+	fallback contract.PromptAssemblySnapshot,
+) (contract.PromptAssemblySnapshot, error) {
+	candidates := uniquePromptSnapshotIDs(threadIDs)
+	var selected contract.PromptAssemblySnapshot
+	for _, threadID := range candidates {
+		stored, err := s.loadStoredPromptSnapshot(ctx, threadID)
+		if err != nil {
+			if contract.IsNotFound(err) {
+				continue
+			}
+			return contract.PromptAssemblySnapshot{}, fmt.Errorf("load stable prompt snapshot for %q: %w", threadID, err)
+		}
+		if promptSnapshotBlank(stored) {
+			continue
+		}
+		if err := validatePromptSnapshotForReuse(stored, provider); err != nil {
+			return contract.PromptAssemblySnapshot{}, errors.Join(invalidPromptSnapshotError(threadID), err)
+		}
+		if promptSnapshotBlank(selected) {
+			selected = stored
+		}
+	}
+	if !promptSnapshotBlank(selected) {
+		return selected, nil
+	}
+	if len(candidates) == 0 {
+		return contract.PromptAssemblySnapshot{}, errors.New("stable prompt snapshot thread_id is required")
+	}
+	return s.resolveStablePromptSnapshot(ctx, candidates[0], provider, fallback)
+}
+
+// acceptStoredPromptSnapshot 处理已存快照；非空但不匹配时直接返回 invalid，空快照交给后续来源。
+func (s *service) acceptStoredPromptSnapshot(stored contract.PromptAssemblySnapshot, provider, threadID string) (contract.PromptAssemblySnapshot, bool, error) {
+	if storedPromptSnapshotValid(stored, provider) {
+		if err := validatePromptSnapshotForReuse(stored, provider); err != nil {
+			return contract.PromptAssemblySnapshot{}, false, errors.Join(invalidPromptSnapshotError(threadID), err)
+		}
+		return stored, true, nil
+	}
+	if promptSnapshotBlank(stored) {
+		return contract.PromptAssemblySnapshot{}, false, nil
+	}
+	if s != nil && s.logger != nil {
 		s.logger.Debug("thread: recomputing prompt snapshot due to hash/version mismatch",
 			"thread_id", threadID, "stored_version", stored.Version)
 	}
-	if !promptSnapshotBlank(stored) {
-		return contract.PromptAssemblySnapshot{}, invalidPromptSnapshotError(threadID)
+	return contract.PromptAssemblySnapshot{}, false, invalidPromptSnapshotError(threadID)
+}
+
+// acceptCallerPromptSnapshot 处理调用方提供的快照；空值表示允许走旧线程重建门。
+func acceptCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, provider, threadID string) (contract.PromptAssemblySnapshot, bool, error) {
+	if promptSnapshotBlank(snapshot) {
+		return contract.PromptAssemblySnapshot{}, false, nil
 	}
-	fallback = normalizeCallerPromptSnapshot(fallback, provider)
-	if !promptSnapshotBlank(fallback) {
-		return fallback, nil
+	if err := validatePromptSnapshotForReuse(snapshot, provider); err != nil {
+		return contract.PromptAssemblySnapshot{}, false, errors.Join(invalidPromptSnapshotError(threadID), err)
 	}
+	return snapshot, true, nil
+}
+
+// rebuildMissingPromptSnapshot 只在存储和调用方都没有快照时按显式迁移门重建。
+func (s *service) rebuildMissingPromptSnapshot(ctx context.Context, threadID, provider string) (contract.PromptAssemblySnapshot, error) {
 	meta, err := s.requireThreadMeta(ctx, threadID)
 	if err != nil {
 		return contract.PromptAssemblySnapshot{}, err
@@ -306,7 +395,14 @@ func (s *service) resolveStablePromptSnapshot(
 		return contract.PromptAssemblySnapshot{}, err
 	}
 	if legacyAllowed {
-		return ensureStartAssemblySnapshot(contract.StartAssembly{DisplayName: meta.Name}, provider).Snapshot, nil
+		// A migration gate may authorize rebuilding a legacy thread, but it must
+		// never manufacture a display-name-only snapshot. Such a snapshot would
+		// pass the old structural check and fail only after fork orchestration.
+		migrated := ensureStartAssemblySnapshot(contract.StartAssembly{DisplayName: meta.Name}, provider).Snapshot
+		if err := validatePromptSnapshotForReuse(migrated, provider); err != nil {
+			return contract.PromptAssemblySnapshot{}, errors.Join(invalidPromptSnapshotError(threadID), err)
+		}
+		return migrated, nil
 	}
 	return contract.PromptAssemblySnapshot{}, missingPromptSnapshotError(threadID)
 }
@@ -323,11 +419,11 @@ func (s *service) resolveResumePromptSnapshot(
 	if err != nil {
 		return contract.PromptAssemblySnapshot{}, fmt.Errorf("load stored prompt snapshot for %q: %w", state.PublicThreadID, err)
 	}
-	if storedPromptSnapshotValid(stored, provider) {
-		return stored, nil
+	if err := contract.ValidateLegacyMemoryPromptSnapshot(stored); err != nil {
+		return contract.PromptAssemblySnapshot{}, errors.Join(invalidPromptSnapshotError(state.PublicThreadID), err)
 	}
-	if !promptSnapshotBlank(stored) {
-		return contract.PromptAssemblySnapshot{}, invalidPromptSnapshotError(state.PublicThreadID)
+	if snapshot, ok, err := acceptStoredResumePromptSnapshot(stored, provider, state.PublicThreadID); err != nil || ok {
+		return snapshot, err
 	}
 	legacyAllowed, err := legacyPromptSnapshotMigrationAllowed(state)
 	if err != nil {
@@ -337,14 +433,28 @@ func (s *service) resolveResumePromptSnapshot(
 		return contract.PromptAssemblySnapshot{}, missingPromptSnapshotError(state.PublicThreadID)
 	}
 	caller := normalizeCallerPromptSnapshot(req.PromptSnapshot, provider)
-	if !promptSnapshotBlank(caller) {
-		return caller, nil
+	if snapshot, ok, err := acceptCallerPromptSnapshot(caller, provider, state.PublicThreadID); err != nil || ok {
+		return snapshot, err
 	}
 	rebuilt, err := s.rebuildResumePromptSnapshot(ctx, state, provider)
 	if err != nil {
 		return contract.PromptAssemblySnapshot{}, err
 	}
 	return rebuilt, nil
+}
+
+// acceptStoredResumePromptSnapshot 处理恢复场景的已存快照，非空失配必须阻断恢复。
+func acceptStoredResumePromptSnapshot(stored contract.PromptAssemblySnapshot, provider, threadID string) (contract.PromptAssemblySnapshot, bool, error) {
+	if storedPromptSnapshotValid(stored, provider) {
+		if err := validatePromptSnapshotForReuse(stored, provider); err != nil {
+			return contract.PromptAssemblySnapshot{}, false, errors.Join(invalidPromptSnapshotError(threadID), err)
+		}
+		return stored, true, nil
+	}
+	if promptSnapshotBlank(stored) {
+		return contract.PromptAssemblySnapshot{}, false, nil
+	}
+	return contract.PromptAssemblySnapshot{}, false, invalidPromptSnapshotError(threadID)
 }
 
 // legacyPromptSnapshotMigrationAllowed 只接受显式布尔开关放行旧线程的无 snapshot 迁移。
@@ -419,6 +529,9 @@ func (s *service) rebuildResumePromptSnapshot(
 	if promptSnapshotBlank(snapshot) {
 		return contract.PromptAssemblySnapshot{}, errors.New("resume prompt snapshot rebuild produced an empty snapshot")
 	}
+	if err := validatePromptSnapshotForReuse(snapshot, provider); err != nil {
+		return contract.PromptAssemblySnapshot{}, fmt.Errorf("resume prompt snapshot rebuild is invalid: %w", err)
+	}
 	return snapshot, nil
 }
 
@@ -467,10 +580,13 @@ func fromStoredPromptSnapshot(snapshot *promptSnapshotRecord) contract.PromptAss
 // storedPromptSnapshotValid 判断存储中的 prompt 快照是否仍可复用。
 func storedPromptSnapshotValid(snapshot contract.PromptAssemblySnapshot, provider string) bool {
 	snapshot = normalizePromptSnapshotContent(snapshot)
-	if promptSnapshotBlank(snapshot) || snapshot.Version == 0 || snapshot.Provider == "" || snapshot.Hash == "" {
+	if promptSnapshotBlank(snapshot) || snapshot.Version != contract.PromptAssemblySnapshotVersion || snapshot.Provider == "" || snapshot.Hash == "" {
 		return false
 	}
-	if provider = strings.TrimSpace(provider); provider != "" && snapshot.Provider != provider {
+	if contract.ValidateLegacyMemoryPromptSnapshot(snapshot) != nil {
+		return false
+	}
+	if provider = strings.TrimSpace(provider); provider != "" && !strings.EqualFold(snapshot.Provider, provider) {
 		return false
 	}
 	return snapshot.Hash == promptSnapshotHash(
@@ -492,9 +608,6 @@ func normalizeCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, pro
 	if snapshot.Provider == "" {
 		snapshot.Provider = strings.TrimSpace(provider)
 	}
-	if snapshot.Version == 0 {
-		snapshot.Version = contract.PromptAssemblySnapshotVersion
-	}
 	if snapshot.Hash == "" {
 		snapshot.Hash = promptSnapshotHash(
 			snapshot.DisplayName,
@@ -509,6 +622,21 @@ func normalizeCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, pro
 	return snapshot
 }
 
+// validatePromptSnapshotForReuse 在 fork/resume/rebuild 进入 provider 前执行统一快照边界。
+// 版本必须精确匹配当前布局，旧 memory section 不能借 migration gate 回流。
+func validatePromptSnapshotForReuse(snapshot contract.PromptAssemblySnapshot, provider string) error {
+	if err := contract.ValidateResumePromptSnapshotForProvider(snapshot, provider); err != nil {
+		return err
+	}
+	if promptSnapshotContentBlank(snapshot) {
+		return errors.New("prompt snapshot content is empty")
+	}
+	if !storedPromptSnapshotValid(snapshot, provider) {
+		return errors.New("prompt snapshot hash or content is invalid")
+	}
+	return nil
+}
+
 // promptSnapshotBlank 判断 prompt 快照是否为空。
 func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 	snapshot = normalizePromptSnapshotContent(snapshot)
@@ -521,4 +649,14 @@ func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 		snapshot.Hash == "" &&
 		len(snapshot.SectionSnapshot) == 0 &&
 		snapshot.Generation == 0
+}
+
+// promptSnapshotContentBlank 判断 snapshot 是否只有展示/校验元数据而没有可恢复正文。
+// displayName、version、hash 本身不能让 provider 重建会话；至少要保留 base、developer、
+// boundary 或结构化 section 之一，避免 migration fallback 在 fork 后才暴露空 prompt。
+func promptSnapshotContentBlank(snapshot contract.PromptAssemblySnapshot) bool {
+	return strings.TrimSpace(snapshot.BaseInstructions) == "" &&
+		strings.TrimSpace(snapshot.DeveloperInstructions) == "" &&
+		promptBoundaryBlank(snapshot.Boundary) &&
+		len(snapshot.SectionSnapshot) == 0
 }

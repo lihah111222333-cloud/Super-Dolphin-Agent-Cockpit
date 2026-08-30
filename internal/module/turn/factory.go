@@ -601,7 +601,7 @@ func normalizeSkillNames(groups ...[]string) []dto.SkillRef {
 	return normalizeSkillRefs(refGroups...)
 }
 
-// normalizeSkillNamesWithSource 给 name-only skill 标记来源，供后续 hydration 判断可信度。
+// normalizeSkillNamesWithSource 给 name-only skill 标记来源，供 provider-native metadata 诊断保留来源。
 func normalizeSkillNamesWithSource(source dto.SkillSource, names []string) []dto.SkillRef {
 	refs := make([]dto.SkillRef, 0, len(names))
 	for _, raw := range names {
@@ -650,10 +650,5 @@ func newSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerReques
 
 // cloneSkillRefs 复制 SkillRef 切片，避免 PrepareInput 与请求参数共享底层数组。
 func cloneSkillRefs(refs []dto.SkillRef) []dto.SkillRef {
-	if len(refs) == 0 {
-		return nil
-	}
-	cloned := make([]dto.SkillRef, len(refs))
-	copy(cloned, refs)
-	return cloned
+	return contract.CloneProviderSkillRefsMetadataOnly(refs)
 }

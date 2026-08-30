@@ -194,7 +194,7 @@ func TestSpawnIfNeededPreservesPendingLaunchSandboxPreference(t *testing.T) {
 		sessions:                sessions,
 		orchestration:           &stubThreadOrchestration{},
 		sessionGenerationBinder: &stubThreadOrchestration{},
-		promptAssembly:          promptAssemblyStub{},
+		promptAssembly:          promptAssemblyForTest("pending spawn"),
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 			capturedStart = req
 			session := &stubSession{threadID: providerUUID}
@@ -338,7 +338,7 @@ func TestSpawnIfNeededPropagatesPromptKeyStale(t *testing.T) {
 		sessions:                sessions,
 		orchestration:           &stubThreadOrchestration{},
 		sessionGenerationBinder: &stubThreadOrchestration{},
-		promptAssembly:          promptAssemblyStub{},
+		promptAssembly:          promptAssemblyForTest("pending spawn"),
 		promptCatalog:           &fakePromptCatalog{},
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{threadID: threadID}
@@ -389,7 +389,7 @@ func TestSpawnIfNeededInjectsPackagedCodexIdentity(t *testing.T) {
 		sessions:                sessions,
 		orchestration:           &stubThreadOrchestration{},
 		sessionGenerationBinder: &stubThreadOrchestration{},
-		promptAssembly:          promptAssemblyStub{},
+		promptAssembly:          promptAssemblyForTest("pending spawn"),
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{threadID: providerUUID}
 			sessions.session = session
@@ -443,7 +443,7 @@ func TestSpawnIfNeededUsesRuntimeCodexIdentityWhenPendingConfigIsPartial(t *test
 		sessions:                sessions,
 		orchestration:           &stubThreadOrchestration{},
 		sessionGenerationBinder: &stubThreadOrchestration{},
-		promptAssembly:          promptAssemblyStub{},
+		promptAssembly:          promptAssemblyForTest("pending spawn"),
 		starter: &startOnlySessionStarter{onStart: func(_ context.Context, _ dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{
 				threadID: providerUUID,

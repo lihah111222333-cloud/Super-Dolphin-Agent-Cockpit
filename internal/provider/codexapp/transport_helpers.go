@@ -520,24 +520,23 @@ func isLoopbackHost(host string) bool {
 
 type codexProviderHomeSelection struct {
 	homeRequest            string
-	mirrorHomeRequest      string
 	useAppManagedHome      bool
 	explicitAppManagedHome bool
 }
 
-func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home, mirrorHome string, err error) {
+func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home string, err error) {
 	if selection.useAppManagedHome {
 		home, err = providershared.EnsureAppManagedProviderHome(providershared.ProviderCodex)
 		if err != nil {
-			return "", "", err
+			return "", err
 		}
-		return home, home, nil
+		return home, nil
 	}
 	home, err = providershared.EnsureProviderHome(providershared.ProviderCodex, selection.homeRequest)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return home, normalizedExplicitProviderHome(selection.mirrorHomeRequest, home), nil
+	return home, nil
 }
 
 // validateAppManagedRelayLaunchEnv 校验 app-managed Codex relay 启动环境。
@@ -562,7 +561,7 @@ func validateAppManagedRelayLaunchEnv() error {
 }
 
 // selectCodexProviderHome 决定 Codex provider 使用 app-managed home 还是用户 home。
-// 打包运行时默认走 app-managed；显式默认 CLI home 会保持旧行为，不创建额外 mirror home。
+// 打包运行时默认走 app-managed；显式默认 CLI home 会保持旧行为，不创建额外 provider home。
 func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
 	packaged, err := providershared.PackagedRuntimeFromEnv()
 	if err != nil {
@@ -585,7 +584,7 @@ func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error)
 	if matchesDefaultCodexCLIHome(requested) {
 		return codexProviderHomeSelection{}, nil
 	}
-	return codexProviderHomeSelection{homeRequest: rawHome, mirrorHomeRequest: rawHome}, nil
+	return codexProviderHomeSelection{homeRequest: rawHome}, nil
 }
 
 func requestedCodexHomeIsAppManaged(packaged bool, requested string) (bool, error) {

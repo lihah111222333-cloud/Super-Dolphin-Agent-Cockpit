@@ -1,5 +1,4 @@
 import {
-  deleteSharedFile as deleteSharedFileBackend,
   listSharedFiles as listSharedFilesBackend,
   openSharedFile as openSharedFileBackend,
   readSharedFile as readSharedFileBackend,
@@ -10,7 +9,7 @@ import { DEFAULT_REQUEST_TIMEOUT_MS, runServiceRequest, withRequestTimeout } fro
 
 /*
  * file service 把 shared file 响应整理给页面用。
- * 打开、删除、保存只转发后端结果。
+ * 打开和保存只转发后端结果。
  */
 
 async function listSharedFilesDashboard() {
@@ -35,12 +34,8 @@ async function openSharedFile(params) {
   return runServiceRequest(() => openSharedFileBackend(params), '打开共享文件失败');
 }
 
-async function deleteSharedFile(params) {
-  return runServiceRequest(() => deleteSharedFileBackend(params), '删除共享文件失败');
-}
-
 async function saveTextFile(params) {
   return runServiceRequest(() => saveTextFileBackend(params), '保存文本文件失败');
 }
 
-export { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile };
+export { listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile };

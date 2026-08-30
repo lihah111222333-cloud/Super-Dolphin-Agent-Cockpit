@@ -5,9 +5,6 @@ import {
   takePayloadField,
   hasOwn,
   normalizeString,
-  normalizeRequiredString,
-  requireCwd,
-  requireKey,
   cleanObject,
   normalizeOptionalLimit,
 } from './backendApiCommon.js';
@@ -82,96 +79,6 @@ function legacyThreadNamePayload(method, params) {
   if (!normalizeString(name)) throw new Error(`${method}: name is required`);
   assertNoExtraPayloadFields(method, unused);
   return { threadId, name };
-}
-
-/** @param {string} method @param {unknown} value @param {string} field */
-function memoryTargetPayload(method, value, field = 'target') {
-  const target = normalizeString(value);
-  if (target !== 'private' && target !== 'team') {
-    throw new Error(`${method}: ${field} must be private or team`);
-  }
-  return target;
-}
-
-/** @param {string} method @param {unknown} params */
-function memoryEntryGetPayload(method, params) {
-  const payload = requireKey(method, requireCwd(method, params), 'path');
-  return {
-    ...payload,
-    target: memoryTargetPayload(method, payload.target),
-  };
-}
-
-/** @param {string} method @param {unknown} params */
-function memoryEntryUpsertPayload(method, params) {
-  const payload = /** @type {Record<string, unknown> & { cwd: string }} */ (requireCwd(method, params));
-  for (const key of ['name', 'description', 'type', 'content']) {
-    if (!normalizeString(payload[key])) throw new Error(`${method}: ${key} is required`);
-  }
-  return cleanObject({
-    cwd: payload.cwd,
-    target: memoryTargetPayload(method, payload.target),
-    existingPath: normalizeString(payload.existingPath),
-    name: normalizeString(payload.name),
-    description: normalizeString(payload.description),
-    type: normalizeString(payload.type),
-    content: normalizeRequiredString(method, payload.content, 'content'),
-    title: normalizeString(payload.title),
-  });
-}
-
-/** @param {string} method @param {unknown} params */
-function memoryPairPayload(method, params) {
-  const payload = /** @type {Record<string, unknown> & { cwd: string }} */ (requireCwd(method, params));
-  for (const key of ['pathA', 'pathB']) {
-    if (!normalizeString(payload[key])) throw new Error(`${method}: ${key} is required`);
-  }
-  return {
-    cwd: payload.cwd,
-    targetA: memoryTargetPayload(method, payload.targetA, 'targetA'),
-    pathA: normalizeString(payload.pathA),
-    targetB: memoryTargetPayload(method, payload.targetB, 'targetB'),
-    pathB: normalizeString(payload.pathB),
-  };
-}
-
-/** @param {Record<string, unknown>} payload */
-function skillPersonalType(payload) {
-  return normalizeString(payload.personal_type || payload.personalType);
-}
-
-/** @param {unknown} raw @returns {string} */
-function normalizeSkillSummarySuggestion(raw) {
-  if (typeof raw === 'string') return normalizeString(raw);
-  if (raw && typeof raw === 'object' && !Array.isArray(raw) && hasOwn(raw, 'description')) {
-    return normalizeString(/** @type {Record<string, unknown>} */ (raw).description);
-  }
-  throw new Error(`${RPC_METHODS.SKILLS_SUMMARY_SUGGEST}: description is required`);
-}
-
-/** @param {string} method @param {unknown} params */
-function skillResolutionPayload(method, params = {}) {
-  const payload = assertPlainObject(method, params);
-  const conflictID = normalizeString(payload.conflict_id ?? payload.conflictId);
-  const action = normalizeString(payload.action);
-  if (!conflictID) throw new Error(`${method}: conflict_id is required`);
-  if (!action) throw new Error(`${method}: action is required`);
-  /** @type {Array<[string, unknown]>} */
-  const entries = [
-    ['conflict_id', conflictID],
-    ['action', action],
-    ['name', payload.name],
-    ['scope', payload.scope],
-    ['personal_type', payload.personal_type ?? payload.personalType],
-    ['provider', payload.provider],
-    ['source_provider', payload.source_provider ?? payload.sourceProvider],
-    ['source_path_id', payload.source_path_id ?? payload.sourcePathId],
-    ['new_name', payload.new_name ?? payload.newName],
-    ['keep_source_id', payload.keep_source_id ?? payload.keepSourceID],
-    ['merge_content_hash', payload.merge_content_hash ?? payload.mergeContentHash],
-    ['disable_policy_target', payload.disable_policy_target ?? payload.disablePolicyTarget],
-  ];
-  return cleanObject(Object.fromEntries(entries.map(([key, value]) => [key, normalizeString(value)])));
 }
 
 /** @param {unknown} path @returns {string} */
@@ -258,7 +165,6 @@ function normalizeTurnInput(input, attachments = []) {
 
 export {
   observabilityTracePayload, observabilityThreadPayload, observabilityListPayload, observabilityRecentPayload, threadScopedPayload, resolveThreadIdAliases,
-  legacyThreadNamePayload, memoryTargetPayload,
-  memoryEntryGetPayload, memoryEntryUpsertPayload, memoryPairPayload, skillPersonalType, normalizeSkillSummarySuggestion, skillResolutionPayload,
+  legacyThreadNamePayload,
   basename, normalizeAttachmentPath, normalizeAttachmentInputItem, hasAttachmentInputContent, normalizeTurnInput,
 };

@@ -2,7 +2,11 @@
 
 package main
 
-import "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+import (
+	"runtime"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/installer"
+)
 
 // runtimeNPMCommand 返回非 Windows 构建的历史 npm 启动文件名；平台选择由本文件的 build tag 固定。
 func runtimeNPMCommand() string {
@@ -22,7 +26,12 @@ func registerNPMInstallers(inst *installer.Provider) {
 // registerShellAndSQLInstallers 保留非 Windows 的 PATH shell/npm 与 SQL 注册行为。
 func registerShellAndSQLInstallers(inst *installer.Provider) {
 	inst.Register("shellscript", runtimeNonWindowsShellInstallerConfig())
-	registerSQLInstaller(inst)
+	// Linux amd64 already has the self-contained, checksum-pinned sqruff
+	// artifact registered by registerPlatformNativeArtifactInstallers. Do not
+	// replace it with the legacy cargo PATH installer.
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		registerSQLInstaller(inst)
+	}
 }
 
 // runtimeShellNPMInstallerConfigForPlatform 保留非 Windows 测试的显式平台映射入口；参数只为矩阵测试保留。
@@ -35,7 +44,12 @@ func runtimeShellNPMInstallerConfigForPlatform(_ string) installer.InstallerConf
 // 不会在非 Windows 编译或调用路径中出现。
 func registerPlatformProductionInstallers(inst *installer.Provider) {
 	registerNPMInstallers(inst)
-	registerNativeToolInstallers(inst)
+	// Linux amd64 uses the managed official-archive installers registered by
+	// registerPlatformNativeArtifactInstallers. The legacy brew/rustup map has
+	// overlapping language IDs and would silently overwrite those installers.
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		registerNativeToolInstallers(inst)
+	}
 	registerGoInstallers(inst)
 	registerShellAndSQLInstallers(inst)
 }

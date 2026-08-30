@@ -14,23 +14,19 @@ func TestPrepareTurnRecordsSkillsSelected(t *testing.T) {
 	t.Parallel()
 
 	mem := observation.NewMemory()
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, mem, nil, nil, nil, NewToolResultRuntime())
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, mem, nil, nil, nil, NewToolResultRuntime())
 	session := &stubSession{threadID: "thread-1"}
 
 	req, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
 		Prompt: "Please use @debug and [skill:deploy-tool] on this issue.",
-		Skills: []dto.SkillRef{{Name: " explicit "}},
-		CandidateSkills: []dto.SkillRef{
-			{Name: "debug"},
-			{Name: "deploy-tool"},
-		},
+		Skills: []dto.SkillRef{{Name: " explicit ", Summary: "explicit summary", Version: "v1"}},
 	})
 	if err != nil {
 		t.Fatalf("PrepareTurn() error = %v", err)
 	}
 
 	got := mem.SkillsSelected(req.LocalID)
-	want := []string{"explicit", "debug", "deploy-tool"}
+	want := []string{"explicit"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("SkillsSelected(%q) = %#v, want %#v", req.LocalID, got, want)
 	}
@@ -40,7 +36,7 @@ func TestProviderTurnCreationMapsToLocalTurnID(t *testing.T) {
 	t.Parallel()
 
 	mem := observation.NewMemory()
-	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, mem, nil, nil, nil, NewToolResultRuntime())
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, mem, nil, nil, nil, NewToolResultRuntime())
 	session := &stubSession{
 		threadID: "thread-1",
 		startTurn: func(_ context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {

@@ -48,11 +48,9 @@ textarea:disabled {
 .page-actions button,
 .page-actions select,
 .action-row button,
-.skills-toolbar button,
 .file-intro button,
 .file-row button,
 .settings-page button,
-.memory-page button,
 .workflow-page button,
 .prompt-page button,
 .prompt-editor-modal button,
@@ -67,11 +65,9 @@ textarea:disabled {
 .top-command button:hover,
 .page-actions button:hover,
 .action-row button:hover,
-.skills-toolbar button:hover,
 .file-intro button:hover,
 .file-row button:hover,
 .settings-page button:hover,
-.memory-page button:hover,
 .workflow-page button:hover,
 .prompt-page button:hover,
 .prompt-editor-modal button:hover,
@@ -181,8 +177,7 @@ textarea:disabled {
 }
 
 .top-command .project-dropdown,
-.model-dropdown,
-.memory-create-menu {
+.model-dropdown {
   border-color: var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -220,7 +215,6 @@ textarea:disabled {
 
 .top-command .action-feedback,
 .settings-status,
-.memory-notice,
 .prompt-notice,
 .prompt-loading {
   border-radius: var(--radius-sm);
@@ -283,8 +277,6 @@ textarea:disabled {
 .score,
 .thread-card b,
 .thread-stale-badge,
-.skill-card header span,
-.memory-card header span,
 .file-row header span,
 .prompt-badges span,
 .prompt-tag-row span,
@@ -464,7 +456,6 @@ textarea:disabled {
 .composer textarea::placeholder,
 .prompt-editor-grid input::placeholder,
 .prompt-editor-grid textarea::placeholder,
-.memory-form-grid input::placeholder,
 .form-grid textarea::placeholder {
   color: var(--text-subtle);
 }
@@ -736,7 +727,6 @@ textarea:disabled {
 .shared-file-content-preview,
 .settings-log-list,
 .log-lines,
-.skills-body-preview,
 .prompt-draft-review pre {
   scrollbar-color: var(--surface-3) transparent;
 }
@@ -778,16 +768,13 @@ textarea:disabled {
 .top-command button,
 .page-actions button,
 .action-row button,
-.skills-toolbar button,
 .file-intro button,
 .file-row button,
 .settings-page button,
-.memory-page button,
 .workflow-page button,
 .prompt-page button,
 .prompt-editor-modal button,
 .prompt-wizard-modal button,
-.skills-editor-modal button,
 .composer button,
 .composer-model,
 .model-dropdown select,
@@ -799,16 +786,13 @@ textarea:disabled {
 .top-command button:active:not(:disabled),
 .page-actions button:active:not(:disabled),
 .action-row button:active:not(:disabled),
-.skills-toolbar button:active:not(:disabled),
 .file-intro button:active:not(:disabled),
 .file-row button:active:not(:disabled),
 .settings-page button:active:not(:disabled),
-.memory-page button:active:not(:disabled),
 .workflow-page button:active:not(:disabled),
 .prompt-page button:active:not(:disabled),
 .prompt-editor-modal button:active:not(:disabled),
 .prompt-wizard-modal button:active:not(:disabled),
-.skills-editor-modal button:active:not(:disabled),
 .super-dolphin-agent-new-chat:active:not(:disabled),
 .btn:active:not(:disabled) {
   transform: translateY(1px);
@@ -925,7 +909,6 @@ textarea:disabled {
 
 .top-command .project-dropdown,
 .titlebar .project-dropdown,
-.memory-create-menu,
 .project-selector-popover {
   transform-origin: top center;
   animation: sd-popover-in var(--motion-overlay) both;
@@ -950,10 +933,8 @@ textarea:disabled {
 }
 
 .settings-page,
-.memory-page,
 .workflow-page,
 .prompt-page,
-.skills-tabbed-container,
 .shared-files-page {
   animation: sd-page-enter var(--motion-page-enter) both;
 }
@@ -973,7 +954,6 @@ textarea:disabled {
 .top-command .action-feedback,
 .titlebar .action-feedback,
 .settings-status,
-.memory-notice,
 .prompt-notice {
   animation: sd-feedback-in var(--motion-fast) var(--ease-standard);
 }
@@ -1064,14 +1044,11 @@ textarea:disabled {
   .top-command .project-dropdown,
   .titlebar .project-dropdown,
   .model-dropdown,
-  .memory-create-menu,
   .project-selector-popover,
   .slash-command-palette,
   .settings-page,
-  .memory-page,
   .workflow-page,
   .prompt-page,
-  .skills-tabbed-container,
   .shared-files-page,
   .message,
   .chat-intro-logo-tile,
@@ -1085,7 +1062,6 @@ textarea:disabled {
   .top-command .action-feedback,
   .titlebar .action-feedback,
   .settings-status,
-  .memory-notice,
   .prompt-notice,
   #overlay-root .global-action-failure,
   .message-copy.is-copied {

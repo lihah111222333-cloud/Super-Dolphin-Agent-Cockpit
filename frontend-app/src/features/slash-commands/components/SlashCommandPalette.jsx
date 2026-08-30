@@ -18,6 +18,7 @@ const CATEGORY_ICONS = Object.freeze({
   automation: Workflow,
   mcp_tool: Wrench,
 });
+const EMPTY_CATEGORY_STATE = Object.freeze({ status: 'success', error: '' });
 
 function categoryItems(items, kind) {
   return items.filter((item) => item.kind === kind);
@@ -33,7 +34,7 @@ function categoryStatusText(state, copy, cwd) {
 function liveStatusText(categoryStates, copy, cwd, selecting) {
   if (selecting) return copy.selecting;
   for (const kind of SLASH_COMMAND_KIND_ORDER) {
-    const status = categoryStatusText(categoryStates[kind], copy, cwd);
+    const status = categoryStatusText(categoryStates[kind] || EMPTY_CATEGORY_STATE, copy, cwd);
     if (status) return status;
   }
   return '';
@@ -130,7 +131,7 @@ export function SlashCommandPalette(props) {
             kind={kind}
             selectItem={selectItem}
             setActiveId={setActiveId}
-            state={categoryStates[kind]}
+            state={categoryStates[kind] || EMPTY_CATEGORY_STATE}
           />
         ))}
         {items.length === 0 && allSuccessful ? (

@@ -411,7 +411,7 @@ func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
 		Status:          statusCreated,
 		ManuallyRenamed: false,
 		ConfigOverride:  legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", defaultThreadName())}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          agentID,
 		Provider:         "codex",
@@ -474,7 +474,7 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 		CreatedAt:      123,
 		Status:         statusCreated,
 		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("codex", "resume")}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "codex",
@@ -605,7 +605,7 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 				"legacyPromptSnapshotMigration": true,
 			},
 		}),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("claude", "resume")}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-1",
 		Provider:         "claude",
@@ -656,7 +656,7 @@ func TestServiceResumeRehydratesClaudeHomeFromStoredRuntime(t *testing.T) {
 			"claude_home":                   claudeHome,
 			"legacyPromptSnapshotMigration": true,
 		}}),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("claude", "resume")}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-claude-home",
 		Provider:         "claude",
@@ -702,7 +702,7 @@ func TestServiceResumeRequestClaudeHomeOverridesStoredRuntime(t *testing.T) {
 			"claudeHome":                    storedHome,
 			"legacyPromptSnapshotMigration": true,
 		}}),
-	}}
+	}, promptSnapshot: validPromptSnapshotPtrForTest("claude", "resume")}
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:          "agent-claude-home-override",
 		Provider:         "claude",

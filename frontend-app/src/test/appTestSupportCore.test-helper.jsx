@@ -1,6 +1,5 @@
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { expect, vi } from 'vitest';
-import { normalizeMemorySnapshot as normalizeMemorySnapshotForFacade } from '../adapters/memoryAdapter.js';
 
 let backend;
 let resetClientStoreForTests;
@@ -79,10 +78,6 @@ function mockShortcutPreferenceLoad(loadShortcutPreference) {
   });
 }
 
-function openPluginsAndSkillsPage() {
-  fireEvent.click(screen.getByLabelText('插件与技能'));
-}
-
 function getSidebarNavButton(name) {
   return within(screen.getByTestId('sidebar-nav')).getByRole('button', { name });
 }
@@ -114,29 +109,6 @@ function queryThreadCardByName(name) {
 async function findThreadCardByName(name) {
   await screen.findAllByText(name);
   return getThreadCardByName(name);
-}
-
-function defaultSkillFixtures() {
-  return [
-    {
-      name: 'backend',
-      display_name: '后端',
-      dir: '/repo/app/.agents/skills/backend',
-      description: '当你需要 Go 后端开发时使用。',
-      summary: 'Go 后端开发指南',
-      trigger_words: ['Go', 'backend', 'service'],
-      force_words: ['sqlc'],
-      scope: 'project',
-    },
-    {
-      name: 'personal-review',
-      dir: '/Users/test/.super-dolphin/skills/personal/user/personal-review',
-      description: '当你需要私人代码审查偏好时使用。',
-      trigger_words: ['review'],
-      scope: 'personal',
-      personal_type: 'user',
-    },
-  ];
 }
 
 function resetConnectedShellTestState() {
@@ -207,20 +179,9 @@ function mockBootstrapBackendDefaults() {
 }
 
 function mockDashboardPageDefaults() {
-  const defaultSkills = defaultSkillFixtures();
   backend.getDashboardPage.mockImplementation(({ page }) => {
-    if (page === 'memory') {
-      return Promise.resolve({
-        memory: [],
-        finalOutputRefs: [],
-        sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-      });
-    }
     if (page === 'dags') {
       return Promise.resolve({ dags: [] });
-    }
-    if (page === 'skills') {
-      return Promise.resolve({ skills: defaultSkills });
     }
     return Promise.resolve({});
   });
@@ -228,7 +189,7 @@ function mockDashboardPageDefaults() {
 
 function mockObservabilityDefaults() {
   const emptyTraceResult = {
-    source: 'memory',
+    source: 'buffer',
     events: [],
     slowest_events: [],
     errors: [],
@@ -326,43 +287,6 @@ function mockPromptWizardEntryPrompt(overrides = {}) {
   });
 }
 
-function mockMemoryDefaults() {
-  // mock 必须与真实 facade 输出一致：backendApi.getMemorySnapshot 经 validateMemorySnapshotResponse
-  // parse + transform 后返回扁平 { overview, entries }，而不是原始 wire 的 private/team 结构。
-  backend.getMemorySnapshot.mockResolvedValue(normalizeMemorySnapshotForFacade({
-    overview: {
-      enabled: true,
-      autoDreamEnabled: false,
-      autoDreamIntent: null,
-      projectRoot: '/repo/app', writeAvailable: true,
-      health: { preferenceCount: 0, projectCount: 0, maxPerCategory: 15, similarGroups: [] },
-    },
-    private: { entries: [] },
-    team: { entries: [] },
-  }));
-  backend.getMemoryEntry.mockResolvedValue({
-    target: 'private',
-    path: 'feedback/tdd.md',
-    name: 'tdd-rule',
-    title: '遵守 TDD',
-    description: '先写红测',
-    type: 'feedback',
-    content: '规则\n先写红测',
-  });
-  backend.upsertMemoryEntry.mockResolvedValue({ path: 'feedback/tdd.md' });
-  backend.deleteMemoryEntry.mockResolvedValue({ deleted: true });
-  backend.setMemoryAutoDreamIntent.mockResolvedValue({ ok: true, enabled: true });
-  backend.mergeMemoryEntries.mockResolvedValue({ path: 'feedback/tdd.md' });
-  backend.ignoreMemorySimilarity.mockResolvedValue({ ok: true });
-  backend.consolidateMemorySimilarities.mockResolvedValue({ merged: 1, ignored: 0, failed: 0, skipped: 0 });
-  backend.startConsolidateMemorySimilarities.mockResolvedValue({ jobId: 'memory-job-1', status: 'running' });
-  backend.getMemoryConsolidationStatus.mockResolvedValue({
-    jobId: 'memory-job-1',
-    status: 'succeeded',
-    result: { merged: 1, ignored: 0, failed: 0, skipped: 0 },
-  });
-}
-
 function mockWorkflowDefaults() {
   backend.listDags.mockResolvedValue({ dags: [] });
   backend.getDagDetail.mockResolvedValue({ dag: null, nodes: [] });
@@ -388,61 +312,6 @@ function mockCronDefaults() {
   backend.listCronJobRuns.mockResolvedValue({ runs: [] });
 }
 
-function mockSkillDefaults() {
-  backend.deleteSkill.mockResolvedValue({ ok: true });
-  backend.listMCPServers.mockResolvedValue({ mcpServers: { sqlite: { enabled: false }, playwright: { enabled: false } } });
-  backend.startSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: true });
-  backend.stopSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: false });
-  backend.startPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: true });
-  backend.stopPlaywrightMCPServer.mockResolvedValue({ serverName: 'playwright', enabled: false });
-  backend.readSkill.mockImplementation(({ path }) => Promise.resolve({
-    skill: {
-      content: path.endsWith('/SKILL.md')
-        ? [
-          '---',
-          'name: "backend"',
-          'display_name: "后端"',
-          'description: "当你需要 Go 后端开发时使用。"',
-          'trigger_words: ["Go", "backend"]',
-          '---',
-          '',
-          '## 后端规则',
-        ].join('\n')
-        : '关联文件内容',
-    },
-  }));
-  backend.listSkillFiles.mockResolvedValue({
-    files: [
-      { name: 'SKILL.md', path: '/repo/app/.agents/skills/backend/SKILL.md', is_main: true },
-      { name: 'guide.md', path: '/repo/app/.agents/skills/backend/references/guide.md', is_main: false },
-    ],
-  });
-  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agents/skills/backend/SKILL.md' });
-  backend.importSkillDirectories.mockResolvedValue({
-    imported: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
-    failures: [],
-  });
-  backend.suggestSkillSummary.mockResolvedValue('当你需要部署服务时使用。');
-  backend.selectProjectDir.mockResolvedValue('/repo/new');
-  backend.selectProjectDirs.mockResolvedValue(['/imports/ImportedSkill']);
-  backend.listSkillResolutions.mockResolvedValue({ items: [] });
-  backend.listSkillTools.mockResolvedValue({ tools: [] });
-  backend.createSkillTool.mockResolvedValue({ id: 1, name: 'Test Tool', command: 'echo', args: [], enabled: true });
-  backend.getSkillTool.mockResolvedValue({ id: 1, name: 'Test Tool', command: 'echo', args: [], enabled: true });
-  backend.updateSkillTool.mockResolvedValue({ id: 1, name: 'Test Tool', command: 'echo', args: [], enabled: true });
-  backend.deleteSkillTool.mockResolvedValue({ id: 1, deleted: true });
-  backend.previewSkillResolution.mockResolvedValue({
-    items: [{
-      provider: 'codex',
-      preview_id: 'preview-1',
-      preview_hash: 'hash-1',
-      source_path: '/repo/app/.agents/skills/backend/SKILL.md',
-      target_path: '/Users/test/.codex/skills/backend/SKILL.md',
-    }],
-  });
-  backend.applySkillResolution.mockResolvedValue({ ok: true });
-}
-
 function mockSharedFileDefaults() {
   backend.listSharedFiles.mockResolvedValue({
     files: [],
@@ -455,7 +324,6 @@ function mockSharedFileDefaults() {
     updatedBy: 'agent',
     updatedAt: '2026-05-30T07:00:00Z',
   }));
-  backend.deleteSharedFile.mockResolvedValue({ deleted: true });
   backend.saveTextFile.mockResolvedValue('/exports/file.md');
 }
 
@@ -570,14 +438,12 @@ export function createAppTestCore(nextContext) {
     decodedSvgDataUrl: (...args) => decodedSvgDataUrl(...args),
     waitForBackendThreadHeading: (...args) => waitForBackendThreadHeading(...args),
     mockShortcutPreferenceLoad: (...args) => mockShortcutPreferenceLoad(...args),
-    openPluginsAndSkillsPage: (...args) => openPluginsAndSkillsPage(...args),
     getSidebarNavButton: (...args) => getSidebarNavButton(...args),
     getBackendThreadText: (...args) => getBackendThreadText(...args),
     getThreadCardByName: (...args) => getThreadCardByName(...args),
     clickThreadCardByName: (...args) => clickThreadCardByName(...args),
     queryThreadCardByName: (...args) => queryThreadCardByName(...args),
     findThreadCardByName: (...args) => findThreadCardByName(...args),
-    defaultSkillFixtures: (...args) => defaultSkillFixtures(...args),
     resetConnectedShellTestState: (...args) => resetConnectedShellTestState(...args),
     installAppOverlayHost: (...args) => installAppOverlayHost(...args),
     createShellLayoutStorage: (...args) => createShellLayoutStorage(...args),
@@ -587,10 +453,8 @@ export function createAppTestCore(nextContext) {
     mockPromptDefaults: (...args) => mockPromptDefaults(...args),
     canonicalPromptRPCItem: (...args) => canonicalPromptRPCItem(...args),
     mockPromptWizardEntryPrompt: (...args) => mockPromptWizardEntryPrompt(...args),
-    mockMemoryDefaults: (...args) => mockMemoryDefaults(...args),
     mockWorkflowDefaults: (...args) => mockWorkflowDefaults(...args),
     mockCronDefaults: (...args) => mockCronDefaults(...args),
-    mockSkillDefaults: (...args) => mockSkillDefaults(...args),
     mockSharedFileDefaults: (...args) => mockSharedFileDefaults(...args),
     mockSettingsAndThreadDefaults: (...args) => mockSettingsAndThreadDefaults(...args),
     appPreferenceDefaults: (...args) => appPreferenceDefaults(...args),

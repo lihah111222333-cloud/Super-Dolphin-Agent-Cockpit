@@ -97,6 +97,34 @@ func TestStartTurnRejectsUnknownInputBeforeRuntimeConfigMutation(t *testing.T) {
 	}
 }
 
+func TestBuildTurnStartParamsRejectsLegacyMemorySection(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildTurnStartParams("thread-legacy", dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		TurnAssembly: dto.TurnAssembly{ResolvedSections: []dto.ResolvedPromptSection{
+			{Name: contract.DynamicSectionMemoryEntrypoint, Content: "legacy memory"},
+		}},
+	})
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("buildTurnStartParams() error = %v, want legacy memory sentinel", err)
+	}
+}
+
+func TestBuildTurnSteerParamsRejectsLegacyMemorySection(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildTurnSteerParams("thread-legacy", dto.SteerRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		TurnAssembly: dto.TurnAssembly{ResolvedSections: []dto.ResolvedPromptSection{
+			{Name: dto.AttachmentKindRelevantMemory, Content: "legacy memory"},
+		}},
+	})
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("buildTurnSteerParams() error = %v, want legacy memory sentinel", err)
+	}
+}
+
 func TestStartTurnAdvertisesDynamicToolsFromTurnMCPManifest(t *testing.T) {
 	turnParams := make(chan map[string]any, 1)
 	serverURL := startTurnDynamicToolsRPCServer(t, turnParams)

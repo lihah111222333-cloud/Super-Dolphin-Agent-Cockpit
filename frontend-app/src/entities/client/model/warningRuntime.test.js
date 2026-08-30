@@ -31,8 +31,8 @@ describe('warning runtime helpers', () => {
   it('derives warning trace component and status from event names', () => {
     expect(warningTraceComponent('thread.config.failed')).toBe('thread');
     expect(warningTraceStatus('warn', 'thread.config.failed')).toBe('error');
-    expect(warningTraceStatus('warn', 'memory.changed')).toBe('ok');
-    expect(warningTraceStatus('error', 'memory.changed')).toBe('error');
+    expect(warningTraceStatus('warn', 'workflow.changed')).toBe('ok');
+    expect(warningTraceStatus('error', 'workflow.changed')).toBe('error');
   });
 
   it('does not rehydrate token-shaped warning correlation fields', () => {

@@ -9,7 +9,6 @@
 }
 
 .page-actions label,
-.skills-toolbar label,
 .shared-files-search {
   min-height: 38px;
   border-color: var(--border);
@@ -18,7 +17,6 @@
 }
 
 .console-page,
-.memory-page,
 .settings-page,
 .workflow-page,
 .prompt-page {
@@ -26,18 +24,13 @@
 }
 
 .toolbar-line,
-.action-row,
-.skills-toolbar,
-.skill-filter,
-.memory-tabs {
+.action-row {
   gap: 10px;
 }
 
 .tabs,
 .segment,
-.skill-filter,
 .shared-files-tabs,
-.memory-tabs,
 .prompt-tabs,
 .prompt-segment,
 .prompt-kind-tabs,
@@ -46,14 +39,11 @@
 }
 
 .segment,
-.skill-filter,
 .shared-files-tabs {
   background: var(--surface);
 }
 
 .segment button,
-.skill-filter button,
-.memory-tabs button,
 .tabs button,
 .shared-files-tabs button,
 .prompt-tabs button,
@@ -69,8 +59,6 @@
 }
 
 .segment .active,
-.skill-filter .active,
-.memory-tabs .active,
 .tabs .active,
 .shared-files-tabs .active,
 .prompt-tabs button.active,
@@ -265,11 +253,7 @@
 
 .run-row,
 .dag-node-row,
-.skills-resolution-panel,
-.skills-resolution-preview,
 .modal-box,
-.skill-card,
-.memory-card,
 .file-row,
 .prompt-card,
 .data-card-vue,
@@ -315,11 +299,6 @@
 }
 
 .dag-node-editor label,
-.skills-field,
-.skills-subfiles-wrap,
-.skills-body-field,
-.memory-form-grid label,
-.memory-content-label,
 .form-line label,
 .form-grid label,
 .prompt-editor-grid label,
@@ -330,11 +309,6 @@
 .dag-node-editor input,
 .dag-node-editor select,
 .dag-node-editor textarea,
-.skills-resolution-name-field input,
-.skills-body-field textarea,
-.memory-form-grid input,
-.memory-form-grid select,
-.memory-content-label textarea,
 .form-line input,
 .form-grid input,
 .form-grid select,
@@ -362,38 +336,10 @@ select:focus-visible {
   border-color: var(--accent-2);
 }
 
-.memory-page .memory-search input:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
-}
-
-.skills-toolbar {
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.skills-toolbar label {
-  flex: 1 1 320px;
-}
-
-.skill-filter {
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-.skill-filter button {
-  border-radius: var(--radius-sm);
-}
-
-.skill-grid,
-.memory-cards,
 .prompt-card-grid {
   gap: 12px;
 }
 
-.skill-card,
-.memory-card,
 .file-row,
 .prompt-card {
   background: var(--surface);
@@ -401,8 +347,6 @@ select:focus-visible {
   transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
 }
 
-.skill-card:hover,
-.memory-card:hover,
 .file-row:hover,
 .prompt-card:hover {
   border-color: var(--border-strong);
@@ -410,87 +354,17 @@ select:focus-visible {
   box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
-.skill-card h3,
-.memory-card h3,
 .file-row h3,
 .prompt-card h3 {
   color: var(--text-pri);
   font-size: 16px;
 }
 
-.skill-card p,
-.skill-card .quote,
-.memory-card p,
 .file-row p,
 .file-row code,
 .prompt-card-desc,
 .prompt-card-preview {
   color: var(--text-sec);
-}
-
-.skill-card .quote,
-.memory-card code {
-  border-color: var(--border);
-  background: var(--surface-2);
-}
-
-.sa-window[data-theme="light"] .skill-card button,
-.sa-window[data-theme="light"] .memory-card button {
-  border-color: var(--border);
-  background: var(--surface-2);
-  color: var(--text-pri);
-}
-
-.sa-window[data-theme="light"] .skill-card button:hover,
-.sa-window[data-theme="light"] .memory-card button:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-3);
-}
-
-.sa-window[data-theme="light"] .skill-card button.text-danger,
-.sa-window[data-theme="light"] .memory-card button.text-danger {
-  background: color-mix(in srgb, var(--error) 8%, var(--surface));
-  color: var(--error) !important;
-}
-
-#overlay-root[data-theme="light"] .skills-editor-modal button {
-  border-color: var(--border);
-  background: var(--surface-2);
-  color: var(--text-pri);
-  box-shadow: none;
-}
-
-#overlay-root[data-theme="light"] .skills-editor-modal button:hover:not(:disabled) {
-  border-color: var(--border-strong);
-  background: var(--surface-3);
-}
-
-#overlay-root[data-theme="light"] .skills-editor-modal button.ghost {
-  background: transparent;
-  color: var(--text-sec);
-}
-
-.sa-window[data-theme="light"] .skills-scope-segmented button {
-  border-color: var(--border);
-  background: var(--surface-2);
-  color: var(--text-sec);
-}
-
-.sa-window[data-theme="light"] .skills-scope-segmented button.active {
-  border-color: color-mix(in srgb, var(--success) 46%, var(--border));
-  background: color-mix(in srgb, var(--success) 12%, var(--surface));
-  color: var(--success);
-}
-
-.sa-window[data-theme="light"] .skills-body-preview {
-  border-color: var(--border);
-  background: var(--surface-2);
-  color: var(--text-sec);
-}
-
-.sa-window[data-theme="light"] .skills-body-preview h3,
-.sa-window[data-theme="light"] .skills-body-preview h4 {
-  color: var(--text-pri);
 }
 
 .tags span,
@@ -566,9 +440,7 @@ select:focus-visible {
   color: var(--text-sec);
 }
 
-.memory-stats,
-.similar-alert,
-.memory-cards {
+.similar-alert {
   margin: 20px 24px;
 }
 
@@ -585,33 +457,11 @@ select:focus-visible {
   font-size: 14px;
 }
 
-.memory-similar-item {
-  background: color-mix(in srgb, var(--orange) 8%, var(--surface));
-}
-
-.memory-tabs {
-  padding-top: 0;
-}
-
-.memory-card {
-  border-left: 3px solid var(--border-strong);
-}
-
-.memory-card.type-project {
-  border-left-color: var(--primary);
-}
-
-.memory-health-track {
-  background: var(--surface-2);
-}
-
-.memory-notice.is-warning,
 .prompt-notice.warn {
   border-color: color-mix(in srgb, var(--warning) 52%, var(--border));
   background: color-mix(in srgb, var(--warning) 10%, var(--surface));
 }
 
-.memory-notice.is-error,
 .prompt-notice.error,
 .danger-text {
   border-color: color-mix(in srgb, var(--error) 52%, var(--border));
@@ -899,14 +749,6 @@ select:focus-visible {
     gap: 8px;
   }
 
-  .skills-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .skills-overview dl {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .theme-toggle span,
   .top-command .project-pill,
   .nav-rail button span {
@@ -982,13 +824,9 @@ select:focus-visible {
     flex-wrap: wrap;
   }
 
-  .skill-grid,
-  .memory-cards,
   .prompt-card-grid,
-  .memory-stats,
   .stat-grid,
   .form-grid,
-  .memory-form-grid,
   .prompt-editor-grid {
     grid-template-columns: 1fr;
   }
@@ -1088,9 +926,7 @@ select:focus-visible {
   }
 }
 
-/* Super Dolphin Agent Redesign Tabs: Synchronizing style with Skill tab (.skills-subtabs-header) */
 .shared-files-tabs,
-.memory-tabs,
 .prompt-tabs,
 .prompt-kind-tabs,
 .workflow-list .tabs {
@@ -1113,7 +949,6 @@ select:focus-visible {
 }
 
 .shared-files-tabs button,
-.memory-tabs button,
 .prompt-tabs button,
 .prompt-kind-tabs button,
 .workflow-list .tabs button {
@@ -1132,7 +967,6 @@ select:focus-visible {
 }
 
 .shared-files-tabs button:hover,
-.memory-tabs button:hover,
 .prompt-tabs button:hover,
 .prompt-kind-tabs button:hover,
 .workflow-list .tabs button:hover {
@@ -1140,7 +974,6 @@ select:focus-visible {
 }
 
 .shared-files-tabs .active,
-.memory-tabs .active,
 .prompt-tabs button.active,
 .prompt-tabs button[aria-selected="true"],
 .prompt-kind-tabs button.active,

@@ -14,9 +14,6 @@ const (
 	DynamicSectionAvailableExperts       = contract.DynamicSectionAvailableExperts
 	DynamicSectionRecallCatalog          = contract.DynamicSectionRecallCatalog
 	DynamicSectionPersonalizationProfile = contract.DynamicSectionPersonalizationProfile
-	DynamicSectionMemory                 = contract.DynamicSectionMemory
-	DynamicSectionMemoryContext          = contract.DynamicSectionMemoryContext
-	DynamicSectionMemoryEntrypoint       = contract.DynamicSectionMemoryEntrypoint
 	DynamicSectionEnvInfoSimple          = contract.DynamicSectionEnvInfoSimple
 	DynamicSectionDatasource             = contract.DynamicSectionDatasource
 	DynamicSectionDatasourceV2           = contract.DynamicSectionDatasourceV2
@@ -61,7 +58,7 @@ type dynamicSectionSpec struct {
 }
 
 // dynamicSectionSpecs 返回独立的 slot 定义，防止 package 级 slice 被任意调用方改写。
-// 真正内容由 memory、thread 等模块注册进来，prompt 不直接读它们的内部实现。
+// 内容由各模块通过动态 provider 注册，prompt 不直接读它们的内部实现。
 func dynamicSectionSpecs() []dynamicSectionSpec {
 	return []dynamicSectionSpec{
 		{name: DynamicSectionSessionGuidance, order: 110, cachePolicy: InputScoped},
@@ -69,9 +66,6 @@ func dynamicSectionSpecs() []dynamicSectionSpec {
 		{name: DynamicSectionAvailableExperts, order: 115, cachePolicy: InputScoped},
 		{name: DynamicSectionRecallCatalog, order: 118, cachePolicy: InputScoped},
 		{name: DynamicSectionPersonalizationProfile, order: 119, cachePolicy: InputScoped},
-		{name: DynamicSectionMemory, order: 120, cachePolicy: InputScoped, startOnly: true},
-		{name: DynamicSectionMemoryEntrypoint, order: 122, cachePolicy: InputScoped, startOnly: true},
-		{name: DynamicSectionMemoryContext, order: 125, cachePolicy: InputScoped},
 		{name: DynamicSectionEnvInfoSimple, order: 130, cachePolicy: InputScoped},
 		{name: DynamicSectionDatasource, order: 135, cachePolicy: Uncached},
 		{name: DynamicSectionDatasourceV2, order: 136, cachePolicy: Uncached},
@@ -393,7 +387,9 @@ func sessionGuidanceSkillsAvailable(enabled map[string]struct{}, flags map[strin
 	) {
 		return true
 	}
-	return sessionGuidanceToolEnabled(enabled, "skill", "skills", "skills/list", "thread/skills/list")
+	// provider-native skill discovery is exposed through provider tool capabilities;
+	// removed V3 inventory RPC aliases must not re-enable guidance.
+	return sessionGuidanceToolEnabled(enabled, "skill", "skills")
 }
 
 // sessionGuidanceDiscoverEnabled 判断是否允许技能发现流程；仅在技能能力本身可用时成立。

@@ -121,12 +121,6 @@ type Store interface {
 	Save()
 }
 `)
-	writePrioritySSAFile(t, root, "internal/module/skill/service.go", `package skill
-
-type Service interface {
-	Run()
-}
-`)
 	writePrioritySSAFile(t, root, "internal/contract/orchestration.go", `package contract
 
 type LifecyclePort interface {

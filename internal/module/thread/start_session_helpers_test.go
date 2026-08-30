@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -8,6 +9,40 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
+
+func TestResolveStartPromptAssemblyRejectsStaleOrForeignSnapshotBeforeLaunch(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		provider string
+		version  int
+		want     string
+	}{
+		{name: "stale version", provider: "codex", version: contract.PromptAssemblySnapshotVersion - 1, want: "prompt snapshot version"},
+		{name: "foreign owner", provider: "claude", version: contract.PromptAssemblySnapshotVersion, want: "provider mismatch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assembly := contract.StartAssembly{
+				BaseInstructions: "base",
+				Snapshot: contract.PromptAssemblySnapshot{
+					BaseInstructions: "base",
+					Provider:         tc.provider,
+					Version:          tc.version,
+					Hash:             "placeholder",
+				},
+			}
+			_, err := resolveStartPromptAssembly(
+				context.Background(),
+				StartRequest{Provider: "codex", PromptAssemblyRef: promptAssemblyStub{startAssembly: assembly}},
+				contract.StartInput{Provider: "codex"},
+			)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("resolveStartPromptAssembly() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
 
 func buildStartAssemblyForTest(req StartRequest) contract.StartAssembly {
 	return ensureStartAssemblySnapshot(contract.StartAssembly{

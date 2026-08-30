@@ -57,21 +57,16 @@ function createStore(overrides = {}) {
 }
 
 const reviewCapability = {
-  kind: 'skill',
-  key: 'skill:project::review:/repo/app/.agents/skills/review',
+  kind: 'mcp_tool',
+  key: 'mcp_tool:lsp:review',
   name: 'review',
   label: 'Code Review',
-  ref: {
-    name: 'review',
-    scope: 'project',
-    personalType: '',
-    path: '/repo/app/.agents/skills/review',
-  },
+  serverName: 'lsp',
 };
 
 const reviewItem = {
   id: reviewCapability.key,
-  kind: 'skill',
+  kind: 'mcp_tool',
   name: 'review',
   label: 'Code Review',
   description: 'Review code',
@@ -83,10 +78,9 @@ const reviewItem = {
 
 function createSlashCommandService() {
   return {
-    loadSkills: vi.fn().mockResolvedValue([reviewItem]),
     loadPrompts: vi.fn().mockResolvedValue([]),
     loadAutomations: vi.fn().mockResolvedValue([]),
-    loadMCPTools: vi.fn().mockResolvedValue([]),
+    loadMCPTools: vi.fn().mockResolvedValue([reviewItem]),
     loadPromptContent: vi.fn(),
   };
 }
@@ -534,7 +528,7 @@ describe('ComposerDock', () => {
 
     fireEvent.keyDown(textarea, { key: 'Enter' });
     await waitFor(() => expect(store.addComposerCapability).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'skill', name: 'review' }),
+      expect.objectContaining({ kind: 'mcp_tool', name: 'review' }),
     ));
     expect(sendMessage).not.toHaveBeenCalled();
   });

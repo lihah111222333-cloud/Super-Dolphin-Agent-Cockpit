@@ -67,7 +67,6 @@ const (
 	toolbridgeDependencyAgentThreadLookup     = "toolbridge.agent_thread_lookup"
 	toolbridgeDependencyThreadConfigOverride  = "toolbridge.thread_config_override_store"
 	toolbridgeDependencyHostTools             = "toolbridge.host_tools"
-	toolbridgeDependencySkillTools            = "toolbridge.skill_tools"
 )
 
 // Handler 负责把模型侧 tool call 路由到 host-direct、Codex surface 或外部 MCP peer。
@@ -86,12 +85,11 @@ type Handler struct {
 	dispatcher      *event.Dispatcher
 	lifecycle       mcpToolLifecycleBackfiller
 	lifecyclePolicy mcpToolLifecyclePolicyReader
-	// hostTools 是可选依赖：agent-terminal 生产图只装配 memory_read / memory_write
-	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
+	// hostTools 是可选依赖：agent-terminal 生产图只装配 provider-native 之外的
+	// history、observability 和 workflow-template host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
 	// toolbridge.Module。
 	hostTools    HostToolRegistry
-	skillTools   contract.SkillToolProvider
 	skillMetrics skillmetrics.HostToolCallWriter
 	// approvalRequester 只接收宿主已验证的工具调用身份；Windows ACL 错误
 	// 不能从 peer 响应或模型 arguments 补写这些身份字段。
@@ -189,7 +187,6 @@ func NewHandler(in handlerIn) (*Handler, error) {
 		schemaExecutor:    schemaExecutor,
 		authorityOwner:    in.AuthorityOwner,
 		hostTools:         in.HostTools,
-		skillTools:        in.SkillTools,
 		skillMetrics:      in.Metrics,
 		approvalRequester: in.ApprovalRequester,
 		surfaces:          make(map[string]*codexToolSurface),
@@ -226,7 +223,6 @@ func validateToolbridgeDependencies(in handlerIn) error {
 		{name: toolbridgeDependencyAgentThreadLookup, present: in.BindingStore != nil},
 		{name: toolbridgeDependencyThreadConfigOverride, present: in.ThreadStore != nil},
 		{name: toolbridgeDependencyHostTools, present: !toolbridgeHostToolsMissing(in.HostTools)},
-		{name: toolbridgeDependencySkillTools, present: in.SkillTools != nil},
 	} {
 		if err := requireToolbridgeDependency(dependency.name, profile, dependency.present); err != nil {
 			return err
@@ -295,9 +291,13 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	if result, handled, err := h.routeReservedHostOnlyToolCall(ctx, req); handled || err != nil {
 		return result, err
 	}
-	switch strings.TrimSpace(req.Name) {
+	name := strings.TrimSpace(req.Name)
+	if isRemovedSkillToolName(name) {
+		return removedSkillToolResult(name), nil
+	}
+	switch name {
 	case ToolNameReadSection, ToolNameLegacySkillExpandBody, ToolNameLegacySkillReadResource:
-		return removedSkillToolResult(req.Name), nil
+		return removedSkillToolResult(name), nil
 	}
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
@@ -340,10 +340,10 @@ func (h *Handler) routeReservedHostOnlyToolCall(ctx context.Context, req ToolCal
 	}
 	req.Name = toolName
 	switch toolName {
-	case ToolNameMemoryRead:
+	case ToolNameRetiredHostRead:
 		result, err := h.routeHostOnlyToolCall(ctx, req, "reader_unavailable")
 		return result, true, err
-	case ToolNameMemoryWrite:
+	case ToolNameRetiredHostWrite:
 		result, err := h.routeHostOnlyToolCall(ctx, req, "writer_unavailable")
 		return result, true, err
 	case ToolNameHistoryRead:

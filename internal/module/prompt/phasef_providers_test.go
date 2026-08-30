@@ -3,7 +3,6 @@ package prompt
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 
@@ -113,43 +112,6 @@ func TestCacheByNameSectionKeysScratchpadByDirectory(t *testing.T) {
 	}
 }
 
-func TestInputScopedSectionKeysMemoryByGateInputs(t *testing.T) {
-	section := PromptSection{Name: DynamicSectionMemory, CachePolicy: InputScoped}
-	base := SectionContext{
-		Start: &StartInput{},
-		BuildCtx: BuildCtx{
-			CWD:                          "/repo",
-			GitRoot:                      "/repo",
-			SessionFlags:                 map[string]bool{"auto_memory_enabled": false},
-			AdditionalWorkingDirectories: []string{"/repo/extra"},
-		},
-	}
-	keyA, ok := sectionInputCacheKey(section, base)
-	if !ok {
-		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
-	}
-	keyA2, _ := sectionInputCacheKey(section, SectionContext{
-		Start:    &StartInput{},
-		Turn:     &TurnInput{UserText: "noise"},
-		BuildCtx: base.BuildCtx,
-	})
-	keyB, _ := sectionInputCacheKey(section, SectionContext{
-		Start: &StartInput{},
-		BuildCtx: BuildCtx{
-			CWD:                          "/repo",
-			GitRoot:                      "/repo",
-			SessionFlags:                 map[string]bool{"auto_memory_enabled": true},
-			AdditionalWorkingDirectories: []string{"/repo/extra"},
-		},
-	})
-	if keyA != keyA2 {
-		t.Fatalf("same memory gate inputs key mismatch: first=%q second=%q", keyA, keyA2)
-	}
-	if keyA == keyB {
-		t.Fatalf("different memory gate inputs reused cache key: %q", keyA)
-	}
-}
-
 func TestInputScopedSectionKeysAvailableExpertsByPromptAndCurrentTemplate(t *testing.T) {
 	section := PromptSection{Name: DynamicSectionAvailableExperts, CachePolicy: InputScoped}
 	base := SectionContext{
@@ -240,10 +202,9 @@ func TestRecallCatalogDynamicSpecOrderAndCachePolicy(t *testing.T) {
 		t.Fatalf("section %q missing from dynamic spec list", DynamicSectionRecallCatalog)
 	}
 	availableExperts, _ := dynamicSectionSpecForName(DynamicSectionAvailableExperts)
-	memory, _ := dynamicSectionSpecForName(DynamicSectionMemory)
-	if spec.order != 118 || spec.order <= availableExperts.order || spec.order >= memory.order {
-		t.Fatalf("recall_catalog order = %d, want 118 between available_experts=%d and memory=%d",
-			spec.order, availableExperts.order, memory.order)
+	if spec.order != 118 || spec.order <= availableExperts.order {
+		t.Fatalf("recall_catalog order = %d, want 118 after available_experts=%d",
+			spec.order, availableExperts.order)
 	}
 	if spec.cachePolicy != InputScoped {
 		t.Fatalf("recall_catalog cache policy = %v, want InputScoped", spec.cachePolicy)
@@ -396,23 +357,5 @@ func TestEveryInputScopedSectionAddsExplicitCacheDependencies(t *testing.T) {
 		if string(raw) == string(bare) {
 			t.Fatalf("input-scoped section %q uses bare section-only cache dependency", spec.name)
 		}
-	}
-}
-
-func TestInputScopedSectionKeysMemoryEntrypointByHarnessEnv(t *testing.T) {
-	section := PromptSection{Name: DynamicSectionMemoryEntrypoint, CachePolicy: InputScoped}
-	buildCtx := BuildCtx{CWD: "/repo", GitRoot: "/repo", SessionFlags: map[string]bool{"team_memory": true}}
-	t.Setenv("MULTI_AGENT_HARNESS_CLI", "")
-	keyA, ok := sectionInputCacheKey(section, SectionContext{Start: &StartInput{}, BuildCtx: buildCtx})
-	if !ok {
-		t.Fatal("sectionInputCacheKey() cacheable = false, want true")
-	}
-	t.Setenv("MULTI_AGENT_HARNESS_CLI", "claude_code")
-	keyB, _ := sectionInputCacheKey(section, SectionContext{Start: &StartInput{}, BuildCtx: buildCtx})
-	if keyA == keyB {
-		t.Fatalf("different harness env reused cache key: %q", keyA)
-	}
-	if got := os.Getenv("MULTI_AGENT_HARNESS_CLI"); got != "claude_code" {
-		t.Fatalf("env harness = %q, want claude_code", got)
 	}
 }

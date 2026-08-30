@@ -66,7 +66,10 @@ function agenticE2EMockPreferenceResponse(sandboxConfig, params = {}) {
   if (key.includes('.approvalPolicy')) return 'on-failure';
   if (key.includes('.personality')) return 'friendly';
   if (key.includes('.summary')) return 'auto';
-  return '';
+  // The Go preference handler returns a JSON null for an absent key. Keep the
+  // browser mock byte-for-byte compatible so consumers can apply their own
+  // typed default (for example shortcut bindings use an empty object).
+  return null;
 }
 
 function agenticE2EMockSidebarSnapshot() {

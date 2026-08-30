@@ -62,10 +62,13 @@ class ImageResolver(Protocol):
 class LocalDockerImageResolver:
     """Resolve images without pulling and verify the commit embedded in them."""
 
-    def __init__(self, docker: str | pathlib.Path = "docker") -> None:
+    def __init__(self, docker: str | pathlib.Path = "docker", *, timeout: float = 60.0) -> None:
         self._docker = str(docker)
         if pathlib.Path(self._docker).name != "docker":
             raise MultilingualBundleError("docker executable must invoke docker")
+        if timeout <= 0:
+            raise MultilingualBundleError("docker probe timeout must be positive")
+        self._timeout = timeout
 
     def _run(self, args: Sequence[str], label: str) -> subprocess.CompletedProcess[str]:
         try:
@@ -74,7 +77,10 @@ class LocalDockerImageResolver:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=self._timeout,
             )
+        except subprocess.TimeoutExpired as exc:
+            raise MultilingualBundleError(f"{label} timed out after {self._timeout:g}s") from exc
         except OSError as exc:
             raise MultilingualBundleError(f"{label} failed: {exc}") from exc
         if result.returncode != 0:
@@ -245,9 +251,20 @@ def build_bundle(
     artifact_root: str | pathlib.Path,
     run_id: str = "multilingual-representative100-v112",
     pricing_manifest_hash: str | None = None,
+    lsp_bundle_dir: str | pathlib.Path | None = None,
+    lsp_bundle_manifest: str | pathlib.Path | None = None,
 ) -> dict[str, Any]:
     selected_items = _selection(selection)
-    raw_template = _object(template.get("driver_template", template), "driver template")
+    template_value: Any = template.get("driver_template", template)
+    # Existing multilingual runs store a strict question-mapped driver file.
+    # Reuse one fully validated entry as the template, then replace all
+    # question-specific identity/image/path fields below.
+    if isinstance(template_value, Mapping) and "question_configs" in template_value:
+        mapped = _object(template_value.get("question_configs"), "template.question_configs")
+        if not mapped:
+            raise MultilingualBundleError("template.question_configs must not be empty")
+        template_value = next(iter(mapped.values()))
+    raw_template = _object(template_value, "driver template")
     parsed_template = UbuntuExecutionDriverConfig.from_dict(raw_template)
     if parsed_template.grader_slots != REQUIRED_GRADER_SLOTS:
         raise MultilingualBundleError(
@@ -292,6 +309,15 @@ def build_bundle(
         config = copy.deepcopy(dict(raw_template))
         config["container_image"] = image
         config["artifact_dir"] = str(root / "questions" / question_id)
+        if bool(lsp_bundle_dir) != bool(lsp_bundle_manifest):
+            raise MultilingualBundleError(
+                "lsp_bundle_dir and lsp_bundle_manifest must be configured together"
+            )
+        if lsp_bundle_dir and lsp_bundle_manifest:
+            config_environment = dict(_object(config.get("environment"), f"environment[{question_id}]"))
+            config_environment["SUPER_DOLPHIN_LSP_BUNDLE_DIR"] = str(pathlib.Path(lsp_bundle_dir).resolve())
+            config_environment["SUPER_DOLPHIN_LSP_MANIFEST"] = str(pathlib.Path(lsp_bundle_manifest).resolve())
+            config["environment"] = config_environment
         config["prompt_template"] = task_prompt
         config["prompt_contract"] = _prompt_contract(config, task_prompt)
         bindings = copy.deepcopy(dict(_object(config.get("identity_bindings"), f"identity_bindings[{question_id}]")))
@@ -340,18 +366,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--artifact-root", required=True, help="absolute artifact root")
     parser.add_argument("--output-dir", required=True, help="bundle output directory")
     parser.add_argument("--docker", default="docker", help="Docker executable used only for local inspect/run probes")
+    parser.add_argument("--docker-timeout", type=float, default=60.0)
     parser.add_argument("--run-id", default="multilingual-representative100-v112")
     parser.add_argument("--pricing-manifest-hash")
+    parser.add_argument("--lsp-bundle-dir", help="host LSP bundle directory to mount for with_lsp arms")
+    parser.add_argument("--lsp-bundle-manifest", help="host LSP bundle manifest inside --lsp-bundle-dir")
     args = parser.parse_args(argv)
     try:
         bundle = build_bundle(
             _read_json(args.selection, "selection"),
             _read_jsonl(args.dataset),
             _object(_read_json(args.template, "driver template"), "driver template"),
-            resolver=LocalDockerImageResolver(args.docker),
+            resolver=LocalDockerImageResolver(args.docker, timeout=args.docker_timeout),
             artifact_root=args.artifact_root,
             run_id=args.run_id,
             pricing_manifest_hash=args.pricing_manifest_hash,
+            lsp_bundle_dir=args.lsp_bundle_dir,
+            lsp_bundle_manifest=args.lsp_bundle_manifest,
         )
         output = pathlib.Path(args.output_dir)
         write_json(output / "plan.json", bundle["plan"])

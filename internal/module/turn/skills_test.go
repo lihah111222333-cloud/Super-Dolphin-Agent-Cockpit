@@ -1,12 +1,9 @@
 package turn
 
 import (
-	"context"
-	"errors"
 	"reflect"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
@@ -82,43 +79,6 @@ func TestNormalizeSkillRefsKeepsSameNameDifferentScopeRefs(t *testing.T) {
 	}
 	if out[0].Scope != "project" || out[1].Scope != "personal" {
 		t.Fatalf("scoped refs not preserved: %+v", out)
-	}
-}
-
-func TestSkillResolverKeepsSameNameDifferentVersion(t *testing.T) {
-	resolver := &skillResolver{}
-	got := resolver.Resolve(
-		[]dto.SkillRef{
-			{Name: "foo", Version: "1", Prompt: "v1"},
-			{Name: "foo", Version: "2", Prompt: "v2"},
-		},
-		nil,
-		"",
-	)
-	if len(got) != 2 {
-		t.Fatalf("expected both foo@1 and foo@2, got %+v", got)
-	}
-	if got[0].Version != "1" || got[1].Version != "2" {
-		t.Fatalf("version order lost: %+v", got)
-	}
-}
-
-func TestSkillResolverAutoMatchSkipsAlreadyExplicitVersion(t *testing.T) {
-	resolver := &skillResolver{}
-	explicit := []dto.SkillRef{{Name: "tracer", Version: "1", Prompt: "explicit", Summary: "explicit summary"}}
-	candidates := []dto.SkillRef{
-		{Name: "tracer", Version: "1", Prompt: "auto-same"},
-		{Name: "tracer", Version: "2", Prompt: "auto-diff", Summary: "auto summary"},
-	}
-	got := resolver.Resolve(explicit, candidates, "please use tracer on this run")
-	if len(got) != 2 {
-		t.Fatalf("want explicit v1 + auto v2, got %+v", got)
-	}
-	if got[0].Version != "1" || got[0].Prompt != "" || got[0].Summary != "explicit summary" {
-		t.Fatalf("explicit v1 lost: %+v", got[0])
-	}
-	if got[1].Version != "2" || got[1].Prompt != "" || got[1].Summary != "auto summary" {
-		t.Fatalf("auto v2 lost: %+v", got[1])
 	}
 }
 
@@ -201,125 +161,5 @@ func TestNormalizePrepareSkillRefsDropsNameOnlyDuplicatesCoveredByExplicitRefs(t
 	}
 	if !reflect.DeepEqual(gotKeys, wantKeys) {
 		t.Fatalf("normalizePrepareSkillRefs keys = %#v, want %#v; refs=%+v", gotKeys, wantKeys, refs)
-	}
-}
-
-// TestApplyHydrationWithConflict_HydratesSummaryAndVersionForBareRef 锁定 hydration 给
-// 仅含 Name 的 ref 补出 Summary + Version；Source=Unspecified 不被改写。
-func TestApplyHydrationWithConflict_HydratesSummaryAndVersionForBareRef(t *testing.T) {
-	svc := &service{}
-	index := map[string]contract.SkillInfo{
-		"alpha": {Name: "alpha", Dir: "/tmp/skills/alpha", Summary: "summary-a", ContentHash: "hash-aaaaaaaaaaaa", Trust: contract.TrustUser},
-	}
-	ref := dto.SkillRef{Name: "alpha"}
-	out, _ := svc.applyHydrationWithConflict(context.Background(), ref, index, skillHydrationPolicy{})
-	if out.Summary != "summary-a" || out.Version == "" {
-		t.Fatalf("hydration fields not populated: %+v", out)
-	}
-	if out.Source != dto.SkillSourceUnspecified {
-		t.Fatalf("Source = %q, want legacy unspecified preserved", out.Source)
-	}
-}
-
-func TestApplyHydrationWithConflict_UntrustedSummary_RedactedWhenSourceUnspecified(t *testing.T) {
-	svc := &service{}
-	index := map[string]contract.SkillInfo{
-		"project-skill": {
-			Name:        "project-skill",
-			Summary:     "SECRET PROJECT SUMMARY",
-			ContentHash: "hash-project-summary",
-			Trust:       contract.TrustProject,
-		},
-	}
-	out, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill"}, index, skillHydrationPolicy{ManualSkillSelection: true})
-	if out.Summary != "" {
-		t.Fatalf("untrusted unspecified summary leaked: %+v", out)
-	}
-	if out.Version != "hash-project" {
-		t.Fatalf("Version should still hydrate for stable identity, got %+v", out)
-	}
-	if out.Source != dto.SkillSourceUnspecified {
-		t.Fatalf("Source = %q, want legacy unspecified preserved", out.Source)
-	}
-}
-
-func TestApplyHydrationWithConflict_UntrustedSummary_AllowsOnlyRealManualSelection(t *testing.T) {
-	svc := &service{}
-	index := map[string]contract.SkillInfo{
-		"project-skill": {
-			Name:        "project-skill",
-			Summary:     "manual approved summary",
-			ContentHash: "hash-manual-summary",
-			Trust:       contract.TrustProject,
-		},
-	}
-
-	manual, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill", Source: dto.SkillSourceManual}, index, skillHydrationPolicy{ManualSkillSelection: true})
-	if manual.Summary != "manual approved summary" {
-		t.Fatalf("real manual selection should allow summary: %+v", manual)
-	}
-	if manual.Source != dto.SkillSourceManual {
-		t.Fatalf("manual source should be preserved: %+v", manual)
-	}
-
-	legacyManualSource, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill", Source: dto.SkillSourceManual}, index, skillHydrationPolicy{})
-	if legacyManualSource.Summary != "" {
-		t.Fatalf("manual source without ManualSkillSelection flag must stay redacted: %+v", legacyManualSource)
-	}
-}
-
-func TestApplyHydrationWithConflict_UntrustedSummary_RedactedForTriggerAndForce(t *testing.T) {
-	svc := &service{}
-	index := map[string]contract.SkillInfo{
-		"project-skill": {
-			Name:        "project-skill",
-			Summary:     "SECRET AUTO SUMMARY",
-			ContentHash: "hash-auto-summary",
-			Trust:       contract.TrustProject,
-		},
-	}
-	for _, source := range []dto.SkillSource{dto.SkillSourceTrigger, dto.SkillSourceForce} {
-		out, _ := svc.applyHydrationWithConflict(context.Background(), dto.SkillRef{Name: "project-skill", Source: source}, index, skillHydrationPolicy{ManualSkillSelection: true})
-		if out.Summary != "" {
-			t.Fatalf("source %q should not expose untrusted summary: %+v", source, out)
-		}
-		if out.Source != source {
-			t.Fatalf("source %q should be preserved, got %+v", source, out)
-		}
-	}
-}
-
-func TestHydrationInfoForRef_StructuredIdentityMustMatchExactly(t *testing.T) {
-	info := contract.SkillInfo{
-		Name:  "review",
-		Scope: "project",
-		Dir:   "/repo/.agents/skills/review",
-	}
-	index, err := skillInfoIndex([]contract.SkillInfo{info})
-	if err != nil {
-		t.Fatalf("build skill info index: %v", err)
-	}
-
-	got, found, err := hydrationInfoForRef(dto.SkillRef{
-		Name:  "review",
-		Scope: "project",
-		Path:  "/repo/.agents/skills/review",
-	}, index)
-	if err != nil || !found || got.Dir != info.Dir {
-		t.Fatalf("exact structured lookup = (%+v, %v, %v), want exact match", got, found, err)
-	}
-
-	_, found, err = hydrationInfoForRef(dto.SkillRef{
-		Name:  "review",
-		Scope: "personal",
-		Path:  "/stale/skills/review",
-	}, index)
-	if found || !errors.Is(err, contract.ErrSkillRefIdentityMismatch) {
-		t.Fatalf("stale structured lookup = (found=%v, err=%v), want identity mismatch", found, err)
-	}
-
-	got, found, err = hydrationInfoForRef(dto.SkillRef{Name: "review"}, index)
-	if err != nil || !found || got.Dir != info.Dir {
-		t.Fatalf("legacy name-only lookup = (%+v, %v, %v), want compatibility match", got, found, err)
 	}
 }

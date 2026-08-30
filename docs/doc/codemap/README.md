@@ -5,11 +5,11 @@
 ## 阅读边界提示
 
 - **01 / frontend**：当前且唯一的前端源码在 `frontend-app/`；`cmd/agent-terminal/web-dist/` 仅是 Go embed 构建产物同步目录。前端页面修改优先看 `frontend-app` 与 `01-terminal-ui-react.md`。
-- **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 `internal/module/{memory,prompt,thread}` 的内部组装链。
+- **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 desktop `internal/module` 的 prompt/thread 内部组装链。
 - **03**：`cmd/mcp-lsp` 是 generic multi-language LSP peer；阅读时按通用多语言 LSP peer 入口处理，不把它收窄成单一语言服务。
 - **07**：先看 `internal/module` 的职责切面、消费面与入口边界；07 已拆成读侧/写侧两份子卷。
 - **10**：先看 store / sql / migrations 的持久化 contract 与实现，回答“是否落库、落到哪里”。
-- **11**：再看 `start / resume / fork` 中 memory / prompt / thread / prompt snapshot / provider bridge 的运行态串联，回答“运行时到底怎么接上”。
+- **11**：再看 `start / resume / fork` 中 prompt / thread / prompt snapshot / provider bridge 的运行态串联；memory 只作为兼容契约和拒绝边界记录。
 
 ## 目录
 
@@ -33,8 +33,8 @@
 | 08 | [08-platform.md](08-platform.md) | 08 Platform 基础设施层代码地图 |
 | 09 | [09-provider.md](09-provider.md) | 09 Provider 集成层代码地图 |
 | 10 | [10-store.md](10-store.md) | 10. 数据存储层代码地图 |
-| 11 | [11-memory-prompt-thread.md](11-memory-prompt-thread.md) | 11 Memory / Prompt / Thread 拆卷索引 |
-| 11 | [11-memory.md](11-memory.md) | 11A Memory 代码地图 |
+| 11 | [11-memory-prompt-thread.md](11-memory-prompt-thread.md) | 11 Memory 兼容契约 / Prompt / Thread 拆卷索引 |
+| 11 | [11-memory.md](11-memory.md) | 11A Memory 兼容边界代码地图 |
 | 11 | [11-prompt-thread.md](11-prompt-thread.md) | 11B Prompt / Thread 代码地图 |
 | 12 | [12-dream-pipeline.md](12-dream-pipeline.md) | 12 Dream Pipeline 代码地图 |
 | 13 | [13-archtest-boundaries.md](13-archtest-boundaries.md) | 13 Archtest 后端边界规则地图 |
@@ -42,4 +42,4 @@
 
 ## 生成时间
 
-2026-08-24
+2026-08-30

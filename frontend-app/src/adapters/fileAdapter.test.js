@@ -40,14 +40,14 @@ describe('fileAdapter', () => {
 
   it('rejects missing or malformed detail responses', () => {
     expect(() => adaptSharedFileDetail(undefined)).toThrow('shared file detail response must be an object');
-    expect(() => adaptSharedFileDetail({})).toThrow('shared file detail path is required');
+    expect(() => adaptSharedFileDetail({})).toThrow('shared file item 0 path is required');
     expect(() => adaptSharedFileDetail({ file: null })).toThrow('shared file detail file must be an object');
-    expect(() => adaptSharedFileDetail({ content: 'hello' }, { path: 'notes/a.md' })).toThrow('shared file detail path is required');
+    expect(() => adaptSharedFileDetail({ content: 'hello' }, { path: 'notes/a.md' })).toThrow('shared file item 0 path is required');
   });
 
-  it('normalizes shared files dashboard aliases at the schema boundary', () => {
+  it('normalizes shared files dashboard data at the schema boundary', () => {
     const result = parseSharedFilesDashboardResponse({
-      memory: [dashboardFile],
+      files: [dashboardFile],
       finalOutputRefs: ['reports/final.md'],
       sharedFileRetention: dashboardRetention,
     });
@@ -74,7 +74,7 @@ describe('fileAdapter', () => {
 
   it('rejects malformed shared file detail instead of fabricating path from fallback', () => {
     expect(() => adaptSharedFileDetail({ content: 'latest content' }, { path: 'reports/fallback.md' }))
-      .toThrow(/shared file detail path is required/);
+      .toThrow(/shared file item 0 path is required/);
   });
 
   it('keeps display-only fallback fields for valid shared file details', () => {

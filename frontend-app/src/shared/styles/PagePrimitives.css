@@ -1,15 +1,11 @@
 .console-page,
-.memory-page,
 .settings-page,
 .workflow-page {
   overflow: auto;
 }
 
 .toolbar-line,
-.action-row,
-.skills-toolbar,
-.skill-filter,
-.memory-tabs {
+.action-row {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -32,7 +28,6 @@
 }
 
 .segment button,
-.memory-tabs button,
 .tabs button {
   border: 0;
   border-radius: 6px;
@@ -43,14 +38,12 @@
 }
 
 .segment .active,
-.memory-tabs .active,
 .tabs .active {
   background: color-mix(in srgb, var(--info) 12%, var(--surface));
   color: var(--info);
 }
 
 .action-row button,
-.skills-toolbar button,
 .file-intro button {
   color: var(--muted);
 }

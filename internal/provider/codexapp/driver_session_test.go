@@ -35,9 +35,9 @@ func (s *stubRuntimeReporter) ReportRuntime(_ context.Context, report contract.R
 
 func TestNewDriverUsesEnvServerURLAndName(t *testing.T) {
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123 ")
-	got, ok := newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil).(*driver)
+	got, ok := newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, nil, nil, nil, nil).(*driver)
 	if !ok {
-		t.Fatalf("newDriver(testLoggerRuntime(t), ) type = %T, want *driver", newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, nil, nil, nil, nil, nil))
+		t.Fatalf("newDriver(testLoggerRuntime(t), ) type = %T, want *driver", newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, nil, nil, nil, nil))
 	}
 	if got.logger == nil {
 		t.Fatal("newDriver(testLoggerRuntime(t), ) logger = nil")
@@ -70,7 +70,7 @@ func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 	recorder := &toolBridgeRPCRecorder{}
 	serverURL := startToolBridgeRPCServer(t, recorder)
 	manager := &ServerManager{}
-	d := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), &recordingSkillMirrorReconciler{}, nil, nil))
+	d := requireToolBridgeDriver(t, newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), nil, manager, newSingleURLPoolForTest(t, serverURL), nil, nil))
 	var prepared contract.CodexToolSurfaceScope
 	var bound contract.CodexToolSurfaceScope
 	d.prepareTools = func(_ context.Context, scope contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error) {
@@ -193,7 +193,7 @@ func TestCodexNativeToolPolicyDoesNotOverrideSandboxForNativelyDisabledWriteTool
 func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	t.Parallel()
 
-	factory, err := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+	factory, err := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("NewDriverFactory() error = %v", err)
 	}
@@ -210,8 +210,24 @@ func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	}
 }
 
+func TestProvideContractDriverFactoryRejectsNilOrIncompleteFactory(t *testing.T) {
+	t.Parallel()
+
+	if _, err := provideContractDriverFactory(nil); err == nil {
+		t.Fatal("provideContractDriverFactory(nil) error = nil, want fail-fast error")
+	}
+	for _, factory := range []*DriverFactory{
+		{DriverFactory: contract.DriverFactory{Name: ""}},
+		{DriverFactory: contract.DriverFactory{Name: "codex"}},
+	} {
+		if _, err := provideContractDriverFactory(factory); err == nil {
+			t.Fatalf("provideContractDriverFactory(%#v) error = nil, want incomplete factory failure", factory)
+		}
+	}
+}
+
 func TestNewDriverFactoryRejectsMultipleRuntimeHooksOwners(t *testing.T) {
-	_, err := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil, providershared.RuntimeHooks{}, providershared.RuntimeHooks{})
+	_, err := NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, providershared.RuntimeHooks{}, providershared.RuntimeHooks{})
 	if err == nil {
 		t.Fatal("NewDriverFactory() error = nil, want multiple runtime hooks owners failure")
 	}
@@ -220,7 +236,7 @@ func TestNewDriverFactoryRejectsMultipleRuntimeHooksOwners(t *testing.T) {
 func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 	reporter := &stubRuntimeReporter{}
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123/ws ")
-	got := newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), reporter, nil, nil, nil, nil, nil).(*driver)
+	got := newDriver(testLoggerRuntime(t), nil, nil, testApprovalManager(), reporter, nil, nil, nil, nil).(*driver)
 	if err := got.reportRuntime(" agent-1 ", got.serverURL); err != nil {
 		t.Fatalf("reportRuntime() error = %v", err)
 	}
@@ -360,7 +376,6 @@ func newCodexDriverWithRuntimeReporterForTest(t *testing.T, reporter contract.Ru
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		reporter:     modeReporter,
 		listTools:    noopCodexToolLister,
 	}
@@ -783,7 +798,6 @@ func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T
 		approvals:    testApprovalManager(),
 		skillMetrics: testSkillMetrics(t),
 		pool:         newSingleURLPoolForTest(t, serverURL),
-		mirror:       &recordingSkillMirrorReconciler{},
 		listTools:    noopCodexToolLister,
 	}
 	workDir := t.TempDir()

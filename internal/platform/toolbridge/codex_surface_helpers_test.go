@@ -53,21 +53,6 @@ type fakeMCPClient struct {
 	listRelease     <-chan struct{}
 }
 
-type fakeSkillToolProvider struct {
-	tools   []contract.SkillToolSurfaceTool
-	content string
-	calls   []contract.SkillToolCall
-}
-
-func (p *fakeSkillToolProvider) ListSkillToolsForSurface(_ context.Context, _ string) ([]contract.SkillToolSurfaceTool, error) {
-	return append([]contract.SkillToolSurfaceTool(nil), p.tools...), nil
-}
-
-func (p *fakeSkillToolProvider) CallSkillTool(_ context.Context, call contract.SkillToolCall) (string, error) {
-	p.calls = append(p.calls, call)
-	return p.content, nil
-}
-
 func (c *fakeMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
 	if c.listStarted != nil {
 		c.listStarted <- c.listStartedName
@@ -261,24 +246,6 @@ func assertDynamicToolSchema(t *testing.T, tools []contract.DynamicToolSchema, n
 		}
 		assertJSONRawMessageEqual(t, name+" inputSchema", tool.InputSchema, inputSchema)
 		assertJSONRawMessageEqual(t, name+" outputSchema", tool.OutputSchema, outputSchema)
-		return
-	}
-	t.Fatalf("dynamic tools missing %q; got %+v", name, tools)
-}
-
-func assertDynamicSkillToolSchema(t *testing.T, tools []contract.DynamicToolSchema, name, description string, inputSchema json.RawMessage) {
-	t.Helper()
-	for _, tool := range tools {
-		if tool.Name != name {
-			continue
-		}
-		if tool.Description != description {
-			t.Fatalf("%s description = %q, want %q", name, tool.Description, description)
-		}
-		assertJSONRawMessageEqual(t, name+" inputSchema", tool.InputSchema, inputSchema)
-		if len(tool.OutputSchema) != 0 {
-			t.Fatalf("%s outputSchema = %s, want omitted for plain text skill content", name, tool.OutputSchema)
-		}
 		return
 	}
 	t.Fatalf("dynamic tools missing %q; got %+v", name, tools)

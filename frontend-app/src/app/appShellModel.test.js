@@ -14,7 +14,6 @@ describe('app shell model', () => {
     expect(appPageFromPathname('/chat')).toBe('chat');
     expect(appPageFromPathname('/dags')).toBe('workflows');
     expect(appPageFromPathname('/workflows')).toBe('workflows');
-    expect(appPageFromPathname('/memory-center')).toBe('memory');
     expect(appPageFromPathname('/shared-files')).toBe('files');
     expect(appRouteForPage('workflows')).toBe('/dags');
     expect(appRouteForPage('settings')).toBe('/settings');
@@ -29,7 +28,6 @@ describe('app shell model', () => {
 
     expect(Object.keys(selected)).toEqual([...APP_SHELL_STORE_KEYS]);
     expect(selected.activePage).toBe('activePage-value');
-    expect(selected.skillRevision).toBe('skillRevision-value');
     expect(selected.workflowRevision).toBe('workflowRevision-value');
     expect(APP_SHELL_STORE_KEYS).toContain('threadRecoveryPendingByThread');
     expect(APP_SHELL_STORE_KEYS).toContain('captureThreadSelection');

@@ -131,14 +131,6 @@ function defaultWorkflowPageCache() {
   };
 }
 
-function defaultSkillPageCache() {
-  return {
-    items: [],
-    resolutionConflicts: [],
-    hasLoadedSkills: false,
-  };
-}
-
 function defaultSharedFileRetention() {
   return {
     items: [],
@@ -153,20 +145,6 @@ function defaultSharedFilesPageCache() {
     finalOutputRefs: [],
     retention: defaultSharedFileRetention(),
     hasLoadedFiles: false,
-  };
-}
-
-function defaultMemorySnapshot() {
-  return {
-    overview: {},
-    entries: [],
-  };
-}
-
-function defaultMemoryPageCache() {
-  return {
-    snapshot: defaultMemorySnapshot(),
-    hasLoadedMemory: false,
   };
 }
 
@@ -192,25 +170,11 @@ function createPromptWorkflowCacheActions(runtime) {
 
 function createResourcePageCacheActions(runtime) {
   return {
-    setSkillPageCache: (cwd, patch = {}) => setScopedPageCache(
-      runtime,
-      'skillPageCacheByCwd',
-      cwd,
-      defaultSkillPageCache(),
-      patch,
-    ),
     setSharedFilesPageCache: (cwd, patch = {}) => setScopedPageCache(
       runtime,
       'sharedFilesPageCacheByCwd',
       cwd,
       defaultSharedFilesPageCache(),
-      patch,
-    ),
-    setMemoryPageCache: (cwd, patch = {}) => setScopedPageCache(
-      runtime,
-      'memoryPageCacheByCwd',
-      cwd,
-      defaultMemoryPageCache(),
       patch,
     ),
   };
@@ -245,12 +209,9 @@ export {
   createProviderActions,
   createProviderConfigActions,
   createResourcePageCacheActions,
-  defaultMemoryPageCache,
-  defaultMemorySnapshot,
   defaultPromptPageCache,
   defaultSharedFileRetention,
   defaultSharedFilesPageCache,
-  defaultSkillPageCache,
   defaultWorkflowPageCache,
   scopedPageCacheEntry,
   scopedPageCachePatch,

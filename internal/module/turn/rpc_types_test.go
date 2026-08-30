@@ -65,6 +65,35 @@ func TestTurnParamsRejectUnknownSkillRefSource(t *testing.T) {
 	}
 }
 
+func TestTurnParamsRejectEmptySkillNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{name: "start selected names", payload: `{"threadId":"thread-1","selectedSkills":[" "]}`, want: `turn/start: selected skill[0] name is required`},
+		{name: "start selected refs", payload: `{"threadId":"thread-1","selectedSkillRefs":[{"name":""}]}`, want: `turn/start: selected skill ref[0] name is required`},
+		{name: "steer selected names", payload: `{"threadId":"thread-1","selectedSkills":[""]}`, want: `turn/steer: selected skill[0] name is required`},
+		{name: "steer selected refs", payload: `{"threadId":"thread-1","selectedSkillRefs":[{"name":"   "}]}`, want: `turn/steer: selected skill ref[0] name is required`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var target any
+			if strings.HasPrefix(tt.name, "start") {
+				target = &turnStartParams{}
+			} else {
+				target = &turnSteerParams{}
+			}
+			err := json.Unmarshal([]byte(tt.payload), target)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestTurnStartParamsAcceptsCamelRuntimeAliases(t *testing.T) {
 	t.Parallel()
 

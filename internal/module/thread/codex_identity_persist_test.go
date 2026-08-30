@@ -166,6 +166,7 @@ func TestResumeUsesStoredRuntimeCodexIdentityWhenBindingIdentityIsEmpty(t *testi
 			},
 		}),
 	}}
+	threads.promptSnapshot = validPromptSnapshotPtrForTest("codex", "SQLite resume identity")
 	bindings := &stubBindingStore{binding: &BindingRecord{
 		AgentID:       "agent-runtime-resume",
 		Provider:      "codex",

@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -8,7 +9,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
-func TestComposeTurnTextIncludesAttachmentTextAfterUserContext(t *testing.T) {
+func TestComposeTurnTextOmitsLegacyMemoryAttachment(t *testing.T) {
 	attachment := contract.NewRelevantMemoryAttachment(
 		"project/commit-style.md",
 		"Memory (saved today): project/commit-style.md:",
@@ -17,18 +18,25 @@ func TestComposeTurnTextIncludesAttachmentTextAfterUserContext(t *testing.T) {
 		720,
 		false,
 	)
+	ordinary := dto.AttachmentEnvelope{
+		Kind:    "file",
+		Path:    "project/README.md",
+		Header:  "README",
+		Content: "Use the project README as background.",
+		MtimeMs: 1,
+	}
 	got := composeTurnText(dto.TurnRequest{
 		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{
 			UserContext: map[string]string{
 				"currentDate": "Today's date is 2026-04-15.",
 			},
-			Attachments: []dto.AttachmentEnvelope{attachment},
+			Attachments: []dto.AttachmentEnvelope{attachment, ordinary},
 		},
 	})
-	// system-reminder is now injected once via baseInstructions at start,
-	// so composeTurnText only includes attachments + user text.
-	want := contract.RenderAttachmentText(attachment) + "\n\nhello"
+	// system-reminder is now injected once via baseInstructions at start;
+	// legacy memory is dropped while ordinary attachments remain on the wire.
+	want := contract.RenderAttachmentText(ordinary) + "\n\nhello"
 	if got != want {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
 	}
@@ -50,5 +58,19 @@ func TestComposeTurnTextPrependsSystemContextBeforeUserContext(t *testing.T) {
 	want := "hello"
 	if got != want {
 		t.Fatalf("composeTurnText() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSteerPayloadRejectsLegacyMemorySection(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildSteerPayload(dto.SteerRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+		TurnAssembly: dto.TurnAssembly{ResolvedSections: []dto.ResolvedPromptSection{
+			{Name: contract.DynamicSectionMemory, Content: "legacy memory"},
+		}},
+	}, nil)
+	if !errors.Is(err, contract.ErrLegacyMemoryPromptInjection) {
+		t.Fatalf("buildSteerPayload() error = %v, want legacy memory sentinel", err)
 	}
 }

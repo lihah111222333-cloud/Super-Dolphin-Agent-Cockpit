@@ -223,7 +223,6 @@ func prioritySSAWidePortTargets(pkgs []*prioritySSAPackage) ([]*types.TypeName, 
 func prioritySSANamedWidePortTargetSpecs() []prioritySSATargetSpec {
 	return []prioritySSATargetSpec{
 		{importPath: prioritySSAModulePath + "/cmd/mcp-orch/store/taskdag", name: "Store"},
-		{importPath: prioritySSAModulePath + "/internal/module/skill", name: "Service"},
 	}
 }
 

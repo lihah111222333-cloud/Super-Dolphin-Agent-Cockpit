@@ -449,7 +449,7 @@ func claudeRuntimeReportContractCase() contracttest.Case {
 	return contracttest.Case{Name: "stdio runtime report", Run: func(t *testing.T, e *contracttest.CaseEvidence) {
 		t.Helper()
 		reporter := &stubRuntimeReporter{}
-		runtimeDriver := buildDriver(nil, nil, reporter, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
+		runtimeDriver := buildDriver(nil, nil, reporter, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 		if err := runtimeDriver.reportRuntime(" agent-runtime-contract "); err != nil {
 			t.Fatalf("reportRuntime() error = %v", err)
 		}
@@ -461,7 +461,7 @@ func claudeRuntimeReportContractCase() contracttest.Case {
 		})
 
 		failingReporter := &stubRuntimeReporter{err: errors.New("runtime reporter down")}
-		failingDriver := buildDriver(nil, nil, failingReporter, nil, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
+		failingDriver := buildDriver(nil, nil, failingReporter, nil, nil, nil, nil, testSkillMetrics(t)).(*driver)
 		err := failingDriver.reportRuntime("agent-runtime-contract")
 		if err == nil {
 			t.Fatal("reportRuntime() error = nil, want explicit failure")
@@ -472,7 +472,6 @@ func claudeRuntimeReportContractCase() contracttest.Case {
 
 func claudeContractDriverWithLaunch(launchFn testLaunchCLI) *driver {
 	return &driver{
-		mirror:     &recordingMirrorReconciler{},
 		launchCLI:  launchFn,
 		authStatus: loggedInClaudeAuthStatus,
 	}

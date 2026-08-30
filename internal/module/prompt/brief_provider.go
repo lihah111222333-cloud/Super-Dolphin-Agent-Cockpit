@@ -55,7 +55,10 @@ func briefEnabled(build BuildCtx) bool {
 
 // briefFeatureEnabled 判断会话功能开关是否允许 brief provider 生效。
 func briefFeatureEnabled(build BuildCtx) bool {
-	return promptFeatureEnabled(build.SessionFlags, []string{"KAIROS", "KAIROS_BRIEF"}, "memory_kairos", "kairos", "kairos_brief", "kairosBrief")
+	// `memory_kairos` was a retired memory-runtime alias.  Keeping it here
+	// would let an old memory flag silently re-enable a prompt section that is
+	// otherwise owned by the explicit KAIROS brief feature.
+	return promptFeatureEnabled(build.SessionFlags, []string{"KAIROS", "KAIROS_BRIEF"}, "kairos", "kairos_brief", "kairosBrief")
 }
 
 // briefModeEnabled 判断当前 turn 是否请求 brief 输出模式。

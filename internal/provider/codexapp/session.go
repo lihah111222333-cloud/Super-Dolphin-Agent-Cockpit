@@ -65,6 +65,13 @@ type session struct {
 	rolloutToolOrder       []string
 	processedApprovals     map[string]*processedApprovalEntry
 	runtimeConfig          map[string]any
+	// promptSnapshot 保存当前 session 启动/恢复时的不可变提示快照。
+	// transport 重连只允许复用经过 provider owner/version 校验的快照，避免旧
+	// V3 memory section 从 recovery 的 thread/resume 路径重新进入 provider。
+	promptSnapshot contract.PromptAssemblySnapshot
+	// nativeContext 保存 start/resume 入口构造并验证的 provider-native 身份。
+	// recovery 发出 thread/resume 前必须复用并再次校验该上下文。
+	nativeContext contract.ProviderNativeContext
 	// turnOutputAccumulator 按 provider turn UUID 暂存流式输出，供完成事件合并后再分发。
 	turnOutputAccumulator map[string]*turnOutputBuffer
 	accumulatorMu         sync.Mutex
