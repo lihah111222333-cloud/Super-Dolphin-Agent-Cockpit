@@ -3865,6 +3865,7 @@
     "internal/provider/claudecli/observability_trace.go",
     "internal/provider/claudecli/observability_trace_test.go",
     "internal/provider/claudecli/provider_contract_test.go",
+    "internal/provider/claudecli/provider_native_skills_contract_test.go",
     "internal/provider/claudecli/runtime_hooks_test.go",
     "internal/provider/claudecli/session.go",
     "internal/provider/claudecli/session_config.go",
@@ -3884,6 +3885,7 @@
     "internal/provider/claudecli/session_log_watcher_parse_test.go",
     "internal/provider/claudecli/session_log_watcher_poll_test.go",
     "internal/provider/claudecli/session_manifest_roots_test.go",
+    "internal/provider/claudecli/session_native_skills.go",
     "internal/provider/claudecli/session_receive_exit.go",
     "internal/provider/claudecli/session_recovery_test.go",
     "internal/provider/claudecli/session_restart_config_test.go",
@@ -3978,6 +3980,7 @@
     "internal/provider/codexapp/process_windows_test.go",
     "internal/provider/codexapp/protocol/dynamic_tool.go",
     "internal/provider/codexapp/provider_contract_test.go",
+    "internal/provider/codexapp/provider_native_skills_contract_test.go",
     "internal/provider/codexapp/recovery.go",
     "internal/provider/codexapp/recovery_escalation_test.go",
     "internal/provider/codexapp/recovery_replay_policy_test.go",
@@ -4005,6 +4008,7 @@
     "internal/provider/codexapp/session_history.go",
     "internal/provider/codexapp/session_history_strict_test.go",
     "internal/provider/codexapp/session_interrupt_test.go",
+    "internal/provider/codexapp/session_native_skills.go",
     "internal/provider/codexapp/session_prompt_snapshot.go",
     "internal/provider/codexapp/session_rollout_events.go",
     "internal/provider/codexapp/session_rollout_test.go",
@@ -4678,6 +4682,6 @@
     "scripts/mcp_lsp_workload_catalog/remote_test_tree.go",
     "scripts/mcp_lsp_workload_catalog/tree_argument.go"
   ],
-  "source_snapshot_input_count": 7069,
-  "source_snapshot_paths_sha256": "sha256:9b478eb5148ce01aedffef913cb2f70fe37c4d6e017414394c417bf8c2c09658"
+  "source_snapshot_input_count": 7073,
+  "source_snapshot_paths_sha256": "sha256:7d3e8031e82712a5436fb4e3629d9fd58ca8796d66c02b44cb6adaae2942f7bf"
 }
