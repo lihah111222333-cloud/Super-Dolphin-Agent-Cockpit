@@ -52,7 +52,7 @@ var Module = fx.Module("uistate",
 	fx.Provide(NewUIStateHandlers),
 	fx.Provide(fx.Annotate(
 		NewConfigHandlers,
-		fx.ParamTags("", "", "", "", ""),
+		fx.ParamTags("", "", "", ""),
 	)),
 	fx.Provide(NewUIStateSubscribers),
 	fx.Invoke(registerInitialStateLifecycle),

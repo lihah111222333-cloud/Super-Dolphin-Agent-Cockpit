@@ -566,7 +566,7 @@ func TestSetPreferencePublishesProjectionUpdatesForSettingsKeys(t *testing.T) {
 	cancelProjection := event.Subscribe(dispatcher, func(ev uidto.UIProjectionUpdated) { projectionChanged <- ev })
 	defer cancelProjection()
 
-	if err := svc.SetPreference(context.Background(), "settings.provider.active", "claude"); err != nil {
+	if err := svc.SetPreference(context.Background(), "settings.provider.active", "codex"); err != nil {
 		t.Fatalf("SetPreference(settings.provider.active) error = %v", err)
 	}
 

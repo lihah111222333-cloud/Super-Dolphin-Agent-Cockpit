@@ -39,7 +39,6 @@ func AllTypedWireMethods() []string {
 		MethodUIPreferencesChanged,
 		MethodUIThreadPatch,
 		MethodUISharedFilesChanged,
-		MethodUIPromptsChanged,
 		MethodAgentLaunched,
 		MethodAgentStopped,
 		MethodAgentRecovering,

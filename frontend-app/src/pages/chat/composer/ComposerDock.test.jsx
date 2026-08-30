@@ -78,10 +78,8 @@ const reviewItem = {
 
 function createSlashCommandService() {
   return {
-    loadPrompts: vi.fn().mockResolvedValue([]),
     loadAutomations: vi.fn().mockResolvedValue([]),
     loadMCPTools: vi.fn().mockResolvedValue([reviewItem]),
-    loadPromptContent: vi.fn(),
   };
 }
 

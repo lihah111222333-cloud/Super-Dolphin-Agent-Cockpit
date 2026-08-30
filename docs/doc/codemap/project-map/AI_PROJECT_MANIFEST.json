@@ -3,23 +3,23 @@
   "generator": "node:scripts/generate_ai_project_map.mjs",
   "input_fingerprint": {
     "schema": "project-map-input/v1",
-    "generator_rules_sha256": "sha256:b6dcb7f44e771629306b3c43d357221dd231b7903474654c2ba1a12a0d2c2ece",
-    "source_sha256": "sha256:ba4f6fbf5c6a88c46fe9360339e94f77c864e76475d84ff9be0bcd3d9071a074",
-    "entries_sha256": "sha256:718bbce59f5cfce3fbf41c09504419c9d663c0ec4f4fdef9fdb071d50935c856"
+    "generator_rules_sha256": "sha256:acab37c6a39849fce5c4af79ef66336755b676b6705bcc77a390cd34adad3277",
+    "source_sha256": "sha256:40eff1cf77bc8e5ff2d79542529c60310b5ed421ab4919bd48ac3ed65bb351a6",
+    "entries_sha256": "sha256:98ebb6a8317a42b67dd6620800c8aca0fe7231513206a9db65e5f1b0583bd400"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4942,
+  "files": 4898,
   "domains": {
-    "other": 1034,
+    "other": 1030,
     "remote-ci": 191,
     "docs-agent": 100,
-    "app-ui": 724,
-    "platform-provider": 1753,
+    "app-ui": 710,
+    "platform-provider": 1754,
     "orchestration": 410,
-    "modules": 503,
+    "modules": 476,
     "store-sql": 227
   },
   "index_files": {
@@ -29,8 +29,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 724,
-        "size_kb": 148.2,
+        "file_count": 710,
+        "size_kb": 145.4,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -43,15 +43,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 503,
-        "size_kb": 94.6,
-        "desc": "业务模块层：dashboard、prompt、thread、turn、uistate 等；memory 仅保留兼容契约"
+        "file_count": 476,
+        "size_kb": 89.1,
+        "desc": "业务模块层：dashboard、memory、prompt、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1753,
-        "size_kb": 333.2,
+        "file_count": 1754,
+        "size_kb": 333.5,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -78,8 +78,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1034,
-        "size_kb": 209.5,
+        "file_count": 1030,
+        "size_kb": 208.7,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -89,10 +89,10 @@
     "(root)": 12,
     "cmd": 1254,
     "docs": 93,
-    "frontend-app": 716,
-    "internal": 2498,
+    "frontend-app": 702,
+    "internal": 2469,
     "pkg": 30,
-    "scripts": 286,
+    "scripts": 285,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -136,10 +136,10 @@
       "keywords": "thread start resume fork turn provider"
     },
     {
-      "goal": "修改 prompt / memory 兼容契约",
-      "primary": "internal/module/prompt/",
-      "secondary": "internal/contract/memory.go",
-      "keywords": "prompt assembly memory compatibility fail-fast"
+      "goal": "修改 memory/prompt",
+      "primary": "internal/module/memory/",
+      "secondary": "internal/module/prompt/",
+      "keywords": "memory prompt assembly and persistence"
     },
     {
       "goal": "修改 provider 接入",

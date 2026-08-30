@@ -7,7 +7,6 @@ const copy = {
   categories: {
     builtin: '快捷命令',
     skill: '技能',
-    prompt: '提示词',
     automation: '自动化',
     mcp_tool: 'MCP 工具',
   },
@@ -55,7 +54,6 @@ function categoryStates(overrides = {}) {
   return {
     builtin: { status: 'success', error: '' },
     skill: { status: 'success', error: '' },
-    prompt: { status: 'success', error: '' },
     automation: { status: 'success', error: '' },
     mcp_tool: { status: 'success', error: '' },
     ...overrides,
@@ -117,7 +115,6 @@ it('renders project-required and successful-empty states explicitly', () => {
       activeId=""
       categoryStates={categoryStates({
         skill: { status: 'disabled', error: '' },
-        prompt: { status: 'disabled', error: '' },
         automation: { status: 'disabled', error: '' },
         mcp_tool: { status: 'disabled', error: '' },
       })}

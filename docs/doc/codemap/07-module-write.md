@@ -425,7 +425,7 @@ tracker 只保存 **本地真相**：
 | `service.go` | state 容器、GetState/GetSidebar/GetPreferences/SetPreference。 |
 | `module.go` | Fx 装配、binding adapter、registerProjections。 |
 | `rpc.go` | `ui/state/*`、`ui/preferences/*`、`ui/projects/*`。 |
-| `config_rpc.go` | `config/read`、`config/lspPromptHint/read|write`。 |
+| `config_rpc.go` | `config/read` runtime config snapshot；prompt hint 管理 RPC 已退役。 |
 | `projector.go` | item/tool/token 事件投影。 |
 | `projector_handlers.go` | agent/thread/turn 生命周期投影。 |
 | `factory.go` | `applyMutation`、状态派生辅助。 |
@@ -526,7 +526,7 @@ sequenceDiagram
 - **Preferences**：按 `cwd` scope；`activeThreadId / mainAgentId / threadPins.chat / threadArchives.chat` 直接影响 thread groups：`internal/module/uistate/preferences.go:13-193`
 - **Projects**：只是 `projects.state` 这个 preference 的结构化包装：`internal/module/uistate/projects.go:11-125`
 - **config/read**：默认 runtime config + activeThread 对应 `ReadRuntimeConfig + GetConfig` 叠加：`internal/module/uistate/config_rpc.go:67-114`
-- **config/lspPromptHint**：默认值来自 sharedfile `prompts/lsp-mandatory-prefix.md`，覆写值来自 scoped preference `config/lspPromptHint.override`：`internal/module/uistate/config_rpc.go:295-387`
+- **prompt/LSP hint 配置**：V3 不再提供 `config/lspPromptHint/read|write` host 管理 RPC；需要配置时使用 provider 官方 CLI/app-server 配置。
 
 补充：`workspaceByKey` 当前在本扫描面里只有容器，没有看到配套写入者：`internal/module/uistate/service.go:27-33`、`internal/module/uistate/service.go:234-241`。
 
@@ -550,7 +550,6 @@ sequenceDiagram
 - `threadPatchLocked`：`internal/module/uistate/patch.go:114-152`
 - `timeline.RegisterSubscriptions`：`internal/module/uistate/timeline/projector.go:16-45`
 - `reasoningDeltaHandler`：`internal/module/uistate/timeline/projector.go:120-162`
-- `readLSPPromptHint`：`internal/module/uistate/config_rpc.go:295-310`
 - `GetProjects`：`internal/module/uistate/projects.go:18-24`
 
 ---
@@ -611,7 +610,7 @@ sequenceDiagram
 |---|---|---|---|
 | `thread` | `start_session_helpers_test.go` / `resume_test.go` / `fork_isolation_test.go` / `stop_test.go` | `TestBuildStartAssemblyInputCarriesChildAgentMetadata` / `TestServiceResumeInfersProviderAndRebuildsSession` / `TestServiceForkCreatesIndependentAgentAndBinding` / `TestStopInterruptsTurnAndCleansThreadState` | start input、resume/fork、stop cleanup |
 | `turn` | `service_test.go` / `skills_test.go` / `orchestration_starter_test.go` | `TestPrepareTurnKeepsSkillPromptsAndNormalizesInputs` / provider-native metadata normalization tests / `TestOrchestrationTurnStarterStartsQueuedTurn` | PrepareTurn、skill metadata gate、orchestration starter |
-| `uistate` | `sidebar_test.go` / `phase2_stats_patch_pending_test.go` / `config_rpc_test.go` | `TestGetSidebarBuildsCompatibilitySnapshot` / `TestActivityStats_CommandIncrementsCommands` / `TestConfigHandlersReadAndWriteLSPPromptHint` | sidebar 派生、activity stats、config hint |
+| `uistate` | `sidebar_test.go` / `phase2_stats_patch_pending_test.go` / `config_rpc_test.go` | `TestGetSidebarBuildsCompatibilitySnapshot` / `TestActivityStats_CommandIncrementsCommands` / config/read contract tests | sidebar 派生、activity stats、runtime config snapshot |
 | `uistate/timeline` | `timeline_test.go` / `projector_parity_test.go` / `phase2_projector_pending_test.go` | `TestAppendAndGetByThread` / `TestRegisterSubscriptions_PlanAndUserParity` / `TestItemStarted_CommandKind` | timeline append、parity 投影、command/tool item |
 
 补充：本卷当前无额外 archtest freeze 真值项，freeze 列按 `—` 处理即可。

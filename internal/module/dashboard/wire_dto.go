@@ -201,36 +201,6 @@ type CommandCard struct {
 	RunCount        int64           `json:"run_count"`
 }
 
-// PromptTemplateFilter 是 dashboard/prompts 的查询条件。
-type PromptTemplateFilter struct {
-	AgentKey string
-	Keyword  string
-	CWD      string
-	Limit    int32
-}
-
-// PromptTemplate 是 dashboard/prompts 和 ui/dashboard/get(commands) 暴露的 prompt wire 条目。
-type PromptTemplate struct {
-	ID             int64           `json:"id"`
-	PromptKey      string          `json:"prompt_key"`
-	Title          string          `json:"title"`
-	AgentKey       string          `json:"agent_key"`
-	ToolName       string          `json:"tool_name"`
-	PromptText     string          `json:"prompt_text"`
-	WhenToUse      string          `json:"when_to_use"`
-	Variables      json.RawMessage `json:"variables"`
-	Tags           json.RawMessage `json:"tags"`
-	Enabled        bool            `json:"enabled"`
-	ManuallyEdited bool            `json:"manually_edited"`
-	MatchWhen      json.RawMessage `json:"match_when,omitempty"`
-	Priority       int             `json:"priority"`
-	CreatedBy      string          `json:"created_by"`
-	UpdatedBy      string          `json:"updated_by"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	Description    string          `json:"description"`
-}
-
 // SharedFileFilter 是 dashboard/sharedFiles 的 sharedfile 查询条件。
 type SharedFileFilter struct {
 	Prefix string
@@ -290,11 +260,6 @@ type CommandCardReader interface {
 // DBQueryExecutor 是 dashboard 透传只读 SQL 查询的窄 port。
 type DBQueryExecutor interface {
 	Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
-}
-
-// PromptTemplateReader 是 dashboard 读取 prompt 模板的窄 port。
-type PromptTemplateReader interface {
-	List(ctx context.Context, filter PromptTemplateFilter) ([]PromptTemplate, error)
 }
 
 // SharedFileReader 是 dashboard 读取 sharedfile 的窄 port。

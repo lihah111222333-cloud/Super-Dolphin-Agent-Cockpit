@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-08-30T07:53:24Z"
+    "updatedAt": "2026-08-30T09:05:35Z"
   },
   "files": {
     "scripts/action-producer-guard.mjs": {
@@ -65,8 +65,8 @@
       ]
     },
     "scripts/agentic-e2e-wails-mock.mjs": {
-      "lines": 518,
-      "maxFuncLen": 528,
+      "lines": 513,
+      "maxFuncLen": 523,
       "maxNesting": 8,
       "maxParams": 2,
       "exportCount": 3,
@@ -350,7 +350,7 @@
       ]
     },
     "scripts/rpc-contract-audit.mjs": {
-      "lines": 5214,
+      "lines": 5203,
       "maxFuncLen": 185,
       "maxNesting": 8,
       "maxParams": 6,

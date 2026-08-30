@@ -75,7 +75,7 @@ func appAdapterAllowPolicies() []BoundaryImportPolicy {
 		"internal/app/internal/storeguard", "internal/module/dashboard",
 		"internal/store/agentstatus", "internal/store/ailog", "internal/store/auditlog",
 		"internal/store/buslog", "internal/store/commandcard", "internal/store/dbquery",
-		"internal/store/prompt", "internal/store/sharedfile", "internal/store/systemlog")
+		"internal/store/sharedfile", "internal/store/systemlog")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/datasourcev2/adapter.go", "datasource adapter owns only its domain module and store",
 		"internal/app/internal/storeguard", "internal/module/datasource_v2", "internal/store/datasourcev2")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/feedback/adapter.go", "feedback adapter owns only its domain module and store",
@@ -85,13 +85,13 @@ func appAdapterAllowPolicies() []BoundaryImportPolicy {
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/personalization/adapter.go", "personalization adapter owns only its domain module and preference store",
 		"internal/app/internal/storeguard", "internal/module/personalization", "internal/store/uipreference")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/prompt/adapter.go", "prompt adapter owns only its domain module and prompt-related stores",
-		"internal/app/internal/storeguard", "internal/module/prompt", "internal/store/prompt",
-		"internal/store/sharedfile", "internal/store/uipreference")
+		"internal/app/internal/storeguard", "internal/module/prompt", "internal/store/sharedfile",
+		"internal/store/uipreference")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/turn/adapter.go", "turn adapter owns only its domain module and dedupe store",
 		"internal/app/internal/storeguard", "internal/module/turn", "internal/store/turndedupe")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/uistate/adapter.go", "UI state adapter owns only its domain module and UI stores",
 		"internal/app/internal/storeguard", "internal/module/uistate", "internal/store/binding",
-		"internal/store/sharedfile", "internal/store/uipreference")
+		"internal/store/uipreference")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/thread/prompt.go", "thread prompt adapter owns only thread contracts, modules, and prompt store",
 		"internal/contract", "internal/module/thread", "internal/module/threadprompt", "internal/store/prompt")
 	policies = appendAppAdapterPolicies(policies, "internal/app/storeadapter/thread/store.go", "thread store adapter owns only thread contracts and stores",

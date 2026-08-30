@@ -17,11 +17,7 @@ import (
 // uiDashboardGetParams 是 ui/dashboard/get 的请求参数。
 type uiDashboardGetParams struct {
 	Page string `json:"page,omitempty"`
-	Cwd  string `json:"cwd,omitempty"`
-}
-
-// dashboardPromptsParams 是 dashboard prompt 请求的 cwd scope 参数。
-type dashboardPromptsParams struct {
+	// Cwd 是 dashboard 项目上下文兼容字段；prompt 管理已退役，不再写入任何 prompt scope。
 	Cwd string `json:"cwd,omitempty"`
 }
 
@@ -240,11 +236,6 @@ type cardsResponse struct {
 	Cards []CommandCard `json:"cards"`
 }
 
-// promptsResponse 是 dashboard/prompts 的响应结构。
-type promptsResponse struct {
-	Prompts []PromptTemplate `json:"prompts"`
-}
-
 // filesResponse 是 dashboard/sharedFiles 的响应结构，附带 final output 保留分析。
 type filesResponse struct {
 	Files               []SharedFile        `json:"files"`
@@ -353,10 +344,9 @@ func NewDashboardHandlers(svc Service) platformrpc.HandlerMapResult {
 }
 
 // registerDashboardCoreHandlers 注册页面、agent、system 和 query 相关 handler。
-// 这些 handler 主要做 wire 参数校验和上下文 scope 注入，业务边界仍在 Service。
+// 这些 handler 主要做 wire 参数校验，业务边界仍在 Service。
 func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 	m["ui/dashboard/get"] = platformrpc.StrictHandler(func(ctx context.Context, p uiDashboardGetParams) (any, error) {
-		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
 		return svc.GetDashboardPage(ctx, p.Page)
 	})
 	m["dashboard/agentStatus"] = platformrpc.StrictHandler(func(ctx context.Context, p agentStatusParams) (any, error) {
@@ -372,18 +362,6 @@ func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return cardsResponse{Cards: page.CommandCards}, nil
-	})
-	m["dashboard/prompts"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
-		cwd := strings.TrimSpace(p.Cwd)
-		if cwd == "" {
-			return nil, errors.New("dashboard: prompt cwd is required")
-		}
-		ctx = withDashboardPromptScopeCWD(ctx, cwd)
-		page, err := svc.GetDashboardPage(ctx, "commands")
-		if err != nil {
-			return nil, err
-		}
-		return promptsResponse{Prompts: page.Prompts}, nil
 	})
 	m["dashboard/sharedFiles"] = platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 		files, err := svc.ListSharedFiles(ctx)

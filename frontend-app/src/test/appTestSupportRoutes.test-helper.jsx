@@ -180,7 +180,6 @@ function mockWorkflowDagLifecycle() {
     'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
     'settings.provider.codex.codexInstanceKey': 'desktop-main',
     'settings.provider.codex.codexModelProvider': 'openrouter',
-    'settings.activePromptKey': 'main/reviewer',
   }[key] ?? null));
   backend.startThread.mockResolvedValue({ thread: { id: 'thread-design' }, provider: 'codex', modelProvider: 'codex' });
   backend.getThreadState.mockImplementation(({ threadId }) => Promise.resolve(

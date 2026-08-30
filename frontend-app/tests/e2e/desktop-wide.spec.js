@@ -26,16 +26,6 @@ const BUSINESS_PAGES = Object.freeze([
     },
   },
   {
-    label: '提示词',
-    route: /\/prompts$/u,
-    navTestId: 'sidebar-nav',
-    assert: async (page) => {
-      const overview = page.getByRole('region', { name: '个性化概览', exact: true });
-      await expect(overview).toBeVisible();
-      await expect(overview.getByRole('heading', { name: '定制角色、知识和记忆', exact: true })).toBeVisible();
-    },
-  },
-  {
     label: '共享文件',
     route: /\/files$/u,
     navTestId: 'sidebar-nav',

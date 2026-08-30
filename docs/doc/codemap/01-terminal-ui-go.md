@@ -278,7 +278,7 @@ graph TD
 2. **多窗口 query 注入已做，前端消费未做**：Go 侧在 `internal/ui/wails/binding.go:110`、`internal/ui/wails/window.go:37` 都写了 TODO，说明 `ao_ui_bootstrap/ao_window_cwd` 只是注入 URL，尚未形成前端运行态回填。
 3. **桌面主路径仍是“直接 Run Wails App”**：`internal/app/app.go:130` 直接执行 `wailsApp.Run()`；`internal/ui/wails/runner.go:18` 的 adapter 目前未进入 `uiwails.Module`。
 4. **EventBridge 是生产路径，不是测试专用 helper**：`internal/ui/wails/bridge.go:35` `Start()` 由 `internal/ui/wails/module.go:156` 的 Fx hook 启动，不是孤儿代码。
-5. **UI 侧 dashboard/prompts 查询不归 Wails 专属 handler 管**：桌面层只负责 `internal/ui/wails/binding.go:38` `App.CallAPI()` 与 `internal/ui/wails/rpc.go:80` 这组 transport/helper；真正带 `cwd` 语义的 `ui/dashboard/get`、`dashboard/prompts`、`dashboard/skills` 仍在 `internal/module/dashboard/rpc.go:85-115`，并先走 `withDashboardPromptScopeCWD(ctx, p.Cwd)`。
+5. **UI 侧 dashboard 查询不归 Wails 专属 handler 管**：桌面层只负责 `internal/ui/wails/binding.go:38` `App.CallAPI()` 与 `internal/ui/wails/rpc.go:80` 这组 transport/helper；当前 dashboard 聚合入口在 `internal/module/dashboard/rpc.go`，prompt 管理 host route 已退役，runtime 组装见 `11-prompt-thread.md`。
 
 ### 6.3 一次桌面调用与事件回流时序图
 
@@ -299,7 +299,7 @@ sequenceDiagram
         RPC->>WH: ui/code/* / ui/openNewWindow / ui/log
         WH-->>UI: JSON result
     else 通用业务 RPC
-        RPC->>MOD: ui/dashboard/get / dashboard/prompts / thread/start
+        RPC->>MOD: ui/dashboard/get / thread/start
         MOD-->>UI: JSON result
     end
     MOD->>BUS: publish domain event
@@ -307,7 +307,7 @@ sequenceDiagram
     BR-->>UI: bridge-event / agent-event
 ```
 
-- 事件回流分支只在后端实际发布事件时发生；Wails 层不拥有 `ui/dashboard/get` / `dashboard/prompts` 的查询语义，只负责 transport 与 runtime event 转发。
+- 事件回流分支只在后端实际发布事件时发生；Wails 层不拥有 `ui/dashboard/get` 的查询语义，只负责 transport 与 runtime event 转发。
 
 ## 7. 测试入口 + archtest freeze 映射
 

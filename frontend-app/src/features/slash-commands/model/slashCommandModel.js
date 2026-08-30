@@ -3,7 +3,6 @@ const SLASH_TRIGGER_RE = /^(\s*)\/([^\s]*)$/u;
 export const SLASH_COMMAND_KIND_ORDER = Object.freeze([
   'builtin',
   'skill',
-  'prompt',
   'automation',
   'mcp_tool',
 ]);

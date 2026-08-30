@@ -193,6 +193,12 @@ func (s *session) prepareTurnStartParams(ctx context.Context, req dto.TurnReques
 	if err != nil {
 		return turnStartParams{}, err
 	}
+	if err := validateSelectedSkillNames(req.Skills); err != nil {
+		return turnStartParams{}, err
+	}
+	if err := s.requireProviderNativeSkills(req.Skills); err != nil {
+		return turnStartParams{}, err
+	}
 	params, err := buildTurnStartParams(threadID, req)
 	if err != nil {
 		return turnStartParams{}, err

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { useRef, useState } from 'react';
 import { expect, it, vi } from 'vitest';
 import { SlashCommandPalette } from '../components/SlashCommandPalette.jsx';
@@ -9,7 +9,6 @@ const copy = {
   ariaLabel: '命令与能力',
   categories: {
     builtin: '快捷命令',
-    prompt: '提示词',
     automation: '自动化',
     mcp_tool: 'MCP 工具',
   },
@@ -24,18 +23,6 @@ const copy = {
     clearLabel: '清空输入',
     clearDescription: '清空文字、附件与能力',
   },
-};
-
-const promptItem = {
-  id: 'prompt:prompt',
-  kind: 'prompt',
-  name: 'prompt',
-  label: 'Prompt template',
-  description: 'Load a prompt body',
-  keywords: ['prompt'],
-  payload: { promptId: 'prompt' },
-  disabled: false,
-  disabledReason: '',
 };
 
 const automationItem = {
@@ -72,10 +59,8 @@ const toolItem = {
 
 function createService() {
   return {
-    loadPrompts: vi.fn().mockResolvedValue([promptItem]),
     loadAutomations: vi.fn().mockResolvedValue([automationItem]),
     loadMCPTools: vi.fn().mockResolvedValue([toolItem]),
-    loadPromptContent: vi.fn().mockResolvedValue('Loaded prompt body'),
   };
 }
 
@@ -157,34 +142,6 @@ function renderHarness(options = {}) {
   );
   return { service, setDraftSpy, store, textarea: screen.getByRole('textbox', { name: '输入' }) };
 }
-
-it('loads prompt content before replacing the trigger', async () => {
-  const { service, setDraftSpy, textarea } = renderHarness();
-
-  fireEvent.change(textarea, { target: { value: '/prompt' } });
-  await screen.findByRole('option', { name: /Prompt template/ });
-  fireEvent.keyDown(textarea, { key: 'Enter' });
-
-  await waitFor(() => expect(service.loadPromptContent).toHaveBeenCalledWith('/repo', 'prompt'));
-  await waitFor(() => expect(setDraftSpy).toHaveBeenCalledWith('Loaded prompt body'));
-});
-
-it('preserves the prompt trigger and reports a lazy-load failure', async () => {
-  const service = createService();
-  service.loadPromptContent.mockRejectedValueOnce(new Error('prompt unavailable'));
-  const { setDraftSpy, store, textarea } = renderHarness({ service });
-
-  fireEvent.change(textarea, { target: { value: '/prompt' } });
-  await screen.findByRole('option', { name: /Prompt template/ });
-  fireEvent.keyDown(textarea, { key: 'Enter' });
-
-  await waitFor(() => expect(store.notifyAction).toHaveBeenCalledWith(
-    expect.stringContaining('prompt unavailable'),
-    'error',
-  ));
-  expect(setDraftSpy).not.toHaveBeenCalledWith('');
-  expect(textarea).toHaveValue('/prompt');
-});
 
 it('applies built-ins, automation text, and canonical MCP capability semantics', async () => {
   const { setDraftSpy, store, textarea } = renderHarness();

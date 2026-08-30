@@ -4,7 +4,6 @@ const APP_ROUTE_MODULE_LOADERS = [
   () => import('../pages/chat/ChatPage.jsx'),
   () => import('../pages/files/FilesPage.jsx'),
   () => import('../pages/observability/ObservabilityPage.jsx'),
-  () => import('../pages/prompts/PromptPage.jsx'),
   () => import('../pages/settings/SettingsPage.jsx'),
   () => import('../pages/workflows/WorkflowPage.jsx'),
 ];

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ACTIVE_PROMPT_PREF_KEY,
   bridgeRevisionKey,
   isDagNodeStatusBridgeEvent,
   requireDagNodeStatusPayload } from './helpers/bridgeRevision.js';
@@ -9,8 +8,6 @@ describe('bridge revision helpers', () => {
   it('routes bridge events to their store revision counters', () => {
     expect(bridgeRevisionKey('ui/shared-files/changed')).toBe('sharedFilesRevision');
     expect(bridgeRevisionKey('dags/changed')).toBe('workflowRevision');
-    expect(bridgeRevisionKey('prompts/changed')).toBe('promptRevision');
-    expect(bridgeRevisionKey('ui/preferences/changed', { key: ACTIVE_PROMPT_PREF_KEY })).toBe('promptRevision');
     expect(bridgeRevisionKey('ui/preferences/changed', { key: 'other' })).toBe('');
   });
 

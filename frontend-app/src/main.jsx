@@ -20,7 +20,6 @@ import './pages/files/FilesPage.css';
 import './pages/settings/SettingsPage.css';
 import './pages/observability/ObservabilityPage.css';
 import './shared/styles/PagePrimitivesLate.css';
-import './features/prompts/PromptPageView.css';
 import './pages/settings/components/SettingsPageComponents.css';
 
 // Late polish layers intentionally override earlier page modules.
@@ -31,8 +30,6 @@ import './pages/chat/ChatPageWorkbench.css';
 import './pages/chat/components/ProjectSelector.css';
 import './pages/workflows/WorkflowEmptyState.css';
 import './pages/files/FilesPageWorkbench.css';
-import './features/prompts/PromptPagePolish.css';
-import './features/prompts/Personalization.css';
 import './AppShellSidebarPolish.css';
 import './pages/workflows/WorkflowPolish.css';
 import './pages/chat/components/RuntimePanelPolish.css';

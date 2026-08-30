@@ -53,7 +53,6 @@ func TestBuiltinToolsWritePersistsDisabledAndReturnsCurrentView(t *testing.T) {
 	server := newConfigTestServer(
 		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
 		prefs,
-		&sharedFileStoreStub{},
 		nil,
 	)
 
@@ -81,7 +80,6 @@ func TestBuiltinToolsWriteRejectsUnknownID(t *testing.T) {
 	server := newConfigTestServer(
 		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
 		prefs,
-		&sharedFileStoreStub{},
 		nil,
 	)
 	_, err := server.Dispatch(
@@ -100,7 +98,6 @@ func TestBuiltinToolsWriteRequiresPreferenceStore(t *testing.T) {
 	server := newConfigTestServer(
 		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/repo"},
 		nil,
-		&sharedFileStoreStub{},
 		nil,
 	)
 	_, err := server.Dispatch(

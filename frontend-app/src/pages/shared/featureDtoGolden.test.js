@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createFilesPageService } from '../files/services/filesPageService.js';
 import { createObservabilityPageService } from '../observability/services/observabilityPageService.js';
-import { createPromptPageService } from '../prompts/services/promptPageService.js';
 
 function capturedApi(methods) {
   const calls = [];
@@ -87,39 +86,4 @@ describe('feature service DTO golden harness', () => {
     });
   });
 
-  it('captures prompt draftPromptIntent required DTO fields', async () => {
-    await expectDtoGolden({
-      factory: createPromptPageService,
-      methods: ['draftPromptIntent'],
-      method: 'draftPromptIntent',
-      input: { cwd: '/repo/app', kind: 'expert', rawInput: 'review', sourceType: 'user_input', scope: 'project' },
-      expectedPayload: { cwd: '/repo/app', kind: 'expert', rawInput: 'review', sourceType: 'user_input', scope: 'project' },
-    });
-
-    await expectSyncDtoError({
-      factory: createPromptPageService,
-      methods: ['draftPromptIntent'],
-      method: 'draftPromptIntent',
-      input: { cwd: '/repo/app', kind: 'expert', rawInput: ' ' },
-      message: 'rawInput is required',
-    });
-  });
-
-  it('captures prompt writePrompt id or key ownership', async () => {
-    await expectDtoGolden({
-      factory: createPromptPageService,
-      methods: ['writePrompt'],
-      method: 'writePrompt',
-      input: { cwd: '/repo/app', key: 'project/reviewer', name: 'Reviewer', content: 'Check risks first' },
-      expectedPayload: { cwd: '/repo/app', key: 'project/reviewer', name: 'Reviewer', content: 'Check risks first' },
-    });
-
-    await expectSyncDtoError({
-      factory: createPromptPageService,
-      methods: ['writePrompt'],
-      method: 'writePrompt',
-      input: { cwd: '/repo/app', name: 'Missing identity' },
-      message: 'id or key is required',
-    });
-  });
 });

@@ -8,18 +8,15 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app/internal/storeguard"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"
 	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
-	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
 )
 
 type uiStatePreferenceStoreAdapter struct{ store uipreference.Store }
-type uiStateSharedFileReaderAdapter struct{ reader sharedfilestore.Reader }
 type uiStateBindingLookupAdapter struct{ store bindingstore.Store }
 
 var (
-	_ uistate.PreferenceStore  = (*uiStatePreferenceStoreAdapter)(nil)
-	_ uistate.SharedFileReader = (*uiStateSharedFileReaderAdapter)(nil)
-	_ uistate.BindingLookup    = (*uiStateBindingLookupAdapter)(nil)
+	_ uistate.PreferenceStore = (*uiStatePreferenceStoreAdapter)(nil)
+	_ uistate.BindingLookup   = (*uiStateBindingLookupAdapter)(nil)
 )
 
 // provideUIStatePreferenceStore 把 UI preference Store 收窄为 uistate 领域端口。
@@ -28,14 +25,6 @@ func provideUIStatePreferenceStore(store uipreference.Store) uistate.PreferenceS
 		return nil
 	}
 	return &uiStatePreferenceStoreAdapter{store: store}
-}
-
-// provideUIStateSharedFileReader 把 shared file Store 收窄为 uistate 领域端口。
-func provideUIStateSharedFileReader(reader sharedfilestore.Reader) uistate.SharedFileReader {
-	if storeguard.IsNil(reader) {
-		return nil
-	}
-	return &uiStateSharedFileReaderAdapter{reader: reader}
 }
 
 // provideUIStateBindingLookup 把 binding Store 收窄为 uistate 查询端口。
@@ -76,19 +65,6 @@ func (a *uiStatePreferenceStoreAdapter) List(ctx context.Context, cwd string) ([
 	return result, nil
 }
 
-// Get 读取 shared file 并保持成功 nil 文件语义。
-func (a *uiStateSharedFileReaderAdapter) Get(ctx context.Context, path string) (*uistate.SharedFile, error) {
-	file, err := a.reader.Get(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	if file == nil {
-		return nil, nil
-	}
-	mapped := fromStoreUIStateSharedFile(*file)
-	return &mapped, nil
-}
-
 // ListAgentThreadBindings 复制 binding 列表并规范化全部八个跨边界字符串字段。
 func (a *uiStateBindingLookupAdapter) ListAgentThreadBindings(ctx context.Context) ([]uistate.BindingEntry, error) {
 	rows, err := a.store.ListAgentThreadBindings(ctx)
@@ -108,10 +84,6 @@ func toStoreUIStatePreferenceUpsert(value uistate.PreferenceUpsertParams) uipref
 
 func fromStoreUIStatePreference(value uipreference.UIPreference) uistate.PreferenceEntry {
 	return uistate.PreferenceEntry{Cwd: value.Cwd, Key: value.Key, Value: cloneUIStateJSON(value.Value)}
-}
-
-func fromStoreUIStateSharedFile(value sharedfilestore.SharedFile) uistate.SharedFile {
-	return uistate.SharedFile{Path: value.Path, Content: value.Content}
 }
 
 func fromStoreUIStateBinding(value bindingstore.Binding) uistate.BindingEntry {

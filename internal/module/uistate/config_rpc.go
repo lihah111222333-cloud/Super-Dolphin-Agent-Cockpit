@@ -3,7 +3,6 @@ package uistate
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +15,7 @@ import (
 
 const (
 	// config RPC 偏好键和打包应用 home 解析参数。
-	lspPromptHintOverrideKey = "config/lspPromptHint.override"
-	packagedAppHomeEnvKey    = "SUPER_DOLPHIN_HOME"
-	// lspPromptHintDefaultPath 指向默认注入提示的 shared-file 来源。
-	lspPromptHintDefaultPath = "prompts/lsp-mandatory-prefix.md"
+	packagedAppHomeEnvKey = "SUPER_DOLPHIN_HOME"
 )
 
 // errConfigPreferenceStoreRequired 表示写配置时缺少偏好存储依赖。
@@ -50,25 +46,10 @@ type runtimeConfigToolRouting struct {
 	TimeoutSec          int     `json:"timeoutSec"`
 }
 
-// lspPromptHintWriteParams 是 LSP prompt hint 写接口入参。
-type lspPromptHintWriteParams struct {
-	Hint string `json:"hint,omitempty"`
-	Cwd  string `json:"cwd,omitempty"`
-}
-
-// lspPromptHintResult 返回默认 hint、覆盖 hint 和最终生效 hint。
-type lspPromptHintResult struct {
-	Hint         string `json:"hint"`
-	DefaultHint  string `json:"defaultHint"`
-	OverrideHint string `json:"overrideHint"`
-	UsingDefault bool   `json:"usingDefault"`
-}
-
-// NewConfigHandlers 注册配置读取、LSP prompt hint 和 builtin tools 配置 RPC。
+// NewConfigHandlers 注册配置读取和 builtin tools 配置 RPC。
 func NewConfigHandlers(
 	cfg *contract.Config,
 	prefs PreferenceStore,
-	sharedFiles SharedFileReader,
 	threads contract.ThreadConfigReader,
 	nativeTools []contract.NativeToolDescriptor,
 ) platformrpc.HandlerMapResult {
@@ -76,12 +57,6 @@ func NewConfigHandlers(
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"config/read": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return readRuntimeConfig(ctx, cfg, prefs, threads), nil
-		}),
-		"config/lspPromptHint/read": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
-			return readLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd)
-		}),
-		"config/lspPromptHint/write": platformrpc.StrictHandler(func(ctx context.Context, p lspPromptHintWriteParams) (any, error) {
-			return writeLSPPromptHint(ctx, prefs, sharedFiles, p.Cwd, p.Hint)
 		}),
 		"config/builtinTools/read": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return readBuiltinTools(ctx, prefs, nativeTools, toolIndex, p.Cwd)
@@ -339,103 +314,4 @@ func packagedAppHomeCWD() string {
 func isPackagedResourceRoot(root string) bool {
 	info, err := os.Stat(filepath.Join(root, "runtime-manifest.json"))
 	return err == nil && !info.IsDir()
-}
-
-// readLSPPromptHint 合并 shared-file 默认 hint 和用户覆盖值。
-func readLSPPromptHint(
-	ctx context.Context,
-	prefs PreferenceReader,
-	sharedFiles SharedFileReader,
-	cwd string,
-) (*lspPromptHintResult, error) {
-	defaultHint, err := readDefaultLSPPromptHint(ctx, sharedFiles)
-	if err != nil {
-		return nil, err
-	}
-	overrideHint, err := readLSPPromptOverride(ctx, prefs, cwd)
-	if err != nil {
-		return nil, err
-	}
-	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
-}
-
-// writeLSPPromptHint 写入当前 cwd 的 LSP prompt hint 覆盖，并返回新的生效视图。
-func writeLSPPromptHint(
-	ctx context.Context,
-	prefs PreferenceStore,
-	sharedFiles SharedFileReader,
-	cwd, hint string,
-) (*lspPromptHintResult, error) {
-	if prefs == nil {
-		return nil, errConfigPreferenceStoreRequired
-	}
-	overrideHint := hint
-	if strings.TrimSpace(overrideHint) == "" {
-		overrideHint = ""
-	}
-	if err := storePreference(ctx, prefs, strings.TrimSpace(cwd), lspPromptHintOverrideKey, overrideHint); err != nil {
-		return nil, err
-	}
-	defaultHint, err := readDefaultLSPPromptHint(ctx, sharedFiles)
-	if err != nil {
-		return nil, err
-	}
-	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
-}
-
-// readDefaultLSPPromptHint 从 shared file store 读取内置 LSP 必读提示，缺文件时返回空。
-func readDefaultLSPPromptHint(ctx context.Context, sharedFiles SharedFileReader) (string, error) {
-	if sharedFiles == nil {
-		return "", nil
-	}
-	file, err := sharedFiles.Get(ctx, lspPromptHintDefaultPath)
-	switch {
-	case err == nil:
-		if file == nil {
-			return "", nil
-		}
-		return file.Content, nil
-	case contract.IsNotFound(err):
-		return "", nil
-	default:
-		return "", err
-	}
-}
-
-// readLSPPromptOverride 读取当前 cwd 的 LSP prompt hint 覆盖值，非字符串会转成文本。
-func readLSPPromptOverride(ctx context.Context, prefs PreferenceReader, cwd string) (string, error) {
-	if prefs == nil {
-		return "", nil
-	}
-	raw, err := prefs.GetValue(ctx, strings.TrimSpace(cwd), normalizePreferenceKey(lspPromptHintOverrideKey))
-	switch {
-	case err == nil:
-	case contract.IsNotFound(err):
-		return "", nil
-	default:
-		return "", err
-	}
-	switch value := decodePreferenceValue(raw).(type) {
-	case nil:
-		return "", nil
-	case string:
-		return value, nil
-	default:
-		return strings.TrimSpace(fmt.Sprint(value)), nil
-	}
-}
-
-// buildLSPPromptHintResult 根据覆盖值是否为空决定最终使用默认 hint 还是用户 hint。
-func buildLSPPromptHintResult(defaultHint, overrideHint string) *lspPromptHintResult {
-	usingDefault := strings.TrimSpace(overrideHint) == ""
-	hint := overrideHint
-	if usingDefault {
-		hint = defaultHint
-	}
-	return &lspPromptHintResult{
-		Hint:         hint,
-		DefaultHint:  defaultHint,
-		OverrideHint: overrideHint,
-		UsingDefault: usingDefault,
-	}
 }

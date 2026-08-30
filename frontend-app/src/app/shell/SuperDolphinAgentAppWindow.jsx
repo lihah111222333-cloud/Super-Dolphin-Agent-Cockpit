@@ -2,7 +2,6 @@ import React, { Suspense, useCallback, useMemo, useState } from 'react';
 import {
   Bell,
   ChevronLeft,
-  CircleUserRound,
   Clock3,
   Database,
   FolderOpen,
@@ -40,7 +39,6 @@ import { ChatActionsTrigger } from '../../pages/chat/components/ChatPageHeader.j
 const SUPER_DOLPHIN_AGENT_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
   { id: 'workflows', label: 'Automation', labelKey: 'workflows', icon: SlidersHorizontal },
-  { id: 'prompts', label: 'Roles', labelKey: 'prompts', icon: CircleUserRound },
   { id: 'files', label: 'Files', labelKey: 'files', icon: FolderOpen },
   { id: 'observability', label: 'Logs', labelKey: 'observability', icon: Database },
 ]);
@@ -48,7 +46,6 @@ const SUPER_DOLPHIN_AGENT_NAV_ITEMS = Object.freeze([
 // 移动端底部导航：仅保留核心目的地，完整导航仍由抽屉侧栏提供。
 const SUPER_DOLPHIN_AGENT_MOBILE_NAV_ITEMS = Object.freeze([
   { id: 'chat', labelKey: 'chatShort', icon: MessageSquareText },
-  { id: 'prompts', labelKey: 'promptsShort', icon: CircleUserRound },
   { id: 'settings', labelKey: 'settings', icon: SettingsIcon },
 ]);
 function hasOpenLocalEscapeSurface() {

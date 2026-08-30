@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -162,6 +163,69 @@ func providerNativeSkillsDisabled(cfg map[string]any) bool {
 		return ok && disabled
 	}
 	return false
+}
+
+// validateProviderNativeSkillsRuntimeConfig 拒绝技能开关的错误类型和互相冲突的别名。
+// 运行时配置若无法明确解释，调用方必须在 provider turn 前 fail-fast，不能静默开启能力。
+func validateProviderNativeSkillsRuntimeConfig(cfg map[string]any) error {
+	enabled, hasEnabled, err := readProviderNativeSkillsBool(cfg, contract.RuntimeConfigProviderNativeSkills())
+	if err != nil {
+		return err
+	}
+	disabled, hasDisabled, err := readProviderNativeSkillsBool(cfg, contract.RuntimeConfigDisableProviderNativeSkills())
+	if err != nil {
+		return err
+	}
+	if hasEnabled && hasDisabled && enabled == disabled {
+		return errors.New("provider native skills flags conflict")
+	}
+	return nil
+}
+
+// readProviderNativeSkillsBool 读取一组布尔配置键，并拒绝同组别名给出不同值。
+func readProviderNativeSkillsBool(cfg map[string]any, field contract.RuntimeConfigField) (bool, bool, error) {
+	var (
+		value bool
+		found bool
+	)
+	for _, key := range field.Keys() {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		parsed, ok := raw.(bool)
+		if !ok {
+			return false, false, fmt.Errorf("runtime config %s must be bool", key)
+		}
+		if found && value != parsed {
+			return false, false, fmt.Errorf("runtime config %s aliases conflict", field.Canonical)
+		}
+		value, found = parsed, true
+	}
+	return value, found, nil
+}
+
+// validateTurnProviderNativeSkillsConfig 校验 thread 与 session 两处运行时配置，统一返回带边界标签的错误。
+func validateTurnProviderNativeSkillsConfig(threadConfig map[string]any, session contract.Session) error {
+	if err := validateProviderNativeSkillsRuntimeConfig(threadConfig); err != nil {
+		return fmt.Errorf("turn runtime config: %w", err)
+	}
+	reader, ok := session.(runtimeConfigSnapshotReader)
+	if !ok {
+		return nil
+	}
+	if err := validateProviderNativeSkillsRuntimeConfig(reader.RuntimeConfigSnapshot()); err != nil {
+		return fmt.Errorf("session runtime config: %w", err)
+	}
+	return nil
+}
+
+// prepareProviderNativeSkillsWithRuntimeConfig 在技能归一化前校验 runtime flag，避免坏配置静默开启能力。
+func prepareProviderNativeSkillsWithRuntimeConfig(input PrepareInput, session contract.Session) ([]dto.SkillRef, error) {
+	if err := validateTurnProviderNativeSkillsConfig(input.ThreadRuntimeConfig, session); err != nil {
+		return nil, err
+	}
+	return prepareProviderNativeSkills(input)
 }
 
 // configBool 从动态配置中读取第一个 bool 值，非 bool 旧值不会被隐式转换。

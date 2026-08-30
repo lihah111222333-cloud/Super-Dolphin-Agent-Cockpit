@@ -31,17 +31,6 @@ type PreferenceEntry struct {
 	Value json.RawMessage
 }
 
-// SharedFileReader 是 uistate 读取 LSP prompt hint 文件的领域端口。
-type SharedFileReader interface {
-	Get(ctx context.Context, path string) (*SharedFile, error)
-}
-
-// SharedFile 是 uistate 使用的共享文件最小领域视图。
-type SharedFile struct {
-	Path    string
-	Content string
-}
-
 // BindingLookup 是 uistate 构建 agent/thread 投影所需的绑定查询端口。
 type BindingLookup interface {
 	ListAgentThreadBindings(ctx context.Context) ([]BindingEntry, error)

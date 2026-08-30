@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 )
 
@@ -285,44 +284,3 @@ Match the user's expertise rather than over-explaining basics to an expert or ta
 Do not backtrack mid-message ("actually, let me clarify..."); revise the first sentence instead. Avoid filler ("Great question!", "Sure, let me..."), cheerleading, and restating the request verbatim.
 
 Prefer short, direct sentences and tight paragraphs. Show code snippets when they are load-bearing, not as decoration. These communication rules apply to user-facing text only, not to code or tool calls.`
-
-// clientTagsOrDefault 优先使用客户端提供的 tags，否则回退到已有 tags 或空数组。
-func clientTagsOrDefault(clientTags json.RawMessage, existing json.RawMessage) json.RawMessage {
-	if len(clientTags) > 0 && string(clientTags) != "null" {
-		return mergeClientTagsWithExistingInternalTags(clientTags, existing)
-	}
-	if len(existing) > 0 {
-		return existing
-	}
-	return json.RawMessage("[]")
-}
-
-// mergeClientTagsWithExistingInternalTags 合并客户端 tags，并保留 intent/builtin 这类内部标记。
-func mergeClientTagsWithExistingInternalTags(clientTags json.RawMessage, existing json.RawMessage) json.RawMessage {
-	tags := promptTags(clientTags)
-	seen := make(map[string]struct{}, len(tags))
-	for _, tag := range tags {
-		seen[strings.TrimSpace(tag)] = struct{}{}
-	}
-	for _, tag := range promptTags(existing) {
-		tag = strings.TrimSpace(tag)
-		if !promptTagPreservedOnClientWrite(tag) {
-			continue
-		}
-		if _, ok := seen[tag]; ok {
-			continue
-		}
-		tags = append(tags, tag)
-		seen[tag] = struct{}{}
-	}
-	encoded, err := json.Marshal(tags)
-	if err != nil {
-		return clientTags
-	}
-	return json.RawMessage(encoded)
-}
-
-// promptTagPreservedOnClientWrite 判断该 tag 是否应在客户端写入时保留（intent: 和 builtin: 前缀的内部 tag）。
-func promptTagPreservedOnClientWrite(tag string) bool {
-	return strings.HasPrefix(tag, "intent:") || strings.HasPrefix(tag, "builtin:")
-}

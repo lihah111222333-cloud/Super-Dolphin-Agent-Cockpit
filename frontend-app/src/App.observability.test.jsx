@@ -20,10 +20,8 @@ const backend = vi.hoisted(() => {
 	    callBackend checkAppUpdate installLatestAppUpdate
     getSidebarState getThreadState getThreadMessages getBuildInfo getVideoApiKey getDashboardPage getObservabilityStatus
     getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
-    listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
-    readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
-    getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listObservabilityErrors listSharedFiles
+    readBuiltinTools writeBuiltinTool listDashboardLogs
     listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
     selectProjectDir selectProjectDirs
@@ -91,7 +89,6 @@ const {
   mockBootstrapBackendDefaults,
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
-  mockPromptDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
   mockSharedFileDefaults,
@@ -105,7 +102,6 @@ beforeEach(resetConnectedShellTestState);
 beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
-beforeEach(mockPromptDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
 beforeEach(mockSharedFileDefaults);
@@ -201,14 +197,12 @@ afterEach(cleanupAppTest);
     expect(navButtons.map((button) => button.textContent)).toEqual([
       '聊天页面',
       '自动化',
-      '提示词',
       '共享文件',
       '链路追踪',
     ]);
     expect(navButtons.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
       expect.stringContaining('lucide-message-square-text'),
       expect.stringContaining('lucide-sliders-horizontal'),
-      expect.stringContaining('lucide-circle-user-round'),
       expect.stringContaining('lucide-folder-open'),
       expect.stringContaining('lucide-database'),
     ]);
@@ -230,10 +224,9 @@ afterEach(cleanupAppTest);
     const mobileNav = screen.getByTestId('mobile-nav');
     expect(mobileNav).toHaveAttribute('aria-label', '主要导航');
     const items = within(mobileNav).getAllByRole('button');
-    expect(items.map((button) => button.textContent)).toEqual(['聊天', '定制角色', '设置']);
+    expect(items.map((button) => button.textContent)).toEqual(['聊天', '设置']);
     expect(items.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
       expect.stringContaining('lucide-message-square-text'),
-      expect.stringContaining('lucide-circle-user-round'),
       expect.stringContaining('lucide-settings'),
     ]);
     expect(within(mobileNav).getByRole('button', { name: '聊天' })).toHaveAttribute('aria-current', 'page');

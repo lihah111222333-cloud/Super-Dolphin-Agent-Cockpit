@@ -22,7 +22,7 @@
 | 卷 | 重点章节 | 讲什么 |
 |---|---|---|
 | [01-terminal-ui-go.md](01-terminal-ui-go.md) | §2、§3、§4.1-§4.8、§5、§6 | 桌面入口、Wails 壳、EventBridge、内置 RPC、项目作用域、代码预览、多窗口、HTTP runner |
-| [01-terminal-ui-react.md](01-terminal-ui-react.md) | §1、§2、§3、§4、§5 | `frontend-app` 启动、React shell、Zustand store、RPC facade、chat/composer、prompt 页面 |
+| [01-terminal-ui-react.md](01-terminal-ui-react.md) | §1、§2、§3、§4、§5 | `frontend-app` 启动、React shell、Zustand store、RPC facade、chat/composer |
 
 ## 阅读顺序补充
 
@@ -41,7 +41,7 @@
 ## 最近一次重大变更摘要
 
 - **2026-04-17**：01 从原单卷拆成 Go/Wails 与 Vue 两卷，本页改为稳定索引，旧外链继续落在这里。
-- **2026-04-20 补记**：把 blank-thread 首发、dashboard/prompts 作用域跳转关系补回索引口径。
+- **2026-04-20 补记**：把 blank-thread 首发与作用域跳转关系补回索引口径；prompt 管理 host route 后续已退役。
 - **2026-04-29 维护提示**：接口隔离提交 58f19fa 只影响后端端口归属；01 继续作为 Terminal/UI 入口索引，不承载 contract 真值。
 
 ## 常见误导
@@ -50,13 +50,13 @@
 - Go 分卷不讲页面/store 细节；React 分卷也不重复 Wails runtime 壳。
 - `frontend-app/` 是当前且唯一的前端源码；`cmd/agent-terminal/web-dist/` 是 Go embed 产物目录。不要因为 `cmd/agent-terminal` 仍是桌面宿主，就把当前页面代码定位到 Go host 目录。
 <!-- codemap-absent path="cmd/agent-terminal/web-dist" -->
-- `dashboard/prompts` 的 readonly fallback 虽然从前端触发，但真实过滤逻辑不在 01，而在 `07-module-read.md` §2.4。
+- Prompt 管理页面与 host RPC 已退役；桌面 runtime prompt 组装与 MCP `prompt_list`/`prompt_get` 分别见 `11-prompt-thread.md` 与 `02-mcp-orch.md`。
 
 ## 新增符号入口
 
 | 符号 / 主题 | 去哪看 |
 |---|---|
 | `frontend-app/src/App.jsx` / `useClientStore.js` / `backendApi.js` | [01-terminal-ui-react.md](01-terminal-ui-react.md) |
-| `sendDraft` / `PromptPageView` / `backendApi.js` | [01-terminal-ui-react.md](01-terminal-ui-react.md) |
+| `sendDraft` / `backendApi.js` | [01-terminal-ui-react.md](01-terminal-ui-react.md) |
 | `requestScopeRoots` / `resolveSaveTarget` / `findScopedFiles` | [01-terminal-ui-go.md](01-terminal-ui-go.md) §4.6 |
 | `openNewWindow` / `ao_ui_bootstrap` / `ao_window_cwd` | [01-terminal-ui-go.md](01-terminal-ui-go.md) §4.7 |

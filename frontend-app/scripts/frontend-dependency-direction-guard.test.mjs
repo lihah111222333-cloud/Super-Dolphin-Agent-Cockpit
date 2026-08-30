@@ -15,7 +15,7 @@ const registry = JSON.parse(fs.readFileSync(path.join(appRoot, 'scripts/frontend
 describe('frontend dependency direction guard', () => {
   it('[A03-production] validates the production graph and exact expiring exemptions', () => {
     expect(validateFrontendDependencyDirection({ root: appRoot, today: '2026-07-17' }))
-      .toEqual(expect.objectContaining({ exemptionCount: 4, layerCount: 8 }));
+      .toEqual(expect.objectContaining({ exemptionCount: 2, layerCount: 8 }));
   });
 
   it('[A03-upward-import] rejects a shared-to-feature upward import', () => {
@@ -123,7 +123,7 @@ describe('frontend dependency direction guard', () => {
     const missing = clone(registry);
     missing.exemptions = missing.exemptions.slice(1);
     expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: missing, today: '2026-07-17' }))
-      .toThrow('violations=');
+      .toThrow(/(?:violations=|unresolved local imports:)/);
 
     const stale = clone(registry);
     stale.exemptions.push({

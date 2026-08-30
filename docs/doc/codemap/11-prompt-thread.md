@@ -25,7 +25,7 @@
 4. **dynamic section 不是固定 5 个 slot**：真实矩阵来自 `internal/module/prompt/dynamic.go:63-82`，当前不含旧 prompt 注入式 skill 列表 slot。
 5. **skill 不再经 prompt catalog 注入**：provider-native discovery 由 Claude/Codex 自己负责；prompt 不从 skill store 读取正文，native/tool suppression hints 只来自用户禁用工具配置。
 6. **prompt config 不再承载旧 skill 列表开关**：`internal/module/prompt/config.go` 只保留 registry / assembly / system-context cache breaker 等 prompt 开关。
-7. **prompt store 不是只读**：`internal/store/prompt/contract.go:15-22` 已暴露 `WithTx / Get / Delete / InsertVersion / Upsert`；写路径在 `internal/module/prompt/service.go:290-340,382-488`。
+7. **prompt runtime 不再由 host 管理 RPC 驱动**：桌面组装通过 `internal/module/prompt` 与 `internal/module/threadprompt` 读取运行时 catalog；MCP 的模板 list/get 独立走 `cmd/mcp-orch/store/prompt` 与 `cmd/mcp-orch/tools/prompt_tools.go`。`internal/module/prompt` 不再注册 prompt CRUD、intent、section 写入或 dashboard 管理 handler。
 8. **prompt/thread 不再有独立 package-count freeze**：本卷使用上方 `codemap-count` 声明校验真实文件数；统一冻结真值位于 `internal/archtest/freeze_baseline.json`。
 9. **resume 没有独立 `resume.go`**：resume 主链分散在 `thread/lifecycle.go`、`start_session.go`、`prompt_snapshot.go`、`rpc.go`；文件树里只有 `resume_test.go`、`resume_session_uuid_test.go`。
 10. **memory 与 prompt 当前没有运行时交点**：prompt snapshot 单独存 `agent_thread_prompt_snapshot`；旧 memory provider 注入由 typed unsupported 边界拒绝，不再解释 thread runtime metadata。
@@ -40,7 +40,7 @@
 |---|---|---|
 | `internal/module/prompt/module.go` | fx 装配、prompt service wiring | `Module`、`NewServiceFx`、`DisabledToolsFn` optional injection |
 | `internal/module/prompt/config.go` | env config | registry / assembly / system-context cache breaker |
-| `internal/module/prompt/service.go` | registry + prompt CRUD service | built-in providers、prompt store 写入口 |
+| `internal/module/prompt/service.go` | registry + runtime assembly service | built-in providers、section registration、invalidation |
 | `internal/module/prompt/assembler.go` | start/turn assembly 真身 | start system prompt、current date hook、snapshot 生成 |
 | `internal/module/prompt/section.go` | static section specs | static slots 真实列表 |
 | `internal/module/prompt/dynamic.go` | dynamic slot 矩阵 | dynamic section specs、slot -> provider 解析 |
@@ -106,7 +106,6 @@
   - `AsPromptAssemblyService`
   - `AsDynamicSectionRegistrar`
   - `AsSectionInvalidator`
-  - `registerPromptHandlers`
 - `ServiceFxParams` 当前只接入 prompt config、logger、UI preference store、shared-file reader 和可选 `DisabledToolsFn`；没有 skill store 接线。
 - `DisabledToolsFn` 只把用户禁用工具配置传给 prompt assembler，作为 native/tool suppression hints 的当前来源。
 - 也就是说，**section slot 的“定义”与 provider 的“注入”是两段式**：
@@ -115,12 +114,12 @@
 
 ### 4.2 Registry 与 built-in provider 的组装方式
 
-- `internal/module/prompt/service.go:118-144` 的 `NewService()` 会：
+- `internal/module/prompt/service.go:133-163` 的 `NewService()` 会：
   - 初始化 `SectionRegistry`
   - 初始化 section cache / userContext cache
   - 调 `registerBuiltInSections()`
   - 用 `mustRegisterDynamicProvider()` 注册 built-in dynamic providers
-- `registerBuiltInSections()` 在 `service.go:344-350`：
+- `registerBuiltInSections()` 在 `service.go:105-115`：
   - 先注册 `StaticSections()`
   - 再注册 `dynamicSlotSections()`
 - `SectionRegistry.Sections()` 在 `internal/module/prompt/registry.go:35-50`：
@@ -150,24 +149,29 @@
 
 | order | name | cachePolicy | startOnly | 生产 provider 入口 |
 |---|---|---|---|---|
-| 110 | `session_guidance` | `InputScoped` | 否 | `SessionGuidanceProvider`，`service.go:131` |
-| 130 | `env_info_simple` | `InputScoped` | 否 | `EnvInfoProvider`，`service.go:132` |
-| 140 | `language` | `InputScoped` | 否 | `LanguageProvider`，`service.go:133` |
-| 150 | `mcp_instructions` | `Uncached` | 否 | `MCPInstructionsProvider`，`service.go:134` |
-| 200 | `output_style` | `CacheByName` | 否 | `OutputStyleProvider`，`service.go:135` |
-| 210 | `scratchpad` | `CacheByName` | 否 | `ScratchpadProvider`，`service.go:136` |
-| 220 | `frc` | `CacheByName` | 否 | `FRCProvider`，`service.go:137` |
-| 230 | `summarize_tool_results` | `CacheByName` | 否 | `SummarizeToolResultsProvider`，`service.go:138` |
-| 240 | `numeric_length_anchors` | `CacheByName` | 否 | `NumericLengthAnchorsProvider`，`service.go:139` |
-| 250 | `token_budget` | `CacheByName` | 否 | `TokenBudgetProvider`，`service.go:140` |
-| 260 | `brief` | `CacheByName` | 否 | `BriefProvider`，`service.go:141` |
-| 270 | `ant_model_override` | `CacheByName` | 否 | `AntModelOverrideStubProvider`，`service.go` |
+| 110 | `session_guidance` | `InputScoped` | 否 | `SessionGuidanceProvider`，`service.go:152` |
+| 112 | `project_default_rules` | `InputScoped` | 否 | `threadprompt` provider registration |
+| 115 | `available_experts` | `InputScoped` | 否 | `threadprompt` provider registration |
+| 118 | `recall_catalog` | `InputScoped` | 否 | `threadprompt` provider registration |
+| 119 | `personalization_profile` | `InputScoped` | 否 | provider registration；管理 RPC 已退役 |
+| 130 | `env_info_simple` | `InputScoped` | 否 | `EnvInfoProvider`，`service.go:153` |
+| 135 | `datasource` | `Uncached` | 否 | datasource provider registration |
+| 136 | `datasource_v2` | `Uncached` | 否 | datasource_v2 provider registration |
+| 140 | `language` | `InputScoped` | 否 | `LanguageProvider`，`service.go:154` |
+| 150 | `mcp_instructions` | `Uncached` | 否 | `MCPInstructionsProvider`，`service.go:155` |
+| 200 | `output_style` | `CacheByName` | 否 | `OutputStyleProvider`，`service.go:156` |
+| 210 | `scratchpad` | `CacheByName` | 否 | `ScratchpadProvider`，`service.go:157` |
+| 220 | `frc` | `CacheByName` | 否 | `FRCProvider`，`service.go:158` |
+| 230 | `summarize_tool_results` | `CacheByName` | 否 | `SummarizeToolResultsProvider`，`service.go:159` |
+| 240 | `numeric_length_anchors` | `CacheByName` | 否 | `NumericLengthAnchorsProvider`，`service.go:160` |
+| 250 | `token_budget` | `CacheByName` | 否 | `TokenBudgetProvider`，`service.go:161` |
+| 260 | `brief` | `CacheByName` | 否 | `BriefProvider`，`service.go:162` |
 
 结论：**这不是“固定 5 个 dynamic slot”**。旧 prompt 注入式 skill 列表和 memory slots 已退出生产链，skills 由 Claude/Codex provider-native capability 自己发现；memory 兼容输入只在 guard 层被拒绝。
 
 ### 4.5 `dynamicSlotSections()` 如何把 slot 变成真正 section
 
-- `internal/module/prompt/dynamic.go:333-352` 的 `dynamicSlotSections()` 遍历 `dynamicSectionSpecs`。
+- `internal/module/prompt/dynamic.go:457-480` 的 `dynamicSlotSections()` 遍历 `dynamicSectionSpecs`。
 - 每个 spec 都被映射成一个 `PromptSection`：
   - `Name = spec.name`
   - `Order = spec.order`
@@ -175,7 +179,7 @@
   - `Volatile = spec.cachePolicy == Uncached`
   - `StartOnly = spec.startOnly`
   - `Compute = s.resolveDynamicSection(...)`
-- `resolveDynamicSection()` 在 `dynamic.go:355-363`：
+- `resolveDynamicSection()` 在 `dynamic.go:482-490`：
   - 只按名字从 `s.dynamic` map 取 provider
   - provider 为 nil 时直接返回 nil
 - 所以即使 slot 已存在，只要 provider 没注册，**该 section 仍会渲染为空**。
@@ -334,22 +338,20 @@
 
 这份 snapshot 随后会被 thread 保存到持久层，并在 resume / fork / recover 时复用。
 
-## 5. Prompt store + 机器计数
+## 5. Runtime prompt catalog + 机器计数
 
-### 5.1 Store contract 已是读写口
+### 5.1 Store contract 与 runtime catalog 边界
 
-`internal/store/prompt/contract.go:15-22` 当前 `Store` 接口如下：
+`internal/store/prompt/contract.go` 保留底层模板/section/version 持久化接口；`internal/module/threadprompt/runtime_catalog.go` 将其与 built-in registry 合并为运行时读取视图。
 
 | 方法 | 用途 |
 |---|---|
-| `WithTx` | 事务性写 prompt |
-| `Get` | 读当前模板 |
-| `Delete` | 删除当前模板 |
-| `InsertVersion` | 存档旧版本 |
-| `Upsert` | 新增或覆盖当前版本 |
-| `List` | dashboard 读取模板列表 |
+| `WithTx` / `Get` / `List` | catalog 底层模板读取及事务边界 |
+| `ListSectionsByTemplateID` / `ListRecallSections` / `ListDefaultRuleSections` | runtime section 读取 |
+| `InsertVersion` | runtime 路由需要时的版本归档接口 |
+| 其它写入方法 | 保留在 store/schema 兼容面，不由桌面 host 管理 RPC 调用 |
 
-这意味着 codemap 不能再把 prompt store 写成“只读查询”。
+桌面 prompt 管理 RPC（`prompts/*`、`prompt-assets/*`、`prompt-intents/*`、`prompt-sections/*`、`dashboard/prompts`）已退役；运行时 catalog 只负责组装所需的可见模板/section。MCP 的 `prompt_list` / `prompt_get` 走独立的 `cmd/mcp-orch/store/prompt`。
 
 ### 5.2 `PromptTemplateVersion` 的结构
 
@@ -372,67 +374,27 @@
 
 它承担的是“旧模板归档”而不是“当前模板正文”。
 
-### 5.3 写路径：`WritePrompt()`
+### 5.3 退役的桌面管理写链
 
-`internal/module/prompt/service.go:290-314` 的 `WritePrompt()`：
+当前源码不再存在 `internal/module/prompt/service.go` 的 `WritePrompt`、`DeletePrompt`、`archivePrompt` 或 `registerPromptHandlers`。因此不应在本卷恢复 host 管理写链；需要改变模板时，使用 provider 官方配置或 MCP 所属的独立资源面。
 
-1. `requirePromptCWD(cwd)` 确认 scope。
-2. `store.WithTx(...)` 开事务。
-3. `upsertPrompt(...)` 做当前模板写入。
-4. 如果当前模板已存在，先 `archivePrompt(...)`。
+### 5.4 这层与 thread/prompt assembly 的关系
 
-而 `upsertPrompt(...)` 在 `service.go:382-408` 做这几件事：
-
-- 校验 name / content / description
-- 查当前模板
-- 校验 scope
-- 如有当前版本，先归档
-- 解析 prompt key
-- 调 `store.Upsert(...)`
-
-### 5.4 归档旧版本：`archivePrompt()`
-
-`internal/module/prompt/service.go:473-488`：
-
-- 直接构造 `promptstore.PromptTemplateVersion`
-- 填入当前模板全部字段
-- `SourceUpdatedAt` 指向当前模板的 `UpdatedAt`
-- 调 `store.InsertVersion(ctx, version)`
-
-对应 store 实现：
-
-- `internal/store/prompt/store.go:102-121` 负责 `InsertVersion()`
-- `internal/store/prompt/store.go:123-146` 负责 `Upsert()`
-
-### 5.5 删除路径也会先归档
-
-`internal/module/prompt/service.go:317-341` 的 `DeletePrompt()`：
-
-1. 校验 cwd scope
-2. `txStore.Get(ctx, promptKey)`
-3. `validatePromptScope(...)`
-4. `archivePrompt(ctx, txStore, *current)`
-5. `txStore.Delete(ctx, promptKey)`
-
-所以 prompt delete 不是裸删，而是 **先 archive，再 delete**。
-
-### 5.6 这层与 thread/prompt assembly 的关系
-
-prompt store 保存的是 dashboard / prompts 页面可编辑模板。
+`internal/module/threadprompt/runtime_catalog.go` 将 `internal/store/prompt` 的持久化模板与 built-in registry 合并，供动态 section provider 读取；它不等同于 dashboard 管理页面。
 
 它与 `PromptAssemblySnapshot` 的关系是：
 
-- prompt store：**模板内容仓库**
+- runtime prompt catalog：**供 prompt assembly 读取的模板/section 视图**
 - prompt assembly snapshot：**某次 thread/start 组装完成后的运行时快照**
 
 两者都叫 prompt，但语义不同，不能混写。
 
-### 5.7 文件数真值
+### 5.5 文件数真值
 
 - prompt / thread 的根层生产与测试 Go 文件数统一读取 `ai-index.json.counts`。
 - 四个值由卷首 `codemap-count` 声明自动生成；不再保留旧 `27*` 豁免口径或正文数字副本。
 
-### 5.8 计数与测试入口的对应关系
+### 5.6 计数与测试入口的对应关系
 
 新增、删除或拆分 prompt/thread 文件时，`make codemap-check` 会对卷首声明与工作树实际文件数做 fail-fast 对账；不得通过恢复 freeze 或手改生成物绕过。
 
@@ -1326,7 +1288,7 @@ flowchart LR
 - 想看 start 真入口：看 `thread/start_session_helpers.go:82-94`。
 - 想看 turn 真入口：看 `turn/prompt_assembly.go:13-43`。
 - 想看 skill 与 prompt 当前边界：看 `internal/module/prompt/module.go:19-34`、`internal/module/prompt/assembler_support.go:201-221`、`internal/module/thread/rpc_types.go:1-100` 与 `internal/module/thread/rpc.go:1-120`。
-- 想看 prompt store 写口：看 `store/prompt/contract.go:15-22` 与 `prompt/service.go:290-340,473-488`。
+- 想看 runtime prompt catalog：看 `internal/module/threadprompt/runtime_catalog.go`、`internal/store/prompt/contract.go`；MCP 模板工具看 `cmd/mcp-orch/tools/prompt_tools.go`。
 - 想看 prompt snapshot 保存/恢复：看 `thread/prompt_snapshot.go:173-215,217-275,320-399`。
 - 想看 provider bridge：看 `provider/unified/event_map.go:28-124`、`thread/events.go:25-152`、`eventsurface/bind.go:72-197`。
 - 想看 blank-thread 首发：看 `useThreadActions.js:100-118,137-158` 与 `thread-actions-helpers.js:288-318,380-463`。

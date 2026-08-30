@@ -205,18 +205,18 @@
 
 ### 2.11 `prompt`
 - **文件**：`contract.go` / `store.go` / `module.go`
-- **职责**：提示模板读写；对只读 caller 额外暴露 `Reader` adapter。
+- **职责**：桌面 prompt runtime catalog 的模板/section/version 持久化；不承载已退役的 host prompt 管理 RPC。
 - **contract**：
   - `Reader`：`List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)`
-  - `Store`：`Reader + WithTx/Get/Delete/InsertVersion/Upsert`
+  - `Store`：`Reader + WithTx/Get/Delete/InsertVersion/Upsert` 及 runtime section/query 能力
 - **关键实现**：
-  - `List`：按 `agent_key + keyword` 查询 `prompt_templates`；`ListFilter.CWD` 已进入 contract，但 `sql/queries/prompt_template.sql` 还没有把它下推进 SQL，当前仍由 caller 后置过滤。`dashboard/ui_page.go` 会先传 `ListFilter{CWD: cwd}`，再执行 `filterDashboardPromptsByCWD(...)`。
+  - `List`：按 `agent_key + keyword + cwd` 查询 `prompt_templates`；`ListFilter.CWD` 必填并下推到 SQL，防止跨工作目录泄露模板。
   - `WithTx`：`prompt/module.go` 的 `newStoreWithPool` 用共享 `*sqlc.Queries` 绑定 tx，供归档 + 修改共用。
-  - `Get / Upsert / Delete / InsertVersion`：`internal/module/prompt/service.go` 已在真实创建 / 更新 / 归档 / 删除路径使用。
+  - `Get / Upsert / Delete / InsertVersion`：保留在 store/runtime catalog 持久化边界；`internal/module/prompt` 不再注册对应 host 管理 handler。
 - **表 / SQL**：`prompt_templates` + `prompt_versions` / `sql/queries/prompt_template.sql`
 - **备注**：
-  - `prompt.Module` 同时提供 `Store` 与 `AsReader(store Store) Reader`；`dashboard` 取只读 `Reader`，`prompt/service` 取可写 `Store`。
-  - 底层 sqlc 已有 `GetPromptTemplate / UpsertPromptTemplate / DeletePromptTemplate / InsertPromptVersion`，但仍没有单独的 `prompt version list` store 包装。
+  - `prompt.Module` 提供 store；`internal/module/threadprompt` 的 runtime catalog 组合 built-in registry 与该 store，供 prompt assembly 动态 provider 使用。
+  - MCP 模板 list/get 不经过桌面 store wiring，独立走 `cmd/mcp-orch/store/prompt` 与 `cmd/mcp-orch/tools/prompt_tools.go`。
 
 ### 2.12 `sharedfile`
 - **文件**：`contract.go` / `store.go` / `module.go` / `disk_integration_test.go`
@@ -781,7 +781,7 @@ var Module = fx.Module("store",
 )
 ```
 
-## 2. `prompt` 新接线（p20.1）
+## 2. `prompt` runtime 接线
 
 ### 2.1 contract 面
 - `internal/store/prompt/contract.go:11`：`Reader` 只保留读面 `List(...)`。
@@ -821,10 +821,10 @@ var Module = fx.Module("store",
 - `uipreference.NewStore(*sqlc.Queries) Store`
 
 ### 2.5 当前真实状态
-- **`ListFilter.CWD` 已进入 contract，但还没下推到 SQL**：
-  - store 侧 `List` 只把 `AgentKey/Keyword/Limit` 传给 sqlc（`internal/store/prompt/store.go:62`）；
-  - SQL 侧 `ListPromptTemplates` 只有 `$1/$2/$3`（`sql/queries/prompt_template.sql:43`）；
-  - 当前 CWD scope 仍由 caller 后置过滤：dashboard 在 `internal/module/dashboard/ui_page.go:151` 传 `CWD` 后再本地过滤，prompt service 列表面仍在 `internal/module/prompt/service.go:259` 先全量查再过滤可见性。
+- **`ListFilter.CWD` 已下推到 SQL**：
+  - store 侧 `List` 在 `internal/store/prompt/store.go` 组装 `AgentKey/Keyword/CWD/Limit`；
+  - SQL 侧 `ListPromptTemplates` 按 cwd scope 过滤，并由 runtime catalog 合并 built-in 与数据库模板；
+  - `internal/module/dashboard` 不再读取 prompt store，桌面管理 route 已退役；MCP 模板资源使用独立 store。
 
 ## 3. 核心 store 子包索引
 
@@ -842,7 +842,7 @@ var Module = fx.Module("store",
 | `dbquery` | runtime query result / `PlaceholderRow` | `db_query.sql` + `executor.go` | `internal/module/dashboard` |
 | `hookstore` | `mcp.PendingHookReview` | **无 sqlc SQL 文件；手写 SQL 在 `hookstore.go`** | `internal/platform/hooks` |
 | `interaction` | `Interaction` | `interaction.sql` | `internal/store/module.go:43` |
-| `prompt` | `PromptTemplate` / `PromptTemplateVersion` | `prompt_template.sql` | `internal/module/prompt` / `internal/module/dashboard` / `cmd/mcp-orch/tools` |
+| `prompt` | `PromptTemplate` / `PromptTemplateVersion` | `prompt_template.sql` | `internal/module/threadprompt` / `internal/module/prompt` runtime / `cmd/mcp-orch/tools` |
 | `sharedfile` | `SharedFile` | `shared_file.sql` | `internal/module/dashboard` / `internal/module/uistate` |
 | `systemlog` | `SystemLog` | `system_log.sql` | `internal/module/dashboard` |
 | `thread` | `Thread` / `PromptSnapshot` / `ThreadCwd` | `agent_thread.sql` + `agent_thread_prompt_snapshot.sql` | `internal/module/thread` / `internal/provider/unified` / `internal/platform/cachekeepalive` |
@@ -861,7 +861,7 @@ var Module = fx.Module("store",
 | `dbquery` | `dbquery.Store` | 多表白名单查询 | `db_query.sql`（占位） + 手写执行器 |
 | `hookstore` | `contract.HookReviewStore` | `hook_pending_reviews` | 手写 SQL |
 | `interaction` | `interaction.Store` | `agent_interactions` | `interaction.sql` |
-| `prompt` | `prompt.Store` + `prompt.Reader` adapter | `prompt_templates` + `prompt_versions` | `prompt_template.sql` |
+| `prompt` | `prompt.Store` + runtime catalog adapter | `prompt_templates` + `prompt_versions` | `prompt_template.sql` |
 | `sharedfile` | `sharedfile.Store` + `Reader`/`Upserter`/`Deleter` adapters | `shared_files` | `shared_file.sql` |
 | `systemlog` | `systemlog.Store` | `system_logs` | `system_log.sql` |
 | `thread` | `thread.Store` | `agent_threads`（并关联 `agent_provider_binding`） | `agent_thread.sql` |
@@ -884,7 +884,7 @@ var Module = fx.Module("store",
 | `dbquery` | `executor_test.go` | `TestValidateQuery` | `—` |
 | `hookstore` | `hookstore_resolve_test.go` | `TestResolvePendingReview` | `—` |
 | `interaction` | `store_test.go` | `TestCreateForwardsParamsAndMapsResult` | `—` |
-| `prompt` | `store_test.go` | `TestListForwardsAgentKeyKeywordAndLimit` | `—` |
+| `prompt` | `store_test.go` / `runtime_assets_test.go` / `store_sections_test.go` | `TestListForwardsAgentKeyKeywordCWDAndLimit`、runtime catalog/section scope tests | `—` |
 | `sharedfile` | `store_test.go`、`disk_integration_test.go`（Phase 3.6 落盘 7 case：small inline / large DB 空 / disk hit override DB / disk miss fallback DB / 双 miss notfound / Delete 双删 / List 不扫盘） | `TestGetMapsRow` | `—` |
 | `systemlog` | `store_test.go` | `TestListForwardsAll9ColumnsAndLimit` | `—` |
 | `thread` | `store_test.go` | `TestUpsertPersistsConfigOverride` | `—` |
@@ -896,7 +896,7 @@ var Module = fx.Module("store",
 | 场景 | 最小步骤 | 源码锚点 | 最小验证 |
 | --- | --- | --- | --- |
 | 新增子 store | 1) 建 `contract.go/store.go/module.go`；2) 在 `sql/queries/` 补 SQL；3) 把子模块接入 `internal/store/module.go` | `internal/store/module.go` 的 `var Module = fx.Module("store",` | `grep "var Module = fx.Module(\"store\"" internal/store/module.go` |
-| 给已有 store 增读写 SQL | 1) 改 `sql/queries/*.sql` 新 query；2) 重新生成 `internal/store/sqlc/*.sql.go`；3) 在 `store.go` 做 DTO 映射 + `WrapStoreError` | `sql/queries/prompt_template.sql` 的 `UpsertPromptTemplate`，以及 `internal/store/prompt/store.go` 对应映射 | `internal/store/prompt/store_test.go` |
+| 给已有 store 增读写 SQL | 1) 改 `sql/queries/*.sql` 新 query；2) 重新生成 `internal/store/sqlc/*.sql.go`；3) 在 `store.go` 做 DTO 映射 + `WrapStoreError` | `sql/queries/prompt_template.sql` 的 runtime 查询/section SQL，以及 `internal/store/prompt/store.go` 对应映射 | `internal/store/prompt/store_test.go` |
 | 新增 prompt snapshot / 其它持久化字段 | 1) 迁移 + `sqlc.yaml` schema 列表一起更新；2) 在 `sql/queries/agent_thread_prompt_snapshot.sql` 增 load/save；3) `internal/store/thread/store.go` 与 `internal/module/thread/prompt_snapshot.go` 同步桥接 store/runtime DTO | `UpdateAgentThreadPromptSnapshot` + `toStoredPromptSnapshot(...)` | `internal/store/thread/{store_test,snapshot_test}.go` |
 
 ---
@@ -914,7 +914,7 @@ var Module = fx.Module("store",
 1. **对上层坚持接口化、DTO 化**：把 `sqlc` 细节压在仓储内部。
 2. **对底层坚持 SQL-first**：查询定义集中在 `sql/queries/`，`sqlc` 只做生成。
 3. **允许显式例外**：`dbquery` 与 `hookstore` 都绕过了“普通静态 sqlc CRUD”路径。
-4. **读写面按场景拆分**：`commandcard / sharedfile` 仍只暴露读能力；`prompt` 同一实现同时暴露可写 `Store` 与只读 `Reader` adapter。
+4. **读写面按场景拆分**：`commandcard / sharedfile` 仍只暴露读能力；`prompt` store 保留 runtime catalog 所需的持久化能力，桌面 host 管理 RPC 已退役。
 5. **schema 大于 25 个 Fx 子 store 的注册面**：workspace、dag、legacy 表仍存在于 schema 或 sqlc 低层，但未全部被注册成统一 store。
 
 如果从代码地图视角看，`internal/store` 更像“**项目核心数据访问骨架**”，而不是“数据库全部访问能力的唯一入口”。
@@ -928,7 +928,7 @@ var Module = fx.Module("store",
 5. 修正了 schema 解读口径：列 / 索引以 `001_baseline.sql + 0022/0023/0024/0025_agent_thread_config_override` 为主，`hook_pending_reviews` 来自 `0025_hook_pending_reviews + 0026`；但 `001_baseline.sql` 自身缺少多数 PK/UNIQUE/CHECK，约束说明必须结合历史迁移链。
 6. 补全了 `hookstore` 手写 SQL 说明：明确 `SavePendingReview` 当前不写 `thread_id/turn_id/payload`，`GetResolvedReview` 不返回 `resolved_by`，cancel 与 expire 的更新列不同。
 7. 补全了 `dbquery` 安全校验说明：新增写明了**引号内容屏蔽、表白名单必须命中、CTE 外层 SELECT 仍需引用表、只读事务回退策略、10 秒超时、10000 行上限**等关键细节。
-8. 修正了 `prompt` store 口径：当前已是**可读写 Store + Reader adapter**，真实写路径已被 `internal/module/prompt/service.go` 生产使用；`ListFilter.CWD` 已进入 contract，但 SQL 仍未下推，继续由 caller 后置过滤。
+8. 修正了 `prompt` store 口径：当前由 `internal/module/threadprompt` runtime catalog 消费，`ListFilter.CWD` 已下推 SQL；桌面 host prompt 管理 RPC 已退役，MCP list/get 走独立 store。
 9. 修正了 `thread.PromptSnapshot` 口径：当前持久化 DTO 已包含 modern 字段（`DisplayName/Boundary/Provider/Version/Hash/...`），同时通过自定义 `UnmarshalJSON` 兼容 legacy snake_case payload。
 10. 修正了 `sqlc.yaml` 输入集：根配置现在已包含 `0032_agent_memory_identity.sql`，`agent_threads` / `agent_provider_binding` 的 agent identity 列不能再按“只到 0031”理解。
 11. 追加了 `dbquery` 数据流 Mermaid、核心 store 测试入口与 3 条 store 维护 how-to，便于后续按锚点增量维护。

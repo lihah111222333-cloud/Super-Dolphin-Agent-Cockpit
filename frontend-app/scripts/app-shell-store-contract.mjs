@@ -10,7 +10,6 @@ const ROUTE_CONSUMER_PATHS = Object.freeze([
   'src/features/slash-commands',
   'src/pages/chat',
   'src/pages/files',
-  'src/pages/prompts',
   'src/pages/workflows',
 ]);
 const ROUTE_STORE_CONSUMER_EXEMPTIONS = Object.freeze({

@@ -18,7 +18,6 @@ const sharedDtoGoldenTest = 'pages/shared/featureDtoGolden.test.js';
 const dtoGoldenFactories = new Map([
   ['files', { factory: 'createFilesPageService', methods: ['saveTextFile'] }],
   ['observability', { factory: 'createObservabilityPageService', methods: ['listObservabilityRecent'] }],
-  ['prompts', { factory: 'createPromptPageService', methods: ['draftPromptIntent', 'writePrompt'] }],
 ]);
 
 function read(relPath) {

@@ -25,7 +25,6 @@ type DashboardPage struct {
 	Agents              []AgentOverview     `json:"agents"`
 	DAGs                []DashboardDAG      `json:"dags"`
 	CommandCards        []CommandCard       `json:"commandCards"`
-	Prompts             []PromptTemplate    `json:"prompts"`
 	FinalOutputRefs     []FinalOutputRef    `json:"finalOutputRefs"`
 	SharedFileRetention SharedFileRetention `json:"sharedFileRetention"`
 }
@@ -68,7 +67,6 @@ func newDashboardPage() *DashboardPage {
 		Agents:              []AgentOverview{},
 		DAGs:                []DashboardDAG{},
 		CommandCards:        []CommandCard{},
-		Prompts:             []PromptTemplate{},
 		FinalOutputRefs:     []FinalOutputRef{},
 		SharedFileRetention: SharedFileRetention{Items: []SharedFileRetentionItem{}},
 	}
@@ -104,7 +102,6 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) ([]dashb
 	case "commands":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
-			func(ctx context.Context) error { return s.populateDashboardPrompts(ctx, out) },
 		}, nil
 	case "commandcards":
 		return []dashboardPageLoader{
@@ -218,110 +215,12 @@ func (s *service) populateDashboardCommandCards(ctx context.Context, out *Dashbo
 	return err
 }
 
-// populateDashboardPrompts 读取当前 cwd 可见的用户提示模板。
-// 系统管理模板在 listDashboardPrompts 中过滤，避免前端误当作用户资产。
-func (s *service) populateDashboardPrompts(ctx context.Context, out *DashboardPage) error {
-	items, err := s.listDashboardPrompts(ctx)
-	out.Prompts = items
-	return err
-}
-
 // listDashboardCommandCards 读取命令卡片列表。
 // store 为 nil 时返回空切片，保持 dashboard commands 页可降级展示。
 func (s *service) listDashboardCommandCards(ctx context.Context) ([]CommandCard, error) {
 	return safeList(s.commandCards != nil, func() ([]CommandCard, error) {
 		return s.commandCards.List(ctx, CommandCardFilter{Limit: dashboardPageDefaultLimit})
 	})
-}
-
-// listDashboardPrompts 读取提示模板，按 cwd 过滤并排除系统管理的模板。
-func (s *service) listDashboardPrompts(ctx context.Context) ([]PromptTemplate, error) {
-	cwd := dashboardPromptScopeCWDFromContext(ctx)
-	return safeList(s.prompts != nil, func() ([]PromptTemplate, error) {
-		items, err := s.prompts.List(ctx, PromptTemplateFilter{CWD: cwd, Limit: dashboardPageDefaultLimit})
-		if err != nil {
-			return nil, err
-		}
-		return filterDashboardPromptsByCWD(items, cwd), nil
-	})
-}
-
-// filterDashboardPromptsByCWD 按请求 cwd 过滤 prompt 模板。
-// 空 cwd 不展示任何模板，避免把全局模板泄露到未绑定工作区的页面。
-func filterDashboardPromptsByCWD(items []PromptTemplate, cwd string) []PromptTemplate {
-	requestScope := strings.TrimSpace(cwd)
-	if requestScope == "" {
-		return []PromptTemplate{}
-	}
-	filtered := make([]PromptTemplate, 0, len(items))
-	for _, item := range items {
-		if dashboardPromptIsSystemManaged(item) {
-			continue
-		}
-		if requestScope == "" || dashboardPromptVisibleForCWD(item, requestScope) {
-			filtered = append(filtered, item)
-		}
-	}
-	return filtered
-}
-
-// dashboardPromptVisibleForCWD 判断模板是否对指定 cwd 可见；无 scope 标签的模板对所有 cwd 可见。
-func dashboardPromptVisibleForCWD(template PromptTemplate, cwd string) bool {
-	storedScope := dashboardPromptScopeFromTags(template.Tags)
-	return storedScope == "" || storedScope == strings.TrimSpace(cwd)
-}
-
-// dashboardPromptScopeFromTags 从标签列表中提取 scope.cwd: 前缀的 cwd 值。
-func dashboardPromptScopeFromTags(raw json.RawMessage) string {
-	for _, tag := range dashboardPromptTags(raw) {
-		if value, ok := strings.CutPrefix(tag, "scope.cwd:"); ok {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-// dashboardPromptTags 反序列化 tags JSON 为字符串切片，解析失败时返回空切片。
-func dashboardPromptTags(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return []string{}
-	}
-	var tags []string
-	if err := json.Unmarshal(raw, &tags); err != nil {
-		return []string{}
-	}
-	return tags
-}
-
-// dashboardPromptIsSystemManaged 判断模板是否由系统创建而非用户手工维护。
-// 优先检查 builtin:system 标签，其次检查作者名称是否符合系统命名模式。
-func dashboardPromptIsSystemManaged(template PromptTemplate) bool {
-	for _, tag := range dashboardPromptTags(template.Tags) {
-		if strings.TrimSpace(tag) == "builtin:system" {
-			return true
-		}
-	}
-	if template.ManuallyEdited {
-		return false
-	}
-	if dashboardPromptAuthorIsRPC(template.CreatedBy) || dashboardPromptAuthorIsRPC(template.UpdatedBy) {
-		return false
-	}
-	return dashboardPromptAuthorLooksSystem(template.CreatedBy) || dashboardPromptAuthorLooksSystem(template.UpdatedBy)
-}
-
-// dashboardPromptAuthorIsRPC 检查模板作者是否为 RPC 接口写入。
-func dashboardPromptAuthorIsRPC(author string) bool {
-	return strings.TrimSpace(author) == "rpc.prompts"
-}
-
-// dashboardPromptAuthorLooksSystem 通过命名模式判断作者是否为系统自动写入。
-func dashboardPromptAuthorLooksSystem(author string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(author))
-	return strings.HasPrefix(normalized, "system") ||
-		strings.Contains(normalized, "seed") ||
-		strings.Contains(normalized, "migration") ||
-		strings.Contains(normalized, "builtin.registry")
 }
 
 // listDashboardSharedFiles 读取共享文件列表。

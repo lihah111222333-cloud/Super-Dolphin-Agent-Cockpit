@@ -5,7 +5,6 @@ import { PageHeader } from '../shared/pageComponents.jsx';
 import { BuiltinToolsCard } from './components/BuiltinToolsCard.jsx';
 import { ModelProvidersCard } from './components/ModelProvidersCard.jsx';
 import { ProviderPropertiesCard, ProviderSettingsPanel } from './components/ProviderSettingsPanels.jsx';
-import { PromptSettingsCard } from './components/PromptSettingsCard.jsx';
 import { AboutPanel, RuntimeSettingsPanels } from './components/SettingsSystemPanels.jsx';
 import { UILogCard } from './components/UILogCard.jsx';
 import { VideoSettingsCard } from './components/VideoSettingsCard.jsx';
@@ -16,7 +15,6 @@ import { settingsPageService } from './services/settingsPageService.js';
 import { useBuiltinToolsSettings } from './settingsBuiltinToolsRuntime.js';
 import { PROVIDER_LABELS, loadSettingsDashboardLogs, normalizeSettingsCwd, providerSettingsViewConfig, textValue } from './settingsPageRuntime.js';
 import { useProviderPreferences } from './settingsProviderPreferencesRuntime.js';
-import { usePromptSettings } from './settingsPromptRuntime.js';
 import { appUpdateCurrentVersionLabel, useSettingsRuntime } from './settingsRuntimeHook.js';
 import './SettingsPage.css';
 
@@ -27,9 +25,8 @@ function SettingsPage({ appearance, copy = APP_COPY.zh.settings, projectPath, sh
   const cwd = normalizeSettingsCwd(projectPath) || normalizeSettingsCwd(store.activeProject) || normalizeSettingsCwd(store.cwd);
   const runtime = useSettingsRuntime(cwd, copy);
   const provider = useProviderPreferences(cwd, runtime.form.activeProvider, copy);
-  const prompt = usePromptSettings(cwd, copy);
   const builtins = useBuiltinToolsSettings(cwd, copy);
-  return <SettingsPageView appearance={appearance} builtins={builtins} copy={copy} cwd={cwd} prompt={prompt} provider={provider} runtime={runtime} shortcutController={shortcutController} store={store} />;
+  return <SettingsPageView appearance={appearance} builtins={builtins} copy={copy} cwd={cwd} provider={provider} runtime={runtime} shortcutController={shortcutController} store={store} />;
 }
 
 function mobileAccountName(cwd, fallback = '本地用户') {
@@ -78,7 +75,7 @@ function MobileAccountPanel({ copy = APP_COPY.zh.settings, cwd, runtime }) {
 }
 
 function SettingsPageView(props) {
-  const { appearance, builtins, copy = APP_COPY.zh.settings, cwd, prompt, provider, runtime, shortcutController, store } = props;
+  const { appearance, builtins, copy = APP_COPY.zh.settings, cwd, provider, runtime, shortcutController, store } = props;
   return (
     <section className="settings-page" data-testid="settings-page">
       <PageHeader icon={Settings} title={copy.title} actions={<button className="btn btn-secondary" type="button" data-testid="settings-refresh-build-button" onClick={() => void runtime.refreshBuildInfo()}>{copy.refreshBuildInfo}</button>} />
@@ -91,7 +88,6 @@ function SettingsPageView(props) {
         <ProviderSettingsPanel copy={copy} runtime={runtime} viewConfig={providerSettingsViewConfig} />
         <ProviderPropertiesCard copy={copy} provider={provider} />
         <ModelProvidersCard copy={copy} cwd={cwd} />
-        <PromptSettingsCard copy={copy} prompt={prompt} />
         {shortcutController ? <ShortcutSettingsCard controller={shortcutController} copy={copy.shortcuts} /> : null}
         <BuiltinToolsCard builtins={builtins} copy={copy} />
         <VideoSettingsCard copy={copy} getApiKey={getVideoApiKey} setApiKey={setVideoApiKey} />

@@ -24,13 +24,10 @@ const backend = vi.hoisted(() => ({
   setPreference: vi.fn(),
   setVideoApiKey: vi.fn(),
   getPreference: vi.fn(),
-  readLspPromptHint: vi.fn(),
-  writeLspPromptHint: vi.fn(),
   readBuiltinTools: vi.fn(),
   writeBuiltinTool: vi.fn(),
   listDashboardLogs: vi.fn(),
   readSharedFile: vi.fn(),
-  copyTextToClipboard: vi.fn(),
   saveClipboardImage: vi.fn(),
   onFilesDropped: vi.fn(() => () => {}),
   onBridgeEvent: vi.fn(() => () => {}),
@@ -102,28 +99,14 @@ function mockSettingsPreferences() {
   backend.getPreference.mockImplementation(({ key }) => {
     if (key === 'settings.provider.codex.summary') return Promise.resolve('concise');
     if (key === 'settings.provider.codex.approvalPolicy') return Promise.resolve('untrusted');
-    if (key === 'settings.showInjectedPromptInChat') return Promise.resolve(true);
     return Promise.resolve(null);
   });
 }
 
 function mockSettingsConfigApi() {
-  backend.readLspPromptHint.mockResolvedValue({
-    hint: 'effective prompt text',
-    defaultHint: 'default prompt text',
-    overrideHint: 'custom override text',
-    usingDefault: false,
-  });
   backend.readBuiltinTools.mockResolvedValue({ tools: builtInTools });
-  backend.writeLspPromptHint.mockResolvedValue({
-    hint: 'custom override text',
-    defaultHint: 'default prompt text',
-    overrideHint: 'custom override text',
-    usingDefault: false,
-  });
   backend.writeBuiltinTool.mockResolvedValue({ tools: enabledBuiltInTools });
   backend.listDashboardLogs.mockResolvedValue({ logs: [] });
-  backend.copyTextToClipboard.mockResolvedValue(true);
 }
 
 function resetSettingsPageTestState() {
@@ -139,54 +122,6 @@ function resetSettingsPageTestState() {
 async function renderSettingsPage() {
   render(<App skipBootstrap />);
   await screen.findByTestId('settings-page');
-}
-
-async function expectPromptSettingsLoaded() {
-  await waitFor(() => {
-    expect(screen.getByRole('textbox', { name: '当前生效内容（只读）' })).toHaveValue('effective prompt text');
-    expect(screen.getByRole('textbox', { name: '自定义覆盖（可编辑，空=默认）' })).toHaveValue('custom override text');
-    expect(screen.getByTestId('settings-show-injected-toggle-input')).toBeChecked();
-  });
-}
-
-async function expectPromptVisibilitySaved(value) {
-  await waitFor(() => {
-    expect(backend.setPreference).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      key: 'settings.showInjectedPromptInChat',
-      value,
-    });
-  });
-}
-
-async function copyEffectivePromptHint() {
-  backend.copyTextToClipboard.mockResolvedValueOnce(true);
-  fireEvent.click(screen.getByTestId('settings-lsp-copy-button'));
-  await waitFor(() => {
-    expect(backend.copyTextToClipboard).toHaveBeenCalledWith('effective prompt text');
-    expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('已复制生效提示词');
-    expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'status');
-  });
-}
-
-function mockPromptHintWriteSuccess() {
-  backend.writeLspPromptHint.mockImplementation((params) => {
-    expect(params).toEqual({ cwd: '/repo/app', hint: 'custom override text' });
-    return Promise.resolve({
-      hint: 'custom override text',
-      defaultHint: 'default prompt text',
-      overrideHint: 'custom override text',
-      usingDefault: false,
-    });
-  });
-}
-
-async function savePromptHintAndExpectSuccess() {
-  fireEvent.click(screen.getByTestId('settings-lsp-save-button'));
-  await waitFor(() => {
-    expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('提示词已保存');
-    expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'status');
-  });
 }
 
 function mockBuiltinToolWriteSuccess() {
@@ -540,61 +475,6 @@ describe('SettingsPage project scope guard', () => {
     expect(screen.getAllByRole('alert').map((item) => item.textContent).join('\n')).not.toContain('当前项目路径为空');
 
     expect(backend.setPreference).not.toHaveBeenCalled();
-  });
-});
-
-describe('SettingsPage prompt settings', () => {
-  beforeEach(resetSettingsPageTestState);
-
-  it('loads prompt settings and executes prompt actions', async () => {
-    await renderSettingsPage();
-    await expectPromptSettingsLoaded();
-    expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/app' });
-
-    fireEvent.click(screen.getByTestId('settings-show-injected-toggle-input'));
-    await expectPromptVisibilitySaved(false);
-
-    await copyEffectivePromptHint();
-    mockPromptHintWriteSuccess();
-    await savePromptHintAndExpectSuccess();
-  });
-
-  it('marks prompt save failures as alert notices', async () => {
-    render(<App skipBootstrap />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('custom override text');
-    });
-
-    backend.writeLspPromptHint.mockRejectedValueOnce(new Error('disk full'));
-
-    fireEvent.click(screen.getByTestId('settings-lsp-save-button'));
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('保存失败');
-      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'alert');
-    });
-  });
-
-  it('does not save prompt settings when the write response omits the default hint', async () => {
-    render(<App skipBootstrap />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('custom override text');
-    });
-
-    backend.writeLspPromptHint.mockResolvedValueOnce({
-      hint: 'custom override text',
-      overrideHint: 'custom override text',
-      usingDefault: false,
-    });
-
-    fireEvent.click(screen.getByTestId('settings-lsp-save-button'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveTextContent('保存失败');
-      expect(screen.getByTestId('settings-lsp-prompt-notice')).toHaveAttribute('role', 'alert');
-    });
-    expect(screen.getByTestId('settings-lsp-prompt-notice')).not.toHaveTextContent('已保存自定义提示词');
   });
 });
 

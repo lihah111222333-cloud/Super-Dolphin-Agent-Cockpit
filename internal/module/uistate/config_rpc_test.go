@@ -15,15 +15,12 @@ import (
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
-func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
+func TestConfigHandlersRead(t *testing.T) {
 	t.Parallel()
 
-	server, prefs, threads, projectRoot := newConfigPromptHintFixture(t)
+	server, threads, projectRoot := newConfigReadFixture(t)
 	cfg := dispatchConfig[runtimeConfigResult](t, server, "config/read", `{}`)
 	assertConfigReadResult(t, cfg, threads, projectRoot)
-	assertLSPPromptHintRead(t, server)
-	assertLSPPromptHintWrite(t, server)
-	assertStoredLSPPromptHintOverride(t, prefs)
 }
 
 func TestDefaultRuntimeConfigRoutesVideoRequestsToVideoWithAudio(t *testing.T) {
@@ -45,15 +42,11 @@ func TestDefaultRuntimeConfigRoutesVideoRequestsToVideoWithAudio(t *testing.T) {
 	}
 }
 
-func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenceStoreStub, *configThreadServiceStub, string) {
+func newConfigReadFixture(t *testing.T) (*platformrpc.Server, *configThreadServiceStub, string) {
 	t.Helper()
 	projectRoot := filepath.Clean(filepath.Join(t.TempDir(), "window"))
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
-		preferenceStubKey("/repo", lspPromptHintOverrideKey):                             mustJSONRaw(t, "custom prompt"),
 		preferenceStubKey(projectRoot, normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-7"),
-	}}
-	sharedFiles := &sharedFileStoreStub{files: map[string]SharedFile{
-		lspPromptHintDefaultPath: {Path: lspPromptHintDefaultPath, Content: "default prompt"},
 	}}
 	threads := &configThreadServiceStub{getConfigResult: dto.ThreadConfig{
 		ThreadID: "thread-7",
@@ -81,10 +74,9 @@ func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenc
 	server := newConfigTestServer(
 		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: projectRoot},
 		prefs,
-		sharedFiles,
 		threads,
 	)
-	return server, prefs, threads, projectRoot
+	return server, threads, projectRoot
 }
 
 func assertConfigReadResult(t *testing.T, cfg runtimeConfigResult, threads *configThreadServiceStub, projectRoot string) {
@@ -143,33 +135,6 @@ func assertConfigSandbox(t *testing.T, got any) {
 	}
 }
 
-func assertLSPPromptHintRead(t *testing.T, server *platformrpc.Server) {
-	t.Helper()
-	readRes := dispatchConfig[lspPromptHintResult](t, server, "config/lspPromptHint/read", `{"cwd":"/repo"}`)
-	if readRes.Hint != "custom prompt" || readRes.DefaultHint != "default prompt" || readRes.UsingDefault {
-		t.Fatalf("config/lspPromptHint/read = %#v", readRes)
-	}
-}
-
-func assertLSPPromptHintWrite(t *testing.T, server *platformrpc.Server) {
-	t.Helper()
-	writeRes := dispatchConfig[lspPromptHintResult](t, server, "config/lspPromptHint/write", `{"cwd":"/repo","hint":""}`)
-	if writeRes.Hint != "default prompt" || !writeRes.UsingDefault || writeRes.OverrideHint != "" {
-		t.Fatalf("config/lspPromptHint/write = %#v", writeRes)
-	}
-}
-
-func assertStoredLSPPromptHintOverride(t *testing.T, prefs *uiPreferenceStoreStub) {
-	t.Helper()
-	raw, err := prefs.GetValue(context.Background(), "/repo", lspPromptHintOverrideKey)
-	if err != nil {
-		t.Fatalf("GetValue() error = %v", err)
-	}
-	if string(raw) != `""` {
-		t.Fatalf("stored override = %s", raw)
-	}
-}
-
 func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) {
 	t.Parallel()
 
@@ -188,7 +153,6 @@ func TestConfigReadFallsBackToDefaultsWhenThreadConfigUnavailable(t *testing.T) 
 	server := newConfigTestServer(
 		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: projectRoot},
 		prefs,
-		&sharedFileStoreStub{},
 		threads,
 	)
 
@@ -238,7 +202,6 @@ func TestConfigReadUsesPackagedHomeCWDInsteadOfResources(t *testing.T) {
 		&uiPreferenceStoreStub{values: map[string]json.RawMessage{
 			preferenceStubKey(packagedHome, normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-packaged"),
 		}},
-		&sharedFileStoreStub{},
 		threads,
 	)
 
@@ -269,7 +232,6 @@ func TestConfigReadFallsBackToUserHomeCWDWhenPackagedHomeUnset(t *testing.T) {
 	server := newConfigTestServer(
 		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: resourcesRoot},
 		&uiPreferenceStoreStub{values: map[string]json.RawMessage{}},
-		&sharedFileStoreStub{},
 		threads,
 	)
 
@@ -285,33 +247,13 @@ func TestConfigReadFallsBackToUserHomeCWDWhenPackagedHomeUnset(t *testing.T) {
 	}
 }
 
-func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
-	t.Parallel()
-
-	server := newConfigTestServer(
-		&contract.Config{RPCAddr: "127.0.0.1:0", ProjectRoot: "/window"},
-		nil,
-		&sharedFileStoreStub{},
-		nil,
-	)
-
-	if _, err := server.Dispatch(
-		context.Background(),
-		"config/lspPromptHint/write",
-		json.RawMessage(`{"cwd":"/repo","hint":"custom"}`),
-	); err == nil {
-		t.Fatal("Dispatch(config/lspPromptHint/write) error = nil, want missing preference store")
-	}
-}
-
 func newConfigTestServer(
 	cfg *contract.Config,
 	prefs PreferenceStore,
-	sharedFiles SharedFileReader,
 	threads contract.ThreadConfigReader,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})
-	server.Register(NewConfigHandlers(cfg, prefs, sharedFiles, threads, testNativeTools).Handlers)
+	server.Register(NewConfigHandlers(cfg, prefs, threads, testNativeTools).Handlers)
 	return server
 }
 
@@ -358,21 +300,6 @@ func (s *uiPreferenceStoreStub) List(_ context.Context, cwd string) ([]Preferenc
 		}
 	}
 	return rows, nil
-}
-
-type sharedFileStoreStub struct {
-	files map[string]SharedFile
-}
-
-func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*SharedFile, error) {
-	if s.files == nil {
-		return nil, platformdb.ErrNotFound
-	}
-	file, ok := s.files[path]
-	if !ok {
-		return nil, platformdb.ErrNotFound
-	}
-	return &file, nil
 }
 
 func preferenceStubKey(cwd, key string) string {

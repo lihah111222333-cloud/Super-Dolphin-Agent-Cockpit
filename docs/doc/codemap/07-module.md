@@ -54,7 +54,7 @@ flowchart LR
 
 | 卷 | 重点章节 | 讲什么 |
 |---|---|---|
-| [07-module-read.md](07-module-read.md) | §2、§3、§4、§5 | dashboard 查询聚合、`dashboard/prompts` cwd 过滤、`lspgui` 缺席真值、provider-native skill metadata 边界 |
+| [07-module-read.md](07-module-read.md) | §2、§3、§4、§5 | dashboard 查询聚合、prompt 管理面退役说明、`lspgui` 缺席真值、provider-native skill metadata 边界 |
 | [07-module-write.md](07-module-write.md) | §2、§3、§4、§5 | thread 生命周期、turn 输入组装与执行、uistate 投影、blank-thread `sendMessage` 首发顺序 |
 
 ## 7. 阅读顺序补充
@@ -74,13 +74,13 @@ flowchart LR
 ## 9. 最近一次重大变更摘要
 
 - **2026-04-17**：07 从单卷改成“稳定索引 + 读侧 / 写侧双卷”，本页不再承载正文。
-- **2026-04-20**：07A/07B 按当时代码真值重写，补回 `dashboard/prompts` cwd、lspgui 缺席、thread/turn/uistate 真链路。
+- **2026-04-20**：07A/07B 按当时代码真值重写，补回 dashboard 查询、lspgui 缺席、thread/turn/uistate 真链路。
 - **2026-08-30**：本地 skill module、store adapter、Skills UI 与旧 RPC 物理下线；codemap 改按 provider-native metadata 与显式 unsupported 边界描述。
 
 ## 10. 常见误导
 
 - `07-module.md` 现在只是稳定索引页，**不代表业务模块内容少**；真实正文已进 `07-module-read.md` / `07-module-write.md`。
-- `dashboard/prompts` 已不是旧版“简单 page-field wrapper”；真实入口是 ctx 带 `cwd` 后再过滤。
+- prompt 管理 host route（`dashboard/prompts`）已退役；桌面 runtime catalog 与 MCP `prompt_list`/`prompt_get` 见 [11-prompt-thread.md](11-prompt-thread.md) §5 与 [02-mcp-orch.md](02-mcp-orch.md)。
 - provider-native skill metadata 不等于本地 Skills UI；V3 不再提供 `skill/*` 本地 RPC，跨模块不要重新引入本地 resolver/hydration。
 - `lspgui` 在当前仓内并不存在；看到旧文档提它时，一律以 `07-module-read.md` §3 为准。
 
@@ -88,7 +88,6 @@ flowchart LR
 
 | 符号 / 主题 | 去哪看 |
 |---|---|
-| `withDashboardPromptScopeCWD` / `dashboard/prompts` | [07-module-read.md](07-module-read.md) §2.4 |
-| `filterDashboardPromptsByCWD` / `scope.cwd:<cwd>` | [07-module-read.md](07-module-read.md) §2.4 |
+| prompt runtime catalog / `threadprompt` | [11-prompt-thread.md](11-prompt-thread.md) §5 |
 | provider-native skill metadata / unsupported gate | [07-module-read.md](07-module-read.md) §4.1、§4.2、§4.5 |
 | `thread/start` / `turn/start` / blank-thread `sendMessage` | [07-module-write.md](07-module-write.md) §2.4 A、§3.4、§5 |

@@ -16,7 +16,7 @@
 flowchart LR
     UI[Frontend / RPC caller] --> DASH[dashboard]
     DASH --> ORCH[contract.AgentLifecyclePort / AgentReportPort / DAG*Runtime]
-    DASH --> STORES[(agentstatus/ailog/auditlog/buslog/commandcard/dbquery/prompt/sharedfile/tasktrace)]
+    DASH --> STORES[(agentstatus/ailog/auditlog/buslog/commandcard/dbquery/sharedfile)]
     TURN[turn] -->|provider-native metadata| PROVIDERS[claudecli / codexapp]
 ```
 
@@ -52,24 +52,25 @@ graph TD
 
 `dashboard` 是纯查询聚合层：
 
-- **Fx 装配**：`module.go:19-54`
+- **Fx 装配**：`module.go:12-57`
   - 注入 `dashboard.OrchestrationReader`、`dashboard.OrchestrationReportReader` 与 DAG runtime 窄端口
-  - 注入 `agentstatus / ailog / auditlog / buslog / commandcard / dbquery / prompt / sharedfile / systemlog / tasktrace`
-  - `fx.Provide(NewDashboardHandlers)` 暴露 RPC
-  - **RPC 面**：`rpc.go:155-270`
+  - 注入 `agentstatus / ailog / auditlog / buslog / commandcard / dbquery / sharedfile / systemlog`
+  - `fx.Provide(NewDashboardHandlersWithInsights)` 暴露 RPC 与可选 insights 路由
+  - **RPC 面**：`rpc.go`
   - 页面聚合：`ui/dashboard/get`
-  - 细分读取：`dashboard/{agentStatus,taskTraces,commandCards,prompts,sharedFiles,agent/detail,system/info,query,aiLogs,auditLogs,busLogs,dags,dagDetail,dagRuns,logs}`
-- **服务核心**：`service.go:35-340`
-  - `GetDashboardPage` / `GetAgentDetail` / `GetLogs` / `Query`
-  - `GetAgentDetail` 里用 `errgroup` 并发 `Snapshot + GetReport`
-- **页内装配**：`ui_page.go:17-340`
-  - `DashboardPage` 聚合 `Agents/DAGs/TaskTraces/CommandCards/Prompts/Memory/FinalOutputRefs`
-  - `commands` 页是唯一多 loader 并发页（`commandCards + prompts`）
-  - `memory` 页在 sharedfile 列表外额外提取近期 DAG run 的 file 型 `metadata.final_output`，只作为高亮/筛选索引
+  - 细分读取：`dashboard/{agentStatus,commandCards,sharedFiles,agent/detail,system/info,query,aiLogs,auditLogs,busLogs,dags,dagDetail,dagRuns,logs}`
+- **服务核心**：`service.go`
+  - `GetDashboardPage` / `GetAgentDetail` / `GetLogs` / `Query` / DAG runtime 查询
+  - Agent/detail 与日志查询保持各自的窄端口和 fail-fast 配置检查
+- **页内装配**：`ui_page.go`
+  - `DashboardPage` 聚合 `Agents/DAGs/CommandCards/FinalOutputRefs/SharedFileRetention`
+  - `commands` 页只加载 `commandCards`
+  - `dags` 页在 DAG 列表外补充最新 run/final-output 标记；shared files 页返回保留分析
+  - prompt 管理字段和 `dashboard/prompts` host route 已移除；runtime catalog 见 [11-prompt-thread.md](11-prompt-thread.md)
 
 ### 2.2 `ui/dashboard/get` 分发链
 
-`ui/dashboard/get` 只是薄 RPC：`rpc.go:84-86` 直接进 `svc.GetDashboardPage(ctx, p.Page)`，真正的页面分发都在 `ui_page.go`。
+`ui/dashboard/get` 只是薄 RPC：`rpc.go:349-351` 直接进 `svc.GetDashboardPage(ctx, p.Page)`，真正的页面分发都在 `ui_page.go`；当前 page 值为 `agents`、`dags`、`commands`、`commandcards`。
 
 ```mermaid
 sequenceDiagram
@@ -80,11 +81,8 @@ sequenceDiagram
     participant L as dashboardPageLoaders
     participant G as errgroup
     participant A as listAgents
-    participant T as taskTraces.List
+    participant D as populateDashboardDAGs
     participant CC as commandcard.List
-    participant PR as prompt.List + dashboard filter
-    participant M as sharedfile.List
-    participant R as orchestration.ListRuns
 
     C->>H: ui/dashboard/get {page}
     H->>S: GetDashboardPage(ctx, page)
@@ -94,19 +92,12 @@ sequenceDiagram
     P->>G: errgroup.WithContext(ctx)
     alt page=agents
         G->>A: populateDashboardAgents()
-    else page=tasks
-        G->>T: populateDashboardTaskTraces()
+    else page=dags
+        G->>D: populateDashboardDAGs()
     else page=commands
-        par loader#1
-            G->>CC: populateDashboardCommandCards()
-        and loader#2
-            G->>PR: populateDashboardPrompts()
-        end
-    else page=memory
-        G->>M: populateDashboardMemory()
-        G->>R: listDashboardFinalOutputRefs()
-    else unknown/empty
-        L-->>P: nil
+        G->>CC: populateDashboardCommandCards()
+    else page=commandcards
+        G->>CC: populateDashboardCommandCards()
     end
     G-->>P: wait()
     P-->>S: DashboardPage
@@ -119,60 +110,18 @@ sequenceDiagram
 | 页面 | loader | 真正数据源 | 备注 |
 |---|---|---|---|
 | `agents` | `populateDashboardAgents` | `orchestration.ListAgents` | `service.go:listAgents` |
-| `tasks` | `populateDashboardTaskTraces` | `tasktrace.Store.List` | 固定 `Limit=100` |
-| `commands` | `populateDashboardCommandCards` + `populateDashboardPrompts` | `commandcard.Reader.List` + `prompt.Reader.List` | 两路并发 |
-| `memory` | `populateDashboardMemory` | `sharedfile.Reader.List` + `orchestration.ListDAGs/ListRuns` | sharedfile 固定 `Limit=500`；`FinalOutputRefs` 只扫最近 20 个 DAG、每 DAG 最近 3 个 run |
+| `dags` | `populateDashboardDAGs` | `contract.DAGRuntime` 或 snapshot 查询 | 补充最新 run/final-output 标记 |
+| `commands` / `commandcards` | `populateDashboardCommandCards` | `commandcard.Reader.List` | 固定 dashboard limit |
 
 补充：
 
 - `dashboard/commandCards` 只是 `GetDashboardPage("commands")` 后取 `page.CommandCards`。
-- `dashboard/prompts` **不是**简单的 page-field wrapper：`rpc.go:102-108` 会先写入 `withDashboardPromptScopeCWD(ctx, p.Cwd)`，再返回 `page.Prompts`。
-- `dashboard/sharedFiles` 只是 `GetDashboardPage("memory")` 后取 `page.Memory`，返回 key 为 `files`；`finalOutputRefs` 只在 `ui/dashboard/get?page=memory` 的页面 payload 暴露。
+- `dashboard/sharedFiles` 当前直接读取 shared-file reader，并附带 `FinalOutputRefs` 与保留分析。
+- `dashboard/prompts` host 管理路由已退役；运行时模板读取见 [11-prompt-thread.md](11-prompt-thread.md) §5，MCP 模板 list/get 见 [02-mcp-orch.md](02-mcp-orch.md)。
 
-### 2.4 `dashboard/prompts` 的 `{cwd}` 过滤接线
+### 2.4 Prompt 管理 host route（已退役）
 
-这条链是 p20.15 补通的重点，当前 prod caller 已由 `xref(references)` 核实：
-
-- `service.go:86-91` `withDashboardPromptScopeCWD(ctx, cwd)`
-- **prod callers 现有 2 个**：`rpc.go:85-87`（`ui/dashboard/get`）、`rpc.go:102-108`（`dashboard/prompts`）
-- 测试 caller 见 `service_test.go:62`
-
-```mermaid
-sequenceDiagram
-    participant FE as SystemPromptPage
-    participant RPC as dashboard/prompts handler
-    participant CTX as withDashboardPromptScopeCWD
-    participant PAGE as GetDashboardPage(commands)
-    participant LIST as listDashboardPrompts
-    participant STORE as prompt.Reader.List
-    participant FILT as filterDashboardPromptsByCWD
-
-    FE->>RPC: dashboard/prompts {cwd}
-    RPC->>CTX: ctx = withDashboardPromptScopeCWD(ctx, cwd)
-    RPC->>PAGE: GetDashboardPage(ctx, "commands")
-    PAGE->>LIST: populateDashboardPrompts(ctx)
-    LIST->>LIST: cwd = dashboardPromptScopeCWDFromContext(ctx)
-    LIST->>STORE: prompts.List(ListFilter{CWD: cwd, Limit:100})
-    STORE-->>LIST: PromptTemplate[]
-    LIST->>FILT: filterDashboardPromptsByCWD(items, cwd)
-    FILT-->>LIST: keep global + scope.cwd:<cwd>
-    LIST-->>PAGE: page.Prompts
-    PAGE-->>RPC: DashboardPage{Prompts}
-    RPC-->>FE: {"prompts": [...]}
-```
-
-关键细节：
-
-1. **`dashboard/prompts` handler 已不再走旧 `dashboardPageField("commands", ...)` 包装**：`rpc.go:102-108` 直接返回 `{"prompts": page.Prompts}`。
-2. **ctx 传递链不是测试专用 helper，而是三条读侧入口共享的 prod 入口**：`uiDashboardGetParams{Cwd}` / `dashboardPromptsParams{Cwd}` → `withDashboardPromptScopeCWD` → `dashboardPromptScopeCWDFromContext`。
-3. **最终生效过滤仍在 dashboard 模块内**：`ui_page.go:149-196`
-   - 先把 `cwd` 带进 `promptstore.ListFilter`
-   - 再按 tag `scope.cwd:<value>` 做 `filterDashboardPromptsByCWD`
-4. **store contract 与实现存在一层“名义支持 / 实际忽略”的落差**：
-   - `internal/store/prompt/contract.go:24-29` 有 `ListFilter.CWD`
-   - 但 `internal/store/prompt/store.go:61-75` 当前只下发 `AgentKey/Keyword/Limit`，未真正用到 `CWD`
-   - 所以今天的可见性仍由 `dashboardPromptVisibleForCWD()` 控制，而不是 prompt store SQL 过滤
-5. 测试锚点：`dashboard/service_test.go:36-126` 已覆盖 `repo-a/repo-b` 作用域与 `prompts` 顶层 key。
+当前 `internal/module/dashboard` 不再持有 `Prompt` 字段、`prompt.Reader` 依赖、`dashboard/prompts` handler 或 cwd 过滤 helper。桌面 prompt runtime catalog 由 `internal/module/threadprompt` 组合 `internal/store/prompt` 与 built-in registry；MCP `prompt_list` / `prompt_get` 由 `cmd/mcp-orch` 独立提供。不要从旧 dashboard 文档恢复管理路由或前端页面。
 
 ### 2.5 其它查询面
 
@@ -185,11 +134,10 @@ sequenceDiagram
 - **DAG 查询**：`rpc.go:132-136` / `detail.go`
   - `dashboard/dags` 与 `dashboard/dagDetail` 透传 `contract.DAGRuntime` 的 list/detail 能力
   - `dashboard/dagRuns` 走 `ListDAGRuns()`，内部 clamp limit 后调用 `orchestration.ListRuns`（`detail.go:61-80`, `rpc.go:260-266`）
-- **final_output 索引**：`ui_page.go:250-340`
-  - `listDashboardFinalOutputRefs()` 先取最近 DAG，再并发取每个 DAG 最近 run，解析 `run.metadata.final_output`
-  - 只接收 `kind=file` 或未显式 kind 但有 `path/sharedfile.path` 的输出；text/json 最终产物留 DAG detail 展示，不进入 Shared Files 文件筛选
-  - enrichment 错误不阻断 memory page：`populateDashboardMemory()` 对 refErr 静默降级为空列表（`ui_page.go:163-172`）
-- **任意 DB 查询**：`rpc.go:120-122` → `service.Query()` → `dbquery.Store.Query`
+- **final_output 索引**：`ui_page.go:247-333`
+  - `listDashboardFinalOutputRefsFromSnapshot()` 读取最近 DAG/run 的 `metadata.final_output`，并用于 shared-file 保留分析。
+  - 只接收 `kind=file` 或带有 `path/sharedfile.path` 的输出；其它最终产物留在 DAG 详情。
+- **任意 DB 查询**：`rpc.go:400-403` → `service.Query()` → `dbquery.Store.Query`
 
 ### 2.6 依赖图
 
@@ -198,16 +146,11 @@ flowchart TD
     DASHMOD[dashboard.Module] --> DASHSVC[NewService]
     DASHMOD --> DASHRPC[NewDashboardHandlers]
     DASHRPC --> UIPAGE[ui/dashboard/get]
-    DASHRPC --> PROMPTSRPC[dashboard/prompts]
     UIPAGE --> PAGE[GetDashboardPage]
     PAGE --> AG[orchestration.ListAgents]
-    PAGE --> TT[tasktrace.Store.List]
     PAGE --> CC[commandcard.Reader.List]
-    PAGE --> PR[prompt.Reader.List]
-    PAGE --> SF[sharedfile.Reader.List]
-    PROMPTSRPC --> SCOPE[withDashboardPromptScopeCWD]
-    SCOPE --> PAGE
-    PAGE --> TAGFILT[scope.cwd tag filter]
+    DASHRPC --> SF[sharedfile.Reader.List]
+    DASHRPC --> DAG[contract.DAGRuntime / snapshot queries]
 ```
 
 ### 2.7 文件地图
@@ -216,8 +159,8 @@ flowchart TD
 |---|---|
 | `module.go` | Fx 注入 orchestration / stores，并提供 RPC handlers；不装配本地 skill module。 |
 | `rpc.go` | `ui/dashboard/get` 与各细分 `dashboard/*` 路由。 |
-| `service.go` | `GetDashboard` / `GetAgentDetail` / `GetLogs` / `Query` / cwd-scope ctx helper。 |
-| `ui_page.go` | `DashboardPage`、loader switch、页内并发装配、prompt tag 过滤。 |
+| `service.go` | dashboard page、Agent/detail、日志、query 与 DAG runtime 查询。 |
+| `ui_page.go` | `DashboardPage`、agents/dags/commands loader 与 final-output/retention 分析。 |
 | `detail.go` | DAG list/detail/run-list 与 Agent turn history 辅助逻辑。 |
 | `logs.go` / `ai_logs.go` / `factory.go` | 日志统一包装、过滤与 DTO 组装。 |
 | `agent_status.go` / `types.go` / `contract.go` | DTO 与查询接口定义。 |
@@ -266,7 +209,7 @@ V3 已物理移除本地 skill module、store adapter、host/UI SkillsPage 与�
 
 `internal/module/dashboard/` 的 `DashboardPage` 不再包含 Skills 字段，`dashboard/skills` 路由和前端 SkillsPage 已删除。前端仅保留 provider-native skill metadata（例如启动请求的 selected refs 和聊天引用）所需 wire 字段；不存在本地技能列表或编辑入口。
 
-`ui/dashboard/get` 仍并发聚合 agents、tasks、commands、prompts、memory 等页面；`dashboard/prompts` 的 `cwd` 作用域链保持不变，见本卷 §2.4。
+`ui/dashboard/get` 当前聚合 agents、dags、commands、commandcards 页面；prompt 管理 host route 已退役，runtime catalog 与 MCP prompt 工具不属于 dashboard 读面，见本卷 §2.4。
 
 ### 4.4 事件与兼容性
 
@@ -285,11 +228,10 @@ V3 已物理移除本地 skill module、store adapter、host/UI SkillsPage 与�
 
 ## 5. 本卷需要牢记的代码真值
 
-1. `dashboard/prompts` 的 `{cwd}` 作用域已经接到 **prod handler**；`withDashboardPromptScopeCWD` 不再只是测试 helper。
-2. `promptstore.ListFilter.CWD` 只在 contract 层露出；当前 store 实现未真正下推过滤，实际筛选仍在 `dashboard/ui_page.go`。
-3. thread/start 仅透传 provider-native skill 选择元数据；本地 skill/list、skill/expand、catalog、resolve 和 hydration 链已删除。
-4. provider runtime 直接负责自己的 native skill capability；V3 桌面不再拥有本地技能正文存储或动态 `skill__*` 工具。
-5. `lspgui` 在当前仓内 **无源码目录**；旧 codemap 对它的实现级描述已过时。
+1. `dashboard/prompts` 管理 host route 已退役；prompt runtime catalog 与 MCP `prompt_list`/`prompt_get` 不再经过 dashboard。
+2. thread/start 仅透传 provider-native skill 选择元数据；本地 skill/list、skill/expand、catalog、resolve 和 hydration 链已删除。
+3. provider runtime 直接负责自己的 native skill capability；V3 桌面不再拥有本地技能正文存储或动态 `skill__*` 工具。
+4. `lspgui` 在当前仓内 **无源码目录**；旧 codemap 对它的实现级描述已过时。
 
 ---
 
@@ -301,7 +243,7 @@ V3 已物理移除本地 skill module、store adapter、host/UI SkillsPage 与�
 
 | 包 | 测试文件 | 核心 Test* | 锁定点 |
 |---|---|---|---|
-| `dashboard` | `service_test.go` | `TestGetDashboardPageFiltersPromptsByScopedCWD` / `TestDashboardPromptsHandlerScopesByCWDAndReturnsPromptsKey` | 锁定 `dashboard/prompts` 的 `{cwd}` 透传、`prompts` 顶层 key 与 scope 过滤。 |
+| `dashboard` | `service_test.go` / `shared_files_rpc_test.go` / `command_cards_test.go` | `TestGetDashboardPageReturnsStructuredPage`、`TestDashboardSharedFilesHandlerDoesNotRequireDAGRuntime`、`TestDashboardCommandCardsHandlerReturnsCards` | 锁定 dashboard page/query、shared-file 保留分析与 command-card 读面。 |
 | `uistate` | `phase2_stats_patch_pending_test.go` / `sidebar_test.go` | `TestActivityStats_CommandIncrementsCommands` / `TestProjectionSubscriptionsUpdateSidebarFromLifecycleAndOutputEvents` | 锁定 sidebar / activity stats 的 projection 读侧更新。 |
 | `uistate/timeline` | `timeline/timeline_test.go` | `TestAppendAndGetByThread` | 锁定 timeline 读模型 append/get 基线。 |
 

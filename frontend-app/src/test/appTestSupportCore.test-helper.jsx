@@ -42,24 +42,6 @@ function formatParsedTimestampForTest(value) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
-function promptPreferenceValue(key, activePromptKey = '') {
-  return {
-    'settings.provider.active': 'codex',
-    'settings.provider.codex.model': 'gpt-5.5',
-    'settings.provider.codex.effort': 'xhigh',
-    'settings.provider.codex.codexHome': '~/.codex',
-    'settings.provider.codex.codexInstanceKey': 'default',
-    'settings.provider.codex.codexModelProvider': 'openai',
-    'settings.provider.claude.model': 'sonnet',
-    'settings.provider.claude.effort': 'high',
-    'settings.activePromptKey': activePromptKey,
-  }[key] ?? null;
-}
-
-function mockPromptPreferences(activePromptKey = '') {
-  backend.getPreference.mockImplementation(({ key }) => Promise.resolve(promptPreferenceValue(key, activePromptKey)));
-}
-
 function decodedSvgDataUrl(image) {
   const src = image.getAttribute('src') || '';
   const prefix = 'data:image/svg+xml;charset=utf-8,';
@@ -210,83 +192,6 @@ function mockObservabilityDefaults() {
   backend.listObservabilityErrors.mockResolvedValue(emptyTraceResult);
 }
 
-function mockPromptDefaults() {
-  backend.listPromptAssets.mockResolvedValue({ prompts: [] });
-  backend.getDashboardPrompts.mockResolvedValue({ prompts: [] });
-  backend.getPrompt.mockResolvedValue({ prompt: { content: '' } });
-  backend.writePrompt.mockResolvedValue({ prompt: { id: 'saved-prompt' } });
-  backend.deletePrompt.mockResolvedValue({ deleted: true });
-  backend.getPersonalizationProfile.mockResolvedValue({ profile: {} });
-  backend.savePersonalizationProfile.mockResolvedValue({ profile: {} });
-  backend.listPromptSections.mockResolvedValue({ sections: [] });
-  backend.writePromptSection.mockResolvedValue({ ok: true });
-  backend.deletePromptSection.mockResolvedValue({ ok: true });
-  backend.draftPromptIntent.mockResolvedValue({
-    draft_key: 'intent/expert/default',
-    kind: 'expert',
-    scope: 'project',
-    status: 'review',
-    card: {
-      kind: 'expert',
-      title: '默认专家',
-      summary: '整理后的能力',
-      output: '执行说明',
-      hit_examples: ['需要专家能力时'],
-      miss_examples: ['普通聊天'],
-    },
-    issues: [],
-  });
-  backend.commitPromptIntent.mockResolvedValue({ prompt: { id: 'intent/expert/default' } });
-  backend.discardPromptIntent.mockResolvedValue({ ok: true });
-  backend.dryRunPromptIntent.mockResolvedValue({ would_use: true, reasons: ['matched'] });
-}
-
-function canonicalPromptRPCItem(overrides = {}) {
-  return {
-    id: 'main/canonical',
-    name: '规范提示词',
-    content: '',
-    description: '',
-    agentType: 'main',
-    when_to_use: '',
-    createdAt: '2026-07-11T00:00:00Z',
-    updatedAt: '2026-07-11T00:00:00Z',
-    enabled: true,
-    scope: 'project',
-    tags: ['intent:expert'],
-    ...overrides,
-  };
-}
-
-function mockPromptWizardEntryPrompt(overrides = {}) {
-  const name = overrides.name || '待确认入口';
-  const content = overrides.content || '待确认内容';
-  const scope = overrides.scope || 'project';
-  backend.listPromptAssets.mockResolvedValue({
-    prompts: [canonicalPromptRPCItem({
-      id: overrides.id || 'intent/expert/entry',
-      draft_key: overrides.draftKey || 'intent/expert/entry',
-      draft_status: overrides.status || 'ready_to_save',
-      state: 'pending_confirm',
-      name,
-      content,
-      description: overrides.description || '',
-      tags: overrides.tags || ['intent:expert'],
-      scope,
-      enabled: true,
-      card: overrides.card || {
-        kind: 'expert',
-        scope,
-        title: name,
-        output: content,
-        hit_examples: [],
-        miss_examples: [],
-      },
-      issues: overrides.issues || [],
-    })],
-  });
-}
-
 function mockWorkflowDefaults() {
   backend.listDags.mockResolvedValue({ dags: [] });
   backend.getDagDetail.mockResolvedValue({ dag: null, nodes: [] });
@@ -334,18 +239,6 @@ function mockSettingsAndThreadDefaults() {
   backend.resolveThreadIdentity.mockImplementation(({ threadId }) => Promise.resolve({
     id: threadId, provider: 'codex', cwd: '/repo/app',
   }));
-  backend.readLspPromptHint.mockResolvedValue({
-    hint: 'effective prompt text',
-    defaultHint: 'default prompt text',
-    overrideHint: '',
-    usingDefault: true,
-  });
-  backend.writeLspPromptHint.mockResolvedValue({
-    hint: 'saved prompt text',
-    defaultHint: 'default prompt text',
-    overrideHint: 'saved prompt text',
-    usingDefault: false,
-  });
   backend.readBuiltinTools.mockResolvedValue({ tools: [] });
   backend.writeBuiltinTool.mockResolvedValue({ tools: [] });
   backend.listToolbridgeTools.mockResolvedValue({ tools: [] });
@@ -433,8 +326,6 @@ export function createAppTestCore(nextContext) {
     dispatchPointer: (...args) => dispatchPointer(...args),
     deferred: (...args) => deferred(...args),
     formatParsedTimestampForTest: (...args) => formatParsedTimestampForTest(...args),
-    promptPreferenceValue: (...args) => promptPreferenceValue(...args),
-    mockPromptPreferences: (...args) => mockPromptPreferences(...args),
     decodedSvgDataUrl: (...args) => decodedSvgDataUrl(...args),
     waitForBackendThreadHeading: (...args) => waitForBackendThreadHeading(...args),
     mockShortcutPreferenceLoad: (...args) => mockShortcutPreferenceLoad(...args),
@@ -450,9 +341,6 @@ export function createAppTestCore(nextContext) {
     mockBootstrapBackendDefaults: (...args) => mockBootstrapBackendDefaults(...args),
     mockDashboardPageDefaults: (...args) => mockDashboardPageDefaults(...args),
     mockObservabilityDefaults: (...args) => mockObservabilityDefaults(...args),
-    mockPromptDefaults: (...args) => mockPromptDefaults(...args),
-    canonicalPromptRPCItem: (...args) => canonicalPromptRPCItem(...args),
-    mockPromptWizardEntryPrompt: (...args) => mockPromptWizardEntryPrompt(...args),
     mockWorkflowDefaults: (...args) => mockWorkflowDefaults(...args),
     mockCronDefaults: (...args) => mockCronDefaults(...args),
     mockSharedFileDefaults: (...args) => mockSharedFileDefaults(...args),

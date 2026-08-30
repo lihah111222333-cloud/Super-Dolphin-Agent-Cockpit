@@ -1,10 +1,10 @@
 {
   "_meta": {
-    "updatedAt": "2026-08-30T00:42:30Z"
+    "updatedAt": "2026-08-30T09:05:46Z"
   },
   "files": {
     "src/entities/client/model/useClientStore.test.js": {
-      "lines": 8771,
+      "lines": 8747,
       "maxFuncLen": 41,
       "maxNesting": 6,
       "maxParams": 3,
@@ -18,23 +18,8 @@
         "file-length\u0000文件有效代码 8736 行，超过上限 800 行"
       ]
     },
-    "src/features/prompts/PromptPageView.test.jsx": {
-      "lines": 870,
-      "maxFuncLen": 34,
-      "maxNesting": 5,
-      "maxParams": 1,
-      "exportCount": 0,
-      "consoleLogs": 0,
-      "anyCount": 0,
-      "emptyFuncs": 0,
-      "todoCount": 0,
-      "longLineCount": 0,
-      "frozenViolations": [
-        "file-length\u0000文件有效代码 882 行，超过上限 800 行"
-      ]
-    },
     "src/pages/settings/SettingsPage.test.jsx": {
-      "lines": 930,
+      "lines": 867,
       "maxFuncLen": 17,
       "maxNesting": 6,
       "maxParams": 3,
@@ -49,7 +34,7 @@
       ]
     },
     "src/shared/api/backendApi.test.js": {
-      "lines": 2695,
+      "lines": 2345,
       "maxFuncLen": 88,
       "maxNesting": 6,
       "maxParams": 3,
@@ -79,7 +64,7 @@
       ]
     },
     "src/styles.test.js": {
-      "lines": 1962,
+      "lines": 1923,
       "maxFuncLen": 26,
       "maxNesting": 5,
       "maxParams": 4,
@@ -94,7 +79,7 @@
       ]
     },
     "scripts/agentic-e2e.test.mjs": {
-      "lines": 1211,
+      "lines": 1203,
       "maxFuncLen": 13,
       "maxNesting": 6,
       "maxParams": 3,
@@ -109,7 +94,7 @@
       ]
     },
     "scripts/rpc-contract-audit.test.mjs": {
-      "lines": 3042,
+      "lines": 3022,
       "maxFuncLen": 86,
       "maxNesting": 7,
       "maxParams": 5,

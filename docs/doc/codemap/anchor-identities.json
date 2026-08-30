@@ -1044,14 +1044,6 @@
     {
       "codemap_file": "01-terminal-ui-go.md",
       "codemap_line": 281,
-      "target_path": "internal/module/dashboard/rpc.go",
-      "line_spec": "85-115",
-      "content_sha256": "06cdfe8ff3124da72648015853cbd6bf4c48311fedcd73678f4a391b85cad703",
-      "symbol": "auditLogsParams"
-    },
-    {
-      "codemap_file": "01-terminal-ui-go.md",
-      "codemap_line": 281,
       "target_path": "internal/ui/wails/binding.go",
       "line_spec": "38",
       "content_sha256": "854ab2b4f796ebbf020468956084d7354de5d6466442b838d56888332c61f1b0",
@@ -2392,36 +2384,36 @@
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 179,
+      "codemap_line": 178,
       "target_path": "cmd/mcp-orch/fx_orchestration_lifecycle.go",
       "line_spec": "9-18",
       "content_sha256": "6c1699592ae83c4c52dde6c7b37fdac937c6e5b278d26faeb296db87317819ff"
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 181,
+      "codemap_line": 180,
       "target_path": "cmd/mcp-orch/runtime.go",
       "line_spec": "122",
       "content_sha256": "05d01417a03631e297828c0d3556f629d1c4a41213dc0f4f3a13a3ea13d7283c"
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 182,
+      "codemap_line": 181,
       "target_path": "cmd/mcp-orch/runtime.go",
       "line_spec": "141",
       "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 187,
+      "codemap_line": 186,
       "target_path": "internal/app/modules.go",
       "line_spec": "121",
-      "content_sha256": "8a2ff66ef542184a650b823f22635634cda9aaba6b2074322fd7537749851cc9",
+      "content_sha256": "5c358bf2f39db169b37d92dd290f96efca5b01111f0ae4e7d743b1c9ab34ec9d",
       "symbol": "newModule"
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 187,
+      "codemap_line": 186,
       "target_path": "internal/app/runtime_reporter_adapter.go",
       "line_spec": "57",
       "content_sha256": "9c3396296119416fed60c80348110d633563c20f4998eca23039bff317d74112",
@@ -2429,21 +2421,21 @@
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 373,
+      "codemap_line": 372,
       "target_path": "cmd/mcp-orch/runtime_memory_test.go",
       "line_spec": "8-17",
       "content_sha256": "2fa6752bf3c9320f4bec2068e1ea9a1010a7bb87be7e1e014fba10f2c4534c69"
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 929,
+      "codemap_line": 928,
       "target_path": "cmd/mcp-orch/store/taskdag/contract.go",
       "line_spec": "25-27",
       "content_sha256": "c620507384b8e77d731d6b18bc1d527461569f9f5df21b514e84575c8f4b6e4f"
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 930,
+      "codemap_line": 929,
       "target_path": "cmd/mcp-orch/store/taskdag/contract.go",
       "line_spec": "25-27",
       "content_sha256": "c620507384b8e77d731d6b18bc1d527461569f9f5df21b514e84575c8f4b6e4f"
@@ -2793,8 +2785,8 @@
       "codemap_line": 82,
       "target_path": "internal/platform/eventsurface/bind.go",
       "line_spec": "127",
-      "content_sha256": "fc4672db7cc19bd4d61b3a21064306514de99b40b2e83a7ad557971f0c5f854a",
-      "symbol": "MethodAgentRuntimeReported"
+      "content_sha256": "9119647d3f31065002d7bb7023945df02c6b178c3ebf3d604347313d33fccade",
+      "symbol": "MethodTaskNodeStatusChanged"
     },
     {
       "codemap_file": "05-dto.md",
@@ -2864,7 +2856,7 @@
       "codemap_line": 141,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "47/53",
-      "content_sha256": "91c8f493e6aeda7997d8df8104083d0e6533dcc2347320c2a2680962b9894059",
+      "content_sha256": "519d85207256b7135c15ae939697d2ebab255715001dc1e16ab7bc64b4a617a4",
       "symbol": "UISharedFilesChanged"
     },
     {
@@ -2872,8 +2864,8 @@
       "codemap_line": 141,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "60",
-      "content_sha256": "17100e27b8d4e615febe1bc8016c84705e96652525542e1879a1df6b9796150c",
-      "symbol": "ThreadPatchThread"
+      "content_sha256": "e3b8d26b7c8a87ca0557c4138d366a4ec43ac30c202c61ff5e8fe42207345702",
+      "symbol": "ThreadPatchTokenUsage"
     },
     {
       "codemap_file": "05-dto.md",
@@ -2912,7 +2904,7 @@
       "codemap_line": 145,
       "target_path": "internal/platform/eventsurface/bind.go",
       "line_spec": "170",
-      "content_sha256": "eec9b0da01bd9eb5c42f1712b996693f80070773de86fd7aefb54fcc2df20eff",
+      "content_sha256": "b55d7ec71c8ae383c4dc2cb29fd4482acaba7a09496f7c2e3c34d6fd4876afb0",
       "symbol": "taskNodeStatusChangedPayload"
     },
     {
@@ -3604,29 +3596,29 @@
       "codemap_line": 369,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "72",
-      "content_sha256": "30b5f122110760c9ff744f13c97ab02fe5ccef70df454bf1e89c6d24327c064c"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 370,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "78",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "d1e77319b3be438e1a78ef08429768869c24aed1b1461897100b2b9b3967fd47"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 371,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "83",
-      "content_sha256": "c58bf3ecf28657bfdfb06c01a3c1428add8657184299debc5d61a4f4cac4371c",
-      "symbol": "EventTypeWorkspaceRunMerged"
+      "content_sha256": "d5668b5185800d56fc720639f1757d8202744dbc603b13d0f1a1649bf930d222",
+      "symbol": "EventTypeWorkspaceRunAborted"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 372,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "89",
-      "content_sha256": "241b02ecb837d30041abbd91ed150b0313940a2a9f9166a37d12717c652d6b87",
+      "content_sha256": "6bd62b7613eb44965500c5bff946ef53f66d03acafedbb41d943aca6fc92b7d4",
       "symbol": "EventHeader"
     },
     {
@@ -3634,7 +3626,7 @@
       "codemap_line": 373,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "96",
-      "content_sha256": "5e511b1dc4e92d60ced33b920b16c0c82ad8b3909ab1b402437d82d670b57769",
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
       "symbol": "ThreadHeader"
     },
     {
@@ -3642,7 +3634,7 @@
       "codemap_line": 374,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "102",
-      "content_sha256": "949692acf573e22ce01cfc165ee13135a8b9701cdaee8922c9334e3d2b1d4cb5",
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
       "symbol": "AgentHeader"
     },
     {
@@ -3650,7 +3642,7 @@
       "codemap_line": 375,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "113",
-      "content_sha256": "f446026d5a86f12ab3370d1ee56cb494d4e93d427163535719d433d0f867c2d5",
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
       "symbol": "TurnIDHeader"
     },
     {
@@ -3658,7 +3650,7 @@
       "codemap_line": 376,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "119",
-      "content_sha256": "13a4eaaab521ecfcd99ff39332a94aa57266c487f1b9cab64df2c0e557b63078",
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
       "symbol": "TurnHeader"
     },
     {
@@ -3666,7 +3658,7 @@
       "codemap_line": 377,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "125",
-      "content_sha256": "a3a70a3dcf2af5447c8dedde7f9e148e40272d136be82f196f5997776bceb87d",
+      "content_sha256": "2bf7675dfed8c04a7aec08b1cc9f11fe82490bf0a04d32272d398045d169df69",
       "symbol": "ToolCallHeader"
     },
     {
@@ -3674,7 +3666,7 @@
       "codemap_line": 378,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "131",
-      "content_sha256": "c0594ea7fcf614f88ae0ab76269a49bdfd59073c7ff6280c2869c6843d0574e0",
+      "content_sha256": "b2ffedf928c51ee7277c4b6ed680cbabca264f5b631e4ebee1bc787fb7c753d8",
       "symbol": "ToolApprovalHeader"
     },
     {
@@ -3737,201 +3729,203 @@
       "codemap_line": 480,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "61",
-      "content_sha256": "f928fbe469394e9f3d3bdb3c7504ec8bf84d417ee28027d3473d21ffedb66a31",
-      "symbol": "ThreadPatchThread"
+      "content_sha256": "5998dc5b5fb9934426ba387739324bf74908732dd719d2a7dacf8003d98fa873",
+      "symbol": "ThreadPatchTokenUsage"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 481,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "62",
-      "content_sha256": "459a36e70785714b345d95c3b02dac8cf4694d15313dc84246b4f0474455cab1",
-      "symbol": "ThreadPatchThread"
+      "content_sha256": "3685df844730e122185e801220ee87324efe305611f8ba5c8efe0b187d60ce35",
+      "symbol": "ThreadPatchTokenUsage"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 482,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "63",
-      "content_sha256": "e54a0ea6110f92007cefbf4d38b970ebfad5ec7aac256c20576e8b0ee5d61e27",
-      "symbol": "ThreadPatchThread"
+      "content_sha256": "1d3d5fe6302c29fe50a70fc6cfe69479aceaa08b173d921059c5cfe6ceb0e0a1",
+      "symbol": "ThreadPatchTokenUsage"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 483,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "64",
-      "content_sha256": "9476066887f977207686a9a2c1cabe5554c9d3769e34d8f87c9d4e50206bf2a8",
-      "symbol": "ThreadPatchThread"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "ThreadPatchTokenUsage"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 484,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "65",
-      "content_sha256": "367f70095e37b264b44bd162f5f81db75d8ad7715f9a3d4330c2587b0aa681f5",
-      "symbol": "ThreadPatchThread"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 485,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "66",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "ThreadPatchThread"
+      "content_sha256": "366825fdb248f0af39829f9aa8cdb94d850e65c307b49f443d0f8d25dc492df0"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 486,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "67",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "2d9b35f82f2d3e57a3c019f56a3ec7119775b0b943c3a14afbf9df2f7a368ecf",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 487,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "68",
-      "content_sha256": "35a69af9fcc3a6903452449025937fbd8f76efc52a31b826ebf226289a8ee2c1"
+      "content_sha256": "6f4f15345cc4124af36046ec9b15a1d6c6fb120117ce7c0f93cf398c09a795be",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 488,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "69",
-      "content_sha256": "e3b8d26b7c8a87ca0557c4138d366a4ec43ac30c202c61ff5e8fe42207345702",
-      "symbol": "ThreadPatchTokenUsage"
+      "content_sha256": "8bcb7347cf723d56c54e8de29ac8d2d9b77f36967de1ebdb3b25b68e1743c8f1",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 489,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "70",
-      "content_sha256": "5998dc5b5fb9934426ba387739324bf74908732dd719d2a7dacf8003d98fa873",
-      "symbol": "ThreadPatchTokenUsage"
+      "content_sha256": "7619068d197f204a65fda9ea5f1363cd8eeb4f4b018bcf6819e0c2dcc46337f0",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 490,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "71",
-      "content_sha256": "3685df844730e122185e801220ee87324efe305611f8ba5c8efe0b187d60ce35",
-      "symbol": "ThreadPatchTokenUsage"
+      "content_sha256": "501a4cdf037b03d70a264f355e7b56fa01066cefc6259bb17cbe81c2a65313a1",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 491,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "72",
-      "content_sha256": "1d3d5fe6302c29fe50a70fc6cfe69479aceaa08b173d921059c5cfe6ceb0e0a1",
-      "symbol": "ThreadPatchTokenUsage"
+      "content_sha256": "19e7f624cef61cb6652ee364b8de0e42362b8d0ca3aac142fa686a2172e84544",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 492,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "73",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "ThreadPatchTokenUsage"
+      "content_sha256": "0540e90404cfc227a0f74fde5a1e33321adb640b7ef5601c3d93d9667be65b79",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 493,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "74",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "ThreadPatchActiveTurn"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 494,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "75",
-      "content_sha256": "366825fdb248f0af39829f9aa8cdb94d850e65c307b49f443d0f8d25dc492df0"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 495,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "76",
-      "content_sha256": "2d9b35f82f2d3e57a3c019f56a3ec7119775b0b943c3a14afbf9df2f7a368ecf",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "6fefc6e3fb3de702ca9d137d9051b7344771308eabe49072c109df25786e0c1c"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 496,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "77",
-      "content_sha256": "6f4f15345cc4124af36046ec9b15a1d6c6fb120117ce7c0f93cf398c09a795be",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "ed5f8fe72cfff2bfbae43bf0a05430ec82a151219c71326206ae6771f97d4e8c",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 497,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "78",
-      "content_sha256": "8bcb7347cf723d56c54e8de29ac8d2d9b77f36967de1ebdb3b25b68e1743c8f1",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "b6720ee4fad1ccb153f8d531a60d1f396e51ddb48c856f5802a6a07e254c9521",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 498,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "79",
-      "content_sha256": "7619068d197f204a65fda9ea5f1363cd8eeb4f4b018bcf6819e0c2dcc46337f0",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "ea2915a27e22fc4da12cfa9d42c6acd7c1e7d2cc601a7a4abd4206b06736c0e7",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 499,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "80",
-      "content_sha256": "501a4cdf037b03d70a264f355e7b56fa01066cefc6259bb17cbe81c2a65313a1",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "c9db58fa90e9e285e47e61ba3af3a9694f7c0a58c0f3bd8520ae31d5e2d20033",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 500,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "81",
-      "content_sha256": "19e7f624cef61cb6652ee364b8de0e42362b8d0ca3aac142fa686a2172e84544",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "b4ac50fd510ef5253143e8c988398065ec061bbf43644c0776ed9917694afebf",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 501,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "82",
-      "content_sha256": "0540e90404cfc227a0f74fde5a1e33321adb640b7ef5601c3d93d9667be65b79",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "5b7dbd47066d2f88c5dc9293a6ab5931680c95508655e4cd7aa7f97800226b93",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 502,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "83",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "ThreadPatchActiveTurn"
+      "content_sha256": "c9f4c58f1baba966e93ae6bf9b9388e558c649d8df27944db9ad4fa116b087f8",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 503,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "84",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "e1fe57a9ce5c6fbd5e262570480c34610c2ca6cf78870c6dbda34f6cfe121984",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 504,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "85",
-      "content_sha256": "6fefc6e3fb3de702ca9d137d9051b7344771308eabe49072c109df25786e0c1c"
+      "content_sha256": "a4496f8ec8faae4acade31df4094cf68855ae0161644dbbcbc9faf413f8a9706",
+      "symbol": "UIThreadPatch"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 505,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "86",
-      "content_sha256": "ed5f8fe72cfff2bfbae43bf0a05430ec82a151219c71326206ae6771f97d4e8c",
+      "content_sha256": "d10d9f2752b50ab7b3a6f7c62df1b353d7b4d55c2b14d6322233abec223f80c9",
       "symbol": "UIThreadPatch"
     },
     {
@@ -3939,7 +3933,7 @@
       "codemap_line": 506,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "87",
-      "content_sha256": "b6720ee4fad1ccb153f8d531a60d1f396e51ddb48c856f5802a6a07e254c9521",
+      "content_sha256": "83db5d7c424d0073dfed2df262efda123d84cf85ac5841c1ed5a62546038716c",
       "symbol": "UIThreadPatch"
     },
     {
@@ -3947,7 +3941,7 @@
       "codemap_line": 507,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "88",
-      "content_sha256": "ea2915a27e22fc4da12cfa9d42c6acd7c1e7d2cc601a7a4abd4206b06736c0e7",
+      "content_sha256": "c3eb6fc1098792f188066dd5e8f7c28969c18c64127e6af9904762228fab5ee5",
       "symbol": "UIThreadPatch"
     },
     {
@@ -3970,31 +3964,31 @@
       "codemap_line": 515,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "50",
-      "content_sha256": "0ae4522682ea6c718f7e0314a36d4cbbd3a5ba1b76000fd8b3af1cf0a0ecd06b"
+      "content_sha256": "f3bafc667da7f850796e2f0524b04e28adef5ca97b1f21c5095b32c2f6617fb7"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 516,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "53",
-      "content_sha256": "835b4f6a593686c42b4bf1e24e83fa1ccaeb61b089361b5dd374e0dffac881a1",
-      "symbol": "UIPromptsChanged"
+      "content_sha256": "459a36e70785714b345d95c3b02dac8cf4694d15313dc84246b4f0474455cab1",
+      "symbol": "ThreadPatchThread"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 517,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "55",
-      "content_sha256": "4d2c3bb811e370f5bf9b4c3cc9e51a97ee363f129494524ec556f4b2fbe04d8f",
-      "symbol": "UIPromptsChanged"
+      "content_sha256": "9476066887f977207686a9a2c1cabe5554c9d3769e34d8f87c9d4e50206bf2a8",
+      "symbol": "ThreadPatchThread"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 518,
       "target_path": "internal/dto/ui/event.go",
       "line_spec": "56",
-      "content_sha256": "b2d9d1037ca0bcdb9d392cbb1d7cbcca4b236b9530b1beb99e86ef24a27047cb",
-      "symbol": "UIPromptsChanged"
+      "content_sha256": "367f70095e37b264b44bd162f5f81db75d8ad7715f9a3d4330c2587b0aa681f5",
+      "symbol": "ThreadPatchThread"
     },
     {
       "codemap_file": "05-dto.md",
@@ -5309,22 +5303,6 @@
       "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
-      "codemap_file": "07-module-read.md",
-      "codemap_line": 172,
-      "target_path": "internal/store/prompt/contract.go",
-      "line_spec": "24-29",
-      "content_sha256": "0369449a604cc0252d7ab0e0f3816f92083c73c87cd2e2b64c35254d20bc1f62",
-      "symbol": "Store"
-    },
-    {
-      "codemap_file": "07-module-read.md",
-      "codemap_line": 173,
-      "target_path": "internal/store/prompt/store.go",
-      "line_spec": "61-75",
-      "content_sha256": "6683b576de55609085a0b8dc8a946c2b4daea234e85c63d44999b8c344e7ec8b",
-      "symbol": "upsertRecallTopicTargetQuerier"
-    },
-    {
       "codemap_file": "07-module-write.md",
       "codemap_line": 45,
       "target_path": "internal/module/thread/rpc.go",
@@ -5806,7 +5784,7 @@
       "codemap_line": 261,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-446",
-      "content_sha256": "3734f52e5ee2db567b9f28a4efa699487d017c554f40bc2d0d620efed3e88eab",
+      "content_sha256": "6af2ad872c92378b01d941f5dc0e771b387fc7e3fc2fd17517847cc26483fa5b",
       "symbol": "newService"
     },
     {
@@ -5874,7 +5852,7 @@
       "codemap_line": 291,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "141-159",
-      "content_sha256": "6634d39eb0532edb03fc084a30a30e33dd026dd60a89c6aee30a11e100e76f84",
+      "content_sha256": "5c048ad3a1098331b7b47faa654936c4fd0dfd0153d697006e292acba78bcac0",
       "symbol": "*service.prepareTurn"
     },
     {
@@ -5957,7 +5935,7 @@
       "codemap_line": 330,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-160",
-      "content_sha256": "e8faebb684915a314c7fefbe9b118997094f190b480107b6ea8a13c6ae6603fd",
+      "content_sha256": "8956efe1e6ccfd55365e5fef3063b829c3aa320f0d0b799b038e7bd9ec939356",
       "symbol": "newService"
     },
     {
@@ -6072,7 +6050,7 @@
       "codemap_line": 390,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-160",
-      "content_sha256": "e8faebb684915a314c7fefbe9b118997094f190b480107b6ea8a13c6ae6603fd",
+      "content_sha256": "8956efe1e6ccfd55365e5fef3063b829c3aa320f0d0b799b038e7bd9ec939356",
       "symbol": "newService"
     },
     {
@@ -6163,7 +6141,7 @@
       "codemap_line": 409,
       "target_path": "internal/module/uistate/module.go",
       "line_spec": "37-66",
-      "content_sha256": "25ad6fb701a7d66117fbb8346da55d2d4a9c2b8e2f0327db433b7f57d8b09d0e",
+      "content_sha256": "830c72eeadace1116b1f5386c7f49992edefaa09fb9b5d495517a6eca29a6dfb",
       "symbol": "serviceParams"
     },
     {
@@ -6231,7 +6209,7 @@
       "codemap_line": 472,
       "target_path": "internal/module/uistate/module.go",
       "line_spec": "46-66",
-      "content_sha256": "1b55bb4708b1ace3dbaef32f8c160fb7e00283f277c58c4c9286f49357c07159",
+      "content_sha256": "bb4b2ba1e5ab6f9074790d277724bdd0a5c03f8e495c48ce97d2a21de71e9b4d",
       "symbol": "Module"
     },
     {
@@ -6277,7 +6255,7 @@
       "codemap_line": 480,
       "target_path": "internal/module/uistate/module.go",
       "line_spec": "46-66",
-      "content_sha256": "1b55bb4708b1ace3dbaef32f8c160fb7e00283f277c58c4c9286f49357c07159",
+      "content_sha256": "bb4b2ba1e5ab6f9074790d277724bdd0a5c03f8e495c48ce97d2a21de71e9b4d",
       "symbol": "Module"
     },
     {
@@ -6485,7 +6463,7 @@
       "codemap_line": 526,
       "target_path": "internal/module/uistate/preferences.go",
       "line_spec": "13-193",
-      "content_sha256": "ad079880f0965353a14a791b809c851559294224226ef74357df083dd1e2aa84"
+      "content_sha256": "783217f2bd6648a9469c6783066885afe065f9a804fdcf50be582700e3ccc0aa"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6499,15 +6477,8 @@
       "codemap_line": 528,
       "target_path": "internal/module/uistate/config_rpc.go",
       "line_spec": "67-114",
-      "content_sha256": "532b2fb5596613bfba579b367282b9a0ec1aca818c201993266cd182ffda7cd6"
-    },
-    {
-      "codemap_file": "07-module-write.md",
-      "codemap_line": 529,
-      "target_path": "internal/module/uistate/config_rpc.go",
-      "line_spec": "295-387",
-      "content_sha256": "0ebb366fceb91f5b46a9a08621a21b96fecc2bc4a96baef321636e9a5a19047c",
-      "symbol": "runtimeConfigInt"
+      "content_sha256": "30aa4a2eb347a5b8e32364768cb8861ea44d2e4ea4289153ff8d469de40b8675",
+      "symbol": "NewConfigHandlers"
     },
     {
       "codemap_file": "07-module-write.md",
@@ -6554,7 +6525,7 @@
       "codemap_line": 545,
       "target_path": "internal/module/uistate/module.go",
       "line_spec": "46-66",
-      "content_sha256": "1b55bb4708b1ace3dbaef32f8c160fb7e00283f277c58c4c9286f49357c07159",
+      "content_sha256": "bb4b2ba1e5ab6f9074790d277724bdd0a5c03f8e495c48ce97d2a21de71e9b4d",
       "symbol": "Module"
     },
     {
@@ -6614,14 +6585,6 @@
     {
       "codemap_file": "07-module-write.md",
       "codemap_line": 553,
-      "target_path": "internal/module/uistate/config_rpc.go",
-      "line_spec": "295-310",
-      "content_sha256": "313022e26d702bf329ed23129fd2ed49527cf198c4e41afec6e12263ef97a772",
-      "symbol": "runtimeConfigInt"
-    },
-    {
-      "codemap_file": "07-module-write.md",
-      "codemap_line": 554,
       "target_path": "internal/module/uistate/projects.go",
       "line_spec": "18-24",
       "content_sha256": "fb57fc09c7a75ed96ccae29cb0a31904932df1b52423a931942d700bcd053a0d",
@@ -6629,7 +6592,7 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 590,
+      "codemap_line": 589,
       "target_path": "internal/module/thread/rpc.go",
       "line_spec": "94-148",
       "content_sha256": "e1ef82d6727b77d3309183862ff84cb28cfc3d847e9b5f7231dbc80d3b82a0fc",
@@ -6637,7 +6600,7 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 591,
+      "codemap_line": 590,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "142-166",
       "content_sha256": "8f2a8a4da591aac0e7243ddaa688c9d6f4734dedd17531a3bc9d39f9d6aca5f5",
@@ -6645,7 +6608,7 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 591,
+      "codemap_line": 590,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "37-72",
       "content_sha256": "9eca40da7ef5b55ba6bddb1a59d919f6bdd180d0587cc4a755c07328bb9f5f41",
@@ -6653,7 +6616,7 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 593,
+      "codemap_line": 592,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-182",
       "content_sha256": "244d80f0ac30747c8d06e108c406f768c6d6e0c9e280123f1e71fcb23ca6bf90",
@@ -6661,15 +6624,15 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 593,
+      "codemap_line": 592,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "135-186",
-      "content_sha256": "e1cefb20374446a14e1be69111393f291c9b62a52e922acc142e35fb8577ce49",
+      "content_sha256": "073031ccd7832fca62b4bfee1754a64dd021cc1fbcf6041f1723b756f11bddc7",
       "symbol": "*service.prepareTurn"
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 623,
+      "codemap_line": 622,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-182",
       "content_sha256": "244d80f0ac30747c8d06e108c406f768c6d6e0c9e280123f1e71fcb23ca6bf90",
@@ -6677,7 +6640,7 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 623,
+      "codemap_line": 622,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "176",
       "content_sha256": "1875cd9093cacb480600f185e09f4632d0afe1bbb0506b89288c40947fbe331e",
@@ -6685,21 +6648,21 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 624,
+      "codemap_line": 623,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "19-44",
       "content_sha256": "e48a31a99df3cdda2c20c880c9d55dd92379c4e467db31506ee13dc221973283"
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 624,
+      "codemap_line": 623,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "246-265",
       "content_sha256": "8e10eea0b45a98c2ece034034cc8a2420ddabc38b7f5ae8c7dd6c802765e8114"
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 624,
+      "codemap_line": 623,
       "target_path": "internal/module/turn/skills.go",
       "line_spec": "12-97",
       "content_sha256": "808cab77a01e39102d20e08c25856edf4a15cdb72685e62d664ed25114fcc776",
@@ -6707,22 +6670,22 @@
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 625,
+      "codemap_line": 624,
       "target_path": "internal/module/uistate/module.go",
       "line_spec": "46-66",
-      "content_sha256": "1b55bb4708b1ace3dbaef32f8c160fb7e00283f277c58c4c9286f49357c07159",
+      "content_sha256": "bb4b2ba1e5ab6f9074790d277724bdd0a5c03f8e495c48ce97d2a21de71e9b4d",
       "symbol": "Module"
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 625,
+      "codemap_line": 624,
       "target_path": "internal/module/uistate/projector.go",
       "line_spec": "17-60",
       "content_sha256": "4895d908069fb5ea49fdcedc15e1c0c0db2b759614051b84f1c68de7f857fdef"
     },
     {
       "codemap_file": "07-module-write.md",
-      "codemap_line": 625,
+      "codemap_line": 624,
       "target_path": "internal/module/uistate/timeline/projector.go",
       "line_spec": "16-45",
       "content_sha256": "859adac7e721e87a60ad6c8a3b6ec28377fb78c535f62ff968612ec4ecb3dfb8"
@@ -6953,7 +6916,7 @@
       "codemap_line": 50,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "162-227",
-      "content_sha256": "8a8b6cda3298d605ffe901faf225f24ff486172d5c4dec86486af797e506cd59",
+      "content_sha256": "3d04af400ca69d266b9dbebf9b72eb16f3b6699eeb815852e6e13372ab1d136e",
       "symbol": "NewDriverFactory"
     },
     {
@@ -7229,7 +7192,7 @@
       "codemap_line": 131,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "162-227",
-      "content_sha256": "8a8b6cda3298d605ffe901faf225f24ff486172d5c4dec86486af797e506cd59",
+      "content_sha256": "3d04af400ca69d266b9dbebf9b72eb16f3b6699eeb815852e6e13372ab1d136e",
       "symbol": "NewDriverFactory"
     },
     {
@@ -7469,8 +7432,7 @@
       "codemap_line": 157,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "278-287",
-      "content_sha256": "144074f09a6e584b8e00b7115fd716c1e2bdb193f443a654865e63868df2fe94",
-      "symbol": "*driver.ResumeSession"
+      "content_sha256": "5c7fb6917abdfc83ebddcddcdc973ce3acd3c0e726151f2cecc0a0b4ea7f921e"
     },
     {
       "codemap_file": "09-provider.md",
@@ -7626,8 +7588,8 @@
       "codemap_line": 184,
       "target_path": "internal/app/modules_graph_test.go",
       "line_spec": "193-251",
-      "content_sha256": "f92a83fa03a9eddb303f335a12d8fa4a2d21ac0a7ae455fc5d0a1119dbd55612",
-      "symbol": "turnDedupeStore"
+      "content_sha256": "2d1ff2ac8b34271802e2ffb72d718ce2dd19a8bc64409c9eb88cdfb072f266e1",
+      "symbol": "readiness"
     },
     {
       "codemap_file": "09-provider.md",
@@ -7806,7 +7768,7 @@
       "codemap_line": 282,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "162-227",
-      "content_sha256": "8a8b6cda3298d605ffe901faf225f24ff486172d5c4dec86486af797e506cd59",
+      "content_sha256": "3d04af400ca69d266b9dbebf9b72eb16f3b6699eeb815852e6e13372ab1d136e",
       "symbol": "NewDriverFactory"
     },
     {
@@ -8285,7 +8247,7 @@
       "codemap_line": 377,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "221-292",
-      "content_sha256": "b565f4cf90dd8460d98113183b4ac0d856a73c9f3c4edbd320ec969552485382",
+      "content_sha256": "b08626a6795a63fb54c29036f2d1b373b0c81e73ce8cbb436288de4d781f9b29",
       "symbol": "*driver.StartSession"
     },
     {
@@ -8602,7 +8564,7 @@
       "codemap_line": 389,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "314-383",
-      "content_sha256": "5e1603b90798540ef91b879eccbae31b21ae7075855bddf19a8af0ea26617d9c",
+      "content_sha256": "2cd822da47e1e3b0191be3e7208b445c2a0c18bbe66c66e62ea1638602438997",
       "symbol": "resumeSessionRuntimeConfig"
     },
     {
@@ -8685,7 +8647,7 @@
       "codemap_line": 400,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "314-383",
-      "content_sha256": "5e1603b90798540ef91b879eccbae31b21ae7075855bddf19a8af0ea26617d9c",
+      "content_sha256": "2cd822da47e1e3b0191be3e7208b445c2a0c18bbe66c66e62ea1638602438997",
       "symbol": "resumeSessionRuntimeConfig"
     },
     {
@@ -8741,14 +8703,15 @@
       "codemap_line": 409,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "301-335",
-      "content_sha256": "a5f0f7fef39ab7041bc8c8530263204449b404661b58ec14c2478dd2e19cc5a2"
+      "content_sha256": "6ee092dbfae5211a3394f40fd8cbed343c7b368f84067a26b4b8fe525de1af93",
+      "symbol": "*driver.ResumeSession"
     },
     {
       "codemap_file": "09-provider.md",
       "codemap_line": 409,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "381-397",
-      "content_sha256": "dcc6c6538c6f7de84847246c89b503f0efa86d4b9f085a9baf8c4e32da2660d0",
+      "content_sha256": "49e0511ab5ccd5dc03da9d7d922256b9c46f2eb37297f6167ed8b8c091fdea89",
       "symbol": "*driver.prepareSessionStart"
     },
     {
@@ -8788,7 +8751,8 @@
       "codemap_line": 419,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "301-383",
-      "content_sha256": "b47db47e80121644d91613c2243ca024224aa3cc98a703234f706accdebb4782"
+      "content_sha256": "4ecd5147421f7d99f4aace2bfe4b4d36b04343905bbd1e4a250fd1b7dfba4ab2",
+      "symbol": "*driver.ResumeSession"
     },
     {
       "codemap_file": "09-provider.md",
@@ -8803,7 +8767,7 @@
       "codemap_line": 420,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "221-256",
-      "content_sha256": "82e792c762ea2c63970f3d4edf3bebeaa9c146cceac04fca4cabe2fa3aa8ec0f",
+      "content_sha256": "1f3fb2b7d4080e5010c976d62bbb0970e6efd24b76601665314aaf50bfdda419",
       "symbol": "*driver.StartSession"
     },
     {
@@ -8819,7 +8783,7 @@
       "codemap_line": 421,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "258-265",
-      "content_sha256": "f0828450c841b737f35d309de6d51cfaec498e3a081343210495c0cc40b453b9",
+      "content_sha256": "7aed907a6ca79aa49aba82094189df1715d5d98d3aae7d082999ef275fb399d0",
       "symbol": "*driver.ResumeSession"
     },
     {
@@ -8834,7 +8798,7 @@
       "codemap_line": 422,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "267-292",
-      "content_sha256": "b1c64124c44b6f3d27486cda79fa578bafbf98f24e43234299587571a67cf4d0",
+      "content_sha256": "25f111d619abb6d001a94806fb7607e84e8ed67c4338cd160492375907b0602a",
       "symbol": "*driver.ResumeSession"
     },
     {
@@ -8912,8 +8876,7 @@
       "codemap_line": 438,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "312-321",
-      "content_sha256": "d0bbc376b8005936a75b7d05392789213f92a8d4af4501344870ff8ca4de7b47",
-      "symbol": "resumeSessionRuntimeConfig"
+      "content_sha256": "3e564add82c4d2561685c664c6300dbf06f5bcdd8a8c77713b5470bc3a826caa"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9069,7 +9032,8 @@
       "codemap_line": 465,
       "target_path": "internal/provider/claudecli/driver.go",
       "line_spec": "301-383",
-      "content_sha256": "b47db47e80121644d91613c2243ca024224aa3cc98a703234f706accdebb4782"
+      "content_sha256": "4ecd5147421f7d99f4aace2bfe4b4d36b04343905bbd1e4a250fd1b7dfba4ab2",
+      "symbol": "*driver.ResumeSession"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9107,7 +9071,7 @@
       "codemap_line": 476,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "162-227",
-      "content_sha256": "8a8b6cda3298d605ffe901faf225f24ff486172d5c4dec86486af797e506cd59",
+      "content_sha256": "3d04af400ca69d266b9dbebf9b72eb16f3b6699eeb815852e6e13372ab1d136e",
       "symbol": "NewDriverFactory"
     },
     {
@@ -9122,7 +9086,7 @@
       "codemap_line": 476,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-287",
-      "content_sha256": "ef14f13ef98c2797eda14f76dfb5f191709b9f7400abaec68b77ab4cab9190a4",
+      "content_sha256": "edc38e0f7420523177aa1ddd42e03fcaeb6b9f60a26a062f4dae205d5b9a4a8a",
       "symbol": "*driver.startSession"
     },
     {
@@ -9589,7 +9553,7 @@
       "codemap_line": 505,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-271",
-      "content_sha256": "38d8e17e084b4549bae60911dce38c51ef1d9f42700a46fcfbc04d88b841671c",
+      "content_sha256": "d46a5bdc60728f9750c98c3bf0c1127420b757bfd1190517f778fa012f2d25dd",
       "symbol": "*driver.startSession"
     },
     {
@@ -9628,7 +9592,7 @@
       "codemap_line": 511,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "192-197",
-      "content_sha256": "42314201645ea68b8fb1ea673eefd7eb4abdb26ca6e75f9edc2b5d63d98fa183",
+      "content_sha256": "ab0194ad59e4529a52b0a19c8623f3162e2c1a5c41879c5c6530f93838a2524f",
       "symbol": "*driver.StartSession"
     },
     {
@@ -9644,15 +9608,15 @@
       "codemap_line": 512,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "208-225",
-      "content_sha256": "82ebf1f54e050f73ba49a1dd88696ef1a58d832ae7d1c564256d530f2ae2e72e"
+      "content_sha256": "f223073666c88c26f7352a317f8105f146528eb9e49819edb09d0d6c24d93408",
+      "symbol": "*driver.StartSession"
     },
     {
       "codemap_file": "09-provider.md",
       "codemap_line": 513,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "278-287",
-      "content_sha256": "144074f09a6e584b8e00b7115fd716c1e2bdb193f443a654865e63868df2fe94",
-      "symbol": "*driver.ResumeSession"
+      "content_sha256": "5c7fb6917abdfc83ebddcddcdc973ce3acd3c0e726151f2cecc0a0b4ea7f921e"
     },
     {
       "codemap_file": "09-provider.md",
@@ -9907,7 +9871,7 @@
       "codemap_line": 562,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "192-227",
-      "content_sha256": "9b6d7fe48d509c3a4bb8bdcf7ce06ae92d10a0994865b182fe256b1e5a24ba68",
+      "content_sha256": "6974f93e696905bec97b8d892dab4c775522efe41875c57e188bb0ba93d29d29",
       "symbol": "*driver.StartSession"
     },
     {
@@ -10333,7 +10297,7 @@
       "codemap_line": 665,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-271",
-      "content_sha256": "38d8e17e084b4549bae60911dce38c51ef1d9f42700a46fcfbc04d88b841671c",
+      "content_sha256": "d46a5bdc60728f9750c98c3bf0c1127420b757bfd1190517f778fa012f2d25dd",
       "symbol": "*driver.startSession"
     },
     {
@@ -10397,7 +10361,7 @@
       "codemap_line": 673,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "259-271",
-      "content_sha256": "38d8e17e084b4549bae60911dce38c51ef1d9f42700a46fcfbc04d88b841671c",
+      "content_sha256": "d46a5bdc60728f9750c98c3bf0c1127420b757bfd1190517f778fa012f2d25dd",
       "symbol": "*driver.startSession"
     },
     {
@@ -10599,7 +10563,7 @@
       "codemap_line": 697,
       "target_path": "internal/provider/codexapp/driver.go",
       "line_spec": "162-227",
-      "content_sha256": "8a8b6cda3298d605ffe901faf225f24ff486172d5c4dec86486af797e506cd59",
+      "content_sha256": "3d04af400ca69d266b9dbebf9b72eb16f3b6699eeb815852e6e13372ab1d136e",
       "symbol": "NewDriverFactory"
     },
     {
@@ -10751,36 +10715,6 @@
     },
     {
       "codemap_file": "10-store.md",
-      "codemap_line": 825,
-      "target_path": "internal/store/prompt/store.go",
-      "line_spec": "62",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
-    },
-    {
-      "codemap_file": "10-store.md",
-      "codemap_line": 826,
-      "target_path": "sql/queries/prompt_template.sql",
-      "line_spec": "43",
-      "content_sha256": "3686fe5e57b6c9b9fd7379b8f90a0d11de2160db2fef451cf2b9d78806e6d243"
-    },
-    {
-      "codemap_file": "10-store.md",
-      "codemap_line": 827,
-      "target_path": "internal/module/dashboard/ui_page.go",
-      "line_spec": "151",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "*service.populateDashboardDAGs"
-    },
-    {
-      "codemap_file": "10-store.md",
-      "codemap_line": 827,
-      "target_path": "internal/module/prompt/service.go",
-      "line_spec": "259",
-      "content_sha256": "a129d85c8f0f43cd37d86b98361adaab239720d7e9ff6638ddd71f8495ca387c",
-      "symbol": "*promptService.WriteSection"
-    },
-    {
-      "codemap_file": "10-store.md",
       "codemap_line": 841,
       "target_path": "internal/store/module.go",
       "line_spec": "43",
@@ -10879,21 +10813,6 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 28,
-      "target_path": "internal/module/prompt/service.go",
-      "line_spec": "290-340,382-488",
-      "content_sha256": "6d4d91e0d38121acda566c34bdda9ecaee3bc6d5891b3be05e924d352e777727",
-      "symbol": "*promptService.DeleteSection"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 28,
-      "target_path": "internal/store/prompt/contract.go",
-      "line_spec": "15-22",
-      "content_sha256": "597e943a09733c0a82a9af736e05044c1bb724c895bfbc72ef53c6d43f6bc696"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
       "codemap_line": 32,
       "target_path": "internal/provider/unified/event_map.go",
       "line_spec": "71-124",
@@ -10920,25 +10839,27 @@
       "codemap_line": 95,
       "target_path": "internal/module/prompt/module.go",
       "line_spec": "14-26",
-      "content_sha256": "d3ff069b130c107588937b3b1fe9591da3a00f1f5ef44868860889f882ab118e"
+      "content_sha256": "173df9eb5c0e07d6084e5cfd57f488323469533abf8a73503fbe149c89257069",
+      "symbol": "Module"
     },
     {
       "codemap_file": "11-prompt-thread.md",
       "codemap_line": 101,
       "target_path": "internal/module/prompt/module.go",
       "line_spec": "19-34",
-      "content_sha256": "c016b4bdd45c29e552a3bc231650a10d523cd56c6e6e1f7752a87413ca347dae"
+      "content_sha256": "e825c29aa55ae029d45fee6139ef7ddf49d58391e60251166df1e9d01722fd56",
+      "symbol": "Module"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 118,
+      "codemap_line": 117,
       "target_path": "internal/module/prompt/service.go",
-      "line_spec": "118-144",
-      "content_sha256": "16a8cdd05027370b4cf7c01a959713c5dd8e13cbae409c4feb4a2c0e0e8f7ec5"
+      "line_spec": "133-163",
+      "content_sha256": "bb4160d5bb881cd79d9402a2ee68de1f21fbce7f91c2d855cbe40fc852469920"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 126,
+      "codemap_line": 125,
       "target_path": "internal/module/prompt/registry.go",
       "line_spec": "35-50",
       "content_sha256": "15a70e6f27f6ae9e2940d3d6b05dc7c11662d38f9a76cb8d2620a8a28bd7fd62",
@@ -10946,15 +10867,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 133,
+      "codemap_line": 132,
       "target_path": "internal/module/prompt/section.go",
       "line_spec": "24-32",
-      "content_sha256": "35031a8a8d8b95328f1f66f778d432d1e2e1d7aaa0188df3c71a8cf78be7e7aa",
-      "symbol": "staticSectionSpec"
+      "content_sha256": "8a7ae46d2866b05abc77ff128f8b8ff0bcd671e9a3012869fca1e0f3d876e584"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 149,
+      "codemap_line": 148,
       "target_path": "internal/module/prompt/dynamic.go",
       "line_spec": "63-82",
       "content_sha256": "f65568e5cbb3c159e3d4c45d042dcac1e4cb88c99b79268663223738d919d7ed",
@@ -10962,22 +10882,22 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 170,
+      "codemap_line": 174,
       "target_path": "internal/module/prompt/dynamic.go",
-      "line_spec": "333-352",
-      "content_sha256": "f4adce86a68f9f74f060bbeebaac146db7e42387748d6bd4a56e244238b52e6b",
-      "symbol": "sessionGuidanceOrchestrationToolEnabled"
+      "line_spec": "457-480",
+      "content_sha256": "de6e5682950ad34edbb97d13e825bbff1772cf8813ab6c1484c94ee370e64c64",
+      "symbol": "*service.dynamicSlotSections"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 186,
+      "codemap_line": 190,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "82-94",
       "content_sha256": "25fec76c16028c1b321f311d162bd40b2a391a1e9e2b14dac678b6ecf1420d40"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 190,
+      "codemap_line": 194,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-124",
       "content_sha256": "4755a1146fd86069d609dffe275303429e9c396a87b8dcc797a7851b250edb70",
@@ -10985,14 +10905,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 201,
+      "codemap_line": 205,
       "target_path": "internal/module/prompt/assembler.go",
       "line_spec": "28-58",
       "content_sha256": "f7191997f60bb8c59a2495114d662fefd02fdeb529998378f620e18909710d76"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 235,
+      "codemap_line": 239,
       "target_path": "internal/module/prompt/assembler.go",
       "line_spec": "268-285",
       "content_sha256": "d25cff27be21a1d8d9c117c85967a77ddb95905b4eaa4e5f1adde21e2e479dc9",
@@ -11000,14 +10920,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 253,
+      "codemap_line": 257,
       "target_path": "internal/module/turn/prompt_assembly.go",
       "line_spec": "13-43",
       "content_sha256": "b1387076f6cb5fd8ce8db13a53b13b515b41a09ba077b85fc4cd414272109612"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 257,
+      "codemap_line": 261,
       "target_path": "internal/module/turn/rpc_helpers.go",
       "line_spec": "159-180",
       "content_sha256": "72362862177eeb7403b8895fb72e7c49a537a227065ec9fe8f23449093bb8ab6",
@@ -11015,15 +10935,15 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 259,
+      "codemap_line": 263,
       "target_path": "internal/module/turn/service.go",
       "line_spec": "116-160",
-      "content_sha256": "e8faebb684915a314c7fefbe9b118997094f190b480107b6ea8a13c6ae6603fd",
+      "content_sha256": "8956efe1e6ccfd55365e5fef3063b829c3aa320f0d0b799b038e7bd9ec939356",
       "symbol": "newService"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 269,
+      "codemap_line": 273,
       "target_path": "internal/module/prompt/assembler.go",
       "line_spec": "91-118",
       "content_sha256": "8e9e6b30fe52da05fb52ae4f1e78a20f65ce1c57136f599dee7ebab47f827451",
@@ -11031,7 +10951,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 288,
+      "codemap_line": 292,
       "target_path": "internal/module/turn/prompt_assembly.go",
       "line_spec": "17-38",
       "content_sha256": "399179427de5b96b9f65bc637c7d4251f56f2557c46206f18f2dc5ff4520a634",
@@ -11039,7 +10959,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 321,
+      "codemap_line": 325,
       "target_path": "internal/module/prompt/assembler.go",
       "line_spec": "295-312",
       "content_sha256": "9525b10b3b2a737ca5ec13a28680e3bf3d17bb77b66820e670c7eb2c57611fc3",
@@ -11047,68 +10967,21 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 341,
-      "target_path": "internal/store/prompt/contract.go",
-      "line_spec": "15-22",
-      "content_sha256": "597e943a09733c0a82a9af736e05044c1bb724c895bfbc72ef53c6d43f6bc696"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 356,
+      "codemap_line": 358,
       "target_path": "internal/store/prompt/contract.go",
       "line_spec": "49-65",
       "content_sha256": "eda02629eae8f933885c1db218fa9bde50a23bd7ee2431f6084312afa6e14062"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 377,
-      "target_path": "internal/module/prompt/service.go",
-      "line_spec": "290-314",
-      "content_sha256": "e76fa6259e45693ba3bfc05435c51154a3aa549f42d8f496c5d15cae6ad650ab",
-      "symbol": "*promptService.DeleteSection"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 395,
-      "target_path": "internal/module/prompt/service.go",
-      "line_spec": "473-488",
-      "content_sha256": "7200953fd3db01c61593cb381685a9acbbd9f3e23d9906aab9f74863860289f5",
-      "symbol": "resolvePromptKey"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 404,
-      "target_path": "internal/store/prompt/store.go",
-      "line_spec": "102-121",
-      "content_sha256": "e1116a23cfd3bf7885aecd0f811a7cf06f4ca7099556b9bfecdf9b924099b9c0",
-      "symbol": "*promptQueryStore.Get"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
       "codemap_line": 405,
-      "target_path": "internal/store/prompt/store.go",
-      "line_spec": "123-146",
-      "content_sha256": "ac4665c4336a499c141fd9fa145e338ea949e18f1bc0c4214a61da29e2bac42b",
-      "symbol": "*promptQueryStore.List"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 409,
-      "target_path": "internal/module/prompt/service.go",
-      "line_spec": "317-341",
-      "content_sha256": "559c1722cf531aad59ec250e8ee12e51ecd49b878dcc5c0747502c0166b6dd0a",
-      "symbol": "*promptService.DeletePrompt"
-    },
-    {
-      "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 443,
       "target_path": "internal/module/thread/contract.go",
       "line_spec": "11-33",
       "content_sha256": "3edf3c3c1668bcda51f89c440277877d366c5dd744c70c17398039f69003b10b"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 458,
+      "codemap_line": 420,
       "target_path": "internal/module/thread/rpc.go",
       "line_spec": "94-147",
       "content_sha256": "7671ac7acead754deaa22a25b901e03630ba598bb80b23dd6275d6dbc90e3a2d",
@@ -11116,7 +10989,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 479,
+      "codemap_line": 441,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "77-124",
       "content_sha256": "4755a1146fd86069d609dffe275303429e9c396a87b8dcc797a7851b250edb70",
@@ -11124,14 +10997,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 493,
+      "codemap_line": 455,
       "target_path": "internal/module/thread/start_prompt_context.go",
       "line_spec": "24-52",
       "content_sha256": "1edbb01be370dfcfd31c7efa9dffd11742db42d08e6506894827e6d4b8574230"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 516,
+      "codemap_line": 478,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "37-72",
       "content_sha256": "9eca40da7ef5b55ba6bddb1a59d919f6bdd180d0587cc4a755c07328bb9f5f41",
@@ -11139,7 +11012,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 536,
+      "codemap_line": 498,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "142-166",
       "content_sha256": "8f2a8a4da591aac0e7243ddaa688c9d6f4734dedd17531a3bc9d39f9d6aca5f5",
@@ -11147,7 +11020,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 563,
+      "codemap_line": 525,
       "target_path": "internal/module/thread/start_session_helpers.go",
       "line_spec": "134-189",
       "content_sha256": "78e43634d8145f98e1588416d4206ef26d41048f51746820d0bb865c1855fe0d",
@@ -11155,7 +11028,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 593,
+      "codemap_line": 555,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "166-217",
       "content_sha256": "059080bbb567c3c8466767f51aa66b4ad05442e0a5bc067508441ce64d5f7e95",
@@ -11163,7 +11036,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 609,
+      "codemap_line": 571,
       "target_path": "internal/module/thread/factory.go",
       "line_spec": "194-200",
       "content_sha256": "6b667531c78c09b4f032fba71cb655e054ab488a19ccbd7918ee935fe7ee729f",
@@ -11171,7 +11044,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 633,
+      "codemap_line": 595,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "173-181",
       "content_sha256": "ee9eae4bc856ed510054efc8c57486b21317e88ab4ac85ee100ef7cb760c732e",
@@ -11179,7 +11052,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 640,
+      "codemap_line": 602,
       "target_path": "internal/store/thread/contract.go",
       "line_spec": "17-18",
       "content_sha256": "f77f4a6426fa9c1b84c16f610b985945f3fc2d8b6adf077e9510018969d5dcce",
@@ -11187,7 +11060,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 641,
+      "codemap_line": 603,
       "target_path": "internal/store/thread/store.go",
       "line_spec": "117-156",
       "content_sha256": "c044a74d47d4e05b40ed6a9f7f613febb0e25c8d36d137f45d187ed00d3316aa",
@@ -11195,7 +11068,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 657,
+      "codemap_line": 619,
       "target_path": "internal/module/thread/rpc.go",
       "line_spec": "308-333",
       "content_sha256": "10c46f2df7b214e08bf60d97a3d823adf188680bce4053236e0a28b0bb203529",
@@ -11203,7 +11076,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 667,
+      "codemap_line": 629,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "126-141",
       "content_sha256": "3834349f3d1952fd08ccf881de5948f035d2478ed3c4ec094bcf9bccde9ec3e5",
@@ -11211,7 +11084,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 678,
+      "codemap_line": 640,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "223-250",
       "content_sha256": "df3b2780c18deb103064fe5ef61543d7f99ad51efb1b43d5931267028fd8665e",
@@ -11219,7 +11092,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 693,
+      "codemap_line": 655,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "270-307",
       "content_sha256": "cdc22aa397efe8456254a12e84eb4e4315e9b1e1803d81d5132736705224d53e",
@@ -11227,7 +11100,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 706,
+      "codemap_line": 668,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "217-237",
       "content_sha256": "3b2d62a240878aef5c0e601cda638bd9bcfb7297fe15837a4b64b921c3da752c",
@@ -11235,7 +11108,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 717,
+      "codemap_line": 679,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "348-363",
       "content_sha256": "7be47d5091e60b6379be5bc1a54f11e0caecad25297ac8f57d27e0ab5a86c0a7",
@@ -11243,7 +11116,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 730,
+      "codemap_line": 692,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "239-275",
       "content_sha256": "a1905fdba1fa081eaa0c2433f279b3a74e0a64284c243d9fdbc9a526f1030e04",
@@ -11251,7 +11124,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 745,
+      "codemap_line": 707,
       "target_path": "internal/module/thread/start_session.go",
       "line_spec": "182-193",
       "content_sha256": "c5b1993746781e1c5ac4eba5f36f57aa5aed699b3ec100c816c6f9917b9a57a4",
@@ -11259,7 +11132,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 762,
+      "codemap_line": 724,
       "target_path": "internal/module/thread/lifecycle.go",
       "line_spec": "257-300",
       "content_sha256": "4d6eee08e3aca1001e31aba33944f5e241f09c7020a777bbc134910fa412ee20",
@@ -11267,14 +11140,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 772,
+      "codemap_line": 734,
       "target_path": "internal/module/thread/lifecycle_fork.go",
       "line_spec": "14-91",
       "content_sha256": "9cee637f986dc95b2083ce9d34e8c310b8c90b9cceb7df692c13a6b579931ed1"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 786,
+      "codemap_line": 748,
       "target_path": "internal/module/thread/prompt_snapshot.go",
       "line_spec": "198-215",
       "content_sha256": "15319a594527ace246be8e6e7d571df873cd6ca5eaf10caf96d3d2b3f6b4dc6e",
@@ -11282,7 +11155,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 799,
+      "codemap_line": 761,
       "target_path": "internal/module/thread/lifecycle_fork.go",
       "line_spec": "93-168",
       "content_sha256": "b6a744d5ab7f53cc88e81b1d707fe5f30495359e2d874d63488998f10dab716b",
@@ -11290,7 +11163,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 851,
+      "codemap_line": 813,
       "target_path": "internal/provider/unified/module.go",
       "line_spec": "24-37",
       "content_sha256": "d89786b08bee48bce5804151191a2961d61bd8615406b15da76452a8f4270302",
@@ -11298,7 +11171,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 866,
+      "codemap_line": 828,
       "target_path": "internal/provider/unified/client.go",
       "line_spec": "30-67",
       "content_sha256": "c4b73dbf978111f49b9c5720c16c28e3c71cba4c4467e3dea9d11e407beeab23",
@@ -11306,7 +11179,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 878,
+      "codemap_line": 840,
       "target_path": "internal/provider/unified/session.go",
       "line_spec": "39-57",
       "content_sha256": "2355bbd37aece1dd70ccc8114e90de2203927180e92e168d6ad69d5ccef60f19",
@@ -11314,7 +11187,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 895,
+      "codemap_line": 857,
       "target_path": "internal/provider/unified/session_resolver.go",
       "line_spec": "58-74",
       "content_sha256": "6184d10dc30f01308e62eed334a13633b701e2cf0cb57eab2eee687764ec4a9e",
@@ -11322,7 +11195,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 912,
+      "codemap_line": 874,
       "target_path": "internal/provider/unified/event_map.go",
       "line_spec": "103-124",
       "content_sha256": "cd6f7987b1e49de72ceccd7d5b4bf4019715c61e8aff79d7c47f7c93dc6c0c55",
@@ -11330,14 +11203,14 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 921,
+      "codemap_line": 883,
       "target_path": "internal/provider/unified/event_map.go",
       "line_spec": "28-69",
       "content_sha256": "6686b6d4a35adb7b8549bf9887e2fe53660785ed18a254045708e5d8790f8d0d"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 933,
+      "codemap_line": 895,
       "target_path": "internal/provider/claudecli/module.go",
       "line_spec": "23-31",
       "content_sha256": "fc91e162035f20f26345073d2f91b7780736c5898ed4faf739cf1e3c667003e4",
@@ -11345,28 +11218,28 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 934,
+      "codemap_line": 896,
       "target_path": "internal/provider/codexapp/module.go",
       "line_spec": "24-36",
       "content_sha256": "1a41f21b7cb86f7d1379232105c2c0efebcd29506c4783115eedf23e8a0eb38d"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 935,
+      "codemap_line": 897,
       "target_path": "internal/provider/claudecli/event_map.go",
       "line_spec": "18-23",
       "content_sha256": "ae3d56c9138ce29d81a86cac7e35c9164238a57a02fd50eee8dd6e5ab956950c"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 936,
+      "codemap_line": 898,
       "target_path": "internal/provider/codexapp/event_map.go",
       "line_spec": "20-24",
       "content_sha256": "0cf2cce2f7a39c4e41e9475e0b9635fdb8a2a7ae056d19aa5f46070397647540"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 949,
+      "codemap_line": 911,
       "target_path": "internal/provider/claudecli/session_events.go",
       "line_spec": "60-64",
       "content_sha256": "e795914750dc7003f33b4e2efe0017bbad5d101343782b6e9da0cf8ca61da3f5",
@@ -11374,7 +11247,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 950,
+      "codemap_line": 912,
       "target_path": "internal/provider/codexapp/session.go",
       "line_spec": "302-325",
       "content_sha256": "12cc508059c954c4b4d525a933f31af305c4ec26dcc5b2392f82aeadc18411b9",
@@ -11382,7 +11255,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 956,
+      "codemap_line": 918,
       "target_path": "internal/module/thread/module.go",
       "line_spec": "32-57",
       "content_sha256": "8752796056ee31a51ebd57861ee4ea3a74b9cca0a3acc8f56ac0977efbbabd1e",
@@ -11390,7 +11263,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 961,
+      "codemap_line": 923,
       "target_path": "internal/module/thread/events.go",
       "line_spec": "25-33",
       "content_sha256": "b625250f5f47f7a1e72b56c1d6508a3bf56e7e8439c8ce3e43914007ba7b9c72",
@@ -11398,7 +11271,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 970,
+      "codemap_line": 932,
       "target_path": "internal/module/thread/events.go",
       "line_spec": "35-94",
       "content_sha256": "82f96f39c342b5adce932e725706e16f27a4c6abe3d32130751db636c50f65ef",
@@ -11406,7 +11279,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 980,
+      "codemap_line": 942,
       "target_path": "internal/module/thread/events.go",
       "line_spec": "112-152",
       "content_sha256": "5b7b4ac83c9c27a75123c01d64c3aec2f4c11f44f39b335efb607553bf66a6db",
@@ -11414,7 +11287,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 991,
+      "codemap_line": 953,
       "target_path": "internal/platform/eventsurface/bind.go",
       "line_spec": "72-87",
       "content_sha256": "c4f1a1ebd3da8d622b35c97d35ee950630137fa51fafea77e8626b226d9f76d8",
@@ -11422,7 +11295,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1227,
+      "codemap_line": 1189,
       "target_path": "internal/module/prompt/dynamic.go",
       "line_spec": "54-78",
       "content_sha256": "70bd62945c7296d6c8ee0df42272aca6adcda346f6a86156478e6adb4a9bb387",
@@ -11430,7 +11303,7 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1328,
+      "codemap_line": 1290,
       "target_path": "internal/module/prompt/assembler_support.go",
       "line_spec": "201-221",
       "content_sha256": "5d5b2152e4618517e23c428c80daaf6cdca9157b6c35f847b98500181ffbbd5e",
@@ -11438,21 +11311,22 @@
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1328,
+      "codemap_line": 1290,
       "target_path": "internal/module/prompt/module.go",
       "line_spec": "19-34",
-      "content_sha256": "c016b4bdd45c29e552a3bc231650a10d523cd56c6e6e1f7752a87413ca347dae"
+      "content_sha256": "e825c29aa55ae029d45fee6139ef7ddf49d58391e60251166df1e9d01722fd56",
+      "symbol": "Module"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1328,
+      "codemap_line": 1290,
       "target_path": "internal/module/thread/rpc.go",
       "line_spec": "1-120",
       "content_sha256": "3be6508154b737680ac78746416d9bda9601947f54a0f55b0053518ab2c0f7ac"
     },
     {
       "codemap_file": "11-prompt-thread.md",
-      "codemap_line": 1328,
+      "codemap_line": 1290,
       "target_path": "internal/module/thread/rpc_types.go",
       "line_spec": "1-100",
       "content_sha256": "42252ab3150c394818e86a3d24a6859698cbe2682c934c294f47a136eb955ab0"

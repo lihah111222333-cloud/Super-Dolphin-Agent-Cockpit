@@ -49,9 +49,9 @@ internal/module/cron/turn_adapter.go	internal	modules	go-source	9844	业务模�
 internal/module/cron/turn_adapter_shard11_helpers_test.go	internal	modules	go-test	4906	业务模块层	internal,module,cron,turn,adapter,shard11,helpers,test,业务模块层
 internal/module/cron/turn_adapter_test.go	internal	modules	go-test	23559	业务模块层	internal,module,cron,turn,adapter,test,业务模块层
 internal/module/dashboard/agent_status.go	internal	modules	go-source	428	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,agent,status,读模型与,UI,RPC,服务
-internal/module/dashboard/agent_status_test.go	internal	modules	go-test	2694	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,agent,status,test,读模型与,UI,RPC,服务
+internal/module/dashboard/agent_status_test.go	internal	modules	go-test	2679	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,agent,status,test,读模型与,UI,RPC,服务
 internal/module/dashboard/ai_logs.go	internal	modules	go-source	1561	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,ai,logs,读模型与,UI,RPC,服务
-internal/module/dashboard/command_cards_test.go	internal	modules	go-test	1453	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,command,cards,test,读模型与,UI,RPC,服务
+internal/module/dashboard/command_cards_test.go	internal	modules	go-test	1377	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,command,cards,test,读模型与,UI,RPC,服务
 internal/module/dashboard/contract.go	internal	modules	go-source	3210	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,contract,读模型与,UI,RPC,服务
 internal/module/dashboard/dag_create_and_start_test.go	internal	modules	go-test	3779	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,create,and,start,test,读模型与,UI,RPC,服务
 internal/module/dashboard/dag_runtime_test.go	internal	modules	go-test	4237	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,runtime,test,读模型与,UI,RPC,服务
@@ -59,6 +59,7 @@ internal/module/dashboard/dag_snapshot.go	internal	modules	go-source	18687	dashb
 internal/module/dashboard/dag_snapshot_schedule_test.go	internal	modules	go-test	1266	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,schedule,test,读模型与,UI,RPC,服务
 internal/module/dashboard/dag_snapshot_test.go	internal	modules	go-test	26471	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,test,读模型与,UI,RPC,服务
 internal/module/dashboard/dag_snapshot_time.go	internal	modules	go-source	8507	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,time,读模型与,UI,RPC,服务
+internal/module/dashboard/dashboard_get_rpc_test.go	internal	modules	go-test	1061	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,get,rpc,test,读模型与,UI,RPC,服务
 internal/module/dashboard/detail.go	internal	modules	go-source	11917	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,detail,读模型与,UI,RPC,服务
 internal/module/dashboard/detail_test.go	internal	modules	go-test	16363	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,detail,test,读模型与,UI,RPC,服务
 internal/module/dashboard/factory.go	internal	modules	go-source	9559	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,factory,读模型与,UI,RPC,服务
@@ -66,20 +67,20 @@ internal/module/dashboard/factory_test.go	internal	modules	go-test	2083	dashboar
 internal/module/dashboard/insights_rpc.go	internal	modules	go-source	3464	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,insights,rpc,读模型与,UI,RPC,服务
 internal/module/dashboard/insights_rpc_test.go	internal	modules	go-test	2651	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,insights,rpc,test,读模型与,UI,RPC,服务
 internal/module/dashboard/log_detail_rpc.go	internal	modules	go-source	5471	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,log,detail,rpc,读模型与,UI,RPC,服务
-internal/module/dashboard/log_detail_rpc_test.go	internal	modules	go-test	3357	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,log,detail,rpc,test,读模型与,UI,RPC,服务
+internal/module/dashboard/log_detail_rpc_test.go	internal	modules	go-test	3352	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,log,detail,rpc,test,读模型与,UI,RPC,服务
 internal/module/dashboard/logs.go	internal	modules	go-source	4043	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,logs,读模型与,UI,RPC,服务
-internal/module/dashboard/module.go	internal	modules	go-source	1839	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,读模型与,UI,RPC,服务
-internal/module/dashboard/query_test.go	internal	modules	go-test	24945	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,query,test,读模型与,UI,RPC,服务
-internal/module/dashboard/rpc.go	internal	modules	go-source	25022	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,rpc,读模型与,UI,RPC,服务
-internal/module/dashboard/service.go	internal	modules	go-source	13172	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,读模型与,UI,RPC,服务
+internal/module/dashboard/module.go	internal	modules	go-source	1789	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,读模型与,UI,RPC,服务
+internal/module/dashboard/query_test.go	internal	modules	go-test	24910	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,query,test,读模型与,UI,RPC,服务
+internal/module/dashboard/rpc.go	internal	modules	go-source	24338	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,rpc,读模型与,UI,RPC,服务
+internal/module/dashboard/service.go	internal	modules	go-source	12270	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,读模型与,UI,RPC,服务
 internal/module/dashboard/service_dag_console_test.go	internal	modules	go-test	7223	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,dag,console,test,读模型与,UI,RPC,服务
-internal/module/dashboard/service_test.go	internal	modules	go-test	20283	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,test,读模型与,UI,RPC,服务
+internal/module/dashboard/service_test.go	internal	modules	go-test	13670	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,test,读模型与,UI,RPC,服务
 internal/module/dashboard/shared_files_rpc_test.go	internal	modules	go-test	6223	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,shared,files,rpc,test,读模型与,UI,RPC,服务
 internal/module/dashboard/types.go	internal	modules	go-source	5354	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,types,读模型与,UI,RPC,服务
 internal/module/dashboard/types_json_test.go	internal	modules	go-test	651	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,types,json,test,读模型与,UI,RPC,服务
-internal/module/dashboard/ui_page.go	internal	modules	go-source	16126	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,ui,page,读模型与,UI,RPC,服务
-internal/module/dashboard/wire_dto.go	internal	modules	go-source	10648	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,wire,dto,读模型与,UI,RPC,服务
-internal/module/dashboard/wire_dto_contract_test.go	internal	modules	go-test	4401	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,wire,dto,contract,test,读模型与,UI,RPC,服务
+internal/module/dashboard/ui_page.go	internal	modules	go-source	12230	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,ui,page,读模型与,UI,RPC,服务
+internal/module/dashboard/wire_dto.go	internal	modules	go-source	9220	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,wire,dto,读模型与,UI,RPC,服务
+internal/module/dashboard/wire_dto_contract_test.go	internal	modules	go-test	3939	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,wire,dto,contract,test,读模型与,UI,RPC,服务
 internal/module/dashboard/workflow_material.go	internal	modules	go-source	1438	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,workflow,material,读模型与,UI,RPC,服务
 internal/module/datasource/extract.go	internal	modules	go-source	4514	业务模块层	internal,module,datasource,extract,业务模块层
 internal/module/datasource/module.go	internal	modules	go-source	1162	业务模块层	internal,module,datasource,业务模块层
@@ -142,14 +143,12 @@ internal/module/notify/module.go	internal	modules	go-source	3284	业务模块层
 internal/module/observability/module.go	internal	modules	go-source	261	业务模块层	internal,module,observability,业务模块层
 internal/module/observability/rpc.go	internal	modules	go-source	25856	业务模块层	internal,module,observability,rpc,业务模块层
 internal/module/observability/rpc_test.go	internal	modules	go-test	25428	业务模块层	internal,module,observability,rpc,test,业务模块层
-internal/module/personalization/dto.go	internal	modules	go-source	998	业务模块层	internal,module,personalization,dto,业务模块层
-internal/module/personalization/module.go	internal	modules	go-source	1025	业务模块层	internal,module,personalization,业务模块层
-internal/module/personalization/persistence_port.go	internal	modules	go-source	496	业务模块层	internal,module,personalization,persistence,port,业务模块层
+internal/module/personalization/dto.go	internal	modules	go-source	975	业务模块层	internal,module,personalization,dto,业务模块层
+internal/module/personalization/module.go	internal	modules	go-source	1011	业务模块层	internal,module,personalization,业务模块层
+internal/module/personalization/persistence_port.go	internal	modules	go-source	252	业务模块层	internal,module,personalization,persistence,port,业务模块层
 internal/module/personalization/provider.go	internal	modules	go-source	2393	业务模块层	internal,module,personalization,provider,业务模块层
-internal/module/personalization/rpc.go	internal	modules	go-source	2007	业务模块层	internal,module,personalization,rpc,业务模块层
-internal/module/personalization/rpc_test.go	internal	modules	go-test	1493	业务模块层	internal,module,personalization,rpc,test,业务模块层
-internal/module/personalization/service.go	internal	modules	go-source	4002	业务模块层	internal,module,personalization,service,业务模块层
-internal/module/personalization/service_test.go	internal	modules	go-test	4781	业务模块层	internal,module,personalization,service,test,业务模块层
+internal/module/personalization/service.go	internal	modules	go-source	2993	业务模块层	internal,module,personalization,service,业务模块层
+internal/module/personalization/service_test.go	internal	modules	go-test	3014	业务模块层	internal,module,personalization,service,test,业务模块层
 internal/module/prompt/agent_assembler.go	internal	modules	go-source	5177	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,agent,assembler,模板,启用条件,system,组装
 internal/module/prompt/agent_assembler_test.go	internal	modules	go-test	5598	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,agent,assembler,test,模板,启用条件,system,组装
 internal/module/prompt/assembler.go	internal	modules	go-source	20715	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,模板,启用条件,system,组装
@@ -164,50 +163,32 @@ internal/module/prompt/cache.go	internal	modules	go-source	4727	prompt 模板、
 internal/module/prompt/cache_invalidation_test.go	internal	modules	go-test	4987	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,cache,invalidation,test,模板,启用条件,system,组装
 internal/module/prompt/cache_stability_test.go	internal	modules	go-test	4828	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,cache,stability,test,模板,启用条件,system,组装
 internal/module/prompt/cache_test.go	internal	modules	go-test	890	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,cache,test,模板,启用条件,system,组装
-internal/module/prompt/concurrent_invalidation_test.go	internal	modules	go-test	6028	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,concurrent,invalidation,test,模板,启用条件,system,组装
+internal/module/prompt/concurrent_invalidation_test.go	internal	modules	go-test	1216	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,concurrent,invalidation,test,模板,启用条件,system,组装
 internal/module/prompt/config.go	internal	modules	go-source	1723	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,config,模板,启用条件,system,组装
 internal/module/prompt/config_test.go	internal	modules	go-test	15	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,config,test,模板,启用条件,system,组装
 internal/module/prompt/dynamic.go	internal	modules	go-source	22867	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,dynamic,模板,启用条件,system,组装
 internal/module/prompt/dynamic_cache_deps.go	internal	modules	go-source	8747	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,dynamic,cache,deps,模板,启用条件,system,组装
 internal/module/prompt/dynamic_test.go	internal	modules	go-test	9564	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,dynamic,test,模板,启用条件,system,组装
 internal/module/prompt/e2e_context_test.go	internal	modules	go-test	1757	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,context,test,模板,启用条件,system,组装
-internal/module/prompt/e2e_test.go	internal	modules	go-test	17049	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,模板,启用条件,system,组装
-internal/module/prompt/e2e_test_support_test.go	internal	modules	go-test	9324	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,support,模板,启用条件,system,组装
+internal/module/prompt/e2e_test.go	internal	modules	go-test	17027	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,模板,启用条件,system,组装
+internal/module/prompt/e2e_test_support_test.go	internal	modules	go-test	8746	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,e2e,test,support,模板,启用条件,system,组装
 internal/module/prompt/enable_when.go	internal	modules	go-source	9651	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,enable,when,模板,启用条件,system,组装
 internal/module/prompt/enable_when_test.go	internal	modules	go-test	13985	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,enable,when,test,模板,启用条件,system,组装
 internal/module/prompt/env_provider.go	internal	modules	go-source	13189	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,env,provider,模板,启用条件,system,组装
 internal/module/prompt/env_provider_test.go	internal	modules	go-test	2306	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,env,provider,test,模板,启用条件,system,组装
 internal/module/prompt/frc_provider.go	internal	modules	go-source	819	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,frc,provider,模板,启用条件,system,组装
 internal/module/prompt/golden_test.go	internal	modules	go-test	1617	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,golden,test,模板,启用条件,system,组装
-internal/module/prompt/intent/authoring.go	internal	modules	go-source	27400	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,模板,启用条件,system,组装
-internal/module/prompt/intent/commit.go	internal	modules	go-source	24119	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,commit,模板,启用条件,system,组装
-internal/module/prompt/intent/dedup.go	internal	modules	go-source	13508	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,dedup,模板,启用条件,system,组装
-internal/module/prompt/intent/draftdream/execute.go	internal	modules	go-source	1811	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,draftdream,execute,模板,启用条件,system,组装
-internal/module/prompt/intent/normalization.go	internal	modules	go-source	6752	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,normalization,模板,启用条件,system,组装
-internal/module/prompt/intent/repair.go	internal	modules	go-source	7350	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,repair,模板,启用条件,system,组装
-internal/module/prompt/intent/safety.go	internal	modules	go-source	7164	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,safety,模板,启用条件,system,组装
-internal/module/prompt/intent/source_facts.go	internal	modules	go-source	25172	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,source,facts,模板,启用条件,system,组装
-internal/module/prompt/intent/types.go	internal	modules	go-source	9717	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,types,模板,启用条件,system,组装
-internal/module/prompt/intent_authoring_builtin_test.go	internal	modules	go-test	2165	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,builtin,test,模板,启用条件,system,组装
-internal/module/prompt/intent_authoring_dream_options_test.go	internal	modules	go-test	2200	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,dream,options,test,模板,启用条件,system,组装
-internal/module/prompt/intent_authoring_kind_drafts_test.go	internal	modules	go-test	30090	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,kind,drafts,test,模板,启用条件,system,组装
-internal/module/prompt/intent_authoring_quality_test.go	internal	modules	go-test	6185	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,quality,test,模板,启用条件,system,组装
-internal/module/prompt/intent_authoring_repair_test.go	internal	modules	go-test	8813	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,repair,test,模板,启用条件,system,组装
-internal/module/prompt/intent_authoring_test.go	internal	modules	go-test	25158	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,test,模板,启用条件,system,组装
-internal/module/prompt/intent_authoring_timeout_test.go	internal	modules	go-test	3123	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,authoring,timeout,test,模板,启用条件,system,组装
-internal/module/prompt/intent_commit_test.go	internal	modules	go-test	23897	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,commit,test,模板,启用条件,system,组装
-internal/module/prompt/intent_safety_test.go	internal	modules	go-test	2309	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,intent,safety,test,模板,启用条件,system,组装
-internal/module/prompt/invalidation.go	internal	modules	go-source	8568	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,invalidation,模板,启用条件,system,组装
+internal/module/prompt/invalidation.go	internal	modules	go-source	2004	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,invalidation,模板,启用条件,system,组装
 internal/module/prompt/language_provider_test.go	internal	modules	go-test	3371	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,language,provider,test,模板,启用条件,system,组装
-internal/module/prompt/match_when_support.go	internal	modules	go-source	11751	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,match,when,support,模板,启用条件,system,组装
+internal/module/prompt/match_when_runtime.go	internal	modules	go-source	1111	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,match,when,runtime,模板,启用条件,system,组装
 internal/module/prompt/match_when_test.go	internal	modules	go-test	4431	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,match,when,test,模板,启用条件,system,组装
 internal/module/prompt/mcp_frc_phase_test.go	internal	modules	go-test	5167	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,mcp,frc,phase,test,模板,启用条件,system,组装
 internal/module/prompt/mcp_provider.go	internal	modules	go-source	8850	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,mcp,provider,模板,启用条件,system,组装
 internal/module/prompt/mcp_provider_test.go	internal	modules	go-test	1646	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,mcp,provider,test,模板,启用条件,system,组装
 internal/module/prompt/model_descriptor.go	internal	modules	go-source	2522	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,model,descriptor,模板,启用条件,system,组装
 internal/module/prompt/model_descriptor_test.go	internal	modules	go-test	670	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,model,descriptor,test,模板,启用条件,system,组装
-internal/module/prompt/module.go	internal	modules	go-source	12390	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,模板,启用条件,system,组装
-internal/module/prompt/module_test.go	internal	modules	go-test	2438	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,test,模板,启用条件,system,组装
+internal/module/prompt/module.go	internal	modules	go-source	1827	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,模板,启用条件,system,组装
+internal/module/prompt/module_test.go	internal	modules	go-test	293	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,test,模板,启用条件,system,组装
 internal/module/prompt/output_style_provider.go	internal	modules	go-source	2594	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,output,style,provider,模板,启用条件,system,组装
 internal/module/prompt/phase2_3a_invalidate_assemble_race_test.go	internal	modules	go-test	11201	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,phase2,3a,invalidate,assemble,race,test,模板,启用条件,system,组装
 internal/module/prompt/phasef_providers_test.go	internal	modules	go-test	14775	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,phasef,providers,test,模板,启用条件,system,组装
@@ -219,26 +200,17 @@ internal/module/prompt/provider_skill_metadata_test.go	internal	modules	go-test	
 internal/module/prompt/registry.go	internal	modules	go-source	1379	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,registry,模板,启用条件,system,组装
 internal/module/prompt/registry_test.go	internal	modules	go-test	1101	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,registry,test,模板,启用条件,system,组装
 internal/module/prompt/scratchpad_provider.go	internal	modules	go-source	1487	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,scratchpad,provider,模板,启用条件,system,组装
-internal/module/prompt/section.go	internal	modules	go-source	17368	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,section,模板,启用条件,system,组装
+internal/module/prompt/section.go	internal	modules	go-source	15934	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,section,模板,启用条件,system,组装
 internal/module/prompt/section_test.go	internal	modules	go-test	8588	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,section,test,模板,启用条件,system,组装
-internal/module/prompt/section_write.go	internal	modules	go-source	1693	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,section,write,模板,启用条件,system,组装
-internal/module/prompt/service.go	internal	modules	go-source	20585	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,模板,启用条件,system,组装
-internal/module/prompt/service_builtin_boundary_test.go	internal	modules	go-test	1614	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,builtin,boundary,test,模板,启用条件,system,组装
-internal/module/prompt/service_provider_intent_test.go	internal	modules	go-test	22564	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,provider,intent,test,模板,启用条件,system,组装
-internal/module/prompt/service_provider_test.go	internal	modules	go-test	21504	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,provider,test,模板,启用条件,system,组装
-internal/module/prompt/service_surface.go	internal	modules	go-source	27058	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,surface,模板,启用条件,system,组装
-internal/module/prompt/service_surface_events_test.go	internal	modules	go-test	1733	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,surface,events,test,模板,启用条件,system,组装
-internal/module/prompt/service_surface_list_test.go	internal	modules	go-test	29966	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,surface,list,test,模板,启用条件,system,组装
-internal/module/prompt/service_surface_scope_test.go	internal	modules	go-test	8480	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,surface,scope,test,模板,启用条件,system,组装
-internal/module/prompt/store_boundary_test.go	internal	modules	go-test	5791	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,store,boundary,test,模板,启用条件,system,组装
+internal/module/prompt/service.go	internal	modules	go-source	6406	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,模板,启用条件,system,组装
+internal/module/prompt/service_provider_test.go	internal	modules	go-test	1251	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,service,provider,test,模板,启用条件,system,组装
 internal/module/prompt/stub_providers.go	internal	modules	go-source	1660	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,stub,providers,模板,启用条件,system,组装
 internal/module/prompt/system_context_provider.go	internal	modules	go-source	3024	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,system,context,provider,模板,启用条件,组装
-internal/module/prompt/template_sections.go	internal	modules	go-source	20729	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,template,sections,模板,启用条件,system,组装
+internal/module/prompt/template_sections.go	internal	modules	go-source	2179	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,template,sections,模板,启用条件,system,组装
 internal/module/prompt/template_sections_test.go	internal	modules	go-test	2371	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,template,sections,test,模板,启用条件,system,组装
 internal/module/prompt/testdata/golden/integration/start_assembly.golden.json	internal	modules	json	48333	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,testdata,golden,integration,start,assembly,模板,启用条件,system,组装
-internal/module/prompt/threadprompt_port_adapter_test.go	internal	modules	go-test	4526	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,threadprompt,port,adapter,test,模板,启用条件,system,组装
 internal/module/prompt/token_budget_provider.go	internal	modules	go-source	4868	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,token,budget,provider,模板,启用条件,system,组装
-internal/module/prompt/types.go	internal	modules	go-source	10381	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,types,模板,启用条件,system,组装
+internal/module/prompt/types.go	internal	modules	go-source	2947	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,types,模板,启用条件,system,组装
 internal/module/prompt/user_context_builder.go	internal	modules	go-source	15071	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,user,context,builder,模板,启用条件,system,组装
 internal/module/prompt/user_context_builder_untrusted_test.go	internal	modules	go-test	9487	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,user,context,builder,untrusted,test,模板,启用条件,system,组装
 internal/module/rag/chunker.go	internal	modules	go-source	8208	业务模块层	internal,module,rag,chunker,业务模块层
@@ -381,7 +353,7 @@ internal/module/threadprompt/runtime_provider_test.go	internal	modules	go-test	2
 internal/module/threadprompt/types.go	internal	modules	go-source	4301	业务模块层	internal,module,threadprompt,types,业务模块层
 internal/module/turn/assembler.go	internal	modules	go-source	8840	turn 启动、执行、审批与 provider 调度	internal,module,turn,assembler,启动,执行,审批与,provider,调度
 internal/module/turn/contract.go	internal	modules	go-source	8505	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
-internal/module/turn/factory.go	internal	modules	go-source	24925	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度
+internal/module/turn/factory.go	internal	modules	go-source	27340	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度
 internal/module/turn/feedback_proposer.go	internal	modules	go-source	2186	turn 启动、执行、审批与 provider 调度	internal,module,turn,feedback,proposer,启动,执行,审批与,provider,调度
 internal/module/turn/feedback_proposer_test.go	internal	modules	go-test	1236	turn 启动、执行、审批与 provider 调度	internal,module,turn,feedback,proposer,test,启动,执行,审批与,provider,调度
 internal/module/turn/frc_config.go	internal	modules	go-source	1980	turn 启动、执行、审批与 provider 调度	internal,module,turn,frc,config,启动,执行,审批与,provider,调度
@@ -417,14 +389,15 @@ internal/module/turn/rpc_helpers.go	internal	modules	go-source	23362	turn 启动
 internal/module/turn/rpc_helpers_test.go	internal	modules	go-test	12865	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,helpers,test,启动,执行,审批与,provider,调度
 internal/module/turn/rpc_types.go	internal	modules	go-source	27729	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,启动,执行,审批与,provider,调度
 internal/module/turn/rpc_types_test.go	internal	modules	go-test	14567	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,test,启动,执行,审批与,provider,调度
-internal/module/turn/runtime_config_contract_test.go	internal	modules	go-test	3113	turn 启动、执行、审批与 provider 调度	internal,module,turn,runtime,config,contract,test,启动,执行,审批与,provider,调度
-internal/module/turn/service.go	internal	modules	go-source	33600	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,启动,执行,审批与,provider,调度
+internal/module/turn/runtime_config_contract_test.go	internal	modules	go-test	4697	turn 启动、执行、审批与 provider 调度	internal,module,turn,runtime,config,contract,test,启动,执行,审批与,provider,调度
+internal/module/turn/service.go	internal	modules	go-source	33652	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,启动,执行,审批与,provider,调度
 internal/module/turn/service_dedupe_store_test.go	internal	modules	go-test	10766	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,dedupe,store,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_helpers.go	internal	modules	go-source	18819	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,helpers,启动,执行,审批与,provider,调度
 internal/module/turn/service_memory_guard_test.go	internal	modules	go-test	2577	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,memory,guard,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_memory_test.go	internal	modules	go-test	2067	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,memory,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_observation_test.go	internal	modules	go-test	2120	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,observation,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_provider_native_guard_test.go	internal	modules	go-test	2807	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,provider,native,guard,test,启动,执行,审批与,调度
+internal/module/turn/service_runtime_flag_guard_test.go	internal	modules	go-test	1595	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,runtime,flag,guard,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_test.go	internal	modules	go-test	33276	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,test,启动,执行,审批与,provider,调度
 internal/module/turn/skills.go	internal	modules	go-source	3464	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,启动,执行,审批与,provider,调度
 internal/module/turn/skills_test.go	internal	modules	go-test	6365	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,test,启动,执行,审批与,provider,调度
@@ -441,9 +414,9 @@ internal/module/turn/tracker_states.go	internal	modules	go-source	3243	turn 启�
 internal/module/turn/tracker_test.go	internal	modules	go-test	10288	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,test,启动,执行,审批与,provider,调度
 internal/module/uistate/arch_guard_test.go	internal	modules	go-test	1197	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,arch,guard,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/builtin_tools.go	internal	modules	go-source	13641	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,builtin,tools,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/builtin_tools_test.go	internal	modules	go-test	12839	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,builtin,tools,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/config_rpc.go	internal	modules	go-source	14442	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,config,rpc,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/config_rpc_test.go	internal	modules	go-test	14644	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,config,rpc,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/builtin_tools_test.go	internal	modules	go-test	12761	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,builtin,tools,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/config_rpc.go	internal	modules	go-source	10535	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,config,rpc,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/config_rpc_test.go	internal	modules	go-test	12202	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,config,rpc,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/contract_facade.go	internal	modules	go-source	1075	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,contract,facade,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/diff_state.go	internal	modules	go-source	7841	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,diff,state,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/diff_state_test.go	internal	modules	go-test	7164	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,diff,state,test,UI,事件投影,sidebar,timeline,状态
@@ -451,17 +424,17 @@ internal/module/uistate/factory.go	internal	modules	go-source	3764	UI 事件投�
 internal/module/uistate/model_providers.go	internal	modules	go-source	14905	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/model_providers_test.go	internal	modules	go-test	11290	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/model_providers_wire_test.go	internal	modules	go-test	3940	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,wire,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/module.go	internal	modules	go-source	10588	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/module.go	internal	modules	go-source	10584	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module_runtime_test.go	internal	modules	go-test	7911	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,runtime,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/overlay_test.go	internal	modules	go-test	14341	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,overlay,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/patch.go	internal	modules	go-source	18504	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/patch_test.go	internal	modules	go-test	24260	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/patch_timeline.go	internal	modules	go-source	4604	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,timeline,UI,事件投影,sidebar,状态
-internal/module/uistate/persistence_port.go	internal	modules	go-source	1665	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,persistence,port,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/persistence_port.go	internal	modules	go-source	1359	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,persistence,port,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/phase2_stats_patch_pending_test.go	internal	modules	go-test	16448	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,phase2,stats,patch,pending,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/preferences.go	internal	modules	go-source	16602	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/preferences_event_test.go	internal	modules	go-test	1355	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,event,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/preferences_runtime_contract_test.go	internal	modules	go-test	6953	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,runtime,contract,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/preferences.go	internal	modules	go-source	16847	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/preferences_event_test.go	internal	modules	go-test	1352	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,event,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/preferences_runtime_contract_test.go	internal	modules	go-test	7883	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,runtime,contract,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projector.go	internal	modules	go-source	13914	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projector_handlers.go	internal	modules	go-source	20121	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,handlers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projector_status_test.go	internal	modules	go-test	26630	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,status,test,UI,事件投影,sidebar,timeline,状态
@@ -474,7 +447,7 @@ internal/module/uistate/rpc_test.go	internal	modules	go-test	5355	UI 事件投�
 internal/module/uistate/service.go	internal	modules	go-source	17864	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,service,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/sidebar_clone_contract_test.go	internal	modules	go-test	3898	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,clone,contract,test,UI,事件投影,timeline,状态
 internal/module/uistate/sidebar_compat.go	internal	modules	go-source	13992	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,compat,UI,事件投影,timeline,状态
-internal/module/uistate/sidebar_test.go	internal	modules	go-test	31922	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,test,UI,事件投影,timeline,状态
+internal/module/uistate/sidebar_test.go	internal	modules	go-test	31921	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,test,UI,事件投影,timeline,状态
 internal/module/uistate/snapshot_helpers.go	internal	modules	go-source	13195	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/snapshot_helpers_test.go	internal	modules	go-test	2763	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/state.go	internal	modules	go-source	23551	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,UI,事件投影,sidebar,timeline,状态

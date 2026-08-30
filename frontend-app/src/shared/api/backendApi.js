@@ -9,7 +9,7 @@ export { createBackendApi };
 const backendApi = createBackendApi();
 
 const {
-  callBackend, readConfig, readLspPromptHint, writeLspPromptHint,
+  callBackend, readConfig,
   readBuiltinTools, writeBuiltinTool, checkAppUpdate, downloadAppUpdate,
   installAppUpdate, installLatestAppUpdate, getWindowBootstrap, getSidebarState,
   openNewWindow, getThreadState, getProjects, setActiveProject,
@@ -19,10 +19,7 @@ const {
   getObservabilityTrace, getObservabilityThreadRecent, listObservabilityRecent, listObservabilitySlow,
   listObservabilityErrors, getObservabilityStatus,
   listSharedFiles, readSharedFile, writeWorkflowMaterial,
-  listPromptAssets, getDashboardPrompts, getPrompt, writePrompt,
-  deletePrompt, draftPromptIntent, commitPromptIntent, discardPromptIntent,
-  dryRunPromptIntent, getPersonalizationProfile, savePersonalizationProfile, listPromptSections,
-  writePromptSection, deletePromptSection, listDags, getDagDetail,
+  listDags, getDagDetail,
   getDagRuns, getDagRun, startDag, createAndStartDag,
   dispatchDagNode, terminateDagRun, terminateDag, deleteDag,
   applyDagOps, listWorkflowTemplates, getWorkflowTemplate, renderWorkflowTemplateDraft,
@@ -45,7 +42,7 @@ const {
 } = backendApi;
 
 export {
-  callBackend, readConfig, readLspPromptHint, writeLspPromptHint,
+  callBackend, readConfig,
   readBuiltinTools, writeBuiltinTool, checkAppUpdate, downloadAppUpdate,
   installAppUpdate, installLatestAppUpdate, getWindowBootstrap, getSidebarState,
   openNewWindow, getThreadState, getProjects, setActiveProject,
@@ -55,10 +52,7 @@ export {
   getObservabilityTrace, getObservabilityThreadRecent, listObservabilityRecent, listObservabilitySlow,
   listObservabilityErrors, getObservabilityStatus,
   listSharedFiles, readSharedFile, writeWorkflowMaterial,
-  listPromptAssets, getDashboardPrompts, getPrompt, writePrompt,
-  deletePrompt, draftPromptIntent, commitPromptIntent, discardPromptIntent,
-  dryRunPromptIntent, getPersonalizationProfile, savePersonalizationProfile, listPromptSections,
-  writePromptSection, deletePromptSection, listDags, getDagDetail,
+  listDags, getDagDetail,
   getDagRuns, getDagRun, startDag, createAndStartDag,
   dispatchDagNode, terminateDagRun, terminateDag, deleteDag,
   applyDagOps, listWorkflowTemplates, getWorkflowTemplate, renderWorkflowTemplateDraft,

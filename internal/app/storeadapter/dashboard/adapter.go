@@ -13,7 +13,6 @@ import (
 	buslogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/buslog"
 	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/commandcard"
 	dbquerystore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/dbquery"
-	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
 	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
 	systemlogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/systemlog"
 )
@@ -25,7 +24,6 @@ type dashboardBusLogAdapter struct{ store buslogstore.Store }
 type dashboardSystemLogAdapter struct{ store systemlogstore.Store }
 type dashboardDBQueryAdapter struct{ store dbquerystore.Store }
 type dashboardCommandCardAdapter struct{ reader commandcardstore.Reader }
-type dashboardPromptTemplateAdapter struct{ reader promptstore.Reader }
 type dashboardSharedFileAdapter struct{ reader sharedfilestore.Reader }
 type dashboardSharedFileStoreAdapter struct {
 	*dashboardSharedFileAdapter
@@ -33,17 +31,16 @@ type dashboardSharedFileStoreAdapter struct {
 }
 
 var (
-	_ dashboard.AgentStatusReader    = (*dashboardAgentStatusAdapter)(nil)
-	_ dashboard.AILogReader          = (*dashboardAILogAdapter)(nil)
-	_ dashboard.AuditLogReader       = (*dashboardAuditLogAdapter)(nil)
-	_ dashboard.BusLogReader         = (*dashboardBusLogAdapter)(nil)
-	_ dashboard.SystemLogReader      = (*dashboardSystemLogAdapter)(nil)
-	_ dashboard.DBQueryExecutor      = (*dashboardDBQueryAdapter)(nil)
-	_ dashboard.CommandCardReader    = (*dashboardCommandCardAdapter)(nil)
-	_ dashboard.PromptTemplateReader = (*dashboardPromptTemplateAdapter)(nil)
-	_ dashboard.SharedFileReader     = (*dashboardSharedFileAdapter)(nil)
-	_ dashboard.SharedFileReader     = (*dashboardSharedFileStoreAdapter)(nil)
-	_ dashboard.SharedFileWriter     = (*dashboardSharedFileStoreAdapter)(nil)
+	_ dashboard.AgentStatusReader = (*dashboardAgentStatusAdapter)(nil)
+	_ dashboard.AILogReader       = (*dashboardAILogAdapter)(nil)
+	_ dashboard.AuditLogReader    = (*dashboardAuditLogAdapter)(nil)
+	_ dashboard.BusLogReader      = (*dashboardBusLogAdapter)(nil)
+	_ dashboard.SystemLogReader   = (*dashboardSystemLogAdapter)(nil)
+	_ dashboard.DBQueryExecutor   = (*dashboardDBQueryAdapter)(nil)
+	_ dashboard.CommandCardReader = (*dashboardCommandCardAdapter)(nil)
+	_ dashboard.SharedFileReader  = (*dashboardSharedFileAdapter)(nil)
+	_ dashboard.SharedFileReader  = (*dashboardSharedFileStoreAdapter)(nil)
+	_ dashboard.SharedFileWriter  = (*dashboardSharedFileStoreAdapter)(nil)
 )
 
 // provideDashboardAgentStatusReader 把 agent status Store 收窄为 dashboard 读端口。
@@ -100,14 +97,6 @@ func provideDashboardCommandCardReader(reader commandcardstore.Reader) dashboard
 		return nil
 	}
 	return &dashboardCommandCardAdapter{reader: reader}
-}
-
-// provideDashboardPromptTemplateReader 把 prompt reader 收窄为 dashboard 端口。
-func provideDashboardPromptTemplateReader(reader promptstore.Reader) dashboard.PromptTemplateReader {
-	if storeguard.IsNil(reader) {
-		return nil
-	}
-	return &dashboardPromptTemplateAdapter{reader: reader}
 }
 
 // provideDashboardSharedFileReader 保留 concrete reader 的可选写能力。
@@ -225,15 +214,6 @@ func (a *dashboardCommandCardAdapter) List(ctx context.Context, filter dashboard
 	return mapDashboardCommandCards(items), nil
 }
 
-// List 读取并转换 prompt 模板。
-func (a *dashboardPromptTemplateAdapter) List(ctx context.Context, filter dashboard.PromptTemplateFilter) ([]dashboard.PromptTemplate, error) {
-	items, err := a.reader.List(ctx, toStoreDashboardPromptTemplateFilter(filter))
-	if err != nil {
-		return nil, err
-	}
-	return mapDashboardPromptTemplates(items), nil
-}
-
 // Get 读取并转换单个 shared file。
 func (a *dashboardSharedFileAdapter) Get(ctx context.Context, path string) (*dashboard.SharedFile, error) {
 	item, err := a.reader.Get(ctx, path)
@@ -329,15 +309,6 @@ func mapDashboardCommandCards(items []commandcardstore.CommandCard) []dashboard.
 	return result
 }
 
-// mapDashboardPromptTemplates 转换 prompt 模板并复制 JSON。
-func mapDashboardPromptTemplates(items []promptstore.PromptTemplate) []dashboard.PromptTemplate {
-	result := make([]dashboard.PromptTemplate, len(items))
-	for i, v := range items {
-		result[i] = dashboard.PromptTemplate{ID: v.ID, PromptKey: v.PromptKey, Title: v.Title, AgentKey: v.AgentKey, ToolName: v.ToolName, PromptText: v.PromptText, WhenToUse: v.WhenToUse, Variables: cloneDashboardJSON(v.Variables), Tags: cloneDashboardJSON(v.Tags), Enabled: v.Enabled, ManuallyEdited: v.ManuallyEdited, MatchWhen: cloneDashboardJSON(v.MatchWhen), Priority: v.Priority, CreatedBy: v.CreatedBy, UpdatedBy: v.UpdatedBy, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Description: v.Description}
-	}
-	return result
-}
-
 // mapDashboardSharedFilePtr 保持 nil 指针结果语义。
 func mapDashboardSharedFilePtr(item *sharedfilestore.SharedFile) *dashboard.SharedFile {
 	if item == nil {
@@ -384,11 +355,6 @@ func toStoreDashboardSystemLogFilter(v dashboard.SystemLogFilter) systemlogstore
 // toStoreDashboardCommandCardFilter 转换命令卡片过滤条件。
 func toStoreDashboardCommandCardFilter(v dashboard.CommandCardFilter) commandcardstore.ListFilter {
 	return commandcardstore.ListFilter{Keyword: v.Keyword, Limit: v.Limit}
-}
-
-// toStoreDashboardPromptTemplateFilter 转换 prompt 模板过滤条件。
-func toStoreDashboardPromptTemplateFilter(v dashboard.PromptTemplateFilter) promptstore.ListFilter {
-	return promptstore.ListFilter{AgentKey: v.AgentKey, Keyword: v.Keyword, CWD: v.CWD, Limit: v.Limit}
 }
 
 // toStoreDashboardSharedFileFilter 转换 shared file 过滤条件。

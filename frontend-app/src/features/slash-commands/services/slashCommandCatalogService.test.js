@@ -1,13 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSlashCommandCatalogService } from './slashCommandCatalogService.js';
 
-const validPrompt = {
-  id: 'prompt-1',
-  name: 'Review prompt',
-  description: 'Review carefully',
-  enabled: true,
-};
-
 const validAutomation = {
   id: 'dag-1',
   title: 'Release check',
@@ -25,31 +18,13 @@ const validTool = {
 };
 
 describe('slashCommandCatalogService', () => {
-  it('normalizes all project catalogs and keeps prompt content lazy', async () => {
+  it('normalizes automation and MCP tool catalogs', async () => {
     const api = {
       getDashboardPage: vi.fn()
         .mockResolvedValueOnce({ dags: [validAutomation] }),
-      getDashboardPrompts: vi.fn().mockResolvedValue({ prompts: [validPrompt] }),
-      getPrompt: vi.fn().mockResolvedValue({
-        prompt: { content: 'Review this change carefully.' },
-      }),
       listToolbridgeTools: vi.fn().mockResolvedValue({ tools: [validTool] }),
     };
     const service = createSlashCommandCatalogService(api);
-
-    await expect(service.loadPrompts('/repo')).resolves.toEqual([expect.objectContaining({
-      id: 'prompt:prompt-1',
-      kind: 'prompt',
-      name: 'Review prompt',
-      payload: { promptId: 'prompt-1' },
-      disabled: false,
-    })]);
-    expect(api.getDashboardPrompts).toHaveBeenCalledWith({ cwd: '/repo' });
-    expect(api.getPrompt).not.toHaveBeenCalled();
-
-    await expect(service.loadPromptContent('/repo', 'prompt-1'))
-      .resolves.toBe('Review this change carefully.');
-    expect(api.getPrompt).toHaveBeenCalledWith({ cwd: '/repo', id: 'prompt-1' });
 
     await expect(service.loadAutomations('/repo')).resolves.toEqual([expect.objectContaining({
       id: 'automation:dag-1',
@@ -83,15 +58,6 @@ describe('slashCommandCatalogService', () => {
   });
 
   it.each([
-    {
-      label: 'prompt',
-      method: 'loadPrompts',
-      api: {
-        getDashboardPrompts: vi.fn().mockResolvedValue({
-          prompts: [validPrompt, { ...validPrompt, id: '' }],
-        }),
-      },
-    },
     {
       label: 'automation',
       method: 'loadAutomations',
@@ -160,25 +126,4 @@ describe('slashCommandCatalogService', () => {
     ]);
   });
 
-  it.each([
-    ['content', { prompt: { content: ' first body ' } }, 'first body'],
-    ['prompt_text', { prompt: { content: ' ', prompt_text: ' second body ' } }, 'second body'],
-    ['promptText', { prompt: { promptText: ' third body ' } }, 'third body'],
-  ])('loads prompt body from %s', async (_field, response, expected) => {
-    const api = { getPrompt: vi.fn().mockResolvedValue(response) };
-    const service = createSlashCommandCatalogService(api);
-
-    await expect(service.loadPromptContent('/repo', 'prompt-1')).resolves.toBe(expected);
-  });
-
-  it('rejects a prompt response without an executable body', async () => {
-    const api = {
-      getPrompt: vi.fn().mockResolvedValue({ prompt: { content: ' ', description: 'not a body' } }),
-    };
-    const service = createSlashCommandCatalogService(api);
-
-    await expect(service.loadPromptContent('/repo', 'prompt-1')).rejects.toThrow(
-      'slash command prompt response content is required',
-    );
-  });
 });

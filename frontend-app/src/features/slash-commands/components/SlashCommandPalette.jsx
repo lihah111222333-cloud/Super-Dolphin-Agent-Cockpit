@@ -1,6 +1,5 @@
 import {
   Command,
-  MessageSquareText,
   Sparkles,
   Workflow,
   Wrench,
@@ -14,7 +13,6 @@ import './SlashCommandPalette.css';
 const CATEGORY_ICONS = Object.freeze({
   builtin: Command,
   skill: Sparkles,
-  prompt: MessageSquareText,
   automation: Workflow,
   mcp_tool: Wrench,
 });

@@ -10,7 +10,6 @@ const backend = vi.hoisted(() => ({
   applyModelProvider: vi.fn(),
   callBackend: vi.fn(),
   checkAppUpdate: vi.fn(),
-  copyTextToClipboard: vi.fn(),
   downloadAppUpdate: vi.fn(),
   getBuildInfo: vi.fn(),
   getPreference: vi.fn(),
@@ -21,12 +20,10 @@ const backend = vi.hoisted(() => ({
   listModelProviders: vi.fn(),
   readBuiltinTools: vi.fn(),
   readConfig: vi.fn(),
-  readLspPromptHint: vi.fn(),
   setPreference: vi.fn(),
   setVideoApiKey: vi.fn(),
   saveModelProviders: vi.fn(),
   writeBuiltinTool: vi.fn(),
-  writeLspPromptHint: vi.fn(),
 }));
 
 const clientStore = vi.hoisted(() => ({
@@ -141,19 +138,6 @@ beforeEach(() => {
   });
   backend.setPreference.mockResolvedValue({ ok: true });
   backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
-  backend.readLspPromptHint.mockResolvedValue({
-    hint: 'effective prompt',
-    defaultHint: 'default prompt',
-    overrideHint: '',
-    usingDefault: true,
-  });
-  backend.writeLspPromptHint.mockResolvedValue({
-    hint: 'saved prompt',
-    defaultHint: 'default prompt',
-    overrideHint: 'saved prompt',
-    usingDefault: false,
-  });
-  backend.copyTextToClipboard.mockResolvedValue(true);
   backend.readBuiltinTools.mockResolvedValue({ tools: [] });
   backend.writeBuiltinTool.mockImplementation(({ id, enabled }) => Promise.resolve({
     tools: [{ id, label: '读文件', description: '读取文件', enabled, provider: 'claude', filterMode: 'hard', enforcement: enabled ? '' : 'native-hard' }],
@@ -522,17 +506,6 @@ describe('SettingsPage provider migration', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('读取运行时偏好失败，请重试。');
     expect(screen.queryByText(/invalid UI preference response/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(controlName)).toHaveValue(defaultValue);
-  });
-
-  it('rejects a string boolean preference without toggling prompt visibility', async () => {
-    const preferences = preferenceFixture({ 'settings.showInjectedPromptInChat': 'true' });
-    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
-
-    renderSettingsPage();
-
-    expect(await screen.findByText(/加载聊天注入显示开关失败/)).toBeInTheDocument();
-    expect(screen.queryByText(/invalid UI preference response/)).not.toBeInTheDocument();
-    expect(screen.getByTestId('settings-show-injected-toggle-input')).not.toBeChecked();
   });
 
   it('keeps active provider selection codex-only', async () => {
@@ -931,51 +904,6 @@ describe('SettingsPage model provider management', () => {
       }),
     ]));
     expect(backend.saveModelProviders.mock.invocationCallOrder[0]).toBeLessThan(backend.applyModelProvider.mock.invocationCallOrder[0]);
-  });
-});
-
-describe('SettingsPage prompt settings', () => {
-  it('ignores stale prompt settings loads after cwd changes', async () => {
-    const firstLoad = deferred();
-    const secondLoad = deferred();
-    backend.readLspPromptHint
-      .mockReturnValueOnce(firstLoad.promise)
-      .mockReturnValueOnce(secondLoad.promise);
-
-    const { rerenderSettingsPage } = renderSettingsPage('/repo/one');
-    await waitFor(() => {
-      expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/one' });
-    });
-
-    rerenderSettingsPage('/repo/two');
-    await waitFor(() => {
-      expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/two' });
-    });
-
-    await act(async () => {
-      secondLoad.resolve({
-        hint: 'project two effective prompt',
-        defaultHint: 'project two default prompt',
-        overrideHint: 'project two override prompt',
-        usingDefault: false,
-      });
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('project two override prompt');
-      expect(screen.getByTestId('settings-lsp-effective-output')).toHaveValue('project two effective prompt');
-    });
-
-    await act(async () => {
-      firstLoad.resolve({
-        hint: 'project one effective prompt',
-        defaultHint: 'project one default prompt',
-        overrideHint: 'project one override prompt',
-        usingDefault: false,
-      });
-    });
-
-    expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('project two override prompt');
-    expect(screen.getByTestId('settings-lsp-effective-output')).toHaveValue('project two effective prompt');
   });
 });
 

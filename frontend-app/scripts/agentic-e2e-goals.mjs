@@ -63,12 +63,6 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     targetRoute: '/dags',
     navigationTarget: sidebarNav('自动化'),
   }),
-  'prompts-open': Object.freeze({
-    id: 'prompts-open',
-    kind: 'open-route',
-    targetRoute: '/prompts',
-    navigationTarget: sidebarNav('提示词'),
-  }),
   'shared-files-open': Object.freeze({
     id: 'shared-files-open',
     kind: 'open-route',
@@ -156,7 +150,6 @@ const STABLE_GOAL_BY_LABEL = Object.freeze([
   { pattern: /^新对话$/u, goal: 'chat-composer' },
   { pattern: /^链路追踪$/u, goal: 'observability-latest-logs' },
   { pattern: /^自动化$/u, goal: 'automation-open' },
-  { pattern: /^提示词$/u, goal: 'prompts-open' },
   { pattern: /^共享文件$/u, goal: 'shared-files-open' },
   { pattern: /^设置$/u, goal: 'settings-open' },
 ]);

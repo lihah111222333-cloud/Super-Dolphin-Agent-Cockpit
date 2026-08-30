@@ -21,7 +21,6 @@ const (
 	InterruptSettleTimeout    = 6 * time.Second
 	AsyncLaunchTimeout        = 60 * time.Second
 	DreamConsolidationTimeout = 5 * time.Minute
-	PromptIntentDraftTimeout  = DreamConsolidationTimeout
 )
 
 // WithTimeout 在缺省 context 时补 Background，并只在 timeout 为正数时创建 deadline。

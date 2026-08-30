@@ -10,8 +10,6 @@ export function createAppTestSupport(context) {
   const observabilityFeatures = createAppTestObservabilityFeatures({
     ...context,
     formatParsedTimestampForTest: core.formatParsedTimestampForTest,
-    canonicalPromptRPCItem: core.canonicalPromptRPCItem,
-    waitForBackendThreadHeading: core.waitForBackendThreadHeading,
   });
   const routes = createAppTestRoutes({
     ...context,

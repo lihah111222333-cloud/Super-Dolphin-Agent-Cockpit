@@ -173,7 +173,7 @@ super-agent-v3/
 │   │   ├── main.go
 │   │   ├── fx.go
 │   │   ├── orchestration/
-│   │   ├── store/         ← canonical store（commandcard/prompt/sharedfile 的唯一归属）
+│   │   ├── store/         ← MCP 本地 canonical store（commandcard/prompt/sharedfile）
 │   │   │   ├── sqlc/
 │   │   │   ├── commandcard/
 │   │   │   ├── prompt/
@@ -266,7 +266,8 @@ super-agent-v3/
 │   │   ├── thread/
 │   │   ├── uipreference/
 │   │   ├── workspace/
-│   │   └── ...                ← commandcard/prompt/sharedfile 已迁至 cmd/mcp-orch/store/
+│   │   ├── prompt/             ← 桌面 runtime prompt catalog，供 module/threadprompt 读取
+│   │   └── ...                ← MCP commandcard/sharedfile store 位于 cmd/mcp-orch/store/
 │   ├── module/
 │   │   ├── thread/
 │   │   │   ├── module.go
@@ -300,7 +301,7 @@ super-agent-v3/
 │   │   │   ├── contract.go
 │   │   │   ├── service.go
 │   │   │   └── lifecycle.go
-│   │   └── dashboard/         ← prompt 写操作已迁至 cmd/mcp-orch/tools
+│   │   └── dashboard/         ← dashboard 查询与视图 RPC（不承载 prompt 管理）
 │   │       ├── module.go
 │   │       ├── contract.go
 │   │       ├── service.go
@@ -332,8 +333,8 @@ super-agent-v3/
 | 平台层 | `internal/platform/*` | 提供基础设施能力 | 标准库、第三方库 |
 | Provider 收敛层 | `internal/provider/*` | 统一 provider 语义，屏蔽 Claude CLI / Codex transport 差异，对上暴露 session / capability / manifest | `contract`、`dto`、`platform` |
 | MCP 公共层 | `internal/mcpserver/common` | MCP binary 共享协议 / bootstrap 壳层；允许 `cmd/mcp-*` 复用，但不应承载宿主业务 runtime | `contract`、`dto`、`platform/{config,db}` |
-| 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口；commandcard/prompt/sharedfile 已迁至 `cmd/mcp-orch/store/*` | `platform/db`、`internal/store/sqlc` |
-| 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；拥有模块私有 Port/DTO，不再内嵌 MCP stdio tool binary | `contract`、`dto`、允许的 `platform` 能力、provider 语义端口、模块自有 Port；禁止依赖 `internal/store/*` |
+| 存储层 | `internal/store/*` | 包装 `sqlc` 和 DB 访问，对外暴露 store 接口；其中 `internal/store/prompt` 保留桌面 runtime catalog，MCP 的 commandcard/prompt/sharedfile 使用 `cmd/mcp-orch/store/*` | `platform/db`、`internal/store/sqlc` |
+| 业务层 | `internal/module/*` | 承载前端 UI 所需领域逻辑、核心 RPC 注册、事件处理；`internal/module/prompt` 只负责 runtime prompt assembly/invalidation，不注册 prompt 管理 RPC；不内嵌 MCP stdio tool binary | `contract`、`dto`、允许的 `platform` 能力、provider 语义端口、模块自有 Port；禁止依赖 `internal/store/*` |
 | UI 视图层 | `internal/ui/*` | 运行时事件投影、timeline、dashboard SSE / code_open 等视图适配 | `contract`、`dto`、`platform`、`provider`、`module` |
 | 契约层 | `internal/contract/*` | 纯接口、事件、常量 | 无运行时依赖 |
 | DTO 层 | `internal/dto/*` | 纯数据结构 | 无运行时依赖 |
@@ -361,7 +362,7 @@ super-agent-v3/
 核心层不负责启动、托管或计数 MCP binary；manifest 只提供给 Claude CLI 等外部执行器使用的启动描述。
 
 除上述四项外，能力必须下沉到独立 MCP binary，不继续留在核心层：
-- `cmd/mcp-orch` — 编排、DAG、Task、Workspace、Prompt、Command Card、Shared File
+- `cmd/mcp-orch` — 编排、DAG、Task、Workspace、MCP Prompt（`prompt_list`/`prompt_get`）、Command Card、Shared File
 - `cmd/mcp-lsp` — LSP 代码工具
 - `cmd/mcp-ida` — IDA 逆向工具
 
@@ -375,13 +376,24 @@ super-agent-v3/
 - `cmd/mcp-*` 禁止调用 `New*Handlers`、禁止依赖 `rpc.go` 中的 `handler.Map`、禁止 import `Module` 做整包装配。
 - MCP 工具定义中的 schema、manifest 组装和 handler 壳只允许出现在 `cmd/mcp-*`；核心层禁止放置这些协议面定义。
 - `cmd/mcp-*` 自身代码遵守 **2026-06-28 放宽后的默认守卫**：单文件有效行数 `<=800`、包非测试文件 `<=25`、包有效行数 `<=10000`；函数 `<=80`、CC `<=10`、嵌套 `<=4`、标识符下划线 `<=3` 不变。有效行不计空行和纯注释行。
-- **核心包放宽守卫（当前唯一有意义的差异是包文件数 30 > 默认 25）**：已退役的 `module/memory` 不再是活动 owner，也不参与守卫例外；仍保留核心包包文件数 `<=30` 例外以便扩展；`module/prompt`、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 维持包文件数 `<=30`、包有效行数 `<=10000`、单文件有效行数 `<=800`。当前守卫框架见 `docs/架构/skeleton-code-guard.md`；历史阈值来源可追溯到 `docs/plans/迁移/v3-code-guard-spec.md` §1 与 §1.1。
+- **核心包放宽守卫（当前唯一有意义的差异是包文件数 30 > 默认 25）**：已退役的 `module/memory` 不再是活动 owner，也不参与守卫例外；仍保留核心包包文件数 `<=30` 例外以便扩展；`module/prompt`（仅 runtime assembly/invalidation，不含 prompt 管理 RPC）、`module/thread`、`module/turn`、`provider/claudecli`、`provider/codexapp` 维持包文件数 `<=30`、包有效行数 `<=10000`、单文件有效行数 `<=800`。当前守卫框架见 `docs/架构/skeleton-code-guard.md`；历史阈值来源可追溯到 `docs/plans/迁移/v3-code-guard-spec.md` §1 与 §1.1。
 - `cmd/mcp-orch/orchestration/*` 是当前 `mcp-orch` 本地编排 runtime owner；桌面 app 不内嵌该模块，其他层也不得反向 import 它。
 - `cmd/mcp-orch/store/*` 与 `cmd/mcp-orch/store/sqlc/*` 是当前 `mcp-orch` 本地数据层；运行时不得回退依赖 `internal/store/*` 或 `internal/store/sqlc/*`。
 - 显式架构例外：`internal/store/module.go` 作为 store 层根装配器，允许 import 各 `internal/store/*` 子包并统一装配 shared store provider；该例外不计为违规，但不得向其他根包扩散。
 - LSP、orchestration、IDA 家族逻辑必须留在各自工具层或二进制装配层。
 
 说明：文中的 `service` / `store` 是语义分层，不代表 `cmd/mcp-*` 可以回头 import `internal/module/*`；MCP 入口层只能依赖允许集合与各自本地包。
+
+提示词所有权边界（当前）：桌面 runtime 由 `internal/store/prompt` 提供持久化
+catalog，`internal/module/threadprompt` 负责按工作区合并、过滤并向
+`internal/module/prompt` 的 assembly 注入；宿主不再注册 `prompts/*`、
+`prompt-assets/*`、`prompt-intents/*`、`prompt-sections/*`、
+`dashboard/prompts`、`personalization/profile/*` 或
+`config/lspPromptHint/*` 管理 RPC。MCP binary 在
+`cmd/mcp-orch/store/prompt` 保持独立 catalog，并由
+`cmd/mcp-orch/tools/prompt_tools.go` 仅暴露 `prompt_list`/`prompt_get`；不得
+把这两个 MCP tool 误记为桌面 host RPC。Personalization 与 LSP prompt hint
+若由 provider 支持，使用 provider 官方 CLI/app-server 配置承载。
 
 `module.go` 只做装配，不写业务逻辑。
 
@@ -400,7 +412,7 @@ super-agent-v3/
 ### 3.2 命名规范
 
 - 服务接口：`Service`、`ThreadService`、`WorkspaceService`
-- Store 接口：`Store`、`ThreadStore`、`PromptTemplateStore`
+- Store 接口：`Store`、`ThreadStore`、`RuntimePromptCatalog`
 - 具体实现：`service`、`sqlStore`、`gateway`、`registry`
 - 外部模块只依赖接口名，不依赖实现名
 
@@ -1008,6 +1020,8 @@ func NewPool(in In) *Pool {
 ### 8.5 运行时偏好恢复规则
 
 V2 里像 `stallThresholdSec`、`showInjectedPromptInChat` 这种配置，不应跟静态配置混在一起。
+V3 不再把提示词可见性或 LSP prompt hint 作为宿主管理面；provider 支持的
+个性化与上下文设置由 provider 官方 CLI/app-server 配置承载。
 
 V3 规定：
 
@@ -1585,7 +1599,7 @@ V2 当前主链路是：
 | `ensureStallPreferenceFromDB` | 从偏好 store 恢复 runtime timeout | `module/uistate`、`ui/runtime` 或 `module/preferences` | `fx.Invoke(RestoreRuntimePreferences)` |
 | `initIDAClient` | 启动 IDA gateway | `cmd/mcp-ida` | `fx.Provide(NewGateway)` + `Lifecycle` |
 | `recoverSubAgents` | 启动期恢复子 agent | `cmd/mcp-orch/orchestration` | `fx.Invoke(RecoverSubAgents)` |
-| `applyInjectedPromptVisibilityPreference` | 恢复 UI 注入提示词可见性 | `module/uistate` + `ui/runtime` | `fx.Invoke(ApplyUIPreferences)` |
+| `applyInjectedPromptVisibilityPreference` | V2 恢复 UI 注入提示词可见性 | provider-native context（V3 不暴露宿主 RPC） | 无 V3 host wiring；按 provider 官方配置 |
 | `registerDynamicTools` | MCP manifest / 本地 registry 聚合 | `cmd/mcp-*` 本地包 | package-local registry + `fx.Invoke(BuildManifest)` |
 | `setNotifyHookState` | 统一通知桥接 | `platform/bus` + `platform/rpc` + `ui/dashboard` | `fx.Invoke(BindNotifierBridge)` |
 | `startMemoryStatsTicker` | 内存状态监控后台任务 | `internal/app` + `platform/runner` | `fx.Invoke` + `Lifecycle` |
@@ -1596,7 +1610,7 @@ V2 当前主链路是：
 |---|---|
 | `dagStore` | `internal/store/dag` |
 | `cmdStore` | `cmd/mcp-orch/store/commandcard` |
-| `promptStore` | `cmd/mcp-orch/store/prompt` |
+| `promptStore` | `cmd/mcp-orch/store/prompt`（MCP `prompt_list`/`prompt_get`）；桌面 runtime catalog 为 `internal/store/prompt` + `internal/module/threadprompt` |
 | `fileStore` | `cmd/mcp-orch/store/sharedfile` |
 | `workspaceRunStore` | `internal/store/workspace` |
 | `sysLogStore` | `internal/store/systemlog` |

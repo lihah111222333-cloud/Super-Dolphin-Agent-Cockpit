@@ -6,7 +6,6 @@ import (
 
 	contractpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	promptpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/prompt"
 	thread "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
 	turnpkg "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/turn"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
@@ -15,22 +14,6 @@ import (
 type capturingSessionBridge struct {
 	session  contractpkg.Session
 	startReq dto.StartSessionRequest
-}
-
-type e2ePromptStore struct{ promptpkg.Store }
-
-func newE2EPromptStore() promptpkg.Store { return e2ePromptStore{} }
-
-func (e2ePromptStore) List(context.Context, promptpkg.ListFilter) ([]promptpkg.Template, error) {
-	return nil, nil
-}
-
-func (e2ePromptStore) ListRecallSections(context.Context, string) ([]promptpkg.TemplateSection, error) {
-	return nil, nil
-}
-
-func (e2ePromptStore) ListDefaultRuleSections(context.Context, string) ([]promptpkg.TemplateSection, error) {
-	return nil, nil
 }
 
 func newMockSession(threadID string) contractpkg.Session { return &mockSession{threadID: threadID} }

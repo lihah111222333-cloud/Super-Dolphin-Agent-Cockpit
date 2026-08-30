@@ -98,8 +98,8 @@ func assertPrioritySSALoaderCandidates(
 	}
 	sort.Strings(paths)
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(paths, "\n"))))
-	const wantCount = 246
-	const wantDigest = "885e53af4dc04cfbe694ceb7e03fdf60e6ca80baba6b67ab1fba2b519076821f"
+	const wantCount = 243
+	const wantDigest = "4a7d13b018492a305c519327f3276a3f862585aff80b6854dd59e3050eb191aa"
 	if len(paths) != wantCount || digest != wantDigest {
 		t.Fatalf("seam cd81d4c9a priority candidates count=%d digest=%s", len(paths), digest)
 	}

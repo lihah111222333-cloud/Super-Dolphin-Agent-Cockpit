@@ -716,12 +716,6 @@ describe('agentic e2e discovery report', () => {
         actions: [{ type: 'click', label: '自动化', safety: 'allowed', reason: 'navigation entry', targetRoute: '/dags' }],
         result: { status: 'candidate', summary: 'Discovered from visible page structure' },
       }, {
-        id: 'visible-sidebar-nav-提示词',
-        entry: { route: '/', label: '提示词', source: 'sidebar-nav', targetRoute: '/prompts' },
-        page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
-        actions: [{ type: 'click', label: '提示词', safety: 'allowed', reason: 'navigation entry', targetRoute: '/prompts' }],
-        result: { status: 'candidate', summary: 'Discovered from visible page structure' },
-      }, {
         id: 'visible-sidebar-nav-共享文件',
         entry: { route: '/', label: '共享文件', source: 'sidebar-nav', targetRoute: '/files' },
         page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
@@ -731,12 +725,11 @@ describe('agentic e2e discovery report', () => {
     });
 
     expect(markdown).toContain('# Agentic E2E Business Flow Discovery');
-    expect(markdown).toContain('- Total flows: 4');
-    expect(markdown).toContain('- Stable goal candidates: 4');
+    expect(markdown).toContain('- Total flows: 3');
+    expect(markdown).toContain('- Stable goal candidates: 3');
     expect(markdown).toContain('| Entry | Category | Source | Target Route | Observed Page | Result | Suggested Goal |');
     expect(markdown).toContain('链路追踪');
     expect(markdown).toContain('| 自动化 | business-candidate | sidebar-nav | /dags | /observability | candidate - Discovered from visible page structure | automation-open |');
-    expect(markdown).toContain('| 提示词 | business-candidate | sidebar-nav | /prompts | /observability | candidate - Discovered from visible page structure | prompts-open |');
     expect(markdown).toContain('| 共享文件 | business-candidate | sidebar-nav | /files | /observability | candidate - Discovered from visible page structure | shared-files-open |');
     expect(markdown).toContain('Stable Goal Candidates');
     expect(markdown).toContain('observability-latest-logs');
@@ -901,7 +894,6 @@ describe('agentic e2e config', () => {
       'chat-composer',
       'observability-latest-logs',
       'automation-open',
-      'prompts-open',
       'shared-files-open',
       'settings-open',
       'chat-send-mocked',

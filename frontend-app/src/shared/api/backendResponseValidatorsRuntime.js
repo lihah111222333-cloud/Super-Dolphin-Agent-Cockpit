@@ -43,7 +43,6 @@ const UI_STATE_RESPONSE_KEYS = new Set([
   'activeCmdThreadId',
   'mainAgentId',
   'mainAgentState',
-  'settings.showInjectedPromptInChat',
   'viewPrefs.chat',
   'viewPrefs.cmd',
   'threadPins.chat',

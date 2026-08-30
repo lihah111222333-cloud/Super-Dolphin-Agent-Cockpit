@@ -153,7 +153,7 @@ func TestGetPreferencesScopedProviderInheritsGlobalPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
-	if err := svc.SetPreference(context.Background(), providerPreferenceKey, "claude"); err != nil {
+	if err := svc.SetPreference(context.Background(), providerPreferenceKey, "codex"); err != nil {
 		t.Fatalf("SetPreference(%s) error = %v", providerPreferenceKey, err)
 	}
 
@@ -161,8 +161,32 @@ func TestGetPreferencesScopedProviderInheritsGlobalPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPreferences() error = %v", err)
 	}
-	if got := preferenceValue(*prefs, providerPreferenceKey); got != "claude" {
-		t.Fatalf("preferenceValue(%q) = %#v, want global fallback claude", providerPreferenceKey, got)
+	if got := preferenceValue(*prefs, providerPreferenceKey); got != "codex" {
+		t.Fatalf("preferenceValue(%q) = %#v, want global fallback codex", providerPreferenceKey, got)
+	}
+}
+
+func TestSetPreferenceRejectsUnsupportedActiveProvider(t *testing.T) {
+	t.Parallel()
+
+	const providerPreferenceKey = "settings.provider.active"
+
+	svc, _, err := NewService(testLoggerRuntime(), nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	for _, value := range []any{"claude", " codex ", 1} {
+		if err := svc.SetPreference(context.Background(), providerPreferenceKey, value); err != errUnsupportedActiveProvider {
+			t.Fatalf("SetPreference(%s, %#v) error = %v, want %v", providerPreferenceKey, value, err, errUnsupportedActiveProvider)
+		}
+	}
+
+	prefs, err := svc.GetPreferences(context.Background())
+	if err != nil {
+		t.Fatalf("GetPreferences() error = %v", err)
+	}
+	if got := preferenceValue(*prefs, providerPreferenceKey); got != defaultProviderActive {
+		t.Fatalf("preferenceValue(%q) = %#v after rejected write, want %q", providerPreferenceKey, got, defaultProviderActive)
 	}
 }
 

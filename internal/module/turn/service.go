@@ -138,7 +138,7 @@ func (s *service) prepareTurn(ctx context.Context, session contract.Session, inp
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	input = hydratePrepareInput(input, session)
-	input.Skills, err = prepareProviderNativeSkills(input)
+	input.Skills, err = prepareProviderNativeSkillsWithRuntimeConfig(input, session)
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
@@ -301,7 +301,7 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	// StartTurn 可由 cron/orchestration 直接调用而绕过 PrepareTurn；复用同一
 	// provider-native skill gate，拒绝旧正文、自动候选和不完整元数据在 provider
 	// RPC 前穿透。规范化结果同时清空兼容 payload 中可能携带的正文。
-	req.Skills, err = prepareProviderNativeSkills(PrepareInput{Skills: req.Skills})
+	req.Skills, err = prepareProviderNativeSkillsWithRuntimeConfig(PrepareInput{Skills: req.Skills}, session)
 	if err != nil {
 		return nil, err
 	}

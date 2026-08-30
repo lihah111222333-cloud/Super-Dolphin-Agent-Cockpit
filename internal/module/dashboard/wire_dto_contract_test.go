@@ -23,7 +23,6 @@ var dashboardWireDTOChecklist = []dashboardWireDTOChecklistEntry{
 	{"dashboard/aiLogs", "ai_logs.go", "ailogstore.AILog", "dashboard.AILog"},
 	{"dashboard/aiLogs/stats", "rpc.go", "ailogstore.StatusCount", "dashboard.AILogStatusCount"},
 	{"dashboard/commandCards", "rpc.go", "commandcardstore.CommandCard", "dashboard.CommandCard"},
-	{"dashboard/prompts", "rpc.go", "promptstore.PromptTemplate", "dashboard.PromptTemplate"},
 	{"dashboard/sharedFiles", "rpc.go", "sharedfilestore.SharedFile", "dashboard.SharedFile"},
 	{"dashboard/workflowMaterialWrite", "workflow_material.go", "sharedfilestore.UpsertParams", "dashboard.SharedFileUpsertParams"},
 }
@@ -54,7 +53,6 @@ func TestDashboardWireDTOJSONShape(t *testing.T) {
 		{"audit", AuditEvent{ID: 2, Extra: json.RawMessage(`{"b":2}`)}, `{"id":2,"ts":"0001-01-01T00:00:00Z","event_type":"","action":"","result":"","actor":"","target":"","detail":"","level":"","extra":{"b":2}}`},
 		{"bus", BusExceptionLog{ID: 3, Extra: json.RawMessage(`{"c":3}`)}, `{"id":3,"ts":"0001-01-01T00:00:00Z","category":"","severity":"","source":"","tool_name":"","message":"","traceback":"","extra":{"c":3},"has_traceback":false,"has_extra":false}`},
 		{"command", CommandCard{ID: 4, ArgsSchema: json.RawMessage(`{"type":"object"}`), LastRunAt: &lastRun}, `{"id":4,"card_key":"","title":"","description":"","command_template":"","args_schema":{"type":"object"},"risk_level":"","enabled":false,"created_by":"","updated_by":"","created_at":"0001-01-01T00:00:00Z","updated_at":"0001-01-01T00:00:00Z","last_run_at":"2026-06-27T07:09:10Z","run_count":0}`},
-		{"prompt", PromptTemplate{ID: 5, Tags: json.RawMessage(`[]`)}, `{"id":5,"prompt_key":"","title":"","agent_key":"","tool_name":"","prompt_text":"","when_to_use":"","variables":null,"tags":[],"enabled":false,"manually_edited":false,"priority":0,"created_by":"","updated_by":"","created_at":"0001-01-01T00:00:00Z","updated_at":"0001-01-01T00:00:00Z","description":""}`},
 		{"shared", SharedFile{Path: "reports/final.md", Content: "done"}, `{"path":"reports/final.md","content":"done","updated_by":"","created_at":"0001-01-01T00:00:00Z","updated_at":"0001-01-01T00:00:00Z"}`},
 	}
 	for _, test := range tests {

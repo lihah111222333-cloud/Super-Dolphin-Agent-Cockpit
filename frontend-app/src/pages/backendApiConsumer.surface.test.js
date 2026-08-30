@@ -21,9 +21,7 @@ const featureModuleServices = new Map([
   ['files', 'fileService.js'],
   ['observability', 'observabilityService.js'],
 ]);
-const featureViewSurfaces = new Map([
-  ['features/prompts/PromptPageView.jsx', pageSurfaceManifest.prompts],
-]);
+const featureViewSurfaces = new Map();
 
 function collectSourceFiles(dirs) {
   const files = [];
@@ -320,27 +318,6 @@ describe('backend API consumer guardrails', () => {
       'pages/files/FilesPage.jsx imports ../../shared/api/backendApi.js',
       'pages/files/FilesPage.jsx uses computed Vitest module mock',
     ]);
-  });
-
-  it('does not accept feature service mentions without a real static import', () => {
-    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
-      // promptPageService appears in a comment but is not imported.
-      const x = 'promptPageService';
-      export function PromptPageView() {
-        return x;
-      }
-    `)).toContain('features/prompts/PromptPageView.jsx does not import pages/prompts/services/promptPageService.js');
-
-    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
-      export { promptPageService } from '../../pages/prompts/services/promptPageService.js';
-    `)).toContain('features/prompts/PromptPageView.jsx does not import pages/prompts/services/promptPageService.js');
-
-    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
-      import { promptPageService } from '../../pages/prompts/services/promptPageService.js';
-      export function PromptPageView() {
-        return promptPageService;
-      }
-    `)).toEqual([]);
   });
 
   it('detects cross-feature service and adapter imports', () => {

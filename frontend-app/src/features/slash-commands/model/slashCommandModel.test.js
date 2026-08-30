@@ -76,10 +76,9 @@ describe('normalizeSlashCommandItem', () => {
 });
 
 describe('rankSlashCommandItems', () => {
-  it('orders by match quality and then builtin, skill, prompt, automation, tool', () => {
+  it('orders by match quality and then builtin, skill, automation, tool', () => {
     const items = [
       commandItem({ id: 'mcp_tool:lsp:review', kind: 'mcp_tool', label: 'Review tool' }),
-      commandItem({ id: 'prompt:review', kind: 'prompt', name: 'review-notes', label: 'Review notes' }),
       commandItem(),
       commandItem({
         id: 'builtin:new', kind: 'builtin', name: 'new', label: 'New chat',
@@ -88,7 +87,6 @@ describe('rankSlashCommandItems', () => {
     ];
     expect(rankSlashCommandItems(items, 'review').map((item) => item.id)).toEqual([
       'skill:review',
-      'prompt:review',
       'mcp_tool:lsp:review',
       'builtin:new',
     ]);

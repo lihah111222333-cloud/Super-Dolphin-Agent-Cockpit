@@ -84,9 +84,6 @@ func assertDashboardPageSlices(t *testing.T, got *DashboardPage) {
 	if got.CommandCards == nil {
 		t.Fatalf("GetDashboardPage() missing command cards slice: %#v", got)
 	}
-	if got.Prompts == nil {
-		t.Fatalf("GetDashboardPage() missing prompts slice: %#v", got)
-	}
 }
 
 func assertEmptyDashboardCommandPage(t *testing.T, got *DashboardPage) {
@@ -94,9 +91,6 @@ func assertEmptyDashboardCommandPage(t *testing.T, got *DashboardPage) {
 
 	if len(got.CommandCards) != 0 {
 		t.Fatalf("GetDashboardPage(commands).CommandCards = %#v, want empty", got.CommandCards)
-	}
-	if len(got.Prompts) != 0 {
-		t.Fatalf("GetDashboardPage(commands).Prompts = %#v, want empty", got.Prompts)
 	}
 }
 
@@ -135,124 +129,6 @@ func (s *stubSharedFileReader) List(_ context.Context, filter SharedFileFilter) 
 	return s.result, s.err
 }
 
-func TestGetDashboardPageFiltersPromptsByScopedCWD(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name     string
-		cwd      string
-		wantKeys []string
-	}{
-		{name: "repo_a", cwd: "/repo-a", wantKeys: []string{"global", "match"}},
-		{name: "repo_b", cwd: "/repo-b", wantKeys: []string{"global", "other"}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			stub := &stubPromptReader{
-				result: []PromptTemplate{
-					{PromptKey: "global", Title: "Global", Tags: json.RawMessage(`[]`)},
-					{PromptKey: "match", Title: "Match", Tags: json.RawMessage(`["scope.cwd:/repo-a"]`)},
-					{PromptKey: "other", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
-				},
-			}
-			svc := &service{prompts: stub}
-
-			got, err := svc.GetDashboardPage(withDashboardPromptScopeCWD(context.Background(), tc.cwd), "commands")
-			if err != nil {
-				t.Fatalf("GetDashboardPage() error = %v", err)
-			}
-			if stub.calls != 1 {
-				t.Fatalf("List() calls = %d, want 1", stub.calls)
-			}
-			if stub.lastFilter.CWD != tc.cwd || stub.lastFilter.Limit != dashboardPageDefaultLimit {
-				t.Fatalf("List() filter = %#v", stub.lastFilter)
-			}
-			if len(got.Prompts) != len(tc.wantKeys) {
-				t.Fatalf("GetDashboardPage(commands).Prompts len = %d, want %d (%#v)", len(got.Prompts), len(tc.wantKeys), got.Prompts)
-			}
-			for idx, wantKey := range tc.wantKeys {
-				if got.Prompts[idx].PromptKey != wantKey {
-					t.Fatalf("GetDashboardPage(commands).Prompts[%d] = %q, want %q", idx, got.Prompts[idx].PromptKey, wantKey)
-				}
-			}
-		})
-	}
-}
-
-func TestDashboardPromptsHandlerScopesByCWDAndReturnsPromptsKey(t *testing.T) {
-	t.Parallel()
-
-	stub := &stubPromptReader{
-		result: []PromptTemplate{
-			{PromptKey: "global", Title: "Global", Tags: json.RawMessage(`[]`)},
-			{PromptKey: "match", Title: "Match", Tags: json.RawMessage(`["scope.cwd:/repo-a"]`)},
-			{PromptKey: "other", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
-		},
-	}
-	server := newDashboardTestServer(t, &service{prompts: stub})
-
-	result, err := server.Dispatch(context.Background(), "dashboard/prompts", json.RawMessage(`{"cwd":"/repo-b"}`))
-	if err != nil {
-		t.Fatalf("Dispatch() error = %v", err)
-	}
-	if stub.calls != 1 {
-		t.Fatalf("List() calls = %d, want 1", stub.calls)
-	}
-	if stub.lastFilter.CWD != "/repo-b" || stub.lastFilter.Limit != dashboardPageDefaultLimit {
-		t.Fatalf("List() filter = %#v", stub.lastFilter)
-	}
-
-	prompts := decodeDashboardPromptsResponse(t, result)
-	assertDashboardPromptKeys(t, prompts, []string{"global", "other"})
-}
-
-func TestDashboardPromptsHandlerRequiresCWD(t *testing.T) {
-	t.Parallel()
-
-	stub := &stubPromptReader{
-		result: []PromptTemplate{
-			{PromptKey: "other-project", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
-		},
-	}
-	server := newDashboardTestServer(t, &service{prompts: stub})
-
-	_, err := server.Dispatch(context.Background(), "dashboard/prompts", json.RawMessage(`{}`))
-	if err == nil {
-		t.Fatal("Dispatch() error = nil, want cwd required")
-	}
-	if stub.calls != 0 {
-		t.Fatalf("List() calls = %d, want 0 when cwd is missing", stub.calls)
-	}
-}
-
-func TestDashboardPromptsHandlerHidesSystemManagedPromptRows(t *testing.T) {
-	t.Parallel()
-
-	stub := &stubPromptReader{
-		result: []PromptTemplate{
-			{PromptKey: "user-expert", Title: "User Expert", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
-			{PromptKey: "rpc-updated-seed", Title: "RPC Updated Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts"},
-			{PromptKey: "user-edited-seed", Title: "User Edited Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "system.seed", ManuallyEdited: true},
-			{PromptKey: "builtin-tagged", Title: "Builtin Tagged", Tags: json.RawMessage(`["scope.cwd:/repo-a","builtin:system"]`), CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
-			{PromptKey: "edited-builtin-tagged", Title: "Edited Builtin Tagged", Tags: json.RawMessage(`["scope.cwd:/repo-a","builtin:system"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts", ManuallyEdited: true},
-			{PromptKey: "system-seed", Title: "System Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "system.seed"},
-			{PromptKey: "registry-row", Title: "Registry Row", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "builtin.registry", UpdatedBy: "builtin.registry"},
-		},
-	}
-	server := newDashboardTestServer(t, &service{prompts: stub})
-
-	result, err := server.Dispatch(context.Background(), "dashboard/prompts", json.RawMessage(`{"cwd":"/repo-a"}`))
-	if err != nil {
-		t.Fatalf("Dispatch() error = %v", err)
-	}
-
-	prompts := decodeDashboardPromptsResponse(t, result)
-	assertDashboardPromptKeys(t, prompts, []string{"user-expert", "rpc-updated-seed", "user-edited-seed"})
-}
-
 func TestGetAILogsByCategoryUsesStore(t *testing.T) {
 	t.Parallel()
 
@@ -278,41 +154,6 @@ func TestGetAILogsByCategoryUsesStore(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != 7 || got[0].Category != "api_request" {
 		t.Fatalf("GetAILogsByCategory() = %#v", got)
-	}
-}
-
-func decodeDashboardPromptsResponse(t *testing.T, result json.RawMessage) []PromptTemplate {
-	t.Helper()
-
-	var response map[string]json.RawMessage
-	if err := json.Unmarshal(result, &response); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	promptsRaw, ok := response["prompts"]
-	if !ok {
-		t.Fatalf("Dispatch() response keys = %#v, want prompts", response)
-	}
-	if _, ok := response["commands"]; ok {
-		t.Fatalf("Dispatch() response unexpectedly retained legacy commands key: %#v", response)
-	}
-
-	var prompts []PromptTemplate
-	if err := json.Unmarshal(promptsRaw, &prompts); err != nil {
-		t.Fatalf("json.Unmarshal(prompts) error = %v", err)
-	}
-	return prompts
-}
-
-func assertDashboardPromptKeys(t *testing.T, prompts []PromptTemplate, wantKeys []string) {
-	t.Helper()
-
-	if len(prompts) != len(wantKeys) {
-		t.Fatalf("Dispatch() prompts = %#v, want %d prompts", prompts, len(wantKeys))
-	}
-	for idx, want := range wantKeys {
-		if prompts[idx].PromptKey != want {
-			t.Fatalf("Dispatch() prompts[%d] = %q, want %q", idx, prompts[idx].PromptKey, want)
-		}
 	}
 }
 
@@ -546,21 +387,6 @@ func TestGetBusLogUsesStore(t *testing.T) {
 	if got.ID != 9 || got.Traceback != "stack" {
 		t.Fatalf("GetBusLog() = %#v", got)
 	}
-}
-
-type stubPromptReader struct {
-	result     []PromptTemplate
-	err        error
-	calls      int
-	lastFilter PromptTemplateFilter
-}
-
-var _ PromptTemplateReader = (*stubPromptReader)(nil)
-
-func (s *stubPromptReader) List(_ context.Context, filter PromptTemplateFilter) ([]PromptTemplate, error) {
-	s.calls++
-	s.lastFilter = filter
-	return s.result, s.err
 }
 
 type stubAILogStore struct {

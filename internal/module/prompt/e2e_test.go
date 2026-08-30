@@ -292,7 +292,6 @@ func newFxHarness(t *testing.T) *fxHarness {
 			func() thread.SessionProvider { return h.bridge },
 			func() thread.ThreadStore { return h.threadStore },
 			func() thread.BindingStore { return h.bindingStore },
-			newE2EPromptStore,
 			func() turnpkg.Service { return &noopTurnService{} },
 			func() thread.OrchestrationFacade { return h.orchestration },
 			func(store datasource.DatasourceDocumentStore) *datasource.PromptProvider {

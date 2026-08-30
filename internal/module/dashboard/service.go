@@ -40,13 +40,9 @@ type service struct {
 	aiLogs        AILogReader
 	dbQueries     DBQueryExecutor
 	commandCards  CommandCardReader
-	prompts       PromptTemplateReader
 	sharedFiles   SharedFileReader
 	startedAt     time.Time
 }
-
-// dashboardPromptScopeCWDKey 是 dashboard prompt 过滤使用的 context 私有 key。
-type dashboardPromptScopeCWDKey struct{}
 
 var _ Service = (*service)(nil)
 
@@ -62,7 +58,6 @@ func NewService(
 	aiLogs AILogReader,
 	dbQueries DBQueryExecutor,
 	commandCards CommandCardReader,
-	prompts PromptTemplateReader,
 	sharedFiles SharedFileReader,
 ) Service {
 	return &service{
@@ -75,7 +70,6 @@ func NewService(
 		aiLogs:        aiLogs,
 		dbQueries:     dbQueries,
 		commandCards:  commandCards,
-		prompts:       prompts,
 		sharedFiles:   sharedFiles,
 		startedAt:     time.Now(),
 	}
@@ -94,7 +88,6 @@ func newServiceWithDAGRuntime(
 	aiLogs AILogReader,
 	dbQueries DBQueryExecutor,
 	commandCards CommandCardReader,
-	prompts PromptTemplateReader,
 	sharedFiles SharedFileReader,
 ) Service {
 	svc := NewService(
@@ -107,30 +100,12 @@ func newServiceWithDAGRuntime(
 		aiLogs,
 		dbQueries,
 		commandCards,
-		prompts,
 		sharedFiles,
 	)
 	if impl, ok := svc.(*service); ok && dagRuntime != nil {
 		impl.dagRuntime = dagRuntime
 	}
 	return svc
-}
-
-// withDashboardPromptScopeCWD 将当前页面 cwd 放进 context，供 prompt 列表过滤使用。
-func withDashboardPromptScopeCWD(ctx context.Context, cwd string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, dashboardPromptScopeCWDKey{}, strings.TrimSpace(cwd))
-}
-
-// dashboardPromptScopeCWDFromContext 读取 dashboard 页面传递的 cwd scope，缺失时返回空字符串。
-func dashboardPromptScopeCWDFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	value, _ := ctx.Value(dashboardPromptScopeCWDKey{}).(string)
-	return strings.TrimSpace(value)
 }
 
 // GetDashboard 构建 dashboard 首页概览。

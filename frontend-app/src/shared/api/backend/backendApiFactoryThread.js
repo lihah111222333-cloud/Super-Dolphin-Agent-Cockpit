@@ -32,7 +32,7 @@ import {
   createObservabilityApi,
   createSharedFilesApi,
   createDatasourceApi,
-  createPromptDagApi,
+  createDagApi,
 } from './backendApiFactoryCore.js';
 import {
   createCronApi,
@@ -438,7 +438,7 @@ export function createBackendApi(deps = {}) {
     ...createAppUpdateApi(callBackend),
     ...createObservabilityApi(callBackend),
     ...createSharedFilesApi(callBackend),
-    ...createPromptDagApi(callBackend),
+    ...createDagApi(callBackend),
     ...createCronApi(callBackend),
     ...createCodeApi(callBackend),
     ...createDatasourceApi(callBackend),

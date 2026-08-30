@@ -12,11 +12,6 @@ function focusTextarea(textareaRef) {
   if (textareaRef.current) textareaRef.current.focus();
 }
 
-function errorMessage(error) {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 function selectedCapabilities(store) {
   if (!Array.isArray(store.composerCapabilities)) {
     throw new TypeError('composer capabilities must be an array');
@@ -61,26 +56,12 @@ function selectAutomation(item, draft, setDraft) {
   setDraft(replaceSlashCommandTrigger(draft, `${title}\n\n${content}`));
 }
 
-async function selectPrompt(item, context) {
-  const { cwd, draft, service, setDraft, store } = context;
-  try {
-    const content = await service.loadPromptContent(cwd, item.payload.promptId);
-    setDraft(replaceSlashCommandTrigger(draft, content));
-    return true;
-  }
-  catch (error) {
-    store.notifyAction(errorMessage(error), 'error');
-    return false;
-  }
-}
-
-async function applySelection(item, context) {
+function applySelection(item, context) {
   const { draft, setDraft, store } = context;
   if (item.kind === 'builtin') selectBuiltin(item, store);
   if (item.kind === 'mcp_tool') {
     selectCapability(item, draft, setDraft, store);
   }
-  if (item.kind === 'prompt') return selectPrompt(item, context);
   if (item.kind === 'automation') selectAutomation(item, draft, setDraft);
   return true;
 }
@@ -138,13 +119,7 @@ export function useSlashCommandPalette(options) {
     if (item.disabled || selecting) return false;
     setSelecting(true);
     try {
-      const selected = await applySelection(item, {
-        cwd,
-        draft,
-        service,
-        setDraft,
-        store,
-      });
+      const selected = applySelection(item, { draft, setDraft, store });
       if (selected && item.kind === 'builtin') setDismissedDraft(draft);
       if (selected) focusTextarea(textareaRef);
       return selected;
@@ -152,7 +127,7 @@ export function useSlashCommandPalette(options) {
     finally {
       setSelecting(false);
     }
-  }, [cwd, draft, selecting, service, setDraft, store, textareaRef]);
+  }, [draft, selecting, setDraft, store, textareaRef]);
 
   const setActiveId = useCallback((id) => {
     setActiveSelection({ id, query });

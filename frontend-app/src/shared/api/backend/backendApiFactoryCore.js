@@ -41,15 +41,6 @@ import {
   dashboardDagRunsPayload,
   dashboardDagTerminatePayload,
   dashboardDagApplyOpsPayload,
-  promptWritePayload,
-  promptDeletePayload,
-  promptIntentDraftPayload,
-  promptIntentCommitPayload,
-  promptIntentDiscardPayload,
-  promptIntentDryRunPayload,
-  personalizationProfilePayload,
-  promptSectionPayload,
-  lspPromptHintWritePayload,
   videoApiKeyPayload,
   builtinToolWritePayload,
   dashboardLogsPayload,
@@ -111,8 +102,6 @@ function createBackendCaller(callAPI) {
 function createConfigProjectApi(callBackend) {
   return {
     readConfig: () => callBackend(RPC_METHODS.CONFIG_READ, {}),
-    readLspPromptHint: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ, requireCwd(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ, params)),
-    writeLspPromptHint: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, lspPromptHintWritePayload(params)),
     readBuiltinTools: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.CONFIG_BUILTIN_TOOLS_READ, requireCwd(RPC_METHODS.CONFIG_BUILTIN_TOOLS_READ, params)),
     writeBuiltinTool: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE, builtinToolWritePayload(params)),
     getWindowBootstrap: () => callBackend(RPC_METHODS.UI_WINDOW_BOOTSTRAP_GET, {}),
@@ -364,31 +353,8 @@ function createSharedFilesApi(callBackend) {
 }
 
 /** @param {BackendCaller} callBackend */
-function createPromptDagApi(callBackend) {
+function createDagApi(callBackend) {
   return {
-    listPromptAssets: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_ASSETS_LIST, requireCwd(RPC_METHODS.PROMPT_ASSETS_LIST, params)),
-    getDashboardPrompts: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.DASHBOARD_PROMPTS, requireCwd(RPC_METHODS.DASHBOARD_PROMPTS, params)),
-    getPrompt: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.PROMPTS_GET,
-      requireKey(RPC_METHODS.PROMPTS_GET, requireCwd(RPC_METHODS.PROMPTS_GET, params), 'id'),
-    ),
-    writePrompt: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPTS_WRITE, promptWritePayload(params)),
-    deletePrompt: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPTS_DELETE, promptDeletePayload(params)),
-    draftPromptIntent: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_INTENTS_DRAFT, promptIntentDraftPayload(params)),
-    commitPromptIntent: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_INTENTS_COMMIT, promptIntentCommitPayload(params)),
-    discardPromptIntent: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_INTENTS_DISCARD, promptIntentDiscardPayload(params)),
-    dryRunPromptIntent: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_INTENTS_DRY_RUN, promptIntentDryRunPayload(params)),
-    getPersonalizationProfile: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.PERSONALIZATION_PROFILE_GET,
-      personalizationProfilePayload(RPC_METHODS.PERSONALIZATION_PROFILE_GET, params),
-    ),
-    savePersonalizationProfile: (/** @type {unknown} */ params) => callBackend(
-      RPC_METHODS.PERSONALIZATION_PROFILE_SAVE,
-      personalizationProfilePayload(RPC_METHODS.PERSONALIZATION_PROFILE_SAVE, params),
-    ),
-    listPromptSections: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_LIST, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_LIST, params)),
-    writePromptSection: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_WRITE, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_WRITE, params)),
-    deletePromptSection: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.PROMPT_SECTIONS_DELETE, promptSectionPayload(RPC_METHODS.PROMPT_SECTIONS_DELETE, params)),
     listDags: (/** @type {unknown} */ params) => callBackend(RPC_METHODS.DASHBOARD_DAGS, dashboardDagsPayload(params)),
     getDagDetail: (/** @type {unknown} */ params) => callBackend(
       RPC_METHODS.DASHBOARD_DAG_DETAIL,
@@ -435,5 +401,5 @@ function createPromptDagApi(callBackend) {
 export {
   BACKEND_RESPONSE_VALIDATORS, NATIVE_DEP_FALLBACKS, resolveNativeDeps, createBackendCaller, createConfigProjectApi, createAppUpdateApi,
   datasourceCreatePayload, datasourceImportLocalFilePayload, datasourceListPayload, datasourceDocumentIDPayload, datasourceChunksPayload,
-  datasourceUpdatePayload, createDatasourceApi, createObservabilityApi, createSharedFilesApi, createPromptDagApi,
+  datasourceUpdatePayload, createDatasourceApi, createObservabilityApi, createSharedFilesApi, createDagApi,
 };

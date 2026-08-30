@@ -163,14 +163,9 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       if (method === 'observability/slow/list' || method === 'observability/error/list' || method === 'observability/thread/recent' || method === 'observability/trace/get') {
         return observabilityResult();
       }
-      if (method === 'prompt-assets/list') return { prompts: [] };
-      if (method === 'dashboard/prompts') return { prompts: [] };
-      if (method === 'prompt-sections/list') return { sections: [] };
-      if (method === 'personalization/profile/get') return { profile: {} };
       if (method === 'modelProviders/list') return modelProviders();
       if (method === 'ui/video/getApiKey') return { configured: false, masked: '' };
       if (method === 'ui/video/setApiKey') return saveVideoApiKey(params, method);
-      if (method === 'config/lspPromptHint/read') return { hint: 'agentic e2e prompt hint', defaultHint: 'agentic e2e prompt hint', overrideHint: '', usingDefault: true };
       if (method === 'config/builtinTools/read') return { tools: [] };
       if (method === 'dashboard/dags') return { dags: [] };
       if (method === 'dashboard/dagRuns') return { runs: [] };

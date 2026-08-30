@@ -319,7 +319,7 @@ func TestBuildGatePlanRequiresDiagnosticsGateForGoScripts(t *testing.T) {
 func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{
 		"internal/store/thread/store.go",
-		"internal/module/prompt/service_surface.go",
+		"internal/module/prompt/service.go",
 		"internal/contract/provider.go",
 	})
 

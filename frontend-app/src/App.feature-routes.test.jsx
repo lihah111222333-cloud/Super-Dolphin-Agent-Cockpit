@@ -21,10 +21,8 @@ const backend = vi.hoisted(() => {
 	    callBackend checkAppUpdate installLatestAppUpdate
     getSidebarState getThreadState getThreadMessages getBuildInfo getVideoApiKey getDashboardPage getObservabilityStatus
     getObservabilityTrace getObservabilityThreadRecent listObservabilityRecent listObservabilitySlow
-    listObservabilityErrors listSharedFiles listPromptAssets getDashboardPrompts getPrompt writePrompt
-    readLspPromptHint writeLspPromptHint readBuiltinTools writeBuiltinTool listDashboardLogs
-    getPersonalizationProfile savePersonalizationProfile listPromptSections writePromptSection deletePromptSection
-    deletePrompt draftPromptIntent commitPromptIntent discardPromptIntent dryRunPromptIntent
+    listObservabilityErrors listSharedFiles
+    readBuiltinTools writeBuiltinTool listDashboardLogs
     listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
     selectProjectDir selectProjectDirs
@@ -88,7 +86,6 @@ const {
   mockBootstrapBackendDefaults,
   mockDashboardPageDefaults,
   mockObservabilityDefaults,
-  mockPromptDefaults,
   mockWorkflowDefaults,
   mockCronDefaults,
   mockSharedFileDefaults,
@@ -102,7 +99,6 @@ beforeEach(resetConnectedShellTestState);
 beforeEach(mockBootstrapBackendDefaults);
 beforeEach(mockDashboardPageDefaults);
 beforeEach(mockObservabilityDefaults);
-beforeEach(mockPromptDefaults);
 beforeEach(mockWorkflowDefaults);
 beforeEach(mockCronDefaults);
 beforeEach(mockSharedFileDefaults);

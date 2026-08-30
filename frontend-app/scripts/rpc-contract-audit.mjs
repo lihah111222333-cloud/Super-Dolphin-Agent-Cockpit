@@ -72,17 +72,6 @@ const RESPONSE_VALIDATOR_POLICY_EXCEPTIONS = new Map([
 const SERVICE_FACADE_LOCATORS = new Map([
   ['OBSERVABILITY_TRACE_GET', 'frontend-app/src/pages/observability/services/observabilityPageService.js'],
   ['OBSERVABILITY_RECENT_LIST', 'frontend-app/src/pages/observability/services/observabilityPageService.js'],
-  ['PROMPT_ASSETS_LIST', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['DASHBOARD_PROMPTS', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PROMPTS_GET', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PROMPTS_WRITE', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PROMPTS_DELETE', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PROMPT_INTENTS_DRAFT', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PROMPT_INTENTS_COMMIT', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PROMPT_INTENTS_DISCARD', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PROMPT_INTENTS_DRY_RUN', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PERSONALIZATION_PROFILE_GET', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
-  ['PERSONALIZATION_PROFILE_SAVE', 'frontend-app/src/pages/prompts/services/promptPageService.js'],
 ])
 
 const FRONTEND_PAYLOAD_METHOD_EXEMPTIONS = new Map([

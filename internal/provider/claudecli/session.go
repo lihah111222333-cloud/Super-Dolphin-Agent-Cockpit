@@ -265,6 +265,12 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
+	if err := validateSelectedSkillNames(req.Skills); err != nil {
+		return err
+	}
+	if err := s.requireProviderNativeSkills(req.Skills); err != nil {
+		return err
+	}
 	payload, err := buildSteerPayload(req, s.imageTracker)
 	if err != nil {
 		return err

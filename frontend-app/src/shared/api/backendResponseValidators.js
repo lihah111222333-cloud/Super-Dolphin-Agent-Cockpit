@@ -1,16 +1,8 @@
 // @ts-check
 
 import {
-  parseDashboardPromptsResponse,
   parseModelProviderRegistryResponse,
   parseObservabilityResultResponse,
-  parsePersonalizationProfileResponse,
-  parsePromptAssetsResponse,
-  parsePromptDetailResponse,
-  parsePromptIntentCommitResponse,
-  parsePromptIntentDiscardResponse,
-  parsePromptIntentDraftResponse,
-  parsePromptIntentDryRunResponse,
   parseSharedFilesDashboardResponse,
   parseWorkflowMaterialWriteResponse,
 } from './backendSchemas.js';
@@ -24,7 +16,6 @@ import {
   validateDashboardLogsResponse,
   validateDashboardPageResponse,
   validateFrontendIngestResponse,
-  validateLspPromptHintResponse,
   validateNullResponse,
   validateOKResponse,
   validateOpenWindowResponse,
@@ -155,22 +146,6 @@ const validateSharedFilesDashboardResponse = (method, response) => validateSchem
 const validateParsedModelProviderRegistryResponse = (method, response) => validateSchemaResponse(method, response, parseModelProviderRegistryResponse);
 /** @type {(method: string, response: unknown) => unknown} */
 const validateWorkflowMaterialWriteResponse = (method, response) => validateSchemaResponse(method, response, parseWorkflowMaterialWriteResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validatePromptAssetsResponse = (method, response) => validateSchemaResponse(method, response, parsePromptAssetsResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validateDashboardPromptsResponse = (method, response) => validateSchemaResponse(method, response, parseDashboardPromptsResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validatePromptDetailResponse = (method, response) => validateSchemaResponse(method, response, parsePromptDetailResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validatePromptIntentDraftResponse = (method, response) => validateSchemaResponse(method, response, parsePromptIntentDraftResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validatePromptIntentCommitResponse = (method, response) => validateSchemaResponse(method, response, parsePromptIntentCommitResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validatePromptIntentDiscardResponse = (method, response) => validateSchemaResponse(method, response, parsePromptIntentDiscardResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validatePromptIntentDryRunResponse = (method, response) => validateSchemaResponse(method, response, parsePromptIntentDryRunResponse);
-/** @type {(method: string, response: unknown) => unknown} */
-const validatePersonalizationProfileResponse = (method, response) => validateSchemaResponse(method, response, parsePersonalizationProfileResponse);
 /** @param {string} method @param {unknown} response @param {number} index */
 function validateSavedModelProviderVendor(method, response, index) {
   const label = `body.vendors[${index}]`;
@@ -337,12 +312,9 @@ export function createBackendResponseValidators(methods) {
     [methods.CONFIG_READ]: validateRuntimeConfigResponse,
     [methods.CONFIG_BUILTIN_TOOLS_READ]: validateBuiltinToolsResponse,
     [methods.CONFIG_BUILTIN_TOOLS_WRITE]: validateBuiltinToolsResponse,
-    [methods.CONFIG_LSP_PROMPT_HINT_READ]: validateLspPromptHintResponse,
-    [methods.CONFIG_LSP_PROMPT_HINT_WRITE]: validateLspPromptHintResponse,
     [methods.DASHBOARD_SHARED_FILES]: validateSharedFilesDashboardResponse,
     [methods.CRONJOB_LIST]: validateCronListResponse,
     [methods.DASHBOARD_WORKFLOW_MATERIAL_WRITE]: validateWorkflowMaterialWriteResponse,
-    [methods.DASHBOARD_PROMPTS]: validateDashboardPromptsResponse,
     [methods.MCP_SERVER_LIST]: validateMCPServerListResponse,
     [methods.TOOLBRIDGE_TOOLS_LIST]: validateToolbridgeToolsListResponse,
     [methods.MCP_SERVER_SQLITE_START]: validateControlResponse,
@@ -371,16 +343,6 @@ export function createBackendResponseValidators(methods) {
     [methods.UI_WINDOW_BOOTSTRAP_GET]: validateWindowBootstrapResponse,
     [methods.UI_SIDEBAR_GET]: validateSidebarStateResponse,
     [methods.UI_STATE_GET]: validateUIStateResponse,
-    [methods.PROMPT_ASSETS_LIST]: validatePromptAssetsResponse,
-    [methods.PROMPTS_GET]: validatePromptDetailResponse,
-    [methods.PROMPTS_WRITE]: validatePromptDetailResponse,
-    [methods.PROMPTS_DELETE]: validateOKResponse,
-    [methods.PROMPT_INTENTS_DRAFT]: validatePromptIntentDraftResponse,
-    [methods.PROMPT_INTENTS_COMMIT]: validatePromptIntentCommitResponse,
-    [methods.PROMPT_INTENTS_DISCARD]: validatePromptIntentDiscardResponse,
-    [methods.PROMPT_INTENTS_DRY_RUN]: validatePromptIntentDryRunResponse,
-    [methods.PERSONALIZATION_PROFILE_GET]: validatePersonalizationProfileResponse,
-    [methods.PERSONALIZATION_PROFILE_SAVE]: validatePersonalizationProfileResponse,
 	[methods.DATASOURCE_V2_IMPORT_LOCAL_FILE]: validateDatasourceImportResponse,
     [methods.DATASOURCE_V2_LIST]: validateDatasourceDocumentsResponse,
     [methods.DATASOURCE_V2_GET]: validateDatasourceDetailResponse,

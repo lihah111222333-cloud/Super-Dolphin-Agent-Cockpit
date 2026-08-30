@@ -1,7 +1,4 @@
 import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField } from '../contractStoreModel.js';
-export const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey';
-
-const PROMPT_REVISION_EVENTS = new Set(['prompts/changed', 'prompt-assets/changed', 'ui/prompts/changed']);
 const BRIDGE_REVISION_EVENTS = Object.freeze([
   Object.freeze({ key: 'sharedFilesRevision', events: new Set(['ui/shared-files/changed', 'shared-files/changed', 'shared_file/changed']) }),
   Object.freeze({ key: 'workflowRevision', events: new Set(['task/node/statuschanged', 'cron/job/runstatechanged', 'task/dag/changed', 'dags/changed']) }),
@@ -34,12 +31,6 @@ export function requireDagNodeStatusPayload(payload) {
 
 /** @param {string} eventName @param {Record<string, unknown>} [payload] */
 export function bridgeRevisionKey(eventName, payload = {}) {
-  if (
-    PROMPT_REVISION_EVENTS.has(eventName) ||
-    (eventName === 'ui/preferences/changed' && normalizeString(payload.key) === ACTIVE_PROMPT_PREF_KEY)
-  ) {
-    return 'promptRevision';
-  }
   if (eventName === 'task/node/statuschanged') requireDagNodeStatusPayload(payload);
   const match = BRIDGE_REVISION_EVENTS.find((entry) => entry.events.has(eventName));
   return match?.key || optionalTextField();

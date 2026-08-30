@@ -18,8 +18,7 @@
 
 .console-page,
 .settings-page,
-.workflow-page,
-.prompt-page {
+.workflow-page {
   background: var(--bg);
 }
 
@@ -30,11 +29,7 @@
 
 .tabs,
 .segment,
-.shared-files-tabs,
-.prompt-tabs,
-.prompt-segment,
-.prompt-kind-tabs,
-.prompt-scope-choice {
+.shared-files-tabs {
   border-radius: var(--radius-md);
 }
 
@@ -45,12 +40,7 @@
 
 .segment button,
 .tabs button,
-.shared-files-tabs button,
-.prompt-tabs button,
-.prompt-kind-tabs button,
-.prompt-scope-choice button,
-.prompt-scope-choice [role="radio"],
-.prompt-segment button {
+.shared-files-tabs button {
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 600;
@@ -60,13 +50,7 @@
 
 .segment .active,
 .tabs .active,
-.shared-files-tabs .active,
-.prompt-tabs button.active,
-.prompt-tabs button[aria-selected="true"],
-.prompt-kind-tabs button.active,
-.prompt-scope-choice button.active,
-.prompt-scope-choice [role="radio"].active,
-.prompt-segment button.active {
+.shared-files-tabs .active {
   background: color-mix(in srgb, var(--accent-2) 16%, var(--surface-3));
   color: var(--text-pri);
 }
@@ -255,13 +239,8 @@
 .dag-node-row,
 .modal-box,
 .file-row,
-.prompt-card,
 .data-card-vue,
 .settings-builtin-tool-group,
-.settings-prompt-toggle,
-.prompt-scope-copy,
-.prompt-advanced-debug,
-.prompt-draft-review,
 .shared-file-viewer-meta,
 .shared-file-content-preview {
   border-color: var(--border);
@@ -300,9 +279,7 @@
 
 .dag-node-editor label,
 .form-line label,
-.form-grid label,
-.prompt-editor-grid label,
-.prompt-wizard-input {
+.form-grid label {
   color: var(--text-muted);
 }
 
@@ -313,11 +290,7 @@
 .form-grid input,
 .form-grid select,
 .form-grid textarea,
-.settings-stall-input,
-.settings-prompt-textarea,
-.prompt-editor-grid input,
-.prompt-editor-grid textarea,
-.prompt-wizard-input textarea {
+.settings-stall-input {
   border-color: var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
@@ -336,40 +309,30 @@ select:focus-visible {
   border-color: var(--accent-2);
 }
 
-.prompt-card-grid {
-  gap: 12px;
-}
-
-.file-row,
-.prompt-card {
+.file-row {
   background: var(--surface);
   box-shadow: none;
   transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
 }
 
-.file-row:hover,
-.prompt-card:hover {
+.file-row:hover {
   border-color: var(--border-strong);
   background: color-mix(in srgb, var(--surface-2) 58%, var(--surface));
   box-shadow: var(--super-dolphin-agent-card-shadow);
 }
 
-.file-row h3,
-.prompt-card h3 {
+.file-row h3 {
   color: var(--text-pri);
   font-size: 16px;
 }
 
 .file-row p,
-.file-row code,
-.prompt-card-desc,
-.prompt-card-preview {
+.file-row code {
   color: var(--text-sec);
 }
 
 .tags span,
-.prompt-badges span,
-.prompt-tag-row span {
+.tags span {
   border-color: var(--border);
   background: var(--surface-2);
   color: var(--text-muted);
@@ -457,12 +420,6 @@ select:focus-visible {
   font-size: 14px;
 }
 
-.prompt-notice.warn {
-  border-color: color-mix(in srgb, var(--warning) 52%, var(--border));
-  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
-}
-
-.prompt-notice.error,
 .danger-text {
   border-color: color-mix(in srgb, var(--error) 52%, var(--border));
   background: color-mix(in srgb, var(--error) 10%, var(--surface));
@@ -520,7 +477,6 @@ select:focus-visible {
   background: transparent;
 }
 
-.settings-prompt-toggle,
 .settings-builtin-tool-group,
 .settings-log-item {
   background: var(--surface-2);
@@ -530,207 +486,8 @@ select:focus-visible {
   background: var(--surface-3);
 }
 
-.settings-prompt-textarea-readonly {
-  background: color-mix(in srgb, var(--surface-2) 72%, var(--bg)) !important;
-}
-
 .settings-log-item {
   color: var(--text-sec);
-}
-
-.prompt-page {
-  padding: 16px 24px 36px;
-}
-
-.prompt-header {
-  min-height: 62px;
-  margin: -16px -24px 16px;
-  padding-inline: 24px;
-}
-
-.prompt-header h1 {
-  font-size: 20px;
-}
-
-.prompt-header strong {
-  display: block;
-  margin-top: 4px;
-  color: var(--text-sec);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.personalization-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-bottom: 16px;
-  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
-  border-radius: var(--radius-xl, 16px);
-  background: var(--surface);
-  box-shadow: var(--super-dolphin-agent-card-shadow);
-  padding: 16px;
-}
-
-.personalization-overview-hero {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 16px;
-  align-items: start;
-  border-radius: var(--radius-lg, 12px);
-  padding: 20px 24px;
-}
-
-.personalization-overview-copy {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.personalization-overview-copy span,
-.personalization-profile-card header span {
-  opacity: 0.8;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.personalization-overview-copy h2,
-.personalization-profile-card h3 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 760;
-  line-height: 1.25;
-}
-
-.personalization-overview-copy p,
-.personalization-profile-card p {
-  margin: 0;
-  opacity: 0.9;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.personalization-overview dl {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(82px, 1fr));
-  gap: 8px;
-  margin: 0;
-  min-width: 0;
-}
-
-.personalization-overview dl div {
-  min-width: 0;
-  padding: 12px;
-}
-
-.personalization-profile-card {
-  min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  border-radius: var(--radius-md, 8px);
-  background: var(--panel);
-  padding: 16px;
-  box-shadow: var(--super-dolphin-agent-card-shadow);
-}
-
-.personalization-overview dt {
-  opacity: 0.8;
-  font-size: 12px;
-}
-
-.personalization-overview dd {
-  margin: 4px 0 0;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.personalization-profile-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.75fr);
-  gap: 16px;
-}
-
-.personalization-profile-card {
-  display: grid;
-  gap: 10px;
-}
-
-@media (max-width: 1100px) {
-  .personalization-overview-hero {
-    grid-template-columns: 1fr;
-  }
-
-  .personalization-overview dl {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-.personalization-profile-card header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.personalization-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.personalization-form-grid label {
-  display: grid;
-  gap: 5px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.personalization-form-grid input,
-.personalization-form-grid textarea {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  color: var(--text-pri);
-  padding: 9px 10px;
-}
-
-.prompt-toolbar {
-  margin-bottom: 12px;
-}
-
-.prompt-card {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-}
-
-.prompt-card.pending {
-  border-color: color-mix(in srgb, var(--orange) 56%, var(--border));
-}
-
-.prompt-card.disabled {
-  opacity: 0.68;
-}
-
-.prompt-card-preview {
-  min-height: 48px;
-  margin: 0;
-}
-
-.prompt-card-actions {
-  margin-top: 2px;
-}
-
-.prompt-editor-modal header,
-.prompt-wizard-modal header {
-  align-items: flex-start;
-}
-
-.prompt-scope-copy,
-.prompt-advanced-debug,
-.prompt-draft-review {
-  background: var(--surface-2);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -809,8 +566,7 @@ select:focus-visible {
     max-height: none;
   }
 
-  .page-header,
-  .prompt-header {
+  .page-header {
     align-items: flex-start;
     flex-direction: column;
     justify-content: center;
@@ -824,10 +580,8 @@ select:focus-visible {
     flex-wrap: wrap;
   }
 
-  .prompt-card-grid,
   .stat-grid,
-  .form-grid,
-  .prompt-editor-grid {
+  .form-grid {
     grid-template-columns: 1fr;
   }
 
@@ -915,20 +669,9 @@ select:focus-visible {
     gap: 8px;
   }
 
-  .personalization-overview,
-  .personalization-profile-grid,
-  .personalization-form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .personalization-overview dl {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 .shared-files-tabs,
-.prompt-tabs,
-.prompt-kind-tabs,
 .workflow-list .tabs {
   display: flex !important;
   gap: 8px !important;
@@ -949,8 +692,6 @@ select:focus-visible {
 }
 
 .shared-files-tabs button,
-.prompt-tabs button,
-.prompt-kind-tabs button,
 .workflow-list .tabs button {
   background: transparent !important;
   border: 0 !important;
@@ -967,16 +708,11 @@ select:focus-visible {
 }
 
 .shared-files-tabs button:hover,
-.prompt-tabs button:hover,
-.prompt-kind-tabs button:hover,
 .workflow-list .tabs button:hover {
   color: var(--text-pri) !important;
 }
 
 .shared-files-tabs .active,
-.prompt-tabs button.active,
-.prompt-tabs button[aria-selected="true"],
-.prompt-kind-tabs button.active,
 .workflow-list .tabs .active {
   background: transparent !important;
   border-bottom-color: var(--primary) !important;
@@ -984,7 +720,7 @@ select:focus-visible {
   box-shadow: none !important;
 }
 
-/* 可点击卡片（提示词模板等）：轻微抬升与按压，区别于信息卡片（信息卡不做抬升） */
+/* 可点击卡片轻微抬升与按压，区别于信息卡片（信息卡不做抬升） */
 .data-card-clickable {
   transition: border-color var(--motion-hover), box-shadow var(--motion-hover), transform var(--motion-hover);
 }

@@ -62,7 +62,7 @@ import {
 import { createClientStoreRuntime } from './helpers/a1/clientStoreRuntimeCore.js';
 import {
   createNavigationActions,
-  createPromptWorkflowCacheActions,
+  createWorkflowPageCacheActions,
   createProviderActions,
   createProviderConfigActions,
   createResourcePageCacheActions,
@@ -125,7 +125,7 @@ function createClientStore(set, get) {
     ...baseState,
     ...createRuntimeSlice(runtime, runtimeActionDeps),
     ...createNavigationActions(runtime, breadcrumbActionDeps),
-    ...createPromptWorkflowCacheActions(runtime),
+    ...createWorkflowPageCacheActions(runtime),
     ...createResourcePageCacheActions(runtime),
     ...createProviderConfigActions(runtime),
     ...createProjectSlice(runtime, projectActionDeps),

@@ -20,7 +20,6 @@ type serviceParams struct {
 	AILogs        AILogReader
 	DBQueries     DBQueryExecutor
 	CommandCards  CommandCardReader
-	Prompts       PromptTemplateReader
 	SharedFiles   SharedFileReader
 }
 
@@ -54,7 +53,6 @@ var Module = fx.Module("dashboard",
 			p.AILogs,
 			p.DBQueries,
 			p.CommandCards,
-			p.Prompts,
 			p.SharedFiles,
 		)
 	}),

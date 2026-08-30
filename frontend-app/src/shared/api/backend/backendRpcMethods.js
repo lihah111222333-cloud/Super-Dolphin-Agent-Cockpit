@@ -1,7 +1,5 @@
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
-  CONFIG_LSP_PROMPT_HINT_READ: 'config/lspPromptHint/read',
-  CONFIG_LSP_PROMPT_HINT_WRITE: 'config/lspPromptHint/write',
   CONFIG_BUILTIN_TOOLS_READ: 'config/builtinTools/read',
   CONFIG_BUILTIN_TOOLS_WRITE: 'config/builtinTools/write',
 
@@ -45,21 +43,6 @@ export const RPC_METHODS = Object.freeze({
   DASHBOARD_LOGS: 'dashboard/logs',
   DASHBOARD_SHARED_FILES: 'dashboard/sharedFiles',
   DASHBOARD_WORKFLOW_MATERIAL_WRITE: 'dashboard/workflowMaterialWrite',
-
-  PROMPT_ASSETS_LIST: 'prompt-assets/list',
-  DASHBOARD_PROMPTS: 'dashboard/prompts',
-  PROMPTS_GET: 'prompts/get',
-  PROMPTS_WRITE: 'prompts/write',
-  PROMPTS_DELETE: 'prompts/delete',
-  PROMPT_INTENTS_DRAFT: 'prompt-intents/draft',
-  PROMPT_INTENTS_COMMIT: 'prompt-intents/commit',
-  PROMPT_INTENTS_DISCARD: 'prompt-intents/discard',
-  PROMPT_INTENTS_DRY_RUN: 'prompt-intents/dry-run',
-  PERSONALIZATION_PROFILE_GET: 'personalization/profile/get',
-  PERSONALIZATION_PROFILE_SAVE: 'personalization/profile/save',
-  PROMPT_SECTIONS_LIST: 'prompt-sections/list',
-  PROMPT_SECTIONS_WRITE: 'prompt-sections/write',
-  PROMPT_SECTIONS_DELETE: 'prompt-sections/delete',
 
   DASHBOARD_DAGS: 'dashboard/dags',
   DASHBOARD_DAG_DETAIL: 'dashboard/dagDetail',

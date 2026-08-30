@@ -16,7 +16,6 @@ const appShellBackendApiAllowlist = new Set([
   'checkAppUpdate',
   'getSidebarState',
   'installLatestAppUpdate',
-  'getPersonalizationProfile',
 ]);
 const ownerlessFeatureSurfaceImportAllowlist = new Map();
 
@@ -171,17 +170,9 @@ describe('shared page surface boundary', () => {
 
   it('blocks new ownerless feature service and adapter imports unless explicitly allowlisted', () => {
     expect(ownerlessFeatureSurfaceImportViolations('pages/shared/SharedWidget.jsx', `
-      import { promptPageService } from '../prompts/services/promptPageService.js';
       import { threadStatusBusy } from '../chat/adapters/threadStateAdapter.js';
     `)).toEqual([
-      'pages/shared/SharedWidget.jsx imports ownerless feature surface ../prompts/services/promptPageService.js',
       'pages/shared/SharedWidget.jsx imports ownerless feature surface ../chat/adapters/threadStateAdapter.js',
     ]);
-  });
-
-  it('keeps prompt feature view behind the prompt page service', () => {
-    const source = read('features/prompts/PromptPageView.jsx');
-    expect(source).not.toContain('shared/api/backendApi.js');
-    expect(source).toMatch(/promptPageService/);
   });
 });

@@ -60,7 +60,6 @@ describe('uiTestContract constants', () => {
       settings: '/settings',
       observability: '/observability',
       automation: '/dags',
-      prompts: '/prompts',
       files: '/files',
     });
     expectExactUniqueValues(UI_TEST_WAIT_STATES, [

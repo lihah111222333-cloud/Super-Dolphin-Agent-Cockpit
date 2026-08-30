@@ -530,6 +530,40 @@ func TestRecoveryResumeCWDPrefersNativeContextOverMutableRuntimeConfig(t *testin
 	}
 }
 
+func TestRuntimeConfigCWDHydratePrecedesRecoveryNativeContextValidation(t *testing.T) {
+	nativeRoot := t.TempDir()
+	mismatchRoot := t.TempDir()
+	native := mustCodexNativeContextForTest(t, nativeRoot)
+
+	tests := []struct {
+		name    string
+		config  map[string]any
+		wantErr string
+	}{
+		{name: "hydrated canonical cwd"},
+		{name: "missing cwd remains fail-fast", config: map[string]any{"cwd": ""}, wantErr: "cwd is required"},
+		{name: "mismatch remains fail-fast", config: map[string]any{"cwd": mismatchRoot}, wantErr: "cwd mismatch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &session{}
+			s.setNativeContext(native)
+			s.setRuntimeConfig(canonicalRuntimeConfigWithCWD(tt.config, nativeRoot))
+
+			err := s.validateRecoveryNativeContext()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateRecoveryNativeContext() error = %v, want nil after cwd hydrate", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validateRecoveryNativeContext() error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func mustCodexNativeContextForTest(t *testing.T, cwd string) contract.ProviderNativeContext {
 	t.Helper()
 	ctx, err := providershared.BuildProviderNativeContext(providershared.ProviderNativeContextInput{

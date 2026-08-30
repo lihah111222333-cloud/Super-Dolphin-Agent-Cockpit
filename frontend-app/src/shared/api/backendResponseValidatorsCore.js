@@ -33,7 +33,7 @@ const OPEN_WINDOW_RESPONSE_KEYS = new Set(['ok', 'windowId', 'cwd']);
 const CODE_SAVE_RESPONSE_KEYS = new Set(['ok', 'filePath', 'relative', 'totalLines', 'contentVersion']);
 const PROJECTS_STATE_RESPONSE_KEYS = new Set(['projects', 'active']);
 const OK_RESPONSE_KEYS = new Set(['ok']);
-const DASHBOARD_PAGE_RESPONSE_KEYS = new Set(['agents', 'dags', 'commandCards', 'prompts', 'finalOutputRefs', 'sharedFileRetention']);
+const DASHBOARD_PAGE_RESPONSE_KEYS = new Set(['agents', 'dags', 'commandCards', 'finalOutputRefs', 'sharedFileRetention']);
 const SHARED_FILE_RETENTION_KEYS = new Set(['items', 'protectedCount', 'cleanupCandidateCount']);
 const VIDEO_API_KEY_STATUS_RESPONSE_KEYS = new Set(['configured', 'masked']);
 const DASHBOARD_LOGS_RESPONSE_KEYS = new Set(['logs']);
@@ -84,23 +84,6 @@ function validateUIStateResponse(method, response) {
   }
   if (Array.isArray(value.agents)) {
     value.agents.forEach((agent, index) => validateAgentSummary(method, agent, `agents[${index}]`));
-  }
-  return value;
-}
-
-/**
- * @param {string} method
- * @param {unknown} response
- */
-function validateLspPromptHintResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  for (const key of ['hint', 'defaultHint', 'overrideHint']) {
-    if (typeof value[key] !== 'string') {
-      throw new TypeError(`${method} response ${key} must be a string`);
-    }
-  }
-  if (typeof value.usingDefault !== 'boolean') {
-    throw new TypeError(`${method} response usingDefault must be a boolean`);
   }
   return value;
 }
@@ -523,7 +506,7 @@ function validateThreadRecoverResponse(method, response) {
 function validateDashboardPageResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, DASHBOARD_PAGE_RESPONSE_KEYS, 'body');
-  for (const key of ['agents', 'dags', 'commandCards', 'prompts', 'finalOutputRefs']) {
+  for (const key of ['agents', 'dags', 'commandCards', 'finalOutputRefs']) {
     if (!Array.isArray(value[key])) {
       throw new TypeError(`${method} response ${key} must be an array`);
     }
@@ -776,7 +759,6 @@ export {
   validateDashboardLogsResponse,
   validateDashboardPageResponse,
   validateFrontendIngestResponse,
-  validateLspPromptHintResponse,
   validateNullResponse,
   validateOKResponse,
   validateOpenWindowResponse,

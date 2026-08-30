@@ -13,8 +13,4 @@ func (externalPersonalizationPreferenceStore) GetValue(context.Context, string, 
 	return nil, nil
 }
 
-func (externalPersonalizationPreferenceStore) Upsert(context.Context, personalization.PreferenceUpsertParams) error {
-	return nil
-}
-
 var _ personalization.PreferenceStore = externalPersonalizationPreferenceStore{}

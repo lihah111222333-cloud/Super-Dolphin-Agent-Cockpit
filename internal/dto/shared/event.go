@@ -68,7 +68,6 @@ const (
 	EventTypeUIThreadPatch        uint32 = 1504
 	EventTypeUIPreferencesChanged uint32 = 1505
 	EventTypeUISharedFilesChanged uint32 = 1506
-	EventTypeUIPromptsChanged     uint32 = 1508
 )
 
 // Provider 原始事件（1600-1699）。

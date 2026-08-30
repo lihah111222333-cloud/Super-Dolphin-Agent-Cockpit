@@ -21,7 +21,6 @@ const (
 	InterruptSettleTimeout    = ctxutil.InterruptSettleTimeout
 	AsyncLaunchTimeout        = ctxutil.AsyncLaunchTimeout
 	DreamConsolidationTimeout = ctxutil.DreamConsolidationTimeout
-	PromptIntentDraftTimeout  = ctxutil.PromptIntentDraftTimeout
 )
 
 // WithTimeout 用仓库统一工具创建带超时的 context。

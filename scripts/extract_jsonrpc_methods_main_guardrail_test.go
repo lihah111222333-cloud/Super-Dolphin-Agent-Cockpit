@@ -240,7 +240,7 @@ func TestExtractJSONRPCMethodsScript_EmitsSortedUniqueValidMethods(t *testing.T)
 		"ctl/register",
 		"dashboard/agentStatus",
 		"dashboard/insights/list",
-		"prompt-sections/list",
+		"prompt/runtime-sections",
 		"zeta/method",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -315,7 +315,7 @@ func writeExtractJSONRPCMethodsMethodFixtures(t *testing.T, repoRoot string) {
 		"package prompt",
 		"",
 		"func helperReturn() handler.Map {",
-		"\treturn handler.Map{\"prompt-sections/list\": nil}",
+		"\treturn handler.Map{\"prompt/runtime-sections\": nil}",
 		"}",
 		"",
 	}, "\n"))

@@ -2858,7 +2858,6 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
       'settings.provider.codex.codexInstanceKey': 'desktop-main',
       'settings.provider.codex.codexModelProvider': 'openrouter',
-      'settings.activePromptKey': 'main/dag_designer_zh',
     }[key] ?? null));
     backend.startThread.mockResolvedValue({ threadId: 'thread-configured' });
     backend.startTurn.mockResolvedValue({ turn_id: 'turn-local-test' });
@@ -2866,13 +2865,11 @@ function registerBridgeEventHandlersForTest() {
     await useClientStore.getState().sendDraft();
 
     expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.active' });
-    expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.activePromptKey' });
     expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
       modelProvider: 'codex',
       model: 'gpt-5.5',
       effort: 'xhigh',
-      prompt_key: 'main/dag_designer_zh',
       config: {
         codexHome: '/Users/test/.codex-alt',
         codexInstanceKey: 'desktop-main',
@@ -3059,7 +3056,6 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
       'settings.provider.codex.codexInstanceKey': 'desktop-main',
       'settings.provider.codex.codexModelProvider': 'openrouter',
-      'settings.activePromptKey': 'main/reviewer',
     }[key] ?? null));
 
     await expect(useClientStore.getState().resolveLaunchPreferences('/repo/app')).resolves.toEqual({
@@ -3067,7 +3063,6 @@ function registerBridgeEventHandlersForTest() {
       model: 'gpt-5.5',
       effort: 'xhigh',
       codexModelProvider: 'openrouter',
-      prompt_key: 'main/reviewer',
       config: {
         codexHome: '/Users/test/.codex-alt',
         codexInstanceKey: 'desktop-main',
@@ -4303,29 +4298,6 @@ function registerBridgeEventHandlersForTest() {
     ]));
     expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
     expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
-  });
-
-  it('increments prompt revision from prompt and active-prompt preference bridge events', () => {
-    registerBridgeEventHandlersForTest();
-
-    expect(useClientStore.getState().promptRevision).toBe(0);
-    bridgeCallback({
-      type: 'ui/preferences/changed',
-      payload: { key: 'settings.activePromptKey', value: 'main/reviewer' },
-    });
-    expect(useClientStore.getState().promptRevision).toBe(1);
-
-    bridgeCallback({
-      type: 'ui/preferences/changed',
-      payload: { key: 'settings.provider.active', value: 'codex' },
-    });
-    expect(useClientStore.getState().promptRevision).toBe(1);
-
-    bridgeCallback({
-      type: 'prompts/changed',
-      payload: { cwd: '/repo/app' },
-    });
-    expect(useClientStore.getState().promptRevision).toBe(2);
   });
 
   it('restores draft and attachments when backend send fails', async () => {

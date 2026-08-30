@@ -55,7 +55,6 @@
         "internal/provider/contracttest",
         "internal/provider/dreamexec",
         "internal/provider/e2e",
-        "internal/provider/e2efixture",
         "internal/provider/manifestbuilder",
         "internal/provider/shared",
         "internal/provider/toolfilter",
@@ -4065,6 +4064,7 @@
         "internal/provider/codexapp.callTargetFunc.Call",
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
+        "internal/provider/codexapp.canonicalRuntimeConfigWithCWD",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
         "internal/provider/codexapp.canonicalTurnTerminalOutcome",
         "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
@@ -4829,15 +4829,6 @@
         "internal/provider/dreamexec.stderrFailureMetadata",
         "internal/provider/dreamexec.stepStringState",
         "internal/provider/dreamexec.validateRunOptions",
-        "internal/provider/e2efixture.*dreamExecutor.ExecuteDream",
-        "internal/provider/e2efixture.*dreamExecutor.fixtureKey",
-        "internal/provider/e2efixture.*dreamExecutor.health",
-        "internal/provider/e2efixture.dreamExecutor",
-        "internal/provider/e2efixture.newDreamExecutor",
-        "internal/provider/e2efixture.promptRunID",
-        "internal/provider/e2efixture.provideDreamExecutorProvider",
-        "internal/provider/e2efixture.renderFixtureCard",
-        "internal/provider/e2efixture.requiredFixtureKeys",
         "internal/provider/manifestbuilder.BuildManifest",
         "internal/provider/shared.*ProviderStartupGateError.Error",
         "internal/provider/shared.*ProviderStartupGateError.GateCode",
@@ -5163,7 +5154,6 @@
         "internal/provider/contracttest",
         "internal/provider/dreamexec",
         "internal/provider/e2e",
-        "internal/provider/e2efixture",
         "internal/provider/manifestbuilder",
         "internal/provider/shared",
         "internal/provider/toolfilter",
@@ -9173,6 +9163,7 @@
         "internal/provider/codexapp.callTargetFunc.Call",
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
+        "internal/provider/codexapp.canonicalRuntimeConfigWithCWD",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
         "internal/provider/codexapp.canonicalTurnTerminalOutcome",
         "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
@@ -9937,15 +9928,6 @@
         "internal/provider/dreamexec.stderrFailureMetadata",
         "internal/provider/dreamexec.stepStringState",
         "internal/provider/dreamexec.validateRunOptions",
-        "internal/provider/e2efixture.*dreamExecutor.ExecuteDream",
-        "internal/provider/e2efixture.*dreamExecutor.fixtureKey",
-        "internal/provider/e2efixture.*dreamExecutor.health",
-        "internal/provider/e2efixture.dreamExecutor",
-        "internal/provider/e2efixture.newDreamExecutor",
-        "internal/provider/e2efixture.promptRunID",
-        "internal/provider/e2efixture.provideDreamExecutorProvider",
-        "internal/provider/e2efixture.renderFixtureCard",
-        "internal/provider/e2efixture.requiredFixtureKeys",
         "internal/provider/manifestbuilder.BuildManifest",
         "internal/provider/shared.*ProviderStartupGateError.Error",
         "internal/provider/shared.*ProviderStartupGateError.GateCode",
@@ -10271,7 +10253,6 @@
         "internal/provider/contracttest",
         "internal/provider/dreamexec",
         "internal/provider/e2e",
-        "internal/provider/e2efixture",
         "internal/provider/manifestbuilder",
         "internal/provider/shared",
         "internal/provider/toolfilter",
@@ -14281,6 +14262,7 @@
         "internal/provider/codexapp.callTargetFunc.Call",
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
+        "internal/provider/codexapp.canonicalRuntimeConfigWithCWD",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
         "internal/provider/codexapp.canonicalTurnTerminalOutcome",
         "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
@@ -15045,15 +15027,6 @@
         "internal/provider/dreamexec.stderrFailureMetadata",
         "internal/provider/dreamexec.stepStringState",
         "internal/provider/dreamexec.validateRunOptions",
-        "internal/provider/e2efixture.*dreamExecutor.ExecuteDream",
-        "internal/provider/e2efixture.*dreamExecutor.fixtureKey",
-        "internal/provider/e2efixture.*dreamExecutor.health",
-        "internal/provider/e2efixture.dreamExecutor",
-        "internal/provider/e2efixture.newDreamExecutor",
-        "internal/provider/e2efixture.promptRunID",
-        "internal/provider/e2efixture.provideDreamExecutorProvider",
-        "internal/provider/e2efixture.renderFixtureCard",
-        "internal/provider/e2efixture.requiredFixtureKeys",
         "internal/provider/manifestbuilder.BuildManifest",
         "internal/provider/shared.*ProviderStartupGateError.Error",
         "internal/provider/shared.*ProviderStartupGateError.GateCode",
@@ -15379,7 +15352,6 @@
         "internal/provider/contracttest",
         "internal/provider/dreamexec",
         "internal/provider/e2e",
-        "internal/provider/e2efixture",
         "internal/provider/manifestbuilder",
         "internal/provider/shared",
         "internal/provider/toolfilter",
@@ -19389,6 +19361,7 @@
         "internal/provider/codexapp.callTargetFunc.Call",
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
+        "internal/provider/codexapp.canonicalRuntimeConfigWithCWD",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
         "internal/provider/codexapp.canonicalTurnTerminalOutcome",
         "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
@@ -20153,15 +20126,6 @@
         "internal/provider/dreamexec.stderrFailureMetadata",
         "internal/provider/dreamexec.stepStringState",
         "internal/provider/dreamexec.validateRunOptions",
-        "internal/provider/e2efixture.*dreamExecutor.ExecuteDream",
-        "internal/provider/e2efixture.*dreamExecutor.fixtureKey",
-        "internal/provider/e2efixture.*dreamExecutor.health",
-        "internal/provider/e2efixture.dreamExecutor",
-        "internal/provider/e2efixture.newDreamExecutor",
-        "internal/provider/e2efixture.promptRunID",
-        "internal/provider/e2efixture.provideDreamExecutorProvider",
-        "internal/provider/e2efixture.renderFixtureCard",
-        "internal/provider/e2efixture.requiredFixtureKeys",
         "internal/provider/manifestbuilder.BuildManifest",
         "internal/provider/shared.*ProviderStartupGateError.Error",
         "internal/provider/shared.*ProviderStartupGateError.GateCode",
@@ -20487,7 +20451,6 @@
         "internal/provider/contracttest",
         "internal/provider/dreamexec",
         "internal/provider/e2e",
-        "internal/provider/e2efixture",
         "internal/provider/manifestbuilder",
         "internal/provider/shared",
         "internal/provider/toolfilter",
@@ -24502,6 +24465,7 @@
         "internal/provider/codexapp.callTargetFunc.Call",
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
+        "internal/provider/codexapp.canonicalRuntimeConfigWithCWD",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
         "internal/provider/codexapp.canonicalTurnTerminalOutcome",
         "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
@@ -25268,15 +25232,6 @@
         "internal/provider/dreamexec.stderrFailureMetadata",
         "internal/provider/dreamexec.stepStringState",
         "internal/provider/dreamexec.validateRunOptions",
-        "internal/provider/e2efixture.*dreamExecutor.ExecuteDream",
-        "internal/provider/e2efixture.*dreamExecutor.fixtureKey",
-        "internal/provider/e2efixture.*dreamExecutor.health",
-        "internal/provider/e2efixture.dreamExecutor",
-        "internal/provider/e2efixture.newDreamExecutor",
-        "internal/provider/e2efixture.promptRunID",
-        "internal/provider/e2efixture.provideDreamExecutorProvider",
-        "internal/provider/e2efixture.renderFixtureCard",
-        "internal/provider/e2efixture.requiredFixtureKeys",
         "internal/provider/manifestbuilder.BuildManifest",
         "internal/provider/shared.*ProviderStartupGateError.Error",
         "internal/provider/shared.*ProviderStartupGateError.GateCode",
@@ -25602,7 +25557,6 @@
         "internal/provider/contracttest",
         "internal/provider/dreamexec",
         "internal/provider/e2e",
-        "internal/provider/e2efixture",
         "internal/provider/manifestbuilder",
         "internal/provider/shared",
         "internal/provider/toolfilter",
@@ -29617,6 +29571,7 @@
         "internal/provider/codexapp.callTargetFunc.Call",
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
+        "internal/provider/codexapp.canonicalRuntimeConfigWithCWD",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
         "internal/provider/codexapp.canonicalTurnTerminalOutcome",
         "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
@@ -30383,15 +30338,6 @@
         "internal/provider/dreamexec.stderrFailureMetadata",
         "internal/provider/dreamexec.stepStringState",
         "internal/provider/dreamexec.validateRunOptions",
-        "internal/provider/e2efixture.*dreamExecutor.ExecuteDream",
-        "internal/provider/e2efixture.*dreamExecutor.fixtureKey",
-        "internal/provider/e2efixture.*dreamExecutor.health",
-        "internal/provider/e2efixture.dreamExecutor",
-        "internal/provider/e2efixture.newDreamExecutor",
-        "internal/provider/e2efixture.promptRunID",
-        "internal/provider/e2efixture.provideDreamExecutorProvider",
-        "internal/provider/e2efixture.renderFixtureCard",
-        "internal/provider/e2efixture.requiredFixtureKeys",
         "internal/provider/manifestbuilder.BuildManifest",
         "internal/provider/shared.*ProviderStartupGateError.Error",
         "internal/provider/shared.*ProviderStartupGateError.GateCode",
@@ -30680,14 +30626,14 @@
     }
   ],
   "summary": {
-    "total_packages": 41,
-    "total_functions": 2533,
-    "total_methods": 1335,
+    "total_packages": 40,
+    "total_functions": 2529,
+    "total_methods": 1332,
     "total_interfaces": 185,
     "total_interface_methods": 372,
-    "total_exported": 1350,
-    "total_unexported": 3342,
-    "total_structs": 639
+    "total_exported": 1349,
+    "total_unexported": 3335,
+    "total_structs": 638
   },
   "packages": [
     {
@@ -81371,6 +81317,23 @@
           ]
         },
         {
+          "name": "canonicalRuntimeConfigWithCWD",
+          "exported": false,
+          "params": [
+            {
+              "name": "config",
+              "type": "map[string]any"
+            },
+            {
+              "name": "cwd",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "map[string]any"
+          ]
+        },
+        {
           "name": "canonicalStartRuntimeConfig",
           "exported": false,
           "params": [
@@ -98068,124 +98031,6 @@
       "path": "internal/provider/e2e",
       "name": "e2e",
       "description": "覆盖 Claude CLI 和 Codex app-server provider 的启动 wiring。"
-    },
-    {
-      "path": "internal/provider/e2efixture",
-      "name": "e2efixture",
-      "functions": [
-        {
-          "name": "newDreamExecutor",
-          "exported": false,
-          "params": [
-            {
-              "name": "path",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "*dreamExecutor",
-            "error"
-          ]
-        },
-        {
-          "name": "promptRunID",
-          "exported": false,
-          "params": [
-            {
-              "name": "prompt",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string",
-            "bool"
-          ]
-        },
-        {
-          "name": "provideDreamExecutorProvider",
-          "exported": false,
-          "returns": [
-            "contract.DreamExecutorProvider",
-            "error"
-          ]
-        },
-        {
-          "name": "renderFixtureCard",
-          "exported": false,
-          "params": [
-            {
-              "name": "raw",
-              "type": "json.RawMessage"
-            },
-            {
-              "name": "prompt",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string",
-            "error"
-          ]
-        },
-        {
-          "name": "requiredFixtureKeys",
-          "exported": false,
-          "returns": [
-            "[]string"
-          ]
-        }
-      ],
-      "methods": [
-        {
-          "receiver": "*dreamExecutor",
-          "name": "ExecuteDream",
-          "exported": true,
-          "params": [
-            {
-              "name": "ctx",
-              "type": "context.Context"
-            },
-            {
-              "name": "prompt",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*dreamExecutor",
-          "name": "fixtureKey",
-          "exported": false,
-          "params": [
-            {
-              "name": "prompt",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "string",
-            "error"
-          ]
-        },
-        {
-          "receiver": "*dreamExecutor",
-          "name": "health",
-          "exported": false,
-          "returns": [
-            "string",
-            "error"
-          ]
-        }
-      ],
-      "structs": [
-        {
-          "name": "dreamExecutor",
-          "exported": false
-        }
-      ]
     },
     {
       "path": "internal/provider/manifestbuilder",

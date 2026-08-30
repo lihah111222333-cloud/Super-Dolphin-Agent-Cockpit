@@ -1,6 +1,5 @@
 const PAGE_ROUTE_BY_ID = Object.freeze({
   chat: '/',
-  prompts: '/prompts',
   workflows: '/dags',
   observability: '/observability',
   files: '/files',
@@ -10,7 +9,6 @@ const PAGE_ROUTE_BY_ID = Object.freeze({
 const PAGE_ID_BY_ROUTE = Object.freeze({
   '/': 'chat',
   '/chat': 'chat',
-  '/prompts': 'prompts',
   '/dags': 'workflows',
   '/workflows': 'workflows',
   '/observability': 'observability',
@@ -83,12 +81,10 @@ export const APP_SHELL_STORE_KEYS = Object.freeze([
   'loadThreadConfig',
   'mainAgentId',
   'newThread',
-  'notifyAction',
   'openForkDraft',
   'openNewWindow',
   'openThreadById',
   'projects',
-  'promptRevision',
   'provider',
   'providerConfig',
   'reconcileComposerCapabilities',

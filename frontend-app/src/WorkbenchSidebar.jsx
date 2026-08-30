@@ -1,5 +1,5 @@
 import React from 'react';
-import { CircleUserRound, FolderOpen, Moon, PanelLeftClose, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun } from 'lucide-react';
+import { FolderOpen, Moon, PanelLeftClose, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun } from 'lucide-react';
 import { errorMessage, textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { runUIAction } from './shared/ui/runUIAction.js';
@@ -14,7 +14,6 @@ const WORKBENCH_SIDEBAR_MAX_WIDTH = 460;
 
 const primaryNavItems = [
   { id: 'workflows', labelKey: 'workflows', icon: RefreshCw },
-  { id: 'prompts', labelKey: 'prompts', displayLabelKey: 'promptsShort', icon: CircleUserRound },
   { id: 'files', labelKey: 'files', icon: FolderOpen },
 ];
 

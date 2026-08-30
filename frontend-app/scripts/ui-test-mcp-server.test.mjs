@@ -22,7 +22,6 @@ const CONTRACT = Object.freeze({
     settings: '/settings',
     observability: '/observability',
     automation: '/dags',
-    prompts: '/prompts',
     files: '/files',
   },
   UI_TEST_WAIT_STATES: ['frontend_ready', 'composer_text_length', 'route'],

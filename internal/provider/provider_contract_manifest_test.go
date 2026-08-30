@@ -74,7 +74,7 @@ func providerPackageCandidate(t *testing.T, wd string, entry os.DirEntry) (strin
 
 func isNonProviderPackage(name string) bool {
 	switch name {
-	case "_template", "contracttest", "dreamexec", "e2e", "e2efixture", "manifestbuilder", "shared", "toolfilter":
+	case "_template", "contracttest", "dreamexec", "e2e", "manifestbuilder", "shared", "toolfilter":
 		return true
 	default:
 		return false

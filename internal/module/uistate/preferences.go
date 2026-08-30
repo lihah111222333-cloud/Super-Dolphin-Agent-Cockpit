@@ -33,6 +33,8 @@ const (
 
 var errInvalidStallThresholdSec = errors.New("stallThresholdSec must be >= 30 seconds")
 
+var errUnsupportedActiveProvider = errors.New("settings.provider.active must be codex")
+
 func withPreferenceScope(ctx context.Context, cwd string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -306,6 +308,11 @@ func validatePreferenceValue(key string, value any) error {
 	case preferenceStallThresholdSec:
 		if asPositiveInt(value, 30) <= 0 {
 			return errInvalidStallThresholdSec
+		}
+	case preferenceProviderActive:
+		provider, ok := value.(string)
+		if !ok || provider != defaultProviderActive {
+			return errUnsupportedActiveProvider
 		}
 	case preferenceShortcutBindings:
 		return validateShortcutBindings(value)

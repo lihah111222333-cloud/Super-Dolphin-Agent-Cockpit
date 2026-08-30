@@ -564,9 +564,6 @@ func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
 	if resumeID := strings.TrimSpace(req.ProviderThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
 	}
-	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
-		s.setRuntimeConfigValue("cwd", cwd)
-	}
 }
 
 // finishOrCleanupResumedSession 统一 resume 收尾失败的 session 清理，避免主流程堆高复杂度。

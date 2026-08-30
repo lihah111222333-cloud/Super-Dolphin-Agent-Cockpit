@@ -4,9 +4,6 @@ import {
   emitFrontendTraceEvent,
 } from '../../../../../shared/api/backendApi.js';
 import {
-  ACTIVE_PROMPT_PREF_KEY,
-} from '../bridgeRevision.js';
-import {
   PROVIDER_ACTIVE_PREF_KEY,
   codexLaunchConfigFromPreferences,
   isPreferenceAbsent,
@@ -41,7 +38,7 @@ const objectPrototype = Object.prototype;
 const BOOTSTRAP_PAGE_ALIASES = Object.freeze({
   dags: 'workflows',
 });
-const APP_PAGE_IDS = new Set(['chat', 'prompts', 'workflows', 'observability', 'files', 'settings']);
+const APP_PAGE_IDS = new Set(['chat', 'workflows', 'observability', 'files', 'settings']);
 const ROOT_THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id']);
 const THREAD_IDENTITY_KEYS = Object.freeze(['threadId', 'thread_id', 'codexThreadId', 'codex_thread_id', 'id']);
 const AGENT_IDENTITY_KEYS = Object.freeze(['agentId', 'agent_id']);
@@ -275,7 +272,6 @@ async function resolveLaunchPreferences(cwd, addWarning = null, getPreference) {
   const [
     model,
     effort,
-    activePromptKey,
     codexHome,
     codexInstanceKey,
     codexModelProvider,
@@ -286,7 +282,6 @@ async function resolveLaunchPreferences(cwd, addWarning = null, getPreference) {
   ] = await Promise.all([
     getPreference({ cwd, key: providerPreferenceKey(provider, 'model') }),
     getPreference({ cwd, key: providerPreferenceKey(provider, 'effort') }),
-    getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }),
     getScopedPreference(getPreference, cwd, providerPreferenceKey('codex', 'codexHome')),
     getScopedPreference(getPreference, cwd, providerPreferenceKey('codex', 'codexInstanceKey')),
     getScopedPreference(getPreference, cwd, providerPreferenceKey('codex', 'codexModelProvider')),
@@ -299,7 +294,6 @@ async function resolveLaunchPreferences(cwd, addWarning = null, getPreference) {
     modelProvider: provider,
     model: normalizeProviderConfigValue(model),
     effort: normalizeProviderConfigValue(effort),
-    prompt_key: normalizeProviderConfigValue(activePromptKey),
     sandbox: sanitizeLaunchSandboxPreference(sandbox),
     approvalPolicy: normalizeProviderConfigValue(approvalPolicy),
     personality: normalizeProviderConfigValue(personality),
@@ -349,8 +343,6 @@ const baseState = {
   provider: DEFAULT_PROVIDER,
   providerConfig: normalizeProviderRuntimeConfig({}, DEFAULT_PROVIDER),
   activePage: 'chat',
-  promptRevision: 0,
-  promptPageCacheByCwd: {},
   workflowRevision: 0,
   workflowPageCacheByCwd: {},
   sharedFilesRevision: 0,

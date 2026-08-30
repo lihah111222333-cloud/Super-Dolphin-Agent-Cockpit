@@ -163,12 +163,12 @@ func TestFixCommitRejectsUnrelatedTestFile(t *testing.T) {
 
 func TestFixCommitAllowsParentPackageRegressionTest(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
-	writeFixTestGuardFile(t, root, "internal/module/prompt/intent/commit.go", "package intent\n\nfunc CommitDraft() {}\n")
-	writeFixTestGuardFile(t, root, "internal/module/prompt/intent_commit_test.go", "package prompt\n\nimport \"testing\"\n\nfunc TestCommitDraftSerializesIntent(t *testing.T) {}\n")
+	writeFixTestGuardFile(t, root, "internal/module/prompt/assembly.go", "package prompt\n\nfunc AssemblePrompt() {}\n")
+	writeFixTestGuardFile(t, root, "internal/module/prompt/assembly_test.go", "package prompt\n\nimport \"testing\"\n\nfunc TestAssemblySerializesPrompt(t *testing.T) {}\n")
 	runFixTestGuardGit(t, root, "add", ".")
 
 	msgFile := filepath.Join(root, "COMMIT_EDITMSG")
-	if err := os.WriteFile(msgFile, []byte("fix(prompt): 修复并发草稿提交\n"), 0o644); err != nil {
+	if err := os.WriteFile(msgFile, []byte("fix(prompt): 修复 prompt 组装回归\n"), 0o644); err != nil {
 		t.Fatalf("write commit message: %v", err)
 	}
 

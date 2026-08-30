@@ -22,8 +22,6 @@ const validPreferenceCases = [
   ['settings.provider.codex.sandbox', { type: 'workspaceWrite', writableRoots: ['/repo'], networkAccess: false }],
   ['settings.provider.codex.summary', 'detailed'],
   ['settings.provider.codex.approvalPolicy', 'on-request'],
-  ['settings.showInjectedPromptInChat', true],
-  ['settings.activePromptKey', 'main/reviewer'],
 ];
 
 const malformedPreferenceCases = [
@@ -42,8 +40,6 @@ const malformedPreferenceCases = [
   ['settings.provider.codex.sandbox', '{bad json'],
   ['settings.provider.codex.summary', 'verbose'],
   ['settings.provider.codex.approvalPolicy', 'always'],
-  ['settings.showInjectedPromptInChat', 'true'],
-  ['settings.activePromptKey', 42],
 ];
 
 describe('assertPreferenceResponseShape', () => {
@@ -70,8 +66,8 @@ describe('assertPreferenceResponseShape', () => {
     expect(() => assertPreferenceResponseShape(key, value)).toThrow(`invalid UI preference response for ${key}`);
   });
 
-  it('rejects malformed UI_PREFERENCES_GET responses for all 14 production keys', () => {
-    expect(new Set(malformedPreferenceCases.map(([key]) => key)).size).toBe(14);
+  it('rejects malformed UI_PREFERENCES_GET responses for all production keys', () => {
+    expect(new Set(malformedPreferenceCases.map(([key]) => key)).size).toBe(12);
     for (const [key, value] of malformedPreferenceCases) {
       expect(() => assertPreferenceResponseShape(key, value)).toThrow(`invalid UI preference response for ${key}`);
     }

@@ -93,7 +93,6 @@ describe('frontend breadcrumb buffer', () => {
     const routeIds = [
       'app',
       'chat',
-      'prompts',
       'workflows',
       'observability',
       'files',

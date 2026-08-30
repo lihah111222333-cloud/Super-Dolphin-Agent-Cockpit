@@ -2,9 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
-	"os"
-	"strings"
 
 	"go.uber.org/fx"
 
@@ -42,14 +39,11 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/statemachine"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/e2efixture"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/pkg/skillmetrics"
 )
-
-const promptIntentE2EFixtureHarnessEnv = "PROMPT_INTENT_E2E_FIXTURE_HARNESS"
 
 // Module 组装桌面和后台共享的核心应用面。
 // 它只暴露给外部 MCP 进程使用的控制面，不在桌面进程内启动或监管 MCP 子进程。
@@ -102,7 +96,6 @@ func newModule() fx.Option {
 		uistate.Module,
 		workflowtemplate.Module,
 		unified.Module,
-		promptIntentE2EFixtureModule(),
 		// claudecli.Module,
 		codexapp.Module,
 		toolbridge.Module, // 始终加载 provider 工具桥，供内置工具和 peer 调用共用。
@@ -129,21 +122,6 @@ func newModule() fx.Option {
 		),
 		fx.Invoke(bindToolbridgeHandlerRef),
 	)
-}
-
-// promptIntentE2EFixtureModule 仅在显式配置 fixture path 时加载 e2e provider。
-func promptIntentE2EFixtureModule() fx.Option {
-	if strings.TrimSpace(os.Getenv(e2efixture.FixturePathEnv)) == "" {
-		return fx.Options()
-	}
-	if strings.TrimSpace(os.Getenv(promptIntentE2EFixtureHarnessEnv)) != "1" {
-		return fx.Error(fmt.Errorf("%s requires %s=1; refusing to register e2e fixture provider in production graph",
-			e2efixture.FixturePathEnv, promptIntentE2EFixtureHarnessEnv))
-	}
-	if strings.TrimSpace(os.Getenv("DREAM_PROVIDER_ORDER")) == "" {
-		_ = os.Setenv("DREAM_PROVIDER_ORDER", e2efixture.ProviderName)
-	}
-	return e2efixture.Module
 }
 
 // AsRPCRunner 将 RPC server 注册为 platform runner。

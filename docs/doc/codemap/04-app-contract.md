@@ -70,7 +70,6 @@ flowchart TD
   runtimeadapter --> ra3["cachekeepalive"]
   runtimeadapter --> ra4["builtintools"]
   app --> sharedfile["sharedFileAdapterModule"]
-  app -. explicit E2E env only .-> fixture["promptIntentE2EFixtureModule"]
   app -. desktop only .-> wails["ui.wails.Module"]
   app -. not embedded .-> orch["cmd/mcp-orch orchestration option groups"]
 ```
@@ -157,7 +156,7 @@ flowchart TD
 | `ClaudeMdSourceProvider` | `ResolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) ([]ClaudeMdSource, error)` | 当前 prompt assembly 的可选来源；默认未注入 | 生产实现未在当前树中注册；测试 doubles 位于 `internal/module/prompt`。 |
 | `TurnAttachmentProvider` | `ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) []dto.AttachmentEnvelope` | Module：`internal/module/prompt` assembler 通过 type assertion 消费 | 当前无 memory concrete 实现。 |
 | `TurnContextProvider` | `PrepareTurnContext(ctx context.Context, session Session, buildCtx BuildCtx, threadID, query string) TurnContextPayload` | Module：`internal/module/turn` compatibility constructor | 当前无 memory implementation；误注入由 `internal/module/turn` 返回 typed unsupported。 |
-| `DreamExecutor` | `ExecuteDream(ctx context.Context, prompt string) (string, error)` | Module：`internal/module/prompt` optional dream RPC | 聚合器：`internal/provider/unified`；provider 侧执行器：`internal/provider/{claudecli,codexapp}` |
+| `DreamExecutor` | `ExecuteDream(ctx context.Context, prompt string) (string, error)` | `internal/module/turn` 的停用 `FeedbackProposer` 兼容 shim；当前无生产 dream RPC consumer | 聚合器：`internal/provider/unified`；provider 侧执行器：`internal/provider/{claudecli,codexapp}` |
 | `TeamMemoryManager` | `GetTeamMemPath(buildCtx ...BuildCtx) string; GetTeamMemEntrypoint(buildCtx ...BuildCtx) string` | 当前无生产 consumer | 仅保留 `internal/contract/memory.go` 契约声明。 |
 | `ThreadMetadataStore` | `GetByThreadID(ctx context.Context, threadID string) (*ThreadMetadata, error); ListAll(ctx context.Context) ([]ThreadMetadata, error)` | 当前无 memory runtime consumer | `internal/store/thread` (`metadataStoreAdapter`) 保留窄只读适配器。 |
 
@@ -818,7 +817,7 @@ type SessionResolver interface {
 - `codexapp.Module`
 - `runtimeadapter.Module`，按顺序透明展开 4 个 child：`mcpcontroladapter.Module`、`toolbridgeadapter.Module`、`cachekeepaliveadapter.Module`、`builtintoolsadapter.Module`。
 - `sharedFileAdapterModule()`。
-- `promptIntentE2EFixtureModule()` 只在 `PROMPT_INTENT_E2E_DREAM_FIXTURE` 与 `PROMPT_INTENT_E2E_FIXTURE_HARNESS=1` 同时满足时返回 `e2efixture.Module`，否则不改变生产图。
+- 旧 `promptIntentE2EFixtureModule` / `internal/provider/e2efixture` 测试注入已移除；当前 app graph 不含 prompt intent fixture，运行时 prompt 仍由 `prompt.Module` + `threadprompt` 组装。
 
 **本地提供者 / 适配器**
 

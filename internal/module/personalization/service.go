@@ -10,18 +10,17 @@ import (
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
-// Service 定义个性化服务接口，负责按 cwd 读写用户个人资料。
+// Service 定义个性化服务接口，负责按 cwd 读取运行时个人资料。
 type Service interface {
 	GetProfile(ctx context.Context, cwd string) (ProfileResult, error)
-	SaveProfile(ctx context.Context, cwd string, profile Profile) (ProfileResult, error)
 }
 
-// service 是 Service 接口的内部实现，依赖窄持久化端口保存资料。
+// service 是 Service 接口的内部实现，依赖窄持久化端口读取资料。
 type service struct {
 	prefs PreferenceStore
 }
 
-// NewService 创建项目级个性化服务。该服务只读写 UI 偏好端口，不持有额外全局状态。
+// NewService 创建项目级个性化服务。该服务只读取 UI 偏好端口，不持有额外全局状态。
 func NewService(prefs PreferenceStore) Service {
 	return &service{prefs: prefs}
 }
@@ -52,29 +51,6 @@ func (s *service) GetProfile(ctx context.Context, cwd string) (ProfileResult, er
 	normalized, err := normalizeProfile(profile)
 	if err != nil {
 		return ProfileResult{}, err
-	}
-	return ProfileResult{Profile: normalized}, nil
-}
-
-// SaveProfile 校验并保存当前项目的个人资料；全空 profile 表示清空个人资料。
-func (s *service) SaveProfile(ctx context.Context, cwd string, profile Profile) (ProfileResult, error) {
-	cwd = strings.TrimSpace(cwd)
-	if cwd == "" {
-		return ProfileResult{}, fmt.Errorf("personalization: cwd is required")
-	}
-	if s.prefs == nil {
-		return ProfileResult{}, fmt.Errorf("personalization: preference store is required")
-	}
-	normalized, err := normalizeProfile(profile)
-	if err != nil {
-		return ProfileResult{}, err
-	}
-	raw, err := json.Marshal(normalized)
-	if err != nil {
-		return ProfileResult{}, fmt.Errorf("personalization: encode profile: %w", err)
-	}
-	if err := s.prefs.Upsert(ctx, PreferenceUpsertParams{Cwd: cwd, Key: profilePreferenceKey, Value: raw}); err != nil {
-		return ProfileResult{}, fmt.Errorf("personalization: save profile: %w", err)
 	}
 	return ProfileResult{Profile: normalized}, nil
 }

@@ -24,7 +24,6 @@ const SHADOW_FILES = [
   'frontend-app/src/entities/client/model/contractStoreModel.js',
   'frontend-app/src/pages/files/services/filesPageService.js',
   'frontend-app/src/pages/observability/services/observabilityPageService.js',
-  'frontend-app/src/pages/prompts/services/promptPageService.js',
 ]
 const SHADOW_GO_FILES = [
   'internal/contract/rpc_handler.go',
@@ -861,7 +860,7 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
     ])
   })
 
-  it('uses the production RPC method source and reports missing and mismatched matrix entries', async () => {
+  it('uses the production RPC method source and reports mismatched matrix entries', async () => {
     const matrixPath = 'frontend-app/src/shared/api/backendApi.contractMatrix.js'
     const productionMethodsPath = 'frontend-app/src/shared/api/backend/backendRpcMethods.js'
     const matrixSource = await readFile(join(REPO_ROOT, matrixPath), 'utf8')
@@ -874,13 +873,11 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
       [productionMethodsPath]: (await readFile(join(REPO_ROOT, productionMethodsPath), 'utf8'))
         .replace("CONFIG_READ: 'config/read'", "CONFIG_READ: 'config/read-mismatch'"),
       [matrixPath]: matrixSource
-        .replace(/\n\s*CONFIG_LSP_PROMPT_HINT_READ: contract\([^\n]+/, '')
         .replace('RPC_METHODS.CONFIG_READ', "'config/read'"),
     })
 
     const report = await auditRpcContracts({ repoRoot })
 
-    expect(report.missingRegistryKeys).toContain('CONFIG_LSP_PROMPT_HINT_READ')
     expect(report.mismatchedRegistryMethods).toContainEqual({
       key: 'CONFIG_READ',
       registryMethod: 'config/read',
@@ -904,17 +901,17 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
     const repoRoot = await createShadowRepo({
       [MATRIX_PATH]: shadowMatrix(
         "{ responseValidator: 'doesNotExist' }",
-        { key: 'CONFIG_LSP_PROMPT_HINT_READ', facade: 'readLspPromptHint' },
+        { key: 'CONFIG_BUILTIN_TOOLS_READ', facade: 'readBuiltinTools' },
       ),
     })
 
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.missingFrontendResponseValidators).toContainEqual({
-      key: 'CONFIG_LSP_PROMPT_HINT_READ',
-      method: 'config/lspPromptHint/read',
+      key: 'CONFIG_BUILTIN_TOOLS_READ',
+      method: 'config/builtinTools/read',
       responseValidator: 'doesNotExist',
-      runtimeResponseValidator: 'lspPromptHintResponse',
+      runtimeResponseValidator: 'builtinToolsResponse',
     })
   }, 30000)
 
@@ -982,26 +979,6 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
       key: 'CONFIG_READ',
       facade: 'readBuiltinTools',
       locator: 'frontend-app/src/shared/api/backendApi.js',
-    })
-  }, 30000)
-
-  it('reports a service facade whose downstream destructure outlives its factory member', async () => {
-    const servicePath = 'frontend-app/src/pages/prompts/services/promptPageService.js'
-    const serviceSource = await readFile(join(REPO_ROOT, servicePath), 'utf8')
-    const repoRoot = await createShadowRepo({
-      [MATRIX_PATH]: shadowMatrix(`{ responsePolicy: ${UNUSED_POLICY} }`, {
-        key: 'PROMPT_ASSETS_LIST',
-        facade: 'promptPageService.listPromptAssets',
-      }),
-      [servicePath]: serviceSource.replace(/    listPromptAssets\(payload\) \{\n[\s\S]*?\n    \},\n/, ''),
-    })
-
-    const report = await auditRpcContracts({ repoRoot })
-
-    expect(report.invalidFacadeLocators).toContainEqual({
-      key: 'PROMPT_ASSETS_LIST',
-      facade: 'promptPageService.listPromptAssets',
-      locator: servicePath,
     })
   }, 30000)
 

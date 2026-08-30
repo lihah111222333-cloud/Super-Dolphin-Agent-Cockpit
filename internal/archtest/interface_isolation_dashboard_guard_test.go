@@ -24,7 +24,6 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		{field: "AILogs", want: "AILogReader"},
 		{field: "DBQueries", want: "DBQueryExecutor"},
 		{field: "CommandCards", want: "CommandCardReader"},
-		{field: "Prompts", want: "PromptTemplateReader"},
 		{field: "SharedFiles", want: "SharedFileReader"},
 	}
 	for _, check := range fieldChecks {
@@ -50,7 +49,6 @@ func TestDashboardStoreReadersUseOwnerLocalInterfaces(t *testing.T) {
 		{funcName: "provideDashboardAILogReader", paramName: "store", want: "ailogstore.Store"},
 		{funcName: "provideDashboardDBQueryExecutor", paramName: "store", want: "dbquerystore.Store"},
 		{funcName: "provideDashboardCommandCardReader", paramName: "reader", want: "commandcardstore.Reader"},
-		{funcName: "provideDashboardPromptTemplateReader", paramName: "reader", want: "promptstore.Reader"},
 		{funcName: "provideDashboardSharedFileReader", paramName: "reader", want: "sharedfilestore.Reader"},
 	}
 	for _, check := range adapterChecks {

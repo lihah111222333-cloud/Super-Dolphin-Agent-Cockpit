@@ -10,14 +10,12 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/personalization"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/uipreference"
-	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
 )
 
 var _ personalization.PreferenceStore = (*personalizationPreferenceStoreAdapter)(nil)
 
 type personalizationPreferenceStoreStub struct {
 	getValue func(context.Context, string, string) (json.RawMessage, error)
-	upsert   func(context.Context, uipreference.UpsertParams) error
 }
 
 func (s *personalizationPreferenceStoreStub) GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error) {
@@ -27,10 +25,7 @@ func (s *personalizationPreferenceStoreStub) GetValue(ctx context.Context, cwd, 
 	return nil, nil
 }
 
-func (s *personalizationPreferenceStoreStub) Upsert(ctx context.Context, params uipreference.UpsertParams) error {
-	if s.upsert != nil {
-		return s.upsert(ctx, params)
-	}
+func (*personalizationPreferenceStoreStub) Upsert(context.Context, uipreference.UpsertParams) error {
 	return nil
 }
 
@@ -47,9 +42,6 @@ func TestPersonalizationStoreAdapterNilSemantics(t *testing.T) {
 	if _, err := store.GetValue(context.Background(), "cwd", "key"); err == nil {
 		t.Fatal("expected GetValue to reject nil underlying Store")
 	}
-	if err := store.Upsert(context.Background(), personalization.PreferenceUpsertParams{}); err == nil {
-		t.Fatal("expected Upsert to reject nil underlying Store")
-	}
 	var typedNil *personalizationPreferenceStoreStub
 	typedNilStore := providePersonalizationPreferenceStore(typedNil)
 	if _, err := typedNilStore.GetValue(context.Background(), "cwd", "key"); err == nil || err.Error() != "personalization: preference store is required" {
@@ -57,20 +49,7 @@ func TestPersonalizationStoreAdapterNilSemantics(t *testing.T) {
 	}
 }
 
-// TestPersonalizationStoreAdapterFieldCoverage 自动覆盖偏好写入 DTO 的全部导出字段。
-func TestPersonalizationStoreAdapterFieldCoverage(t *testing.T) {
-	storeadaptertest.AssertFieldsMapE(t, func(params personalization.PreferenceUpsertParams) (uipreference.UpsertParams, error) {
-		var captured uipreference.UpsertParams
-		port := providePersonalizationPreferenceStore(&personalizationPreferenceStoreStub{upsert: func(_ context.Context, stored uipreference.UpsertParams) error {
-			captured = stored
-			return nil
-		}})
-		err := port.Upsert(context.Background(), params)
-		return captured, err
-	})
-}
-
-// TestPersonalizationStoreAdapterCopiesMutableValues 固定读返回值与写入值均不跨边界共享内存。
+// TestPersonalizationStoreAdapterCopiesMutableValues 固定读返回值不跨边界共享内存。
 func TestPersonalizationStoreAdapterCopiesMutableValues(t *testing.T) {
 	t.Run("get_value", func(t *testing.T) {
 		stored := json.RawMessage(`{"name":"stored"}`)
@@ -86,33 +65,17 @@ func TestPersonalizationStoreAdapterCopiesMutableValues(t *testing.T) {
 			t.Fatalf("GetValue result shared Store memory: %s", got)
 		}
 	})
-	t.Run("upsert", func(t *testing.T) {
-		value := json.RawMessage(`{"name":"domain"}`)
-		port := providePersonalizationPreferenceStore(&personalizationPreferenceStoreStub{upsert: func(_ context.Context, params uipreference.UpsertParams) error {
-			params.Value[0] = '['
-			return nil
-		}})
-		if err := port.Upsert(context.Background(), personalization.PreferenceUpsertParams{Value: value}); err != nil {
-			t.Fatalf("upsert preference value: %v", err)
-		}
-		if string(value) != `{"name":"domain"}` {
-			t.Fatalf("Upsert value shared Store memory: %s", value)
-		}
-	})
 }
 
-// TestPersonalizationStoreAdapterPreservesErrors 固定读写错误链在 App 边界原样传播。
+// TestPersonalizationStoreAdapterPreservesErrors 固定读取错误链在 App 边界原样传播。
 func TestPersonalizationStoreAdapterPreservesErrors(t *testing.T) {
 	sentinel := errors.New("preference store sentinel")
 	storeErr := fmt.Errorf("preference operation: %w", sentinel)
 	port := providePersonalizationPreferenceStore(&personalizationPreferenceStoreStub{
 		getValue: func(context.Context, string, string) (json.RawMessage, error) { return nil, storeErr },
-		upsert:   func(context.Context, uipreference.UpsertParams) error { return storeErr },
 	})
 	_, getErr := port.GetValue(context.Background(), "cwd", "key")
 	assertPersonalizationStoreErrorPreserved(t, getErr, storeErr, sentinel)
-	upsertErr := port.Upsert(context.Background(), personalization.PreferenceUpsertParams{})
-	assertPersonalizationStoreErrorPreserved(t, upsertErr, storeErr, sentinel)
 }
 
 // TestPersonalizationStoreAdapterPreservesNotFoundForService 证明 not-found 穿过 App 后仍映射为空 profile。

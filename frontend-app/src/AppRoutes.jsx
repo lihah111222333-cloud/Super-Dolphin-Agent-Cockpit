@@ -1,4 +1,4 @@
-import React, { lazy, useMemo } from 'react';
+import React, { lazy } from 'react';
 import { APP_COPY } from './shared/i18n/appI18n.js';
 
 function lazyNamedPage(loader, exportName) {
@@ -8,7 +8,6 @@ function lazyNamedPage(loader, exportName) {
 const ChatPage = lazyNamedPage(() => import('./pages/chat/ChatPage.jsx'), 'ChatPage');
 const FilesPage = lazyNamedPage(() => import('./pages/files/FilesPage.jsx'), 'FilesPage');
 const ObservabilityPage = lazyNamedPage(() => import('./pages/observability/ObservabilityPage.jsx'), 'ObservabilityPage');
-const PromptPage = lazyNamedPage(() => import('./pages/prompts/PromptPage.jsx'), 'PromptPage');
 const SettingsPage = lazyNamedPage(() => import('./pages/settings/SettingsPage.jsx'), 'SettingsPage');
 const WorkflowPage = lazyNamedPage(() => import('./pages/workflows/WorkflowPage.jsx'), 'WorkflowPage');
 
@@ -35,16 +34,6 @@ function ChatPageRoute(props) {
       setRightPanelOpen={setRightPanelOpen}
     />
   );
-}
-
-function PromptPageRoute({ copy, projectPath, refreshKey, store: sourceStore }) {
-  const resolveLaunchPreferences = sourceStore.resolveLaunchPreferences;
-  const notifyAction = sourceStore.notifyAction;
-  const store = useMemo(
-    () => ({ notifyAction, resolveLaunchPreferences }),
-    [notifyAction, resolveLaunchPreferences],
-  );
-  return <PromptPage copy={copy.prompts} projectPath={projectPath} store={store} refreshKey={refreshKey} />;
 }
 
 function WorkflowPageRoute({ copy, onWorkflowViewChange, projectPath, refreshKey, store }) {
@@ -82,7 +71,6 @@ export function ActivePageContent(props) {
       />
     );
   }
-  if (activePage === 'prompts') return <PromptPageRoute copy={copy} projectPath={projectPath} refreshKey={store.promptRevision} store={store} />;
   if (activePage === 'workflows') return <WorkflowPageRoute copy={copy} onWorkflowViewChange={onWorkflowViewChange} projectPath={projectPath} refreshKey={store.workflowRevision} store={store} />;
   if (activePage === 'files') return <FilesPageRoute copy={copy} projectPath={projectPath} store={store} />;
   if (activePage === 'observability') return <ObservabilityPage copy={copy.observability} />;

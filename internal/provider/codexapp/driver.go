@@ -234,10 +234,6 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 	// thread/start 期间若 reader 短暂断链，worker 可能在 snapshot 尚未写入
 	// 时重连，绕过同一条 provider owner/version/legacy guard。
 	s.setPromptSnapshot(req.StartAssembly.Snapshot)
-	// runtime 拥有 reader、health 和恢复 goroutine；任何后续 RPC 都要求 reader 已经在线。
-	if s.runtime != nil {
-		s.runtime.Start()
-	}
 	baseInstructions, developerInstructions, err := d.startAssemblyInstructions(req)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on start prompt assembly error")
@@ -245,7 +241,9 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	// recovery 期间的 thread/resume 不再从 runtimeConfig 猜测 prompt；此前已
 	// 记录校验过的 snapshot，后续每次 reconnect 重新执行 owner/version/legacy guard。
-	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
+	// prepareCodexStartBoundary 已将 req.CWD canonicalize；与 runtime config 一次性 hydrate，使 recovery 的
+	// validateRecoveryNativeContext 不会在 hydrate 完成前看到空 cwd。
+	s.setRuntimeConfig(canonicalRuntimeConfigWithCWD(req.Config, req.CWD))
 	s.ensureRuntimeCodexHomeFromInitialize("start")
 	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
 	if developerInstructions != "" {
@@ -261,6 +259,7 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 	)
 	startPolicy, err := codexNativeToolPolicyFromConfig(req.Config)
 	if err != nil {
+		cleanupFailedSession(s, "force stop failed on native tool policy error")
 		return nil, err
 	}
 	approvalPolicy := supportutil.ResolveApprovalPolicy(req.Config)
@@ -268,6 +267,12 @@ func (d *driver) startSession(ctx context.Context, req dto.StartSessionRequest) 
 		approvalPolicy = "never"
 	}
 	s.setApprovalPolicy(approvalPolicy)
+	// runtime 拥有 reader、health 和恢复 goroutine；任何后续 RPC 都要求 reader 已经在线。
+	// 必须在启动 worker 前先完成 runtimeConfig/cwd hydrate，否则启动阶段的 recovery 会在
+	// validateRecoveryNativeContext 中读到空 cwd 而错拒合法的 native context。
+	if s.runtime != nil {
+		s.runtime.Start()
+	}
 	return d.startDynamicSession(ctx, s, req)
 }
 
@@ -305,12 +310,14 @@ func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	// resume 请求已经通过完整 snapshot owner/version 校验；保存副本供
 	// reconnect 的 thread/resume 路径继续执行同一边界检查。
 	s.setPromptSnapshot(req.PromptSnapshot)
+	s.setRuntimeConfig(canonicalRuntimeConfigWithCWD(req.Config, req.CWD))
+	primeResumeToolScope(s, req)
 	// resume RPC 的响应也依赖 runtime-owned reader；失败时 ForceStop 会幂等 drain runtime。
+	// 在启动 worker 之前先写入 canonical cwd 和 provider thread ID，使得早到的 recovery 信号能通过
+	// validateRecoveryNativeContext，同时保持 canonical/mismatch 校验不变。
 	if s.runtime != nil {
 		s.runtime.Start()
 	}
-	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
-	primeResumeToolScope(s, req)
 	resume, err := resumeRemoteThread(ctx, s.transport, req)
 	if err != nil {
 		cleanupFailedSession(s, "force stop failed on resume error")
@@ -327,6 +334,9 @@ func (d *driver) resumeSession(ctx context.Context, req dto.ResumeSessionRequest
 // ResolveResumeSessionIdentity 为恢复请求补齐 Codex home、instance key 和 model provider。
 // 恢复路径不能退回默认身份；任何类型错误或 home 解析失败都会阻断，避免读错历史线程。
 func (d *driver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
+	if err := validateCodexProviderNativeSkillsConfig(req.Config); err != nil {
+		return req, err
+	}
 	if err := validateStartCodexIdentityShape(req.Config); err != nil {
 		return req, err
 	}

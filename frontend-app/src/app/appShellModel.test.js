@@ -35,7 +35,6 @@ describe('app shell model', () => {
     expect(APP_SHELL_STORE_KEYS).toEqual(expect.arrayContaining([
       'addComposerCapability',
       'clearComposer',
-      'notifyAction',
       'reconcileComposerCapabilities',
     ]));
     expect(APP_SHELL_STORE_KEYS).not.toContain('rightPanelWidth');

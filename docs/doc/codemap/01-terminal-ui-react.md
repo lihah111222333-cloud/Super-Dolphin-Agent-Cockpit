@@ -27,9 +27,11 @@
 | `frontend-app/src/shared/api/wailsBridge.js` | Wails runtime bridge、event subscription、日志回传 | `/wails/runtime.js`、`callAPI()`、bridge event |
 | `frontend-app/public/wails/runtime.js` | Vite 开发环境 Wails WebSocket shim | `/wails/ws`、断线重连、`wails:loaded` 恢复通知 |
 | `frontend-app/src/pages/chat/components/ChatPageHeader.jsx` | Chat 标题栏与 bootstrap 错误恢复入口 | 显式“重新连接后端”、重试中禁用 |
-| `frontend-app/src/features/prompts/PromptPageView.jsx` | Prompt 页面视图 | prompt 列表、编辑、向导弹层 |
 | `frontend-app/src/shared/ui/FocusTrapDialog.jsx` | 共享弹层 focus trap | modal 可访问性、Escape/Tab 行为 |
 | `frontend-app/src/styles.css` | 全局视觉样式 | shell、toolbar、chat、timeline、弹层样式 |
+
+Prompt 管理页面已退役；桌面 prompt runtime 组装与 MCP prompt 工具分别见
+[`11-prompt-thread.md`](11-prompt-thread.md) 与 [`02-mcp-orch.md`](02-mcp-orch.md)。
 
 ## 3. 运行与验证命令
 

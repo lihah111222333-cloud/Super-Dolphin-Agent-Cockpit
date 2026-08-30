@@ -21,7 +21,6 @@ const cssFiles = [
   'src/pages/settings/SettingsPage.css',
   'src/pages/observability/ObservabilityPage.css',
   'src/shared/styles/PagePrimitivesLate.css',
-  'src/features/prompts/PromptPageView.css',
   'src/pages/settings/components/SettingsPageComponents.css',
   'src/shared/styles/ThemePolish.css',
   'src/shared/styles/PagePrimitivesPolish.css',
@@ -30,8 +29,6 @@ const cssFiles = [
   'src/pages/chat/components/ProjectSelector.css',
   'src/pages/workflows/WorkflowEmptyState.css',
   'src/pages/files/FilesPageWorkbench.css',
-  'src/features/prompts/PromptPagePolish.css',
-  'src/features/prompts/Personalization.css',
   'src/AppShellSidebarPolish.css',
   'src/pages/workflows/WorkflowPolish.css',
   'src/pages/chat/components/RuntimePanelPolish.css',
@@ -448,10 +445,6 @@ const TOKEN_COLOR_RULES = [
   ['.file-row header span', ['border', 'color']],
   ['.file-row.is-final-output', ['border-color']],
   ['.file-row.is-final-output header span', ['border-color', 'color']],
-  ['.prompt-tabs button', ['color', 'background']],
-  ['.prompt-tabs button.active', ['color', 'border-color', 'background']],
-  ['.prompt-badges span', ['color', 'background']],
-  ['.prompt-badges span.active', ['color', 'border-color']],
   ['.sa-window[data-theme="light"] .message-markdown pre', ['background']],
   ['.sa-window[data-theme="light"] .log-lines', ['background', 'color']],
   ['.sa-window[data-theme="light"] .diff-file-lines', ['background']],
@@ -1545,7 +1538,6 @@ describe('workbench shell styles', () => {
     expect(superDolphinAgentAppWindowSource).not.toContain('<SidebarTaskSummary');
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Chat'");
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Automation'");
-    expect(superDolphinAgentAppWindowSource).toContain("label: 'Roles'");
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Files'");
     expect(superDolphinAgentAppWindowSource).toContain("label: 'Logs'");
   });
@@ -1954,41 +1946,7 @@ describe('light theme control surfaces', () => {
   });
 });
 
-describe('card layout styles', () => {
-  it('keeps card badges and actions horizontal beside long content', () => {
-    const promptTitle = declarationsFor('.prompt-card h3');
-    const promptBadge = declarationsFor('.prompt-badges span');
-    const promptAction = declarationsFor('.prompt-card-actions button');
-
-    expect(promptTitle['min-width']).toBe('0');
-    expect(promptTitle['overflow-wrap']).toBe('anywhere');
-
-    expect(promptBadge.display).toBe('inline-flex');
-    expect(promptBadge.flex).toBe('0 0 auto');
-    expect(promptBadge['align-items']).toBe('center');
-    expect(promptBadge['white-space']).toBe('nowrap');
-    expect(promptAction.flex).toBe('0 0 auto');
-    expect(promptAction['min-width']).toBe('64px');
-    expect(promptAction['white-space']).toBe('nowrap');
-  });
-
-});
-
 describe('fusion surface redesign contracts', () => {
-  it('keeps personalization overview split between hero and content', () => {
-    const overview = topLevelDeclarationsFor('.personalization-overview');
-    const hero = topLevelDeclarationsFor('.personalization-overview-hero');
-
-    // contract: overview must not have fusion bg; it sits transparently on the page
-    // canvas so the header copy and the white stat cards read as separate objects.
-    expect(overview.background).not.toContain('color-mix(in srgb, var(--orange)');
-    expect(overview.background).toBe('transparent');
-
-    // contract: hero has specific grid
-    expect(hero.display).toBe('grid');
-    expect(hero['grid-template-columns']).toBe('minmax(220px, 1fr) auto');
-  });
-
   it('restricts workflow overview to a stable vertical column layout', () => {
     const overview = declarationsFor('.workflow-overview');
     const dl = declarationsFor('.workflow-overview dl');
@@ -2125,14 +2083,6 @@ describe('blue-purple form and notice contract', () => {
     expect(status.color).toBe('var(--success)');
   });
 
-  it('keeps prompt editor readonly previews on theme-aware form surfaces', () => {
-    const preview = declarationsFor('.prompt-editor-grid .prompt-preview-readonly');
-
-    expect(preview.background).toBe('color-mix(in srgb, var(--surface-2) 72%, var(--bg))');
-    expect(preview.color).toBe('var(--text-sec)');
-    expect(preview['border-color']).toBe('var(--border)');
-    expect(preview.cursor).toBe('default');
-  });
 });
 
 describe('theme token color coverage', () => {

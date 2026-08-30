@@ -61,19 +61,13 @@ func (externalDashboardCommandPort) List(context.Context, dashboard.CommandCardF
 	return nil, nil
 }
 
-type externalDashboardPromptPort struct{ externalDashboardPorts }
-
-func (externalDashboardPromptPort) List(context.Context, dashboard.PromptTemplateFilter) ([]dashboard.PromptTemplate, error) {
-	return nil, nil
-}
-
 type externalDashboardSharedPort struct{ externalDashboardPorts }
 
 func (externalDashboardSharedPort) List(context.Context, dashboard.SharedFileFilter) ([]dashboard.SharedFile, error) {
 	return nil, nil
 }
 
-// TestDashboardPortsAreExternallyImplementable 固定 App 可跨包实现全部九个 dashboard 读端口。
+// TestDashboardPortsAreExternallyImplementable 固定 App 可跨包实现全部 dashboard 读端口。
 func TestDashboardPortsAreExternallyImplementable(t *testing.T) {
 	t.Parallel()
 	var _ dashboard.AgentStatusReader = externalDashboardPorts{}
@@ -83,6 +77,5 @@ func TestDashboardPortsAreExternallyImplementable(t *testing.T) {
 	var _ dashboard.SystemLogReader = externalDashboardSystemPort{}
 	var _ dashboard.DBQueryExecutor = externalDashboardPorts{}
 	var _ dashboard.CommandCardReader = externalDashboardCommandPort{}
-	var _ dashboard.PromptTemplateReader = externalDashboardPromptPort{}
 	var _ dashboard.SharedFileReader = externalDashboardSharedPort{}
 }

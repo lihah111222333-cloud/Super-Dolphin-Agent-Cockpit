@@ -32,6 +32,9 @@ const (
 // prepareStartSessionRequest 解析 Codex provider home 并写入启动身份配置。
 // provider-native skills 由 Codex CLI 根据 cwd/home 自己发现；该层不再生成或校验集中式 skill tree。
 func (d *driver) prepareStartSessionRequest(_ context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
+	if err := validateCodexProviderNativeSkillsConfig(req.Config); err != nil {
+		return req, err
+	}
 	canonicalCWD, err := canonicalizeProviderNativeDiscoveryCWD(req.CWD)
 	if err != nil {
 		return req, err
@@ -81,6 +84,9 @@ func validateStartCodexIdentityShape(config map[string]any) error {
 // prepareResumeSessionRequest 恢复会话前重新解析 Codex home；provider-native skills 由 CLI 自己发现。
 // Resume 依赖历史绑定身份，解析失败时必须阻断，不能退回默认 home。
 func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
+	if err := validateCodexProviderNativeSkillsConfig(req.Config); err != nil {
+		return req, err
+	}
 	canonicalCWD, err := canonicalizeProviderNativeDiscoveryCWD(req.CWD)
 	if err != nil {
 		return req, err
@@ -349,6 +355,9 @@ func putCodexString(config map[string]any, key, value string) error {
 // 携带 Codex identity 时必须走 pool；pool 缺失、禁用或 identity 非法都会 fail-closed，避免误用 ambient home。
 // 成功 acquire 的 server 会把 URL 和 release 绑定进 session，启动背压错误原样返回给调用方。
 func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSessionRequest) ([]sessionOption, error) {
+	if err := validateCodexProviderNativeSkillsConfig(req.Config); err != nil {
+		return nil, err
+	}
 	if err := validateCodexNativeToolPolicyConfig(req.Config); err != nil {
 		return nil, err
 	}
@@ -481,6 +490,19 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 	return out
 }
 
+// canonicalRuntimeConfigWithCWD 在会话 runtime 启动前一次性水合 canonical config 和已校验的 cwd。
+// cwd 由 start/resume boundary 提前 canonicalize；这里不重新解析或放宽路径校验。已存在的 cwd 保留给 recovery 做 canonical/mismatch 校验，确保不会被静默覆盖。
+func canonicalRuntimeConfigWithCWD(config map[string]any, cwd string) map[string]any {
+	out := canonicalStartRuntimeConfig(config)
+	if out == nil {
+		out = make(map[string]any, 1)
+	}
+	if _, exists := out[contract.RuntimeConfigCWD().Canonical]; !exists {
+		out[contract.RuntimeConfigCWD().Canonical] = cwd
+	}
+	return out
+}
+
 // resolveResumeOptions 为 ResumeSession 选择 pool 或 legacy 路径。
 // 带 Codex 身份的恢复必须走 pool；非 strict legacy 仅用于老线程兼容并会记录告警。
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
@@ -603,6 +625,51 @@ func codexNativeToolPolicyFromDisabled(ids []string) (codexNativeToolPolicy, err
 func validateCodexNativeToolPolicyConfig(cfg map[string]any) error {
 	_, err := codexNativeToolPolicyFromConfig(cfg)
 	return err
+}
+
+// validateCodexProviderNativeSkillsConfig 明确解析 common provider-native skills runtime flags。
+// Codex 按自身 provider home/cwd 发现技能且没有运行时 enable/disable 开关，因此关闭请求必须
+// 返回显式 unsupported，不能静默忽略；开启请求只表示调用方意图，不等同于能力探测已支持。
+func validateCodexProviderNativeSkillsConfig(cfg map[string]any) error {
+	enabled, hasEnabled, err := readCodexProviderNativeSkillsBool(cfg, contract.RuntimeConfigProviderNativeSkills())
+	if err != nil {
+		return err
+	}
+	disabled, hasDisabled, err := readCodexProviderNativeSkillsBool(cfg, contract.RuntimeConfigDisableProviderNativeSkills())
+	if err != nil {
+		return err
+	}
+	if hasEnabled && hasDisabled && enabled == disabled {
+		return fmt.Errorf("%w: codex provider native skills flags conflict", contract.ErrProviderNativeContextInvalid)
+	}
+	if (hasEnabled && !enabled) || (hasDisabled && disabled) {
+		return fmt.Errorf("%w: codex provider native skills disable flag is unsupported", contract.ErrProviderNativeCapabilityUnsupported)
+	}
+	return nil
+}
+
+// readCodexProviderNativeSkillsBool 严格解析 runtime 字段及其别名。
+// 同组别名只有在值一致时才接受；值不一致的请求含义不明确，必须在 provider 副作用前失败。
+func readCodexProviderNativeSkillsBool(cfg map[string]any, field contract.RuntimeConfigField) (bool, bool, error) {
+	var (
+		value bool
+		found bool
+	)
+	for _, key := range field.Keys() {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		parsed, ok := raw.(bool)
+		if !ok {
+			return false, false, fmt.Errorf("%w: codex runtime config %s must be boolean", contract.ErrProviderNativeContextInvalid, key)
+		}
+		if found && value != parsed {
+			return false, false, fmt.Errorf("%w: codex runtime config %s aliases conflict", contract.ErrProviderNativeContextInvalid, field.Canonical)
+		}
+		value, found = parsed, true
+	}
+	return value, found, nil
 }
 
 // rawStringList 严格解析 native tool 禁用列表，遇到非字符串元素会直接阻断启动。

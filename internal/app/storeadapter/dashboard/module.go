@@ -2,7 +2,7 @@ package dashboardadapter
 
 import "go.uber.org/fx"
 
-// Module 提供 dashboard 领域拥有的九个 Store adapter 端口。
+// Module 提供 dashboard 领域拥有的八个 Store adapter 端口。
 var Module = fx.Module("app.storeadapter.dashboard",
 	fx.Provide(
 		provideDashboardAgentStatusReader,
@@ -12,7 +12,6 @@ var Module = fx.Module("app.storeadapter.dashboard",
 		provideDashboardSystemLogReader,
 		provideDashboardDBQueryExecutor,
 		provideDashboardCommandCardReader,
-		provideDashboardPromptTemplateReader,
 		provideDashboardSharedFileReader,
 	),
 )

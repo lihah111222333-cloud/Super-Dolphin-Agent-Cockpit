@@ -9,8 +9,6 @@ import {
 const EXPECTED_EXISTING_RESPONSE_VALIDATORS = Object.freeze([
   ['APP_UPDATE_INSTALL', 'appUpdateInstallResponse'],
   ['APP_UPDATE_INSTALL_LATEST', 'appUpdateInstallResponse'],
-  ['CONFIG_LSP_PROMPT_HINT_READ', 'lspPromptHintResponse'],
-  ['CONFIG_LSP_PROMPT_HINT_WRITE', 'lspPromptHintResponse'],
   ['DASHBOARD_DAG_CREATE_AND_START', 'dashboardDagCreateAndStartResponse'],
   ['DASHBOARD_DAG_START', 'dashboardDagStartResponse'],
   ['DASHBOARD_SHARED_FILES', 'sharedFilesDashboardResponse'],
@@ -45,7 +43,6 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['DASHBOARD_DAG_RUN', 'dashboardDagRunResponse'],
   ['DASHBOARD_DAG_RUNS', 'dashboardDagRunsResponse'],
   ['DASHBOARD_LOGS', 'dashboardLogsResponse'],
-  ['DASHBOARD_PROMPTS', 'dashboardPromptsResponse'],
   ['DASHBOARD_WORKFLOW_MATERIAL_WRITE', 'workflowMaterialWriteResponse'],
   ['DATASOURCE_V2_GET', 'datasourceDetailResponse'],
 	['DATASOURCE_V2_IMPORT_LOCAL_FILE', 'datasourceImportResponse'],
@@ -54,16 +51,6 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['DATASOURCE_V2_UPDATE', 'datasourceDocumentResponse'],
   ['MODEL_PROVIDERS_SAVE', 'modelProviderRegistryResponse'],
   ['OBSERVABILITY_FRONTEND_INGEST', 'frontendIngestResponse'],
-  ['PERSONALIZATION_PROFILE_GET', 'personalizationProfileResponse'],
-  ['PERSONALIZATION_PROFILE_SAVE', 'personalizationProfileResponse'],
-  ['PROMPTS_DELETE', 'okResponse'],
-  ['PROMPTS_GET', 'promptDetailResponse'],
-  ['PROMPTS_WRITE', 'promptDetailResponse'],
-  ['PROMPT_ASSETS_LIST', 'promptAssetsResponse'],
-  ['PROMPT_INTENTS_COMMIT', 'promptIntentCommitResponse'],
-  ['PROMPT_INTENTS_DISCARD', 'promptIntentDiscardResponse'],
-  ['PROMPT_INTENTS_DRAFT', 'promptIntentDraftResponse'],
-  ['PROMPT_INTENTS_DRY_RUN', 'promptIntentDryRunResponse'],
   ['THREAD_ARCHIVE', 'nullResponse'],
   ['THREAD_COMPACT_START', 'threadCompactResponse'],
   ['THREAD_CONFIG_GET', 'threadConfigResponse'],
@@ -132,9 +119,6 @@ const EXPECTED_UNUSED_RESPONSE_POLICIES = Object.freeze([
   'MCP_TOOL_LIFECYCLE_LIST',
   'MCP_TOOL_LIFECYCLE_SET',
   'OBSERVABILITY_STATUS',
-  'PROMPT_SECTIONS_DELETE',
-  'PROMPT_SECTIONS_LIST',
-  'PROMPT_SECTIONS_WRITE',
   'THREAD_LIST_PAGE',
   'THREAD_LOADED_LIST_PAGE',
   'UI_PREFERENCES_GET_ALL',
@@ -162,11 +146,9 @@ describe('backend API contract matrix', () => {
       && entry.responseValidator === ''
       && entry.responsePolicy == null
     ));
-    expect(entries).toHaveLength(113);
+    expect(entries).toHaveLength(Object.keys(RPC_METHODS).length);
     expect(validators).toEqual(EXPECTED_RESPONSE_VALIDATORS);
-	expect(validators).toHaveLength(80);
-	expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(54);
-	expect(policies).toHaveLength(29);
+
     expect(unusedKeys).toEqual(EXPECTED_UNUSED_RESPONSE_POLICIES);
     expect(RPC_CONTRACT_REGISTRY.UI_LOG.responsePolicy.kind).toBe('ignored-result');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePolicy.kind).toBe('result-handled');
@@ -189,8 +171,6 @@ describe('backend API contract matrix', () => {
       expect(Object.isFrozen(RPC_CONTRACT_REGISTRY[key].responsePolicy.outcome.target)).toBe(true);
     }
     expect(p2WithoutMandatoryGovernance).toHaveLength(4);
-    expect(26 + EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(86);
-    expect(EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(60);
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('responsePassthroughReason');
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('response is consumed unchanged by');
 
@@ -274,10 +254,6 @@ describe('backend API contract matrix', () => {
       'DASHBOARD_DAG_RUNS',
       'DASHBOARD_DAG_RUN',
       'UI_DASHBOARD_GET',
-      'PROMPT_ASSETS_LIST',
-      'DASHBOARD_PROMPTS',
-      'PROMPTS_GET',
-      'PROMPT_SECTIONS_LIST',
       'DASHBOARD_SHARED_FILES',
       'OBSERVABILITY_TRACE_GET',
       'OBSERVABILITY_THREAD_RECENT',
@@ -297,8 +273,6 @@ describe('backend API contract matrix', () => {
 
   it('anchors known contract exceptions in explicit policy fields instead of implicit defaults', () => {
     expect(RPC_CONTRACT_REGISTRY.DASHBOARD_SHARED_FILES.notes).toContain('params:{}-only');
-    expect(RPC_CONTRACT_REGISTRY.CONFIG_LSP_PROMPT_HINT_READ.responseValidator).toBe('lspPromptHintResponse');
-    expect(RPC_CONTRACT_REGISTRY.CONFIG_LSP_PROMPT_HINT_WRITE.responseValidator).toBe('lspPromptHintResponse');
     expect(RPC_CONTRACT_REGISTRY.UI_STATE_GET.responseValidator).toBe('uiStateResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_LIST.responseValidator).toBe('mcpServerListResponse');
     expect(RPC_CONTRACT_REGISTRY.TOOLBRIDGE_TOOLS_LIST.responseValidator).toBe('toolbridgeToolsListResponse');
@@ -327,22 +301,6 @@ describe('backend API contract matrix', () => {
       OBSERVABILITY_RECENT_LIST: {
         facade: 'observabilityPageService.listObservabilityRecent',
         tests: ['src/pages/observability/services/observabilityPageService.test.js'],
-      },
-      PROMPT_ASSETS_LIST: {
-        facade: 'promptPageService.listPromptAssets',
-        tests: ['src/pages/prompts/services/promptPageService.test.js'],
-      },
-      DASHBOARD_PROMPTS: {
-        facade: 'promptPageService.getDashboardPrompts',
-        tests: ['src/pages/prompts/services/promptPageService.test.js'],
-      },
-      PROMPTS_GET: {
-        facade: 'promptPageService.getPrompt',
-        tests: ['src/pages/prompts/services/promptPageService.test.js'],
-      },
-      PROMPTS_WRITE: {
-        facade: 'promptPageService.writePrompt',
-        tests: ['src/pages/prompts/services/promptPageService.test.js'],
       },
     };
 

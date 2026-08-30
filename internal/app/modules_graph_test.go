@@ -54,16 +54,15 @@ func TestAppModuleGraphProvidesTurnThreadStateConfigReader(t *testing.T) {
 	}
 }
 
-// TestAppModuleGraphProvidesPromptStorePorts 验证 App graph 拥有 prompt 的三个持久化端口适配器。
-func TestAppModuleGraphProvidesPromptStorePorts(t *testing.T) {
+// TestAppModuleGraphProvidesPromptRuntimePorts 验证 App graph 拥有 prompt runtime 所需的共享读取端口。
+func TestAppModuleGraphProvidesPromptRuntimePorts(t *testing.T) {
 	t.Parallel()
 
-	var store promptmodule.Store
 	var preferences promptmodule.PreferenceReader
 	var sharedFiles promptmodule.SharedFileReader
-	opts := append(appGraphValidationOptions(), fx.Populate(&store, &preferences, &sharedFiles))
+	opts := append(appGraphValidationOptions(), fx.Populate(&preferences, &sharedFiles))
 	if err := fx.ValidateApp(opts...); err != nil {
-		t.Fatalf("fx.ValidateApp missing prompt Store ports: %v", err)
+		t.Fatalf("fx.ValidateApp missing prompt runtime ports: %v", err)
 	}
 }
 
@@ -184,15 +183,12 @@ func appGraphAdapterPortCases() []appGraphPortCase {
 	var dashboardSystemLog dashboardmodule.SystemLogReader
 	var dashboardDBQuery dashboardmodule.DBQueryExecutor
 	var dashboardCommandCard dashboardmodule.CommandCardReader
-	var dashboardPromptTemplate dashboardmodule.PromptTemplateReader
 	var dashboardSharedFile dashboardmodule.SharedFileReader
-	var promptStore promptmodule.Store
 	var threadStore threadmodule.ThreadStore
 	var threadBindingStore threadmodule.BindingStore
 	var threadPromptCatalog threadmodule.PromptCatalog
 	var turnDedupeStore turn.DedupeStore
 	var uiStatePreferenceStore uistatemodule.PreferenceStore
-	var uiStateSharedFileReader uistatemodule.SharedFileReader
 	var uiStateBindingLookup uistatemodule.BindingLookup
 	var readiness contract.ToolbridgeReadinessProbe
 
@@ -206,15 +202,12 @@ func appGraphAdapterPortCases() []appGraphPortCase {
 		{name: "dashboard SystemLogReader", target: &dashboardSystemLog},
 		{name: "dashboard DBQueryExecutor", target: &dashboardDBQuery},
 		{name: "dashboard CommandCardReader", target: &dashboardCommandCard},
-		{name: "dashboard PromptTemplateReader", target: &dashboardPromptTemplate},
 		{name: "dashboard SharedFileReader", target: &dashboardSharedFile},
-		{name: "prompt Store", target: &promptStore},
 		{name: "thread ThreadStore", target: &threadStore},
 		{name: "thread BindingStore", target: &threadBindingStore},
 		{name: "thread PromptCatalog", target: &threadPromptCatalog},
 		{name: "turn DedupeStore", target: &turnDedupeStore},
 		{name: "uistate PreferenceStore", target: &uiStatePreferenceStore},
-		{name: "uistate SharedFileReader", target: &uiStateSharedFileReader},
 		{name: "uistate BindingLookup", target: &uiStateBindingLookup},
 		{name: "toolbridge readiness probe", target: &readiness},
 	}

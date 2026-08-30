@@ -27,13 +27,10 @@
   .thread-card,
   .approval-card,
   .fork-draft-card,
-  .prompt-card,
-  .personalization-profile-card,
   .enterprise-template-card,
   .settings-mobile-card,
   .settings-update-card,
   .settings-log-card,
-  .settings-prompt-card,
   .settings-stall-card,
   .shortcut-settings-card,
   .frontend-health-panel,
@@ -52,7 +49,6 @@
 .sa-window :is(
   .chat-intro-card,
   .thread-card,
-  .prompt-card,
   .enterprise-template-card
 ):is(:hover, :focus-visible) {
   border-color: color-mix(in srgb, var(--primary) 32%, var(--glass-card-border)) !important;
@@ -73,7 +69,6 @@
     .settings-card,
     .chat-intro-card,
     .composer-card,
-    .prompt-card,
     .enterprise-template-card
   ) {
     -webkit-backdrop-filter: blur(14px) saturate(135%);

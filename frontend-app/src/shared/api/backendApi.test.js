@@ -188,7 +188,6 @@ function dashboardPageResponse() {
     agents: [],
     dags: [],
     commandCards: [],
-    prompts: [],
     finalOutputRefs: [],
     sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
   };
@@ -350,66 +349,6 @@ function workflowTemplateDetail(overrides = {}) {
   };
 }
 
-function promptWireItem(overrides = {}) {
-  return {
-    id: 'main/reviewer',
-    name: 'Reviewer',
-    content: 'Review carefully.',
-    description: 'Review prompt',
-    agentType: 'coder',
-    when_to_use: 'When reviewing code.',
-    createdAt: '2026-07-13T00:00:00Z',
-    updatedAt: '2026-07-13T00:00:01Z',
-    enabled: true,
-    scope: 'project',
-    tags: ['review'],
-    ...overrides,
-  };
-}
-
-function promptIntentDraftResponse() {
-  return {
-    draft_key: 'intent/expert/review',
-    requested_kind: 'expert',
-    inferred_kind: 'expert',
-    status: 'ready_to_save',
-    confidence: 0.9,
-    scope: 'project',
-    issues: [],
-    card: {
-      kind: 'expert',
-      title: 'Review expert',
-      summary: 'Review code carefully.',
-      hit_examples: ['Review this code.'],
-      miss_examples: [],
-    },
-  };
-}
-
-function dashboardPromptResponse() {
-  return {
-    prompts: [{
-      id: 17,
-      prompt_key: 'main/reviewer',
-      title: 'Reviewer',
-      agent_key: 'main',
-      tool_name: '',
-      prompt_text: 'Review carefully.',
-      when_to_use: 'When reviewing code.',
-      variables: {},
-      tags: ['review'],
-      enabled: true,
-      manually_edited: false,
-      priority: 0,
-      created_by: '',
-      updated_by: '',
-      created_at: '2026-07-13T00:00:00Z',
-      updated_at: '2026-07-13T00:00:01Z',
-      description: 'Review prompt',
-    }],
-  };
-}
-
 function guardedBackendResponse(method) {
   if (method === RPC_METHODS.CRONJOB_LIST) return { jobs: [], next_cursor: '', has_more: false };
   if (method === RPC_METHODS.TOOLBRIDGE_TOOLS_LIST) return { tools: [] };
@@ -426,8 +365,6 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.UI_DASHBOARD_GET) return dashboardPageResponse();
   if (method === RPC_METHODS.UI_VIDEO_GET_API_KEY) return videoApiKeyStatusResponse();
   if (method === RPC_METHODS.DASHBOARD_LOGS) return dashboardLogsResponse();
-  if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ) return { hint: 'effective prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
-  if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE) return { hint: 'custom prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.DASHBOARD_SHARED_FILES) return { files: [], finalOutputRefs: [], sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 } };
   if (method === RPC_METHODS.MODEL_PROVIDERS_APPLY || method === RPC_METHODS.MODEL_PROVIDERS_LIST || method === RPC_METHODS.MODEL_PROVIDERS_SAVE) return modelProviderRegistryResponse();
   if (
@@ -453,17 +390,6 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.DASHBOARD_DAG_RUNS) return { runs: [dashboardDagRun()] };
   if (method === RPC_METHODS.DASHBOARD_DAG_RUN) return { run: dashboardDagRun(), nodes: [dashboardDagNode()] };
   if (method === RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE) return { path: 'reports/workflows/uploads/dag-1/material.md' };
-  if (method === RPC_METHODS.PROMPT_ASSETS_LIST) return { prompts: [promptWireItem()] };
-  if (method === RPC_METHODS.DASHBOARD_PROMPTS) return dashboardPromptResponse();
-  if (method === RPC_METHODS.PROMPTS_GET || method === RPC_METHODS.PROMPTS_WRITE) return { prompt: promptWireItem() };
-  if (method === RPC_METHODS.PROMPTS_DELETE) return { ok: true };
-  if (method === RPC_METHODS.PROMPT_INTENTS_DRAFT) return promptIntentDraftResponse();
-  if (method === RPC_METHODS.PROMPT_INTENTS_COMMIT) return { draft_key: 'intent/expert/review', prompt_key: 'main/reviewer', kind: 'expert', status: 'enabled' };
-  if (method === RPC_METHODS.PROMPT_INTENTS_DISCARD) return { draft_key: 'intent/expert/review', status: 'rejected' };
-  if (method === RPC_METHODS.PROMPT_INTENTS_DRY_RUN) return { would_use: true, action: 'launch_agent', target: 'main/reviewer', reasons: ['matched'], disclaimer: '' };
-  if (method === RPC_METHODS.PERSONALIZATION_PROFILE_GET || method === RPC_METHODS.PERSONALIZATION_PROFILE_SAVE) {
-    return { profile: { displayName: '小海', role: '后端工程师', background: '熟悉 Go', customInstructions: '回答要直接' } };
-  }
   return { ok: true };
 }
 
@@ -1044,96 +970,12 @@ function guardedBackendResponse(method) {
     }
   });
 
-  it('rejects malformed prompt dashboard and UI responses', async () => {
+  it('rejects malformed workflow material responses', async () => {
     const cases = [
       { call: (api) => api.writeWorkflowMaterial({ path: 'workflow/material.md', content: 'body' }), response: { path: 9 } },
-      { call: (api) => api.listPromptAssets({ cwd: '/repo/app' }), response: { prompts: [{ id: 'prompt-1', issues: 'broken' }] } },
-      { call: (api) => api.getDashboardPrompts({ cwd: '/repo/app' }), response: { prompts: [{ id: '7' }] } },
-      { call: (api) => api.getPrompt({ cwd: '/repo/app', id: 'main/reviewer' }), response: { prompt: { id: 'main/reviewer', enabled: 'true' } } },
-      {
-        call: (api) => api.writePrompt({
-          cwd: '/repo/app', id: 'main/reviewer', name: 'Reviewer', content: 'Review',
-          agentType: 'main', tags: [], scope: 'project', enabled: true,
-        }),
-        response: { prompt: { id: 'main/reviewer', enabled: 'true' } },
-      },
-      { call: (api) => api.deletePrompt({ cwd: '/repo/app', id: 'main/reviewer' }), response: { ok: false } },
-      {
-        call: (api) => api.draftPromptIntent({ cwd: '/repo/app', kind: 'expert', rawInput: 'Review code' }),
-        response: { requested_kind: 'expert', inferred_kind: 'expert', drafts: {} },
-      },
-      {
-        call: (api) => api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' }),
-        response: { draft_key: 'intent/expert/review', prompt_key: 7, kind: 'expert', status: 'saved' },
-      },
-      {
-        call: (api) => api.discardPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' }),
-        response: { draft_key: 'intent/expert/review', status: 7 },
-      },
-      {
-        call: (api) => api.dryRunPromptIntent({
-          cwd: '/repo/app', draftKey: 'intent/expert/review', kind: 'expert',
-          card: { title: 'Reviewer' }, question: 'Review this',
-        }),
-        response: { would_use: true, action: 'use', reasons: 'because', disclaimer: 'preview' },
-      },
-      { call: (api) => api.getPersonalizationProfile({ cwd: '/repo/app' }), response: { profile: { displayName: '', role: '', background: [], customInstructions: '' } } },
-      {
-        call: (api) => api.savePersonalizationProfile({
-          cwd: '/repo/app', profile: { displayName: '', role: '', background: '', customInstructions: '' },
-        }),
-        response: { profile: { displayName: '', role: '', background: [], customInstructions: '' } },
-      },
     ];
 
     for (const item of cases) {
-      const callAPI = vi.fn().mockResolvedValue(item.response);
-      await expect(item.call(createBackendApi({ callAPI }))).rejects.toThrow();
-      expect(callAPI).toHaveBeenCalledTimes(1);
-    }
-  });
-
-  it('accepts nullable prompt intent slices without normalizing them and rejects scalar replacements', async () => {
-    const draftResponse = {
-      draft_key: 'intent/expert/review',
-      requested_kind: 'expert',
-      inferred_kind: 'expert',
-      status: 'ready_to_save',
-      confidence: 0.9,
-      scope: 'project',
-      issues: null,
-      card: {
-        kind: 'expert',
-        title: 'Review expert',
-        summary: 'Review code carefully.',
-        hit_examples: null,
-        miss_examples: null,
-      },
-    };
-    const dryRunResponse = {
-      would_use: false,
-      action: 'none',
-      reasons: null,
-      disclaimer: 'Preview only.',
-    };
-    const draftCall = (api) => api.draftPromptIntent({ cwd: '/repo/app', kind: 'expert', rawInput: 'Review code' });
-    const dryRunCall = (api) => api.dryRunPromptIntent({
-      cwd: '/repo/app', draftKey: 'intent/expert/review', kind: 'expert',
-      card: { title: 'Reviewer' }, question: 'Review this',
-    });
-
-    await expect(draftCall(createBackendApi({ callAPI: vi.fn().mockResolvedValue(draftResponse) })))
-      .resolves.toEqual(draftResponse);
-    await expect(dryRunCall(createBackendApi({ callAPI: vi.fn().mockResolvedValue(dryRunResponse) })))
-      .resolves.toEqual(dryRunResponse);
-
-    const invalidResponses = [
-      { call: draftCall, response: { ...draftResponse, issues: 'broken' } },
-      { call: draftCall, response: { ...draftResponse, issues: [], card: { ...draftResponse.card, hit_examples: 'broken' } } },
-      { call: draftCall, response: { ...draftResponse, issues: [], card: { ...draftResponse.card, miss_examples: 'broken' } } },
-      { call: dryRunCall, response: { ...dryRunResponse, reasons: 'broken' } },
-    ];
-    for (const item of invalidResponses) {
       const callAPI = vi.fn().mockResolvedValue(item.response);
       await expect(item.call(createBackendApi({ callAPI }))).rejects.toThrow();
       expect(callAPI).toHaveBeenCalledTimes(1);
@@ -1745,16 +1587,6 @@ function guardedBackendResponse(method) {
         message: 'ui/state/get response missing UI state snapshot fields',
       },
       {
-        call: (api) => api.readLspPromptHint({ cwd: '/repo/app' }),
-        response: { hint: 'effective', overrideHint: '', usingDefault: true },
-        message: 'config/lspPromptHint/read response defaultHint must be a string',
-      },
-      {
-        call: (api) => api.writeLspPromptHint({ cwd: '/repo/app', hint: '' }),
-        response: { hint: 'effective', defaultHint: 'default', overrideHint: '', usingDefault: 'true' },
-        message: 'config/lspPromptHint/write response usingDefault must be a boolean',
-      },
-      {
         call: (api) => api.startThread({ cwd: '/repo/app', modelProvider: 'codex' }),
         response: { status: 'running' },
         message: 'thread/start response missing threadId or thread_id',
@@ -2364,19 +2196,13 @@ function guardedBackendResponse(method) {
     const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
-    await api.readLspPromptHint({ cwd: '/repo/app' });
-    await api.writeLspPromptHint({ cwd: '/repo/app', hint: 'custom prompt' });
     await api.readBuiltinTools({ cwd: '/repo/app' });
     await api.writeBuiltinTool({ cwd: '/repo/app', id: 'Shell', enabled: false });
     await api.listDashboardLogs({ limit: 14 });
 
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ, { cwd: '/repo/app' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, { cwd: '/repo/app', hint: 'custom prompt' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_BUILTIN_TOOLS_READ, { cwd: '/repo/app' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE, { cwd: '/repo/app', id: 'Shell', enabled: false });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_LOGS, { limit: 14 });
-    expect(() => api.readLspPromptHint({ cwd: '' })).toThrow('cwd is required');
-    expect(() => api.writeLspPromptHint({ cwd: '/repo/app' })).toThrow('hint is required');
     expect(() => api.writeBuiltinTool({ cwd: '/repo/app', id: '', enabled: true })).toThrow('id is required');
     expect(() => api.writeBuiltinTool({ cwd: '/repo/app', id: 'Shell', enabled: 'false' })).toThrow('enabled must be boolean');
     expect(() => api.listDashboardLogs({ limit: 0 })).toThrow('limit must be a positive integer');
@@ -2443,24 +2269,16 @@ function guardedBackendResponse(method) {
     expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.MODEL_PROVIDERS_APPLY, { cwd: '/repo/app', vendorId: 'openrouter' });
   });
 
-  it('wraps prompt-section and thread read RPCs with stable payloads', async () => {
+  it('wraps thread read RPCs with stable payloads', async () => {
     const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
-    await api.listPromptSections({ cwd: '/repo/app', prompt_id: 'prompt-1' });
-    await api.writePromptSection({ cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
-    await api.deletePromptSection({ cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
     await api.getThreadMessages({ threadId: 'thread-1', limit: 20, before: 'cursor-1' });
     await api.resolveThreadIdentity({ cwd: '/repo/app', thread_id: 'thread-2' });
 
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_LIST, { cwd: '/repo/app', prompt_id: 'prompt-1' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_WRITE, { cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_DELETE, { cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_MESSAGES, { threadId: 'thread-1', limit: 20, before: 'cursor-1' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_RESOLVE, { threadId: 'thread-2' });
 
-    expect(() => api.listPromptSections({ cwd: '', prompt_id: 'prompt-1' })).toThrow('cwd is required');
-    expect(() => api.writePromptSection({ cwd: '/repo/app', prompt_id: '' })).toThrow('prompt_id is required');
     expect(() => api.getThreadMessages({ threadId: '' })).toThrow('threadId is required');
     expect(() => api.getThreadMessages({ threadId: 'thread-1', surprise: true })).toThrow('thread/messages: unsupported payload field surprise');
     expect(() => api.resolveThreadIdentity({})).toThrow('threadId is required');
@@ -2583,192 +2401,6 @@ function expectDagDashboardCalls(callAPI) {
     ops: [{ op: 'update_node', node_key: 'draft', patch: { title: 'Draft v2' } }],
   });
 }
-
-
-async function callPromptFacadeMethods(api) {
-  await api.listPromptAssets({ cwd: '/repo/app' });
-  await api.getDashboardPrompts({ cwd: '/repo/app' });
-  await api.getPrompt({ cwd: '/repo/app', id: 'main/reviewer' });
-  await writePromptFacadePrompt(api);
-  await writePromptFacadePromptWithKey(api);
-  await api.deletePrompt({ cwd: '/repo/app', id: 'main/reviewer', scope: 'global' });
-  await callPromptIntentFacadeMethods(api);
-}
-
-async function writePromptFacadePrompt(api) {
-  await api.writePrompt({
-    cwd: '/repo/app',
-    id: 'main/reviewer',
-    name: '代码审查专家',
-    description: '审查代码质量',
-    agentType: 'coder',
-    when_to_use: 'Use for code review.',
-    content: '先检查阻塞问题',
-    tags: ['review'],
-    enabled: true,
-    scope: 'global',
-    priority: 5,
-  });
-}
-
-async function writePromptFacadePromptWithKey(api) {
-  await api.writePrompt({
-    cwd: '/repo/app',
-    key: 'project/reviewer',
-    name: 'Reviewer',
-    content: 'Check risks first',
-  });
-}
-
-async function callPromptIntentFacadeMethods(api) {
-  await api.getPersonalizationProfile({ cwd: '/repo/app' });
-  await api.savePersonalizationProfile({
-    cwd: '/repo/app',
-    profile: {
-      displayName: ' 小海 ',
-      role: '后端工程师',
-      background: '熟悉 Go',
-      customInstructions: '回答要直接',
-    },
-  });
-  await api.draftPromptIntent({
-    cwd: '/repo/app',
-    kind: 'expert',
-    rawInput: '当用户要求代码审查时使用。',
-    sourceType: 'user_input',
-    scope: 'project',
-    provider: 'codex',
-    model: 'gpt-5.5',
-    codexModelProvider: 'openrouter',
-  });
-  await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/review' });
-  await api.draftPromptIntent({
-    cwd: '/repo/app',
-    kind: 'expert',
-    rawInput: '全局使用这条提示词。',
-    scope: 'global',
-  });
-  await api.commitPromptIntent({ cwd: '/repo/app', draftKey: 'intent/expert/global', scope: 'global' });
-  await api.discardPromptIntent({ cwd: '/repo/app', draft_key: 'intent/expert/review' });
-  await api.dryRunPromptIntent({
-    cwd: '/repo/app',
-    draftKey: 'intent/expert/review',
-    kind: 'expert',
-    card: { title: '代码审查专家' },
-    question: '帮我审查这段代码',
-  });
-}
-
-function expectPromptFacadeCalls(callAPI) {
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_ASSETS_LIST, { cwd: '/repo/app' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_PROMPTS, { cwd: '/repo/app' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_GET, { cwd: '/repo/app', id: 'main/reviewer' });
-  expectPromptWriteCall(callAPI);
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_DELETE, {
-    cwd: '/repo/app',
-    id: 'main/reviewer',
-    scope: 'global',
-  });
-  expectPromptIntentFacadeCalls(callAPI);
-}
-
-function expectPromptWriteCall(callAPI) {
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_WRITE, {
-    cwd: '/repo/app',
-    id: 'main/reviewer',
-    name: '代码审查专家',
-    description: '审查代码质量',
-    agentType: 'coder',
-    when_to_use: 'Use for code review.',
-    content: '先检查阻塞问题',
-    tags: ['review'],
-    enabled: true,
-    scope: 'global',
-    priority: 5,
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPTS_WRITE, {
-    cwd: '/repo/app',
-    id: 'project/reviewer',
-    name: 'Reviewer',
-    content: 'Check risks first',
-    tags: [],
-    agentType: 'main',
-    scope: 'project',
-  });
-}
-
-function expectPromptIntentFacadeCalls(callAPI) {
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PERSONALIZATION_PROFILE_GET, {
-    cwd: '/repo/app',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PERSONALIZATION_PROFILE_SAVE, {
-    cwd: '/repo/app',
-    profile: {
-      displayName: ' 小海 ',
-      role: '后端工程师',
-      background: '熟悉 Go',
-      customInstructions: '回答要直接',
-    },
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
-    cwd: '/repo/app',
-    kind: 'expert',
-    raw_input: '当用户要求代码审查时使用。',
-    source_type: 'user_input',
-    provider: 'codex',
-    model: 'gpt-5.5',
-    model_provider: 'openrouter',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
-    cwd: '/repo/app',
-    draft_key: 'intent/expert/review',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRAFT, {
-    cwd: '/repo/app',
-    kind: 'expert',
-    raw_input: '全局使用这条提示词。',
-    source_type: 'user_input',
-    enable_global: true,
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_COMMIT, {
-    cwd: '/repo/app',
-    draft_key: 'intent/expert/global',
-    enable_global: true,
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DISCARD, {
-    cwd: '/repo/app',
-    draft_key: 'intent/expert/review',
-  });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_INTENTS_DRY_RUN, {
-    cwd: '/repo/app',
-    draft_key: 'intent/expert/review',
-    kind: 'expert',
-    card: { title: '代码审查专家' },
-    question: '帮我审查这段代码',
-  });
-}
-
-function expectPromptFacadeValidation(api) {
-  expect(() => api.listPromptAssets({ cwd: '' })).toThrow('cwd is required');
-  expect(() => api.getPrompt({ cwd: '/repo/app', id: '' })).toThrow('id is required');
-  expect(() => api.writePrompt({ cwd: '/repo/app', name: '' })).toThrow('name is required');
-  expect(() => api.writePrompt({ cwd: '/repo/app', name: 'Missing identity' })).toThrow('id or key is required');
-  expect(() => api.commitPromptIntent({ cwd: '/repo/app', draftKey: '' })).toThrow('draft_key is required');
-  expect(() => api.dryRunPromptIntent({ cwd: '/repo/app', draftKey: 'd1', question: '' })).toThrow('question is required');
-  expect(() => api.getPersonalizationProfile({ cwd: '' })).toThrow('cwd is required');
-  expect(() => api.savePersonalizationProfile({ cwd: '', profile: {} })).toThrow('cwd is required');
-  expect(() => api.savePersonalizationProfile({ cwd: '/repo/app', profile: null })).toThrow('profile must be an object');
-}
-
-  it('wraps prompt RPCs with legacy payload shapes', async () => {
-    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
-    const api = createBackendApi({ callAPI });
-
-    await callPromptFacadeMethods(api);
-
-    expectPromptFacadeCalls(callAPI);
-    expectPromptFacadeValidation(api);
-  });
 
   it('wraps the independent new-window RPC with cwd validation', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true, windowId: 'window-2', cwd: '/repo/window' });

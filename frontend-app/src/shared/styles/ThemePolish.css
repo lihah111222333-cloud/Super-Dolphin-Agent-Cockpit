@@ -37,8 +37,7 @@ textarea:disabled {
 }
 
 .top-command,
-.page-header,
-.prompt-header {
+.page-header {
   background: var(--bg-elevated);
   backdrop-filter: none;
 }
@@ -52,9 +51,6 @@ textarea:disabled {
 .file-row button,
 .settings-page button,
 .workflow-page button,
-.prompt-page button,
-.prompt-editor-modal button,
-.prompt-wizard-modal button,
 .btn {
   border-radius: var(--radius-sm);
   background: var(--surface-2);
@@ -69,9 +65,6 @@ textarea:disabled {
 .file-row button:hover,
 .settings-page button:hover,
 .workflow-page button:hover,
-.prompt-page button:hover,
-.prompt-editor-modal button:hover,
-.prompt-wizard-modal button:hover,
 .btn:hover {
   border-color: var(--border-strong);
   background: var(--surface-3);
@@ -214,9 +207,7 @@ textarea:disabled {
 }
 
 .top-command .action-feedback,
-.settings-status,
-.prompt-notice,
-.prompt-loading {
+.settings-status {
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--text-sec);
@@ -278,8 +269,6 @@ textarea:disabled {
 .thread-card b,
 .thread-stale-badge,
 .file-row header span,
-.prompt-badges span,
-.prompt-tag-row span,
 .tags span {
   border-radius: 999px;
 }
@@ -454,8 +443,6 @@ textarea:disabled {
 }
 
 .composer textarea::placeholder,
-.prompt-editor-grid input::placeholder,
-.prompt-editor-grid textarea::placeholder,
 .form-grid textarea::placeholder {
   color: var(--text-subtle);
 }
@@ -726,8 +713,7 @@ textarea:disabled {
 .diff-empty pre,
 .shared-file-content-preview,
 .settings-log-list,
-.log-lines,
-.prompt-draft-review pre {
+.log-lines {
   scrollbar-color: var(--surface-3) transparent;
 }
 
@@ -772,9 +758,6 @@ textarea:disabled {
 .file-row button,
 .settings-page button,
 .workflow-page button,
-.prompt-page button,
-.prompt-editor-modal button,
-.prompt-wizard-modal button,
 .composer button,
 .composer-model,
 .model-dropdown select,
@@ -790,9 +773,6 @@ textarea:disabled {
 .file-row button:active:not(:disabled),
 .settings-page button:active:not(:disabled),
 .workflow-page button:active:not(:disabled),
-.prompt-page button:active:not(:disabled),
-.prompt-editor-modal button:active:not(:disabled),
-.prompt-wizard-modal button:active:not(:disabled),
 .super-dolphin-agent-new-chat:active:not(:disabled),
 .btn:active:not(:disabled) {
   transform: translateY(1px);
@@ -828,7 +808,6 @@ textarea:disabled {
   }
 }
 
-.prompt-loading,
 .code-preview-loading,
 .mcp-tool-status.is-loading {
   animation: sd-loading-pulse 1.6s ease-in-out infinite;
@@ -934,7 +913,6 @@ textarea:disabled {
 
 .settings-page,
 .workflow-page,
-.prompt-page,
 .shared-files-page {
   animation: sd-page-enter var(--motion-page-enter) both;
 }
@@ -953,8 +931,7 @@ textarea:disabled {
 
 .top-command .action-feedback,
 .titlebar .action-feedback,
-.settings-status,
-.prompt-notice {
+.settings-status {
   animation: sd-feedback-in var(--motion-fast) var(--ease-standard);
 }
 
@@ -1032,7 +1009,6 @@ textarea:disabled {
 /* reduced-motion：循环动画静止为可读帧；位移/缩放入场统一退化为 120ms 纯淡入，
    stagger 归零；焦点环不受影响。 */
 @media (prefers-reduced-motion: reduce) {
-  .prompt-loading,
   .code-preview-loading,
   .mcp-tool-status.is-loading,
   .composer.drop-active .composer-card {
@@ -1048,7 +1024,6 @@ textarea:disabled {
   .slash-command-palette,
   .settings-page,
   .workflow-page,
-  .prompt-page,
   .shared-files-page,
   .message,
   .chat-intro-logo-tile,
@@ -1062,7 +1037,6 @@ textarea:disabled {
   .top-command .action-feedback,
   .titlebar .action-feedback,
   .settings-status,
-  .prompt-notice,
   #overlay-root .global-action-failure,
   .message-copy.is-copied {
     animation-name: sd-fade-in !important;

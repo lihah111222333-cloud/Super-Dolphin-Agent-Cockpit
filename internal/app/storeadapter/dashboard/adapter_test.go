@@ -16,7 +16,6 @@ import (
 	buslogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/buslog"
 	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/commandcard"
 	dbquerystore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/dbquery"
-	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/prompt"
 	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/sharedfile"
 	systemlogstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/systemlog"
 	storeadaptertest "github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/storeadapter"
@@ -44,10 +43,6 @@ type dashboardSystemLogRoot struct {
 }
 type dashboardCommandCardRoot struct {
 	commandcardstore.Reader
-	err error
-}
-type dashboardPromptRoot struct {
-	promptstore.Reader
 	err error
 }
 
@@ -79,9 +74,6 @@ func (s *dashboardSystemLogRoot) List(context.Context, systemlogstore.ListFilter
 	return nil, s.err
 }
 func (s *dashboardCommandCardRoot) List(context.Context, commandcardstore.ListFilter) ([]commandcardstore.CommandCard, error) {
-	return nil, s.err
-}
-func (s *dashboardPromptRoot) List(context.Context, promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
 	return nil, s.err
 }
 
@@ -119,14 +111,14 @@ func (s *dashboardSharedFileStoreTestDouble) Upsert(_ context.Context, params sh
 	return s.file, s.err
 }
 
-// TestDashboardStoreAdapterProvidersExist 固定九个 provider 由 App 组合边界拥有。
+// TestDashboardStoreAdapterProvidersExist 固定 dashboard providers 由 App 组合边界拥有。
 func TestDashboardStoreAdapterProvidersExist(t *testing.T) {
 	t.Parallel()
 	ports := []any{
 		provideDashboardAgentStatusReader(nil), provideDashboardAILogReader(nil),
 		provideDashboardAuditLogReader(nil), provideDashboardBusLogReader(nil),
 		provideDashboardSystemLogReader(nil), provideDashboardDBQueryExecutor(nil),
-		provideDashboardCommandCardReader(nil), provideDashboardPromptTemplateReader(nil),
+		provideDashboardCommandCardReader(nil),
 		provideDashboardSharedFileReader(nil),
 	}
 	for index, port := range ports {
@@ -136,7 +128,7 @@ func TestDashboardStoreAdapterProvidersExist(t *testing.T) {
 	}
 }
 
-// TestDashboardStoreAdapterProvidersPreserveTypedNil 固定九个 provider 对 typed nil 直接返回 nil。
+// TestDashboardStoreAdapterProvidersPreserveTypedNil 固定 providers 对 typed nil 直接返回 nil。
 func TestDashboardStoreAdapterProvidersPreserveTypedNil(t *testing.T) {
 	t.Parallel()
 	var agent *dashboardAgentStatusRoot
@@ -146,9 +138,8 @@ func TestDashboardStoreAdapterProvidersPreserveTypedNil(t *testing.T) {
 	var system *dashboardSystemLogRoot
 	var query *dashboardDBQueryRoot
 	var command *dashboardCommandCardRoot
-	var prompt *dashboardPromptRoot
 	var shared *dashboardSharedFileReaderTestDouble
-	ports := []any{provideDashboardAgentStatusReader(agent), provideDashboardAILogReader(ai), provideDashboardAuditLogReader(audit), provideDashboardBusLogReader(bus), provideDashboardSystemLogReader(system), provideDashboardDBQueryExecutor(query), provideDashboardCommandCardReader(command), provideDashboardPromptTemplateReader(prompt), provideDashboardSharedFileReader(shared)}
+	ports := []any{provideDashboardAgentStatusReader(agent), provideDashboardAILogReader(ai), provideDashboardAuditLogReader(audit), provideDashboardBusLogReader(bus), provideDashboardSystemLogReader(system), provideDashboardDBQueryExecutor(query), provideDashboardCommandCardReader(command), provideDashboardSharedFileReader(shared)}
 	for index, port := range ports {
 		if port != nil {
 			t.Fatalf("typed nil provider %d = %T, want nil", index, port)
@@ -179,7 +170,7 @@ func TestDashboardWriteWorkflowMaterialUsesAppAdapter(t *testing.T) {
 	stored := &sharedfilestore.SharedFile{Path: "reports/workflows/uploads/spec.md", Content: "body", UpdatedBy: "dashboard-ui"}
 	root := &dashboardSharedFileStoreTestDouble{dashboardSharedFileReaderTestDouble: dashboardSharedFileReaderTestDouble{file: stored}}
 	port := provideDashboardSharedFileReader(root)
-	svc := dashboard.NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, port)
+	svc := dashboard.NewService(nil, nil, nil, nil, nil, nil, nil, nil, nil, port)
 	got, err := svc.WriteWorkflowMaterial(context.Background(), dashboard.WorkflowMaterialWriteRequest{Path: stored.Path, Content: stored.Content})
 	if err != nil || got == nil || got.Path != stored.Path || got.Content != stored.Content {
 		t.Fatalf("WriteWorkflowMaterial = (%#v, %v)", got, err)
@@ -244,9 +235,6 @@ func TestDashboardStoreAdapterFieldCoverage(t *testing.T) {
 	storeadaptertest.AssertFieldsMapE(t, func(v commandcardstore.CommandCard) (dashboard.CommandCard, error) {
 		return mapDashboardCommandCards([]commandcardstore.CommandCard{v})[0], nil
 	})
-	storeadaptertest.AssertFieldsMapE(t, func(v promptstore.PromptTemplate) (dashboard.PromptTemplate, error) {
-		return mapDashboardPromptTemplates([]promptstore.PromptTemplate{v})[0], nil
-	})
 	storeadaptertest.AssertFieldsMapE(t, func(v sharedfilestore.SharedFile) (dashboard.SharedFile, error) {
 		return mapDashboardSharedFile(v), nil
 	})
@@ -264,9 +252,6 @@ func TestDashboardStoreAdapterFieldCoverage(t *testing.T) {
 	})
 	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.CommandCardFilter) (commandcardstore.ListFilter, error) {
 		return toStoreDashboardCommandCardFilter(v), nil
-	})
-	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.PromptTemplateFilter) (promptstore.ListFilter, error) {
-		return toStoreDashboardPromptTemplateFilter(v), nil
 	})
 	storeadaptertest.AssertFieldsMapE(t, func(v dashboard.SharedFileFilter) (sharedfilestore.ListFilter, error) {
 		return toStoreDashboardSharedFileFilter(v), nil
@@ -300,11 +285,6 @@ func TestDashboardStoreAdaptersCopyMutableFields(t *testing.T) {
 	mappedCard := mapDashboardCommandCards([]commandcardstore.CommandCard{card})[0]
 	mappedCard.ArgsSchema[0] = '['
 	*mappedCard.LastRunAt = now.Add(time.Hour)
-	prompt := promptstore.PromptTemplate{Variables: raw, Tags: raw, MatchWhen: raw}
-	mappedPrompt := mapDashboardPromptTemplates([]promptstore.PromptTemplate{prompt})[0]
-	mappedPrompt.Variables[0] = '['
-	mappedPrompt.Tags[0] = '['
-	mappedPrompt.MatchWhen[0] = '['
 	if string(raw) != "{}" || duration != 1 || !card.LastRunAt.Equal(now) {
 		t.Fatal("mutable Store fields shared with dashboard DTO")
 	}
@@ -324,18 +304,16 @@ func TestDashboardStoreAdaptersReturnIndependentLists(t *testing.T) {
 	mapDashboardSystemLogs(system)[0].ID = 2
 	cards := []commandcardstore.CommandCard{{ID: 1}}
 	mapDashboardCommandCards(cards)[0].ID = 2
-	prompts := []promptstore.PromptTemplate{{ID: 1}}
-	mapDashboardPromptTemplates(prompts)[0].ID = 2
 	files := []sharedfilestore.SharedFile{{Path: "a"}}
 	mapDashboardSharedFiles(files)[0].Path = "x"
 	counts := []ailogstore.StatusCount{{Status: "ok"}}
 	mapDashboardAILogStatusCounts(counts)[0].Status = "x"
-	if agents[0].AgentID != "a" || ai[0].ID != 1 || audit[0].ID != 1 || bus[0].ID != 1 || system[0].ID != 1 || cards[0].ID != 1 || prompts[0].ID != 1 || files[0].Path != "a" || counts[0].Status != "ok" {
+	if agents[0].AgentID != "a" || ai[0].ID != 1 || audit[0].ID != 1 || bus[0].ID != 1 || system[0].ID != 1 || cards[0].ID != 1 || files[0].Path != "a" || counts[0].Status != "ok" {
 		t.Fatal("mapper returned shared list")
 	}
 }
 
-// TestDashboardStoreAdaptersPreserveErrors 覆盖九个端口的全部方法族错误身份。
+// TestDashboardStoreAdaptersPreserveErrors 覆盖 dashboard 端口的全部方法族错误身份。
 func TestDashboardStoreAdaptersPreserveErrors(t *testing.T) {
 	want := errors.New("dashboard Store failed")
 	ctx := context.Background()
@@ -345,14 +323,13 @@ func TestDashboardStoreAdaptersPreserveErrors(t *testing.T) {
 	bus := provideDashboardBusLogReader(&dashboardBusLogRoot{err: want})
 	system := provideDashboardSystemLogReader(&dashboardSystemLogRoot{err: want})
 	command := provideDashboardCommandCardReader(&dashboardCommandCardRoot{err: want})
-	prompt := provideDashboardPromptTemplateReader(&dashboardPromptRoot{err: want})
 	sharedRoot := &dashboardSharedFileStoreTestDouble{dashboardSharedFileReaderTestDouble: dashboardSharedFileReaderTestDouble{err: want}}
 	shared := provideDashboardSharedFileReader(sharedRoot)
 	writer := shared.(dashboard.SharedFileWriter)
 	ops := []func() error{
 		func() error { _, e := agent.List(ctx, ""); return e }, func() error { _, e := ai.List(ctx, dashboard.AILogFilter{}); return e }, func() error { _, e := ai.ListByCategory(ctx, "", "", 1); return e }, func() error { _, e := ai.CountByStatus(ctx); return e }, func() error { _, e := ai.ListRecent(ctx, 1); return e },
 		func() error { _, e := audit.List(ctx, dashboard.AuditLogFilter{}); return e }, func() error { _, e := bus.List(ctx, dashboard.BusLogFilter{}); return e }, func() error { _, e := bus.Get(ctx, 1); return e }, func() error { _, e := system.List(ctx, dashboard.SystemLogFilter{}); return e },
-		func() error { _, e := command.List(ctx, dashboard.CommandCardFilter{}); return e }, func() error { _, e := prompt.List(ctx, dashboard.PromptTemplateFilter{}); return e }, func() error { _, e := shared.Get(ctx, ""); return e }, func() error { _, e := shared.List(ctx, dashboard.SharedFileFilter{}); return e }, func() error { _, e := writer.Upsert(ctx, dashboard.SharedFileUpsertParams{}); return e },
+		func() error { _, e := command.List(ctx, dashboard.CommandCardFilter{}); return e }, func() error { _, e := shared.Get(ctx, ""); return e }, func() error { _, e := shared.List(ctx, dashboard.SharedFileFilter{}); return e }, func() error { _, e := writer.Upsert(ctx, dashboard.SharedFileUpsertParams{}); return e },
 	}
 	for i, op := range ops {
 		if err := op(); err != want || !errors.Is(err, want) {
@@ -373,11 +350,11 @@ func TestDashboardSharedFileAdapterPreservesNilResults(t *testing.T) {
 	}
 }
 
-// TestModuleOwnsDashboardPorts 通过真实 Fx lifecycle 证明九个端口归 dashboard adapter 子模块所有。
+// TestModuleOwnsDashboardPorts 通过真实 Fx lifecycle 证明 dashboard 端口归 adapter 子模块所有。
 func TestModuleOwnsDashboardPorts(t *testing.T) {
 	agent, ai, audit := &dashboardAgentStatusRoot{}, &dashboardAILogRoot{}, &dashboardAuditLogRoot{}
 	bus, system, query := &dashboardBusLogRoot{}, &dashboardSystemLogRoot{}, &dashboardDBQueryRoot{}
-	command, prompt, shared := &dashboardCommandCardRoot{}, &dashboardPromptRoot{}, &dashboardSharedFileReaderTestDouble{}
+	command, shared := &dashboardCommandCardRoot{}, &dashboardSharedFileReaderTestDouble{}
 	var p1 dashboard.AgentStatusReader
 	var p2 dashboard.AILogReader
 	var p3 dashboard.AuditLogReader
@@ -385,15 +362,14 @@ func TestModuleOwnsDashboardPorts(t *testing.T) {
 	var p5 dashboard.SystemLogReader
 	var p6 dashboard.DBQueryExecutor
 	var p7 dashboard.CommandCardReader
-	var p8 dashboard.PromptTemplateReader
-	var p9 dashboard.SharedFileReader
+	var p8 dashboard.SharedFileReader
 	app := fx.New(fx.NopLogger,
 		fx.Provide(func() agentstatusstore.Store { return agent }), fx.Provide(func() ailogstore.Store { return ai }),
 		fx.Provide(func() auditlogstore.Store { return audit }), fx.Provide(func() buslogstore.Store { return bus }),
 		fx.Provide(func() systemlogstore.Store { return system }), fx.Provide(func() dbquerystore.Store { return query }),
-		fx.Provide(func() commandcardstore.Reader { return command }), fx.Provide(func() promptstore.Reader { return prompt }),
+		fx.Provide(func() commandcardstore.Reader { return command }),
 		fx.Provide(func() sharedfilestore.Reader { return shared }), Module,
-		fx.Populate(&p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8, &p9))
+		fx.Populate(&p1, &p2, &p3, &p4, &p5, &p6, &p7, &p8))
 	if err := app.Err(); err != nil {
 		t.Fatalf("fx.New: %v", err)
 	}
@@ -404,7 +380,7 @@ func TestModuleOwnsDashboardPorts(t *testing.T) {
 	if err := app.Stop(ctx); err != nil {
 		t.Fatalf("fx.Stop: %v", err)
 	}
-	for index, port := range []any{p1, p2, p3, p4, p5, p6, p7, p8, p9} {
+	for index, port := range []any{p1, p2, p3, p4, p5, p6, p7, p8} {
 		if port == nil {
 			t.Fatalf("dashboard port %d is nil", index)
 		}

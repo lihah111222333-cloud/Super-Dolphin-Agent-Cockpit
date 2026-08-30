@@ -26,12 +26,6 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
     await expect(overview.getByRole('heading', { name: '自动化和运行状态', exact: true })).toBeVisible();
   } });
 
-  await openBusinessEntry(page, { label: '提示词', route: /\/prompts$/, assert: async () => {
-    const overview = page.getByRole('region', { name: '个性化概览', exact: true });
-    await expect(overview).toBeVisible();
-    await expect(overview.getByRole('heading', { name: '定制角色、知识和记忆', exact: true })).toBeVisible();
-  } });
-
   await openBusinessEntry(page, { label: '共享文件', route: /\/files$/, assert: async () => {
     const overview = page.getByRole('region', { name: '共享文件状态', exact: true });
     await expect(overview).toBeVisible();
@@ -419,13 +413,8 @@ async function installStrictWailsMock(page) {
       if (method === 'observability/slow/list' || method === 'observability/error/list' || method === 'observability/thread/recent' || method === 'observability/trace/get') {
         return observabilityResult();
       }
-      if (method === 'prompt-assets/list') return { prompts: [] };
-      if (method === 'dashboard/prompts') return { prompts: [] };
-      if (method === 'prompt-sections/list') return { sections: [] };
-      if (method === 'personalization/profile/get') return { profile: {} };
       if (method === 'modelProviders/list') return modelProviders();
       if (method === 'ui/video/getApiKey') return { configured: false, masked: '' };
-      if (method === 'config/lspPromptHint/read') return { hint: 'business flow prompt hint', defaultHint: 'business flow prompt hint', overrideHint: '', usingDefault: true };
       if (method === 'config/builtinTools/read') return { tools: [] };
       if (method === 'dashboard/dags') return { dags: [] };
       if (method === 'dashboard/dagRuns') return { runs: [] };

@@ -25,7 +25,6 @@ const UI_TEST_ROUTES = Object.freeze({
   settings: '/settings',
   observability: '/observability',
   automation: '/dags',
-  prompts: '/prompts',
   files: '/files',
 });
 

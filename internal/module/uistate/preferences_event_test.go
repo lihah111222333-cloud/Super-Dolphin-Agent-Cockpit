@@ -28,7 +28,7 @@ func TestSetPreferencePublishesPreferenceChangedEvent(t *testing.T) {
 	})
 	defer cancel()
 
-	err := svc.SetPreference(withPreferenceScope(context.Background(), "/tmp/project"), " settings.provider.active ", "claude")
+	err := svc.SetPreference(withPreferenceScope(context.Background(), "/tmp/project"), " settings.provider.active ", "codex")
 	if err != nil {
 		t.Fatalf("SetPreference() error = %v", err)
 	}
@@ -41,8 +41,8 @@ func TestSetPreferencePublishesPreferenceChangedEvent(t *testing.T) {
 		if ev.Key != "settings.provider.active" {
 			t.Fatalf("event key = %q, want %q", ev.Key, "settings.provider.active")
 		}
-		if ev.Value != "claude" {
-			t.Fatalf("event value = %#v, want %q", ev.Value, "claude")
+		if ev.Value != "codex" {
+			t.Fatalf("event value = %#v, want %q", ev.Value, "codex")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("SetPreference() did not publish UIPreferencesChanged")

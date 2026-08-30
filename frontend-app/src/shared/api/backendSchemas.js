@@ -3,135 +3,8 @@ import { z } from 'zod';
 /** @typedef {Record<string, unknown>} SchemaRecord */
 
 const modelProviderVendorSchema = z.object({}).passthrough();
-const wireTimestampSchema = z.string().datetime({ offset: true });
-/** @type {import('zod').ZodType<unknown>} */
-const jsonValueSchema = z.lazy(() => z.union([
-  z.string(),
-  z.number().finite(),
-  z.boolean(),
-  z.null(),
-  z.array(jsonValueSchema),
-  z.record(z.string(), jsonValueSchema),
-]));
-const promptIntentKindSchema = z.enum(['expert', 'recall', 'default_rule']);
 
 const workflowMaterialWriteResponseSchema = z.object({ path: z.string() }).strict();
-
-const promptItemSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  content: z.string(),
-  description: z.string(),
-  agentType: z.string(),
-  when_to_use: z.string(),
-  createdAt: wireTimestampSchema,
-  updatedAt: wireTimestampSchema,
-  match_when: jsonValueSchema.optional(),
-  priority: z.number().int().optional(),
-  enabled: z.boolean(),
-  scope: z.string().optional(),
-  tags: jsonValueSchema.optional(),
-}).strict();
-const promptIntentIssueSchema = z.object({
-  code: z.string(), severity: z.enum(['block', 'review']), message: z.string(),
-}).strict();
-const promptIntentSourceFactSchema = z.object({
-  category: z.string(), summary: z.string(), disposition: z.string(),
-}).strict();
-const promptIntentRuleConflictSchema = z.object({ title: z.string(), summary: z.string() }).strict();
-const promptIntentAlternativeSchema = z.object({ kind: promptIntentKindSchema, reason: z.string() }).strict();
-const promptIntentCardSchema = z.object({
-  kind: promptIntentKindSchema,
-  title: z.string(),
-  summary: z.string(),
-  when_to_use: z.string().optional(),
-  when_not_to_use: z.string().optional(),
-  workflow: z.array(z.string()).optional(),
-  constraints: z.array(z.string()).optional(),
-  output: z.string().optional(),
-  save_boundary: z.string().optional(),
-  recall_topic: z.string().optional(),
-  recall_body: z.string().optional(),
-  default_rule_body: z.string().optional(),
-  source_profile: z.string().optional(),
-  source_facts: z.array(promptIntentSourceFactSchema).optional(),
-  hit_examples: z.array(z.string()).nullable(),
-  miss_examples: z.array(z.string()).nullable(),
-  conflicting_rules: z.array(promptIntentRuleConflictSchema).optional(),
-  suggested_alternative: promptIntentAlternativeSchema.optional(),
-}).strict();
-const promptAssetItemSchema = promptItemSchema.extend({
-  state: z.literal('pending_confirm').optional(),
-  draft_key: z.string().optional(),
-  draft_status: z.enum(['draft', 'ready_to_save']).optional(),
-  source_type: z.string().optional(),
-  card: promptIntentCardSchema.optional(),
-  issues: z.array(promptIntentIssueSchema).optional(),
-}).strict();
-const promptAssetsResponseSchema = z.object({ prompts: z.array(promptAssetItemSchema) }).strict();
-const dashboardPromptItemSchema = z.object({
-  id: z.number().int(),
-  prompt_key: z.string(),
-  title: z.string(),
-  agent_key: z.string(),
-  tool_name: z.string(),
-  prompt_text: z.string(),
-  when_to_use: z.string(),
-  variables: jsonValueSchema,
-  tags: jsonValueSchema,
-  enabled: z.boolean(),
-  manually_edited: z.boolean(),
-  match_when: jsonValueSchema.optional(),
-  priority: z.number().int(),
-  created_by: z.string(),
-  updated_by: z.string(),
-  created_at: wireTimestampSchema,
-  updated_at: wireTimestampSchema,
-  description: z.string(),
-}).strict();
-const dashboardPromptsResponseSchema = z.object({ prompts: z.array(dashboardPromptItemSchema) }).strict();
-const promptDetailResponseSchema = z.object({ prompt: promptItemSchema }).strict();
-
-const promptIntentDraftItemSchema = z.object({
-  draft_key: z.string(),
-  requested_kind: promptIntentKindSchema,
-  inferred_kind: promptIntentKindSchema,
-  status: z.enum(['draft', 'ready_to_save']),
-  confidence: z.number().finite(),
-  scope: z.enum(['project', 'global']),
-  issues: z.array(promptIntentIssueSchema).nullable(),
-  card: promptIntentCardSchema,
-}).strict();
-const promptIntentDraftResponseSchema = z.union([
-  promptIntentDraftItemSchema,
-  z.object({
-    requested_kind: promptIntentKindSchema,
-    inferred_kind: promptIntentKindSchema,
-    drafts: z.array(promptIntentDraftItemSchema),
-  }).strict(),
-]);
-const promptIntentCommitResponseSchema = z.object({
-  draft_key: z.string(), prompt_key: z.string(), kind: promptIntentKindSchema, status: z.literal('enabled'),
-}).strict();
-const promptIntentDiscardResponseSchema = z.object({
-  draft_key: z.string(), status: z.literal('rejected'),
-}).strict();
-const promptIntentDryRunResponseSchema = z.object({
-  would_use: z.boolean(),
-  action: z.enum(['prompt_recall', 'launch_agent', 'default_rule', 'none']),
-  target: z.string().optional(),
-  reasons: z.array(z.string()).nullable(),
-  candidates: z.array(z.string()).optional(),
-  disclaimer: z.string(),
-}).strict();
-const personalizationProfileResponseSchema = z.object({
-  profile: z.object({
-    displayName: z.string(),
-    role: z.string(),
-    background: z.string(),
-    customInstructions: z.string(),
-  }).strict(),
-}).strict();
 
 /** @param {unknown} value @returns {string} */
 function schemaTextValue(value) {
@@ -502,28 +375,12 @@ function parseExactSchema(label, schema, response) {
 }
 
 const parseWorkflowMaterialWriteResponse = (/** @type {unknown} */ response) => parseExactSchema('workflow material write', workflowMaterialWriteResponseSchema, response);
-const parsePromptAssetsResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt assets', promptAssetsResponseSchema, response);
-const parseDashboardPromptsResponse = (/** @type {unknown} */ response) => parseExactSchema('dashboard prompts', dashboardPromptsResponseSchema, response);
-const parsePromptDetailResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt detail', promptDetailResponseSchema, response);
-const parsePromptIntentDraftResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent draft', promptIntentDraftResponseSchema, response);
-const parsePromptIntentCommitResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent commit', promptIntentCommitResponseSchema, response);
-const parsePromptIntentDiscardResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent discard', promptIntentDiscardResponseSchema, response);
-const parsePromptIntentDryRunResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent dry run', promptIntentDryRunResponseSchema, response);
-const parsePersonalizationProfileResponse = (/** @type {unknown} */ response) => parseExactSchema('personalization profile', personalizationProfileResponseSchema, response);
 
 export {
   modelProviderRegistrySchema,
   observabilityResultSchema,
   parseModelProviderRegistryResponse,
   parseObservabilityResultResponse,
-  parseDashboardPromptsResponse,
-  parsePersonalizationProfileResponse,
-  parsePromptAssetsResponse,
-  parsePromptDetailResponse,
-  parsePromptIntentCommitResponse,
-  parsePromptIntentDiscardResponse,
-  parsePromptIntentDraftResponse,
-  parsePromptIntentDryRunResponse,
   parseSharedFilesDashboardResponse,
   parseWorkflowMaterialWriteResponse,
   sharedFilesDashboardSchema,

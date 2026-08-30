@@ -133,24 +133,6 @@
   ],
   "exemptions": [
     {
-      "from": "src/features/prompts/PromptPageView.jsx",
-      "kind": "import",
-      "specifier": "../../pages/prompts/services/promptPageService.js",
-      "to": "src/pages/prompts/services/promptPageService.js",
-      "expiresOn": "2026-08-31",
-      "owner": "frontend-architecture",
-      "reason": "PromptPageView is still hosted under features while its backend facade remains page-owned; move the facade before expiry."
-    },
-    {
-      "from": "src/features/prompts/PromptPageView.jsx",
-      "kind": "import",
-      "specifier": "../../pages/shared/pageShared.js",
-      "to": "src/pages/shared/pageShared.js",
-      "expiresOn": "2026-08-31",
-      "owner": "frontend-architecture",
-      "reason": "Prompt shared parsing helpers must move below features before expiry."
-    },
-    {
       "from": "src/shared/api/wails/wailsBridgeLogRuntime.js",
       "kind": "dynamic-import",
       "specifier": "<non-literal>",

@@ -77,7 +77,10 @@ func validateClaudeSecurityConfig(cfg map[string]any) error {
 	if err := validateConfigStringSliceKeys(cfg, "auto_approve", "autoApprove"); err != nil {
 		return err
 	}
-	return validateConfigBoolKeys(cfg, "providerNativeSkills", "provider_native_skills", "disableProviderNativeSkills", "disable_provider_native_skills")
+	if err := validateConfigBoolKeys(cfg, "providerNativeSkills", "provider_native_skills", "disableProviderNativeSkills", "disable_provider_native_skills"); err != nil {
+		return err
+	}
+	return validateProviderNativeSkillsConfig(cfg)
 }
 
 func validateApprovalPolicyKeys(cfg map[string]any, keys ...string) error {
@@ -207,6 +210,48 @@ func validateConfigBoolKeys(cfg map[string]any, keys ...string) error {
 		}
 	}
 	return nil
+}
+
+// validateProviderNativeSkillsConfig 解析 provider-native skills 开关的规范键和别名。
+// 同一字段的别名必须表达同一个值；正向开关与反向开关也不能同时表达冲突意图。
+// Claude 的 configFromMap 为兼容旧调用方保持无 error 签名，因此真正的 fail-fast
+// 边界由 validateClaudeSecurityConfig 在启动/恢复 transport 前完成。
+func validateProviderNativeSkillsConfig(cfg map[string]any) error {
+	enabled, hasEnabled, err := readProviderNativeSkillsBool(cfg, contract.RuntimeConfigProviderNativeSkills())
+	if err != nil {
+		return err
+	}
+	disabled, hasDisabled, err := readProviderNativeSkillsBool(cfg, contract.RuntimeConfigDisableProviderNativeSkills())
+	if err != nil {
+		return err
+	}
+	if hasEnabled && hasDisabled && enabled == disabled {
+		return fmt.Errorf("provider native skills flags conflict: %s=%t and %s=%t", contract.RuntimeConfigProviderNativeSkills().Canonical, enabled, contract.RuntimeConfigDisableProviderNativeSkills().Canonical, disabled)
+	}
+	return nil
+}
+
+// readProviderNativeSkillsBool 严格解析一组布尔字段，并拒绝同组别名给出不同值。
+func readProviderNativeSkillsBool(cfg map[string]any, field contract.RuntimeConfigField) (bool, bool, error) {
+	var (
+		value bool
+		found bool
+	)
+	for _, key := range field.Keys() {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		parsed, ok := raw.(bool)
+		if !ok {
+			return false, false, fmt.Errorf("%s must be boolean", key)
+		}
+		if found && value != parsed {
+			return false, false, fmt.Errorf("%s aliases conflict", field.Canonical)
+		}
+		value, found = parsed, true
+	}
+	return value, found, nil
 }
 
 // builtinToolsFromMap 读取显式 builtin tools 覆盖；nil 表示使用默认策略。

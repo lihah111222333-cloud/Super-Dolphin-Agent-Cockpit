@@ -113,15 +113,6 @@ function setScopedPageCache(runtime, cacheName, cwd, defaults, patch) {
   runtime.set((state) => scopedPageCachePatch(state, cacheName, key, defaults, patch));
 }
 
-function defaultPromptPageCache() {
-  return {
-    items: [],
-    activePromptId: '',
-    fallbackMode: false,
-    hasLoadedPrompts: false,
-  };
-}
-
 function defaultWorkflowPageCache() {
   return {
     items: [],
@@ -148,15 +139,8 @@ function defaultSharedFilesPageCache() {
   };
 }
 
-function createPromptWorkflowCacheActions(runtime) {
+function createWorkflowPageCacheActions(runtime) {
   return {
-    setPromptPageCache: (cwd, patch = {}) => setScopedPageCache(
-      runtime,
-      'promptPageCacheByCwd',
-      cwd,
-      defaultPromptPageCache(),
-      patch,
-    ),
     setWorkflowPageCache: (cwd, patch = {}) => setScopedPageCache(
       runtime,
       'workflowPageCacheByCwd',
@@ -205,11 +189,10 @@ function createProviderActions(runtime) {
 
 export {
   createNavigationActions,
-  createPromptWorkflowCacheActions,
+  createWorkflowPageCacheActions,
   createProviderActions,
   createProviderConfigActions,
   createResourcePageCacheActions,
-  defaultPromptPageCache,
   defaultSharedFileRetention,
   defaultSharedFilesPageCache,
   defaultWorkflowPageCache,

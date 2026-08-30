@@ -38,6 +38,47 @@ func TestMergePrepareInputRuntimeUsesRuntimeConfigKeyAliases(t *testing.T) {
 	assertRuntimeConfigMCPFields(t, input)
 }
 
+func TestValidateProviderNativeSkillsRuntimeConfigRejectsMalformedValue(t *testing.T) {
+	t.Parallel()
+
+	if err := validateProviderNativeSkillsRuntimeConfig(map[string]any{
+		"providerNativeSkills": "false",
+	}); err == nil {
+		t.Fatal("validateProviderNativeSkillsRuntimeConfig() error = nil, want type rejection")
+	}
+}
+
+func TestValidateProviderNativeSkillsRuntimeConfigRejectsConflictingAliases(t *testing.T) {
+	t.Parallel()
+
+	cases := []map[string]any{
+		{"providerNativeSkills": true, "provider_native_skills": false},
+		{"disableProviderNativeSkills": true, "disable_provider_native_skills": false},
+		{"providerNativeSkills": true, "disableProviderNativeSkills": true},
+		{"providerNativeSkills": false, "disableProviderNativeSkills": false},
+	}
+	for _, cfg := range cases {
+		if err := validateProviderNativeSkillsRuntimeConfig(cfg); err == nil {
+			t.Fatalf("validateProviderNativeSkillsRuntimeConfig(%#v) error = nil, want conflict rejection", cfg)
+		}
+	}
+}
+
+func TestValidateProviderNativeSkillsRuntimeConfigAllowsEquivalentAliases(t *testing.T) {
+	t.Parallel()
+
+	for _, cfg := range []map[string]any{
+		{"providerNativeSkills": true, "provider_native_skills": true},
+		{"disableProviderNativeSkills": true, "disable_provider_native_skills": true},
+		{"providerNativeSkills": true, "disableProviderNativeSkills": false},
+		{"providerNativeSkills": false, "disableProviderNativeSkills": true},
+	} {
+		if err := validateProviderNativeSkillsRuntimeConfig(cfg); err != nil {
+			t.Fatalf("validateProviderNativeSkillsRuntimeConfig(%#v) error = %v, want nil", cfg, err)
+		}
+	}
+}
+
 func assertRuntimeConfigRepositoryFields(t *testing.T, input PrepareInput) {
 	t.Helper()
 

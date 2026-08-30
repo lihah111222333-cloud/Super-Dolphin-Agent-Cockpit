@@ -25,15 +25,6 @@ export const pageSurfaceManifest = {
     dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
     ownedStateFiles: ['pages/observability/ObservabilityPage.jsx'],
   },
-  prompts: {
-    entry: 'pages/prompts/PromptPage.jsx',
-    servicePrefix: 'pages/prompts/services/',
-    adapterPrefix: 'pages/prompts/adapters/',
-    serviceEntry: 'pages/prompts/services/promptPageService.js',
-    ownershipMode: 'dto-golden',
-    dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
-    ownedStateFiles: ['pages/prompts/PromptPage.jsx', 'features/prompts/PromptPageView.jsx'],
-  },
   settings: {
     entry: 'pages/settings/SettingsPage.jsx',
     servicePrefix: 'pages/settings/services/',

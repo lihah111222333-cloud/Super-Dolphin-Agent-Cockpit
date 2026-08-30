@@ -47,15 +47,6 @@ type UISharedFilesChanged struct {
 	Action string `json:"action,omitempty"`
 }
 
-// UIPromptsChanged 报告 prompt 资产清单变化。
-type UIPromptsChanged struct {
-	shared.EventHeader
-	Cwd       string `json:"cwd,omitempty"`
-	PromptKey string `json:"promptKey,omitempty"`
-	DraftKey  string `json:"draftKey,omitempty"`
-	Action    string `json:"action,omitempty"`
-}
-
 // ThreadPatchThread 是 UIThreadPatch 内的 thread 基础信息片段。
 type ThreadPatchThread struct {
 	ID        string     `json:"id"`
@@ -135,6 +126,3 @@ func (UIPreferencesChanged) Type() uint32 { return shared.EventTypeUIPreferences
 
 // Type 返回事件总线使用的稳定类型编号，保持共享文件更新事件可路由。
 func (UISharedFilesChanged) Type() uint32 { return shared.EventTypeUISharedFilesChanged }
-
-// Type 返回事件总线使用的稳定类型编号，保持 prompt 更新事件可路由。
-func (UIPromptsChanged) Type() uint32 { return shared.EventTypeUIPromptsChanged }

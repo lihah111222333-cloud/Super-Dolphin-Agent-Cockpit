@@ -16,11 +16,10 @@ type promptProviderParams struct {
 	Provider *PromptProvider                  `optional:"true"`
 }
 
-// Module 装配个性化模块，注册 service、RPC 处理器和 prompt 提供器。
+// Module 装配个性化模块，注册 profile runtime service 和 prompt 提供器。
 var Module = fx.Module("personalization",
 	fx.Provide(
 		NewService,
-		NewHandlers,
 		NewPromptProvider,
 	),
 	fx.Invoke(registerPromptProvider),

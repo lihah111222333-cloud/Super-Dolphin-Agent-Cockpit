@@ -6,7 +6,6 @@ const STRING_PREFERENCE_KEYS = new Set([
   'settings.provider.codex.codexInstanceKey',
   'settings.provider.codex.codexModelProvider',
   'settings.provider.codex.model',
-  'settings.activePromptKey',
 ]);
 
 const CODEX_EFFORT_VALUES = new Set(['xhigh', 'high', 'medium', 'low', 'none']);
@@ -118,7 +117,6 @@ function assertKnownPreferenceKey(key) {
     case 'settings.provider.codex.sandbox':
     case 'settings.provider.codex.summary':
     case 'settings.provider.codex.approvalPolicy':
-    case 'settings.showInjectedPromptInChat':
       return;
     default:
       throw new Error(`unknown UI preference response key: ${key}`);
@@ -156,9 +154,6 @@ function assertPreferenceResponseShape(key, value, options = {}) {
         break;
       case 'settings.provider.codex.approvalPolicy':
         assertEnum(key, value, APPROVAL_POLICY_VALUES);
-        break;
-      case 'settings.showInjectedPromptInChat':
-        if (typeof value !== 'boolean') invalidPreference(key, 'value must be boolean');
         break;
       default:
         throw new Error(`unknown UI preference response key: ${key}`);

@@ -216,6 +216,9 @@ func (s *session) prepareTurnBlocksLocked(req dto.TurnRequest) ([]map[string]any
 	if err := validateSelectedSkillNames(req.Skills); err != nil {
 		return nil, err
 	}
+	if err := s.requireProviderNativeSkillsLocked(req.Skills); err != nil {
+		return nil, err
+	}
 	if err := contract.ValidateLegacyMemoryPromptSections(req.TurnAssembly.ResolvedSections); err != nil {
 		return nil, err
 	}

@@ -35,18 +35,6 @@ func (a *personalizationPreferenceStoreAdapter) GetValue(ctx context.Context, cw
 	return copyPersonalizationPreferenceValue(value), nil
 }
 
-// Upsert 逐字段转换领域参数，缺失 Store 时明确失败，并复制写入值的底层数组。
-func (a *personalizationPreferenceStoreAdapter) Upsert(ctx context.Context, params personalization.PreferenceUpsertParams) error {
-	if err := a.validate(); err != nil {
-		return err
-	}
-	return a.store.Upsert(ctx, uipreference.UpsertParams{
-		Cwd:   params.Cwd,
-		Key:   params.Key,
-		Value: copyPersonalizationPreferenceValue(params.Value),
-	})
-}
-
 // validate 确保方法调用时底层 Store 已真实装配。
 func (a *personalizationPreferenceStoreAdapter) validate() error {
 	if a == nil || storeguard.IsNil(a.store) {

@@ -23,7 +23,6 @@ export const EVENT_TYPED_WIRE_METHODS = Object.freeze([
   'ui/preferences/changed',
   'ui/thread/patch',
   'ui/shared-files/changed',
-  'ui/prompts/changed',
   'agent/launched',
   'agent/stopped',
   'agent/recovering',

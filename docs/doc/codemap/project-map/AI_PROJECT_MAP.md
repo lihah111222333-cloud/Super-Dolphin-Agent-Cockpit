@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**4942**
+> 已索引文件：**4898**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/plans/**, docs/superpowers/**, docs/archive/**, docs/before/**, docs/迁移/**, docs/ai01-docs/**, docs/cc/**, docs/li/**, docs/pians/**, docs/调研/**, docs/healthy-check/**, docs/decisions/**, docs/reviews/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -13,7 +13,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 - **桌面控制台**：`cmd/agent-terminal` 提供 Wails/Go host、HTTP/RPC 桥，`frontend-app` 提供 React/Vite 前端。
 - **编排 peer**：`cmd/mcp-orch` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。
 - **代码智能 peer**：`cmd/mcp-lsp` 提供多语言 LSP、文件搜索、结构和诊断工具。
-- **业务模块层**：`internal/module` 承载 dashboard、prompt、thread、turn、uistate 等运行语义；memory runtime 已移除，仅保留兼容契约。
+- **业务模块层**：`internal/module` 承载 dashboard、memory、prompt、thread、turn、uistate 等运行语义。
 - **基础设施与 provider**：`internal/platform`、`internal/provider` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。
 - **持久化与治理**：`internal/store`、`sql`、`internal/platform/db/sqlite/migrations`、`internal/archtest`、`docs/doc/codemap` 提供数据访问、schema、架构守卫和代码地图。
 
@@ -21,14 +21,14 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 索引文件 | 文件数 | 大小 | 覆盖范围 |
 |---|---:|---:|---|
-| `docs/doc/codemap/project-map/index/app-ui.tsv` | 724 | 148.2 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
+| `docs/doc/codemap/project-map/index/app-ui.tsv` | 710 | 145.4 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 410 | 93.0 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
-| `docs/doc/codemap/project-map/index/modules.tsv` | 503 | 94.6 KB | 业务模块层：dashboard、prompt、thread、turn、uistate 等；memory 仅保留兼容契约 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1753 | 333.2 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/modules.tsv` | 476 | 89.1 KB | 业务模块层：dashboard、memory、prompt、thread、turn、uistate 等 |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1754 | 333.5 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 227 | 35.6 KB | 持久化层：store、sqlc、SQL queries、migrations |
 | `docs/doc/codemap/project-map/index/remote-ci.tsv` | 191 | 43.4 KB | 独立 remote-ci validation、portable manifest 与异构节点契约 |
 | `docs/doc/codemap/project-map/index/docs-agent.tsv` | 100 | 15.0 KB | 代码地图、ADR、契约与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 1034 | 209.5 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 1030 | 208.7 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -47,10 +47,10 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2498 | 应用内部模块、平台、provider、store 与守卫 |
+| `internal` | 2469 | 应用内部模块、平台、provider、store 与守卫 |
 | `cmd` | 1254 | 可执行入口与 MCP peer |
-| `frontend-app` | 716 | 当前 React/Vite 新 UI |
-| `scripts` | 286 | 工程自动化脚本 |
+| `frontend-app` | 702 | 当前 React/Vite 新 UI |
+| `scripts` | 285 | 工程自动化脚本 |
 | `docs` | 93 | 当前文档、生成索引、开发中材料与历史证据 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
@@ -82,7 +82,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 1 | Root shell | `internal/app/modules.go` | NewLogger、pidregistry、config/db/bus/rpc/hooks/runner/observability；先读作基础设施供给层，不读作业务执行顺序。 |
 | 2 | Persistence and control plane | `internal/store、internal/platform/mcpcontrol、internal/mcpserver` | store 与 MCP 控制面先提供持久化、peer 注册、server/bootstrap 能力，后续 module 通过 contract 端口消费。 |
 | 3 | Store adapters | `internal/app/storeadapter` | 把 canonical Store 实现投影为业务 module 消费的窄端口；按 domain child 路由，业务映射留在各 child。 |
-| 4 | Business semantics | `internal/module/{dashboard,prompt,thread,turn,uistate}` | prompt 支撑 thread/turn；memory runtime 已退出，仅保留兼容契约与 fail-fast guard；thread 负责 start/resume/fork 绑定真相源，turn 负责回合执行与审批调度，uistate 投影事件给 UI。 |
+| 4 | Business semantics | `internal/module/{dashboard,memory,prompt,thread,turn,uistate}` | memory/prompt 支撑 thread/turn；thread 负责 start/resume/fork 绑定真相源，turn 负责回合执行与审批调度，uistate 投影事件给 UI。 |
 | 5 | Provider and tools | `internal/provider/{unified,codexapp}、internal/platform/toolbridge` | unified 管 session/manifest，codexapp 提供 provider driver，toolbridge 把 host/MCP tools 暴露给 provider；claudecli 当前不在 root Module 中启用。 |
 | 6 | Runtime adapters | `internal/app/runtimeadapter` | 为 mcpcontrol/toolbridge/cachekeepalive/builtintools 等 runtime consumer 提供窄端口与 root-scope 接线。 |
 | 7 | Root adapters | `internal/app/modules.go:fx.Provide` | AsRPCRunner、DAGRuntime、thread.OrchestrationFacade、RuntimeReporter、SessionPorts 是仍由 root 持有的跨边界裁剪端口。 |
@@ -99,7 +99,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | 修改 MCP orchestration tools | `cmd/mcp-orch/tools/` | `cmd/mcp-orch/orchestration/rpc.go` | `task_dag agent_launch schema registry` |
 | 修改 LSP 工具 | `cmd/mcp-lsp/tools/` | `cmd/mcp-lsp/multilsp/` | `lsp tool grep file search diagnostics` |
 | 修改 thread/turn 生命周期 | `internal/module/thread/` | `internal/module/turn/` | `thread start resume fork turn provider` |
-| 修改 prompt / memory 兼容契约 | `internal/module/prompt/` | `internal/contract/memory.go` | `prompt assembly memory compatibility fail-fast` |
+| 修改 memory/prompt | `internal/module/memory/` | `internal/module/prompt/` | `memory prompt assembly and persistence` |
 | 修改 provider 接入 | `internal/provider/` | `internal/platform/toolbridge/` | `claude codex provider session manifest toolbridge` |
 | 理解 root Fx 装配顺序 | `internal/app/modules.go` | `internal/app/modules_graph_test.go` | `app module fx graph modules runtime order toolbridge provider` |
 | 修改 App adapter 分包 | `internal/app/storeadapter/` | `internal/app/runtimeadapter/` | `store runtime adapter` |
@@ -120,18 +120,18 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `internal/app/storeadapter` | 43 | 业务 Store 到 module 窄端口的适配器 |
+| `internal/app/storeadapter` | 41 | 业务 Store 到 module 窄端口的适配器 |
 | `internal/app/runtimeadapter` | 10 | runtime consumer 的 Store/module 窄端口适配器 |
 | `internal/app/internal/storeguard` | 2 | adapter 共享的 typed-nil fail-fast 检查 helper |
-| `internal/app` | 92 | 全域汇总（root + adapter packages） |
+| `internal/app` | 89 | 全域汇总（root + adapter packages） |
 
 ### internal/module
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
 | `internal/module/thread` | 119 | thread start/resume/fork/stop 生命周期与绑定真相源 |
-| `internal/module/turn` | 60 | turn 启动、执行、审批与 provider 调度 |
-| `internal/module/prompt` | 91 | prompt 模板、启用条件与 system prompt 组装 |
+| `internal/module/turn` | 61 | turn 启动、执行、审批与 provider 调度 |
+| `internal/module/prompt` | 64 | prompt 模板、启用条件与 system prompt 组装 |
 | `internal/module/uistate` | 59 | UI 事件投影与 timeline/sidebar 状态 |
 
 ### internal/platform
@@ -148,8 +148,8 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 子系统 | 文件数 | 职责 |
 |---|---:|---|
-| `internal/provider/codexapp` | 133 | Codex app/server provider 集成 |
-| `internal/provider/claudecli` | 90 | Claude CLI provider 集成 |
+| `internal/provider/codexapp` | 135 | Codex app/server provider 集成 |
+| `internal/provider/claudecli` | 92 | Claude CLI provider 集成 |
 | `internal/provider/shared` | 22 | provider home、配置和共享 helpers |
 | `internal/provider/unified` | 34 | 统一 provider 会话解析与 manifest |
 
