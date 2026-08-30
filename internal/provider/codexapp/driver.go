@@ -188,6 +188,9 @@ func (d *driver) Name() string { return "codex" }
 // StartSession 准备 Codex home、工具面和 runtime 后启动新线程会话。
 // runtime 必须先于 start RPC 启动，否则 app-server 响应没有 reader 接收。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	// LaunchSkillRefs is a compatibility carrier; sanitize legacy Prompt bodies
+	// even when callers bypass the unified client and invoke this driver directly.
+	req.LaunchSkillRefs = contract.CloneProviderSkillRefsMetadataOnly(req.LaunchSkillRefs)
 	if err := requireApprovalManager(d.approvals); err != nil {
 		return nil, err
 	}

@@ -186,6 +186,9 @@ func validateClaudeStartRequest(req dto.StartSessionRequest) error {
 
 // StartSession 启动新的 Claude CLI 会话，并为其构建 stdio-only MCP manifest。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	// LaunchSkillRefs is a compatibility carrier; never let a direct provider
+	// caller retain the legacy full-text Prompt body past this boundary.
+	req.LaunchSkillRefs = contract.CloneProviderSkillRefsMetadataOnly(req.LaunchSkillRefs)
 	if err := validateClaudeStartRequest(req); err != nil {
 		return nil, err
 	}
