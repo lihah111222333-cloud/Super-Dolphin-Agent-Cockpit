@@ -98,14 +98,21 @@ func assertPrioritySSALoaderCandidates(
 	}
 	sort.Strings(paths)
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(paths, "\n"))))
-	const wantCount = 243
-	const wantDigest = "4a7d13b018492a305c519327f3276a3f862585aff80b6854dd59e3050eb191aa"
+	// The frozen seam includes the approved orch upgrade candidate packages,
+	// including transport-neutral tasktransport and messageassociation candidates,
+	// plus direct-peer, terminal-event, credential-activation, retention, and
+	// recovery-candidate package seams added in the current upgrade.
+	const wantCount = 292
+	const wantDigest = "3760083886d9f6d7f04eb1b276ec748e56967009b49113b4f1e12ff209c810a0"
 	if len(paths) != wantCount || digest != wantDigest {
 		t.Fatalf("seam cd81d4c9a priority candidates count=%d digest=%s", len(paths), digest)
 	}
 	for _, required := range []string{
 		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve",
 		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processprobe",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/childissuer",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/trustcandidate",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/standalone/managedruntime/issuer",
 	} {
 		if !containsPriorityPath(paths, required) {
 			t.Fatalf("priority candidate set is missing %s", required)

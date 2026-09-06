@@ -34,7 +34,14 @@
         { "path": "internal/dto/turn/terminal.go", "symbol": "AttachCanonicalTurnTerminal", "calls": "ValidateTurnTerminalV2" },
         { "path": "internal/dto/turn/terminal.go", "symbol": "CanonicalTurnTerminal", "calls": "ValidateTurnTerminalV2" },
         { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "DecodeRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" },
-        { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "ProjectRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" }
+        { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "ProjectRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "cmd/mcp-orch/orchestration/launcher.go", "symbol": "handleRemoteTurnTerminalResultWithMode", "calls": "ValidateTurnTerminalV2" },
+        { "path": "cmd/mcp-orch/orchestration/terminal_handler.go", "symbol": "HandleTerminalReceipt", "calls": "ValidateTurnTerminalV2" },
+        { "path": "cmd/mcp-orch/standalone/execution_events.go", "symbol": "deliverTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "cmd/mcp-orch/standalone/execution_events.go", "symbol": "handleCodexEvent", "calls": "ValidateTurnTerminalV2" },
+        { "path": "cmd/mcp-orch/standalone/execution_terminal_receipt.go", "symbol": "buildClaudeTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "cmd/mcp-orch/standalone/execution_terminal_receipt.go", "symbol": "buildCodexTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "cmd/mcp-orch/standalone/execution_terminal_receipt.go", "symbol": "deliverCanonicalTerminal", "calls": "ValidateTurnTerminalV2" }
       ],
       "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnTerminalV2" },
       "jsConsumers": [
@@ -219,7 +226,7 @@
     {
       "name": "remote-terminal-first-truth-seal",
       "path": "cmd/mcp-orch/orchestration/launcher.go",
-      "symbol": "handleRemoteTurnTerminal",
+      "symbol": "handleRemoteTurnTerminalResultWithMode",
       "calls": ["acceptRemoteTurnTerminal", "ProjectRemoteTurnTerminal"]
     },
     {

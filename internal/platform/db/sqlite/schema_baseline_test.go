@@ -16,6 +16,8 @@ import (
 
 const baselineMigration = "internal/platform/db/sqlite/migrations/001_baseline.sql"
 
+const candidateSubmissionQuery = "cmd/mcp-orch/sql/queries/orchestration_command_submission.sql"
+
 var allPersistentTables = []string{
 	"agent_codex_binding",
 	"agent_feedback_events",
@@ -71,6 +73,37 @@ var allPersistentTables = []string{
 	"workspace_runs",
 }
 
+// isIncrementalRuntimeTable 识别由 124..136 迁移创建的表；它们仍必须由
+// 启动 schema gate 检查，但 baseline 专项测试不能要求它们已存在。
+func isIncrementalRuntimeTable(table string) bool {
+	switch table {
+	case "orchestration_direct_peer_grants", "orchestration_direct_peer_messages",
+		"orchestration_direct_peer_events", "orchestration_direct_peer_event_outbox",
+		"orchestration_command_intents", "orchestration_command_journal",
+		"orchestration_identity_reservations", "orchestration_execution_incarnations",
+		"orchestration_binding_preparations", "orchestration_current_bindings",
+		"orchestration_event_source_states", "orchestration_event_ingress_receipts",
+		"orchestration_agent_events", "orchestration_event_tombstones",
+		"orchestration_event_materialization_cursors", "orchestration_access_grants",
+		"orchestration_event_wait_handles":
+		return true
+	case "orchestration_command_intent_profiles", "orchestration_legacy_command_content_quarantine":
+		return true
+	case "orchestration_content_ingest_reservations", "orchestration_content_objects",
+		"orchestration_content_private_payload_receipts", "orchestration_content_refs",
+		"orchestration_command_content_deletion_fences",
+		"orchestration_resource_effective_policy_snapshots", "orchestration_resource_reservations",
+		"orchestration_resource_usage_ledger", "orchestration_legacy_wakeup_quarantine":
+		return true
+	case "orchestration_command_attempts", // migration 135 candidate owner; below the 134 startup floor
+		"orchestration_wait_operations", "orchestration_wait_operation_target_journal",
+		"orchestration_wait_operation_commit_markers": // migration 136 candidate owner; below the 134 startup floor
+		return true
+	default:
+		return false
+	}
+}
+
 func TestSQLiteBaselineCreatesRuntimeTables(t *testing.T) {
 	db := openBaselineDB(t)
 
@@ -80,10 +113,12 @@ func TestSQLiteBaselineCreatesRuntimeTables(t *testing.T) {
 			t.Fatalf("baseline missing table %q", table)
 		}
 	}
-
 	for _, table := range requiredBaselineTablesFromModule(t) {
+		if isIncrementalRuntimeTable(table) {
+			continue
+		}
 		if !got[table] {
-			t.Fatalf("baseline missing requiredBaselineTables floor table %q", table)
+			t.Fatalf("baseline missing required floor table %q", table)
 		}
 	}
 
@@ -96,6 +131,29 @@ func TestSQLiteBaselineCreatesRuntimeTables(t *testing.T) {
 	}
 }
 
+func TestSQLiteBaselineTreatsCommandAttemptsAsIncremental(t *testing.T) {
+	db := openBaselineDB(t)
+	if !isIncrementalRuntimeTable("orchestration_command_attempts") {
+		t.Fatal("orchestration_command_attempts is not classified as an incremental runtime table")
+	}
+	if tables := sqliteTables(t, db); tables["orchestration_command_attempts"] {
+		t.Fatal("baseline unexpectedly creates orchestration_command_attempts before migration 135")
+	}
+}
+
+func TestSQLiteBaselineTreatsWaitOperationsAsIncremental(t *testing.T) {
+	db := openBaselineDB(t)
+	tables := sqliteTables(t, db)
+	for _, table := range []string{"orchestration_wait_operations", "orchestration_wait_operation_target_journal", "orchestration_wait_operation_commit_markers"} {
+		if !isIncrementalRuntimeTable(table) {
+			t.Fatalf("%s is not classified as an incremental runtime table", table)
+		}
+		if tables[table] {
+			t.Fatalf("baseline unexpectedly creates %s before migration 136", table)
+		}
+	}
+}
+
 func TestSQLiteBaselineCoversSQLCQueryTables(t *testing.T) {
 	db := openBaselineDB(t)
 	baselineTables := sqliteTables(t, db)
@@ -103,8 +161,25 @@ func TestSQLiteBaselineCoversSQLCQueryTables(t *testing.T) {
 	queryTables := referencedSQLCTables(t)
 	for table := range queryTables {
 		if !baselineTables[table] {
+			if isIncrementalRuntimeTable(table) {
+				continue
+			}
 			t.Fatalf("query references table %q but SQLite baseline does not create it", table)
 		}
+	}
+}
+
+func TestSQLiteBaselineDoesNotOwnCandidateSubmissionTable(t *testing.T) {
+	db := openBaselineDB(t)
+	if tables := sqliteTables(t, db); tables["orchestration_command_submissions"] {
+		t.Fatal("baseline unexpectedly creates candidate orchestration_command_submissions table")
+	}
+	if tables := referencedSQLCTables(t); tables["orchestration_command_submissions"] {
+		t.Fatal("candidate SQLC query was included in default baseline ownership")
+	}
+	candidateTables := referencedCandidateSQLCTables(t)
+	if !candidateTables["orchestration_command_submissions"] {
+		t.Fatalf("candidate SQLC query does not reference its candidate table: %v", candidateTables)
 	}
 }
 
@@ -291,6 +366,16 @@ func requiredBaselineTablesFromModule(t *testing.T) []string {
 
 func referencedSQLCTables(t *testing.T) map[string]bool {
 	t.Helper()
+	return referencedSQLCTablesByOwner(t, false)
+}
+
+func referencedCandidateSQLCTables(t *testing.T) map[string]bool {
+	t.Helper()
+	return referencedSQLCTablesByOwner(t, true)
+}
+
+func referencedSQLCTablesByOwner(t *testing.T, candidateOnly bool) map[string]bool {
+	t.Helper()
 
 	roots := []string{
 		filepath.Join(repoRoot(t), "sql", "queries"),
@@ -307,6 +392,10 @@ func referencedSQLCTables(t *testing.T) map[string]bool {
 				continue
 			}
 			path := filepath.Join(root, entry.Name())
+			isCandidate := filepath.ToSlash(filepath.Join(repoRoot(t), filepath.FromSlash(candidateSubmissionQuery))) == filepath.ToSlash(path)
+			if isCandidate != candidateOnly {
+				continue
+			}
 			body, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatalf("read query file %s: %v", path, err)

@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -219,6 +218,15 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 	if w == nil {
 		return false
 	}
+	if err := validateWakeupDispatchEnvelope(w); err != nil {
+		fence := extractFence(w)
+		return d.markPermanentFail(ctx, w, fence, truncateWakeupError(err.Error()), err)
+	}
+	if strings.TrimSpace(w.WakeupKind) == "terminal_failure_compensation" {
+		err := errors.New("terminal_failure_compensation is consume-only and cannot launch an agent")
+		fence := extractFence(w)
+		return d.markPermanentFail(ctx, w, fence, err.Error(), err)
+	}
 	if turncompletionretry.IsWakeup(w) {
 		return d.handleTurnCompletionRetryWakeup(ctx, w)
 	}
@@ -235,6 +243,59 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 		return d.handleClaimedViaRouter(ctx, w)
 	}
 	return d.handleClaimedViaLegacyLauncher(ctx, w)
+}
+
+// validateWakeupDispatchEnvelope 在任何 executor、launcher 或状态写入前校验持久化版本标记和行身份/分支联合。
+// version-0 行必须进入显式 operator migration/quarantine，dispatcher 绝不推断其分支。
+func validateWakeupDispatchEnvelope(w *taskdag.Wakeup) error {
+	if w == nil {
+		return errors.New("wakeup dispatcher: nil wakeup")
+	}
+	if w.PayloadSchemaVersion != taskdag.WakeupPayloadSchemaVersion1 {
+		return fmt.Errorf("wakeup dispatcher: wakeup %d payload_schema_version=%d is not executable; require explicit operator migration/quarantine", w.ID, w.PayloadSchemaVersion)
+	}
+	if err := taskdag.ValidateWakeupPayloadForKind(w.WakeupKind, w.TargetAgentID, w.PromptPayload); err != nil {
+		return err
+	}
+	return validateWakeupRowIdentity(w)
+}
+
+// validateWakeupRowIdentity 校验持久化 DAG/legacy 判别器与 payload 分支一致，
+// 防止带 DAG 列的错误 start 行（或缺少 DAG 列的 DAG 行）进入副作用路径。
+func validateWakeupRowIdentity(w *taskdag.Wakeup) error {
+	dagKey := strings.TrimSpace(w.DagKey)
+	nodeKey := strings.TrimSpace(w.NodeKey)
+	switch strings.TrimSpace(w.WakeupKind) {
+	case "start":
+		return validateLegacyWakeupRowIdentity(w, dagKey, nodeKey)
+	case "node_start", "manual_dispatch", "turn_complete_retry", "terminal_failure_compensation":
+		return validateDAGWakeupRowIdentity(w, dagKey, nodeKey)
+	default:
+		return fmt.Errorf("wakeup dispatcher: wakeup %d unsupported wakeup_kind %q", w.ID, w.WakeupKind)
+	}
+}
+
+// validateLegacyWakeupRowIdentity 要求 legacy launch 分支不携带 DAG 行身份。
+func validateLegacyWakeupRowIdentity(w *taskdag.Wakeup, dagKey, nodeKey string) error {
+	if dagKey == "" && nodeKey == "" && w.RunID == nil {
+		return nil
+	}
+	return fmt.Errorf("wakeup dispatcher: wakeup %d legacy launch branch carries DAG row identity (dag_key=%q node_key=%q run_id=%v)", w.ID, dagKey, nodeKey, wakeupRunIDForError(w))
+}
+
+// validateDAGWakeupRowIdentity 要求 DAG 分支具备完整的运行时行身份。
+func validateDAGWakeupRowIdentity(w *taskdag.Wakeup, dagKey, nodeKey string) error {
+	if dagKey != "" && nodeKey != "" && w.RunID != nil && *w.RunID > 0 {
+		return nil
+	}
+	return fmt.Errorf("wakeup dispatcher: wakeup %d %s branch requires dag_key, node_key, and positive run_id (dag_key=%q node_key=%q run_id=%v)", w.ID, strings.TrimSpace(w.WakeupKind), dagKey, nodeKey, wakeupRunIDForError(w))
+}
+
+func wakeupRunIDForError(w *taskdag.Wakeup) any {
+	if w == nil || w.RunID == nil {
+		return nil
+	}
+	return *w.RunID
 }
 
 // shouldRouteThroughNodeExecutor 标记 DAG wakeup 必须经过 NodeExecutorRouter。
@@ -265,7 +326,11 @@ func (d *WakeupDispatcher) handleTurnCompletionRetryWakeup(ctx context.Context, 
 // 它仍复用 wakeup fence，避免过期 claim 覆盖其它 dispatcher 的处理结果。
 func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w *taskdag.Wakeup) bool {
 	fence := extractFence(w)
-	req := buildLaunchRequestFromWakeup(*w)
+	req, payloadErr := buildLaunchRequestFromWakeup(*w)
+	if payloadErr != nil {
+		lastErr := truncateWakeupError(payloadErr.Error())
+		return d.markPermanentFail(ctx, w, fence, lastErr, payloadErr)
+	}
 	launchErr := d.launcher.LaunchAgent(ctx, req)
 	if launchErr == nil {
 		return d.markLaunched(ctx, w, fence)
@@ -393,31 +458,35 @@ func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert Dis
 }
 
 // buildLaunchRequestFromWakeup 把非 router wakeup 行映射到 LaunchRequest。
-// DAG 主路径使用 inputs.from_nodes 和 node.result 取上游上下文；UpstreamOutputs
-// 只服务仍携带旧 payload 的手工 wakeup，避免影响当前 DAG dispatch。
-func buildLaunchRequestFromWakeup(w taskdag.Wakeup) LaunchRequest {
-	req := LaunchRequest{AgentID: strings.TrimSpace(w.TargetAgentID)}
-	payload := append(json.RawMessage(nil), w.PromptPayload...)
-	if len(payload) == 0 {
-		return req
+// DAG 主路径使用 inputs.from_nodes 和 node.result 取上游上下文；这里只接受
+// 带显式 discriminator 的 DAG/legacy 分支，旧的未标记 payload 不再猜测。
+func buildLaunchRequestFromWakeup(w taskdag.Wakeup) (LaunchRequest, error) {
+	decoded, err := taskdag.DecodeWakeupPayload(w.PromptPayload)
+	if err != nil {
+		return LaunchRequest{}, err
 	}
-	// DAG payload 能提供 agent 和上游输出提示时优先使用，保持旧手工 wakeup 可读。
-	var dag taskdag.DownstreamWakeupPayload
-	if err := json.Unmarshal(payload, &dag); err == nil && len(dag.UpstreamOutputs) > 0 {
-		if strings.TrimSpace(dag.AgentID) != "" {
-			req.AgentID = strings.TrimSpace(dag.AgentID)
+	if decoded.Downstream != nil {
+		payload := decoded.Downstream
+		if target := strings.TrimSpace(w.TargetAgentID); target != "" && target != strings.TrimSpace(payload.AgentID) {
+			return LaunchRequest{}, fmt.Errorf("%w: target_agent_id %q disagrees with payload agent_id %q", taskdag.ErrInvalidWakeupPayload, target, payload.AgentID)
 		}
-		req.Prompt = wakeuptext.RenderUpstreamPromptHint(dag.UpstreamOutputs)
-		return req
+		req := LaunchRequest{AgentID: strings.TrimSpace(payload.AgentID)}
+		if len(payload.UpstreamOutputs) > 0 {
+			req.Prompt = wakeuptext.RenderUpstreamPromptHint(payload.UpstreamOutputs)
+		}
+		return req, nil
 	}
-	var parsed LaunchRequest
-	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return req
+	legacy := decoded.Legacy
+	if target := strings.TrimSpace(w.TargetAgentID); target == "" || target != strings.TrimSpace(legacy.AgentID) {
+		return LaunchRequest{}, fmt.Errorf("%w: target_agent_id %q disagrees with payload agent_id %q", taskdag.ErrInvalidWakeupPayload, w.TargetAgentID, legacy.AgentID)
 	}
-	if strings.TrimSpace(parsed.AgentID) == "" {
-		parsed.AgentID = req.AgentID
-	}
-	return parsed
+	return LaunchRequest{
+		AgentID: legacy.AgentID, Name: legacy.Name, Prompt: legacy.Prompt, Instructions: legacy.Instructions,
+		ParentID: legacy.ParentID, ParentThreadID: legacy.ParentThreadID, ContextMode: legacy.ContextMode,
+		AgentType: legacy.AgentType, AgentKey: legacy.AgentKey, PromptKey: legacy.PromptKey,
+		MemoryScope: legacy.MemoryScope, Cwd: legacy.Cwd, Language: legacy.Language,
+		Command: legacy.Command, Env: legacy.Env,
+	}, nil
 }
 
 // truncateWakeupError 截短 last_error 字段长度，避免极长 stack 撑爆 DB

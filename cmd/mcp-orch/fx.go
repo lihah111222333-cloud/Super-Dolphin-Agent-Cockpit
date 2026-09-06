@@ -8,6 +8,7 @@ import (
 	"github.com/kelindar/event"
 	orchnotify "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/notify"
 	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/commandcard"
+	directpeerstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/directpeer"
 	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sharedfile"
 	taskdagstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
@@ -16,6 +17,7 @@ import (
 	platformbus "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/bus"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"go.uber.org/fx"
 )
 
@@ -45,6 +47,7 @@ func newMCPOrchApp(remoteAddr string) *fx.App {
 		platformconfig.Module,
 		platformdb.Module,
 		platformbus.Module,
+		canonicalOwnerModules(),
 		orchnotify.Module,
 		promptstore.Module,
 		commandcardstore.Module,
@@ -60,6 +63,8 @@ func newMCPOrchApp(remoteAddr string) *fx.App {
 			newAgentThreadStore,
 			newAgentBindingStore,
 			newTerminalOutcomeStore,
+			directpeerstore.NewStore,
+			fx.Annotate(newDirectPeerEventProjector, fx.As(new(platformrunner.Runner)), fx.ResultTags(`group:"runners"`)),
 			func(store storeworkspace.Store, dispatcher *event.Dispatcher) workspace.Service {
 				return workspace.NewService(store, dispatcher)
 			},

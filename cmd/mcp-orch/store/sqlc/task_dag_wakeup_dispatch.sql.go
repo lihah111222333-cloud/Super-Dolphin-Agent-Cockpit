@@ -42,16 +42,37 @@ WHERE
     SELECT w.id
     FROM task_dag_wakeups w
     WHERE w.status = 'pending'
+      AND w.payload_schema_version = 1
       AND w.next_retry_at <= (CAST(strftime('%s','now') AS INTEGER) * 1000)
       AND (
-        trim(w.dag_key) = ''
-        OR trim(w.node_key) = ''
-        OR w.run_id IN (
-          SELECT r.id
-          FROM task_dag_runs r
-          WHERE r.id = w.run_id
-            AND r.dag_key = w.dag_key
-            AND r.status = 'running'
+        (
+          w.wakeup_kind IN ('node_start', 'manual_dispatch', 'turn_complete_retry')
+          AND trim(w.dag_key) <> ''
+          AND trim(w.node_key) <> ''
+          AND w.run_id IN (
+            SELECT r.id
+            FROM task_dag_runs r
+            WHERE r.id = w.run_id
+              AND r.dag_key = w.dag_key
+              AND r.status = 'running'
+          )
+        )
+        OR (
+          w.wakeup_kind = 'terminal_failure_compensation'
+          AND trim(w.dag_key) <> ''
+          AND trim(w.node_key) <> ''
+          AND w.run_id IN (
+            SELECT r.id
+            FROM task_dag_runs r
+            WHERE r.id = w.run_id
+              AND r.dag_key = w.dag_key
+          )
+        )
+        OR (
+          w.wakeup_kind = 'start'
+          AND trim(w.dag_key) = ''
+          AND trim(w.node_key) = ''
+          AND w.run_id IS NULL
         )
       )
     ORDER BY next_retry_at, id
@@ -113,18 +134,19 @@ func (q *Queries) FailTaskDagWakeup(ctx context.Context, arg FailTaskDagWakeupPa
 }
 
 const insertTaskDagWakeup = `-- name: InsertTaskDagWakeup :execrows
-INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, next_retry_at, created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, payload_schema_version, idempotency_key, next_retry_at, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 `
 
 type InsertTaskDagWakeupParams struct {
-	DagKey         string          `db:"dag_key" json:"dag_key"`
-	NodeKey        string          `db:"node_key" json:"node_key"`
-	RunID          *int64          `db:"run_id" json:"run_id"`
-	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
+	DagKey               string          `db:"dag_key" json:"dag_key"`
+	NodeKey              string          `db:"node_key" json:"node_key"`
+	RunID                *int64          `db:"run_id" json:"run_id"`
+	WakeupKind           string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID        string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload        json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	PayloadSchemaVersion int64           `db:"payload_schema_version" json:"payload_schema_version"`
+	IdempotencyKey       string          `db:"idempotency_key" json:"idempotency_key"`
 }
 
 func (q *Queries) InsertTaskDagWakeup(ctx context.Context, arg InsertTaskDagWakeupParams) (int64, error) {
@@ -135,6 +157,7 @@ func (q *Queries) InsertTaskDagWakeup(ctx context.Context, arg InsertTaskDagWake
 		arg.WakeupKind,
 		arg.TargetAgentID,
 		arg.PromptPayload,
+		arg.PayloadSchemaVersion,
 		arg.IdempotencyKey,
 	)
 	if err != nil {
@@ -144,7 +167,7 @@ func (q *Queries) InsertTaskDagWakeup(ctx context.Context, arg InsertTaskDagWake
 }
 
 const listTaskDagWakeupsByClaimFence = `-- name: ListTaskDagWakeupsByClaimFence :many
-SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload, payload_schema_version,
        idempotency_key, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
@@ -163,26 +186,27 @@ type ListTaskDagWakeupsByClaimFenceParams struct {
 }
 
 type ListTaskDagWakeupsByClaimFenceRow struct {
-	ID             int64           `db:"id" json:"id"`
-	DagKey         string          `db:"dag_key" json:"dag_key"`
-	NodeKey        string          `db:"node_key" json:"node_key"`
-	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
-	Status         string          `db:"status" json:"status"`
-	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         *int64          `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string          `db:"last_error" json:"last_error"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	RunID          *int64          `db:"run_id" json:"run_id"`
+	ID                   int64           `db:"id" json:"id"`
+	DagKey               string          `db:"dag_key" json:"dag_key"`
+	NodeKey              string          `db:"node_key" json:"node_key"`
+	WakeupKind           string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID        string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload        json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	PayloadSchemaVersion int64           `db:"payload_schema_version" json:"payload_schema_version"`
+	IdempotencyKey       string          `db:"idempotency_key" json:"idempotency_key"`
+	Status               string          `db:"status" json:"status"`
+	AttemptCount         int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt          int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt            *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy            string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt       *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt               *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID          *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt          *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError            string          `db:"last_error" json:"last_error"`
+	CreatedAt            int64           `db:"created_at" json:"created_at"`
+	UpdatedAt            int64           `db:"updated_at" json:"updated_at"`
+	RunID                *int64          `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) ListTaskDagWakeupsByClaimFence(ctx context.Context, arg ListTaskDagWakeupsByClaimFenceParams) ([]ListTaskDagWakeupsByClaimFenceRow, error) {
@@ -201,6 +225,7 @@ func (q *Queries) ListTaskDagWakeupsByClaimFence(ctx context.Context, arg ListTa
 			&i.WakeupKind,
 			&i.TargetAgentID,
 			&i.PromptPayload,
+			&i.PayloadSchemaVersion,
 			&i.IdempotencyKey,
 			&i.Status,
 			&i.AttemptCount,

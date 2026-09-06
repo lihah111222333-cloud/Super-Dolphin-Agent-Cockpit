@@ -779,14 +779,48 @@ func TestHandleStopAgentDoesNotReportArchivedForNoop(t *testing.T) {
 	}
 }
 
+func TestStopAgentFallsBackToStopWhenArchiveCapabilityIsUnsupported(t *testing.T) {
+	svc := &archiveCapableOrchestrationStub{archiveErr: contract.NewCapabilityError("thread_archive", "claude")}
+	handler := HandleStopAgent(svc)
+
+	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-claude"}`))
+	if err != nil {
+		t.Fatalf("HandleStopAgent() error = %v", err)
+	}
+	if svc.archivedAgentID != "" || svc.stoppedAgentID != "agent-claude" {
+		t.Fatalf("archive calls=%q stop calls=%q, want archive omitted and real stop", svc.archivedAgentID, svc.stoppedAgentID)
+	}
+	got, ok := result.(map[string]any)
+	if !ok || got["success"] != true || got["agent_id"] != "agent-claude" || got["archived"] != false {
+		t.Fatalf("HandleStopAgent() result = %#v, want successful non-archive stop", result)
+	}
+}
+
+func TestStopAgentDoesNotFallbackOnArchiveOperationalError(t *testing.T) {
+	svc := &archiveCapableOrchestrationStub{archiveErr: errors.New("provider archive transport failed")}
+	handler := HandleStopAgent(svc)
+
+	_, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-claude"}`))
+	if err == nil || !strings.Contains(err.Error(), "provider archive transport failed") {
+		t.Fatalf("HandleStopAgent() error = %v, want archive error", err)
+	}
+	if svc.stoppedAgentID != "" {
+		t.Fatalf("stopped agent = %q, want no fallback on operational error", svc.stoppedAgentID)
+	}
+}
+
 type archiveCapableOrchestrationStub struct {
 	golden.OrchestrationStub
 	archivedAgentID string
 	stoppedAgentID  string
 	archiveNoop     bool
+	archiveErr      error
 }
 
 func (s *archiveCapableOrchestrationStub) ArchiveAgent(_ context.Context, agentID string) (orch.ArchiveOutcome, error) {
+	if s.archiveErr != nil {
+		return orch.ArchiveOutcome{}, s.archiveErr
+	}
 	if s.archiveNoop {
 		return orch.ArchiveOutcome{}, nil
 	}

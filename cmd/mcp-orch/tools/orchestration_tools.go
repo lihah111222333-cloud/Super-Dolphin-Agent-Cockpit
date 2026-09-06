@@ -10,6 +10,7 @@ import (
 
 	orch "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -443,28 +444,45 @@ func HandleStopAgent(svc contract.AgentStopWaitPort) ToolHandler {
 				return nil, err
 			}
 		}
-		archived := false
-		if archiver, ok := svc.(agentArchiver); ok {
-			pkglogger.Info("stop_agent: dispatching to ArchiveAgent (recycle path)",
-				"agent_id", agentID)
-			outcome, err := archiver.ArchiveAgent(ctx, agentID)
-			if err != nil {
-				return nil, err
-			}
-			archived = outcome.Archived()
-			if !archived {
-				return nil, fmt.Errorf("%w: %s", contract.ErrAgentNotFound, agentID)
-			}
-		} else {
-			pkglogger.Warn("stop_agent: service does not implement agentArchiver; falling back to bare StopAgent (NO recycle-bin marking)",
-				"agent_id", agentID,
-				"svc_type", fmt.Sprintf("%T", svc))
-			if err := svc.StopAgent(ctx, agentID); err != nil {
-				return nil, err
-			}
+		archived, err := stopAgentViaArchiveOrStop(ctx, svc, agentID)
+		if err != nil {
+			return nil, err
 		}
 		return stopAgentResult(ctx, svc, agentID, archived, in)
 	})
+}
+
+// stopAgentViaArchiveOrStop 先尝试回收归档；provider 明确不支持归档时才执行独立 Stop。
+func stopAgentViaArchiveOrStop(ctx context.Context, svc contract.AgentStopWaitPort, agentID string) (bool, error) {
+	archiver, ok := svc.(agentArchiver)
+	if !ok {
+		pkglogger.Warn("stop_agent: service does not implement agentArchiver; falling back to bare StopAgent (NO recycle-bin marking)",
+			"agent_id", agentID, "svc_type", fmt.Sprintf("%T", svc))
+		return false, svc.StopAgent(ctx, agentID)
+	}
+	pkglogger.Info("stop_agent: dispatching to ArchiveAgent (recycle path)", "agent_id", agentID)
+	outcome, err := archiver.ArchiveAgent(ctx, agentID)
+	if err == nil {
+		if !outcome.Archived() {
+			return false, fmt.Errorf("%w: %s", contract.ErrAgentNotFound, agentID)
+		}
+		return true, nil
+	}
+	if !isArchiveCapabilityUnsupported(err) {
+		return false, err
+	}
+	// Stop 是独立的生命周期动作。provider 没有 thread/archive 时，只能回退到真实 StopAgent。
+	pkglogger.Warn("stop_agent: archive capability unavailable; using stop path", "agent_id", agentID, "error", err)
+	if stopErr := svc.StopAgent(ctx, agentID); stopErr != nil {
+		return false, errors.Join(err, stopErr)
+	}
+	return false, nil
+}
+
+// isArchiveCapabilityUnsupported 只识别明确的 thread_archive 能力错误，其他归档失败不能静默转为 Stop。
+func isArchiveCapabilityUnsupported(err error) bool {
+	var capabilityErr *contract.CapabilityError
+	return errors.As(err, &capabilityErr) && capabilityErr != nil && capabilityErr.Capability == providerdto.CapThreadArchive
 }
 
 // HandleListAgents 列出 agent 快照，默认只返回活跃项且不携带报告正文。

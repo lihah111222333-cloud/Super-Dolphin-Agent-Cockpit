@@ -51,6 +51,7 @@ lsp_server_specs=(
   "sg|bin/sg"
   "go|bin/go"
 )
+recovery_custody_candidate_present=0
 
 phase_start() {
   phase_label="$1"
@@ -527,6 +528,7 @@ verify_runtime_manifest() {
     exit 1
   fi
   local bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path
+  local recovery_custody_candidate_path recovery_custody_candidate_status recovery_custody_candidate_runtime recovery_custody_candidate_startup
   if ! bundled_codex_path="$(manifest_string "$manifest" bundled_codex_path)"; then
     echo "runtime manifest missing bundled_codex_path: $manifest" >&2
     exit 1
@@ -560,6 +562,42 @@ verify_runtime_manifest() {
     exit 1
   fi
   require_runtime_manifest_path model_registry_path "$model_registry_path" "models.yaml" file
+  local recovery_custody_candidate_key_count=0
+  local recovery_custody_candidate_declared=0
+  if grep -Eq '"recovery_custody_candidate_[[:alnum:]_]+"[[:space:]]*:' "$manifest"; then
+    recovery_custody_candidate_declared=1
+  fi
+  for key in recovery_custody_candidate_path recovery_custody_candidate_status recovery_custody_candidate_runtime recovery_custody_candidate_startup; do
+    if ! value="$(manifest_string "$manifest" "$key")"; then
+      continue
+    fi
+    recovery_custody_candidate_key_count=$((recovery_custody_candidate_key_count + 1))
+    case "$key" in
+      recovery_custody_candidate_path) recovery_custody_candidate_path="$value" ;;
+      recovery_custody_candidate_status) recovery_custody_candidate_status="$value" ;;
+      recovery_custody_candidate_runtime) recovery_custody_candidate_runtime="$value" ;;
+      recovery_custody_candidate_startup) recovery_custody_candidate_startup="$value" ;;
+    esac
+  done
+  if [[ "$recovery_custody_candidate_key_count" == "0" ]]; then
+    if [[ "$recovery_custody_candidate_declared" == "1" ]]; then
+      echo "runtime manifest recovery custody candidate metadata is incomplete: $manifest" >&2
+      exit 1
+    fi
+    return 0
+  fi
+  if [[ "$recovery_custody_candidate_key_count" != "4" ]]; then
+    echo "runtime manifest recovery custody candidate metadata is incomplete: $manifest" >&2
+    exit 1
+  fi
+  require_runtime_manifest_path recovery_custody_candidate_path "$recovery_custody_candidate_path" "bin/mcp-recovery-custody" exec
+  if [[ "$recovery_custody_candidate_status" != "candidate" ||
+        "$recovery_custody_candidate_runtime" != "disabled" ||
+        "$recovery_custody_candidate_startup" != "requires-external-evidence-finalizer-and-receipt-verifier" ]]; then
+    echo "runtime manifest recovery custody candidate metadata is not fail-closed: $manifest" >&2
+    exit 1
+  fi
+  recovery_custody_candidate_present=1
 }
 
 verify_codex_manifest() {
@@ -779,6 +817,9 @@ required_execs=(
   "$resources/lsp/bin/go"
   "$resources/bin/git"
 )
+if [[ "$recovery_custody_candidate_present" == "1" ]]; then
+  required_execs+=("$resources/bin/mcp-recovery-custody")
+fi
 
 if [[ ! -f "$resources/bin/mcp-schema-compiler-helper.manifest.json" ]]; then
   echo "missing schema helper manifest" >&2

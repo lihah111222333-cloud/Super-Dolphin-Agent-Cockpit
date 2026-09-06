@@ -77,12 +77,28 @@ func TestPackageMacOSScriptWritesRuntimeManifest(t *testing.T) {
 	assertScriptContains(t, body, "\"lsp_bundle_path\": \"lsp\"")
 	assertScriptContains(t, body, "\"lsp_manifest_path\": \"lsp/lsp-manifest.json\"")
 	assertScriptContains(t, body, "\"model_registry_path\": \"models.yaml\"")
+	assertRecoveryCustodyManifestContract(t, body)
 	assertScriptDoesNotContain(t, body, "embedded_postgres_resource_path")
 	assertScriptDoesNotContain(t, body, "$root")
 	assertScriptOrder(t, script, "copy_packaged_codex \"$resources\" \"$resources/bin/codex\"", "write_runtime_manifest \"$resources\" \"$platform\"")
 	assertScriptOrder(t, script, "copy_packaged_lsp_bundle \"$resources\"", "write_runtime_manifest \"$resources\" \"$platform\"")
 	assertScriptOrder(t, script, "copy_model_registry \"$resources\"", "write_runtime_manifest \"$resources\" \"$platform\"")
 	assertScriptOrder(t, script, "write_runtime_manifest \"$resources\" \"$platform\"", "\"$root/scripts/verify_packaged_app_macos.sh\" \"$app\"")
+}
+
+func TestPackageMacOSScriptStagesRecoveryCustodyCandidateWithoutLaunchingIt(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+
+	assertMacRecoveryCustodyCandidatePackageContract(t, script)
+}
+
+func TestRecoveryCustodyCandidateBuildTargetIsExplicitAndOptIn(t *testing.T) {
+	makefile := readRepoFile(t, "../Makefile")
+	assertScriptContains(t, makefile, "build-recovery-custody-candidate")
+	assertScriptContains(t, makefile, "go build -o \"$$tmp\" ./cmd/mcp-recovery-custody")
+	assertScriptContains(t, makefile, "mv -f \"$$tmp\" bin/mcp-recovery-custody")
+	assertScriptContains(t, makefile, "build: guard frontend-build")
+	assertScriptDoesNotContain(t, makefile, "build: guard frontend-build build-recovery-custody-candidate")
 }
 
 func TestPackageMacOSScriptRequiresVerifiedBundledCodexArtifact(t *testing.T) {
@@ -511,6 +527,52 @@ func TestVerifyPackagedAppMacOSAcceptsRuntimeManifestContract(t *testing.T) {
 	output, err := runVerifyPackagedAppMacOS(t, app)
 	if err != nil {
 		t.Fatalf("expected packaged app verifier to accept runtime manifest contract, got %v:\n%s", err, output)
+	}
+}
+
+func TestVerifyPackagedAppMacOSRejectsRecoveryCustodyRuntimeEnablement(t *testing.T) {
+	app := writeMinimalPackagedMacOSApp(t)
+	resources := filepath.Join(app, "Contents", "Resources")
+	writeExecutable(t, filepath.Join(resources, "bin", "mcp-recovery-custody"))
+	writeRuntimeManifest(t, resources, map[string]string{
+		"bundled_codex_path":                 "bin/codex",
+		"bundled_gopls_path":                 "bin/gopls",
+		"lsp_bundle_path":                    "lsp",
+		"lsp_manifest_path":                  "lsp/lsp-manifest.json",
+		"model_registry_path":                "models.yaml",
+		"recovery_custody_candidate_path":    "bin/mcp-recovery-custody",
+		"recovery_custody_candidate_status":  "candidate",
+		"recovery_custody_candidate_runtime": "enabled",
+		"recovery_custody_candidate_startup": "requires-external-evidence-finalizer-and-receipt-verifier",
+	})
+
+	output, err := runVerifyPackagedAppMacOS(t, app)
+	if err == nil {
+		t.Fatalf("expected macOS verifier to reject enabled RecoveryCustody candidate, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "runtime manifest recovery custody candidate metadata is not fail-closed") {
+		t.Fatalf("expected RecoveryCustody metadata rejection, got:\n%s", output)
+	}
+}
+
+func TestVerifyPackagedAppMacOSRejectsPartialRecoveryCustodyMetadata(t *testing.T) {
+	app := writeMinimalPackagedMacOSApp(t)
+	resources := filepath.Join(app, "Contents", "Resources")
+	writeRuntimeManifest(t, resources, map[string]string{
+		"bundled_codex_path":                "bin/codex",
+		"bundled_gopls_path":                "bin/gopls",
+		"lsp_bundle_path":                   "lsp",
+		"lsp_manifest_path":                 "lsp/lsp-manifest.json",
+		"model_registry_path":               "models.yaml",
+		"recovery_custody_candidate_status": "candidate",
+	})
+
+	output, err := runVerifyPackagedAppMacOS(t, app)
+	if err == nil {
+		t.Fatalf("expected macOS verifier to reject partial RecoveryCustody metadata, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "runtime manifest recovery custody candidate metadata is incomplete") {
+		t.Fatalf("expected partial RecoveryCustody metadata rejection, got:\n%s", output)
 	}
 }
 

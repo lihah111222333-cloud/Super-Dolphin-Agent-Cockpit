@@ -26,27 +26,36 @@ func orchestrationExecutionOptions(remoteAddr string) fx.Option {
 				func(lc fx.Lifecycle, turnStarter contract.OrchestrationTurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 					return buildLauncher(lc, turnStarter, logger, remoteAddr)
 				},
-				newAutomationCommandGetter,
-				// 当前没有可信 principal/grants resolver；默认 runner 会在真实 spawn 前 fail-closed。
-				// 后续接入 IAM 时只需在此注入 CommandExecutionAuthorizer，不能由 DAG payload 自证权限。
-				func() (*nodeexec.ShellCommandRunner, error) { return nodeexec.NewShellCommandRunner() },
-				func(r *nodeexec.ShellCommandRunner) nodeexec.AutomationCommandRunner { return r },
-				orchestration.ProvideAgentLifecycleController,
-				orchestration.NewServiceAgentLauncher,
-				fxadapter.NewStoreNodeSpawnRecorder,
-				orchestration.ProvideNodeLifecycleHooks,
-				orchestration.ProvideAutomationExecutor,
-				orchestration.NewStoreSharedFileReader,
-				orchestration.NewStoreSharedFileWriter,
-				orchestration.ProvideAgentExecutor,
-				orchestration.NewNodeExecutorRouter,
 			),
+			orchestrationNodeExecutionOptions(),
 		),
 	}
 	if remoteAddr == "" {
 		options = append(options, fx.Provide(fx.Annotate(orchestration.NewRunnerActor, fx.ResultTags(`group:"runners"`))))
 	}
 	return fx.Options(options...)
+}
+
+// orchestrationNodeExecutionOptions 复用同一节点执行图，launcher 由各入口显式提供。
+func orchestrationNodeExecutionOptions() fx.Option {
+	return fx.Module("orchestration-node-execution",
+		fx.Provide(
+			newAutomationCommandGetter,
+			// 当前没有可信 principal/grants resolver；默认 runner 会在真实 spawn 前 fail-closed。
+			// 后续接入 IAM 时只需在此注入 CommandExecutionAuthorizer，不能由 DAG payload 自证权限。
+			func() (*nodeexec.ShellCommandRunner, error) { return nodeexec.NewShellCommandRunner() },
+			func(r *nodeexec.ShellCommandRunner) nodeexec.AutomationCommandRunner { return r },
+			orchestration.ProvideAgentLifecycleController,
+			orchestration.NewServiceAgentLauncher,
+			fxadapter.NewStoreNodeSpawnRecorder,
+			orchestration.ProvideNodeLifecycleHooks,
+			orchestration.ProvideAutomationExecutor,
+			orchestration.NewStoreSharedFileReader,
+			orchestration.NewStoreSharedFileWriter,
+			orchestration.ProvideAgentExecutor,
+			orchestration.NewNodeExecutorRouter,
+		),
+	)
 }
 
 type automationCommandGetter struct {

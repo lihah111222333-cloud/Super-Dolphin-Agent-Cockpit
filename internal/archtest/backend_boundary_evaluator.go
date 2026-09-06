@@ -367,7 +367,7 @@ func validateBoundaryExceptionLifecycle(item string, exception BoundaryException
 func exceptionMatchesRuleDeny(rule BackendBoundaryRule, exception BoundaryException) bool {
 	for _, deny := range rule.Deny {
 		if matchesBackendBoundaryPattern(deny.FilePattern, exception.FilePattern) &&
-			matchesBackendBoundaryImportPrefix(exception.ImportPrefix, deny.ImportPrefix) {
+			boundaryImportPrefixMatches(exception.ImportPrefix, deny.ImportPrefix) {
 			return true
 		}
 	}

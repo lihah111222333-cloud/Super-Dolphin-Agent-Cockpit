@@ -34,14 +34,19 @@ type PersistedThread struct {
 // PersistedBinding 描述 agent 与 provider thread 的持久化绑定。
 // archive 和 snapshot fallback 都通过它识别远端线程归属。
 type PersistedBinding struct {
-	AgentID          string
-	Provider         string
-	ProviderThreadID string
-	CodexThreadID    string
-	Cwd              string
-	Archived         bool
-	CreatedAt        int64
-	UpdatedAt        int64
+	AgentID              string
+	Provider             string
+	ProviderThreadID     string
+	CodexThreadID        string
+	Cwd                  string
+	SessionUUID          string
+	CodexHome            string
+	ProviderRecoveryHome string
+	CodexInstanceKey     string
+	CodexModelProvider   string
+	Archived             bool
+	CreatedAt            int64
+	UpdatedAt            int64
 }
 
 // PersistedThreadStatusUpdate 是写回持久化 thread 状态的最小更新载荷。
@@ -66,6 +71,13 @@ type AgentThreadStore interface {
 	ListAll(ctx context.Context) ([]PersistedThread, error)
 	GetByThreadID(ctx context.Context, threadID string) (*PersistedThread, error)
 	UpdateStatus(ctx context.Context, params PersistedThreadStatusUpdate) error
+}
+
+// TerminalOwnerLookup 是 provider terminal ingress 使用的持久化 owner 反查窄口。
+// 它必须从 durable binding 返回唯一 agent；内存 registry 只能作为测试/未装配
+// 的兼容路径，不能在持久化 store 存在时静默替代该 authority。
+type TerminalOwnerLookup interface {
+	LookupOwnerByThread(ctx context.Context, threadID string) (string, error)
 }
 
 // AgentBindingStore 是 orchestration 读取和归档 provider binding 的窄端口。

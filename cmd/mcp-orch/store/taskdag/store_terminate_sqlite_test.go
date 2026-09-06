@@ -2,7 +2,6 @@ package taskdag
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -19,7 +18,7 @@ func TestSQLiteTaskDAGTerminateRunCommitsAtomically(t *testing.T) {
 	}
 	wakeupID, err := store.EnqueueWakeup(ctx, EnqueueWakeupInput{
 		DagKey: "dag-terminate", NodeKey: "root", RunID: run.ID, WakeupKind: "node_start",
-		TargetAgentID: "agent-root", PromptPayload: json.RawMessage(`{"prompt":"start"}`), IdempotencyKey: "terminate-root",
+		TargetAgentID: "agent-root", PromptPayload: canonicalDownstreamPayload("agent-root"), IdempotencyKey: "terminate-root",
 	})
 	if err != nil {
 		t.Fatalf("EnqueueWakeup() error = %v", err)
@@ -63,7 +62,7 @@ func TestSQLiteTaskDAGTerminateRunFenceMissRollsBack(t *testing.T) {
 	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-terminate-fence", run.ID)
 	wakeupID, err := store.EnqueueWakeup(ctx, EnqueueWakeupInput{
 		DagKey: "dag-terminate-fence", NodeKey: "root", RunID: run.ID, WakeupKind: "node_start",
-		TargetAgentID: "agent-root", PromptPayload: json.RawMessage(`{"prompt":"start"}`), IdempotencyKey: "terminate-fence-root",
+		TargetAgentID: "agent-root", PromptPayload: canonicalDownstreamPayload("agent-root"), IdempotencyKey: "terminate-fence-root",
 	})
 	if err != nil {
 		t.Fatalf("EnqueueWakeup() error = %v", err)

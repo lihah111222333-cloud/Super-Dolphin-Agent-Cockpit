@@ -9,6 +9,7 @@ import (
 var wantOrchestrationCanonicalNames = []string{
 	"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
 	"list_agents", "get_agent_report", "get_agent_reports",
+	"manage_direct_peer", "send_direct_peer", "read_direct_peer", "read_direct_peer_events",
 }
 
 func TestOrchestrationToolRegistryHelpersPreserveOrder(t *testing.T) {

@@ -32,7 +32,7 @@ func (q *Queries) GetLatestTaskDagWakeupClaimedAtForWorker(ctx context.Context, 
 
 const getTaskDagWakeup = `-- name: GetTaskDagWakeup :one
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
@@ -44,26 +44,27 @@ type GetTaskDagWakeupParams struct {
 }
 
 type GetTaskDagWakeupRow struct {
-	ID             int64           `db:"id" json:"id"`
-	DagKey         string          `db:"dag_key" json:"dag_key"`
-	NodeKey        string          `db:"node_key" json:"node_key"`
-	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
-	Status         string          `db:"status" json:"status"`
-	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         *int64          `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string          `db:"last_error" json:"last_error"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	RunID          *int64          `db:"run_id" json:"run_id"`
+	ID                   int64           `db:"id" json:"id"`
+	DagKey               string          `db:"dag_key" json:"dag_key"`
+	NodeKey              string          `db:"node_key" json:"node_key"`
+	WakeupKind           string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID        string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload        json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey       string          `db:"idempotency_key" json:"idempotency_key"`
+	PayloadSchemaVersion int64           `db:"payload_schema_version" json:"payload_schema_version"`
+	Status               string          `db:"status" json:"status"`
+	AttemptCount         int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt          int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt            *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy            string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt       *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt               *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID          *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt          *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError            string          `db:"last_error" json:"last_error"`
+	CreatedAt            int64           `db:"created_at" json:"created_at"`
+	UpdatedAt            int64           `db:"updated_at" json:"updated_at"`
+	RunID                *int64          `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) GetTaskDagWakeup(ctx context.Context, arg GetTaskDagWakeupParams) (GetTaskDagWakeupRow, error) {
@@ -77,6 +78,7 @@ func (q *Queries) GetTaskDagWakeup(ctx context.Context, arg GetTaskDagWakeupPara
 		&i.TargetAgentID,
 		&i.PromptPayload,
 		&i.IdempotencyKey,
+		&i.PayloadSchemaVersion,
 		&i.Status,
 		&i.AttemptCount,
 		&i.NextRetryAt,
@@ -96,7 +98,7 @@ func (q *Queries) GetTaskDagWakeup(ctx context.Context, arg GetTaskDagWakeupPara
 
 const getTaskDagWakeupByIdempotencyKey = `-- name: GetTaskDagWakeupByIdempotencyKey :one
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
@@ -108,26 +110,27 @@ type GetTaskDagWakeupByIdempotencyKeyParams struct {
 }
 
 type GetTaskDagWakeupByIdempotencyKeyRow struct {
-	ID             int64           `db:"id" json:"id"`
-	DagKey         string          `db:"dag_key" json:"dag_key"`
-	NodeKey        string          `db:"node_key" json:"node_key"`
-	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
-	Status         string          `db:"status" json:"status"`
-	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         *int64          `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string          `db:"last_error" json:"last_error"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	RunID          *int64          `db:"run_id" json:"run_id"`
+	ID                   int64           `db:"id" json:"id"`
+	DagKey               string          `db:"dag_key" json:"dag_key"`
+	NodeKey              string          `db:"node_key" json:"node_key"`
+	WakeupKind           string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID        string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload        json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey       string          `db:"idempotency_key" json:"idempotency_key"`
+	PayloadSchemaVersion int64           `db:"payload_schema_version" json:"payload_schema_version"`
+	Status               string          `db:"status" json:"status"`
+	AttemptCount         int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt          int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt            *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy            string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt       *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt               *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID          *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt          *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError            string          `db:"last_error" json:"last_error"`
+	CreatedAt            int64           `db:"created_at" json:"created_at"`
+	UpdatedAt            int64           `db:"updated_at" json:"updated_at"`
+	RunID                *int64          `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) GetTaskDagWakeupByIdempotencyKey(ctx context.Context, arg GetTaskDagWakeupByIdempotencyKeyParams) (GetTaskDagWakeupByIdempotencyKeyRow, error) {
@@ -141,6 +144,7 @@ func (q *Queries) GetTaskDagWakeupByIdempotencyKey(ctx context.Context, arg GetT
 		&i.TargetAgentID,
 		&i.PromptPayload,
 		&i.IdempotencyKey,
+		&i.PayloadSchemaVersion,
 		&i.Status,
 		&i.AttemptCount,
 		&i.NextRetryAt,
@@ -185,7 +189,7 @@ func (q *Queries) HasPendingOrDispatchingTaskDagWakeupForNode(ctx context.Contex
 
 const listPendingOrDispatchingTaskDagWakeups = `-- name: ListPendingOrDispatchingTaskDagWakeups :many
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
@@ -194,25 +198,26 @@ ORDER BY next_retry_at, id
 `
 
 type ListPendingOrDispatchingTaskDagWakeupsRow struct {
-	ID             int64   `db:"id" json:"id"`
-	DagKey         string  `db:"dag_key" json:"dag_key"`
-	NodeKey        string  `db:"node_key" json:"node_key"`
-	WakeupKind     string  `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string  `db:"target_agent_id" json:"target_agent_id"`
-	IdempotencyKey string  `db:"idempotency_key" json:"idempotency_key"`
-	Status         string  `db:"status" json:"status"`
-	AttemptCount   int64   `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    int64   `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      *int64  `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string  `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64  `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         *int64  `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    *int64  `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string  `db:"last_error" json:"last_error"`
-	CreatedAt      int64   `db:"created_at" json:"created_at"`
-	UpdatedAt      int64   `db:"updated_at" json:"updated_at"`
-	RunID          *int64  `db:"run_id" json:"run_id"`
+	ID                   int64   `db:"id" json:"id"`
+	DagKey               string  `db:"dag_key" json:"dag_key"`
+	NodeKey              string  `db:"node_key" json:"node_key"`
+	WakeupKind           string  `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID        string  `db:"target_agent_id" json:"target_agent_id"`
+	IdempotencyKey       string  `db:"idempotency_key" json:"idempotency_key"`
+	PayloadSchemaVersion int64   `db:"payload_schema_version" json:"payload_schema_version"`
+	Status               string  `db:"status" json:"status"`
+	AttemptCount         int64   `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt          int64   `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt            *int64  `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy            string  `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt       *int64  `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt               *int64  `db:"sent_at" json:"sent_at"`
+	BoundTurnID          *string `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt          *int64  `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError            string  `db:"last_error" json:"last_error"`
+	CreatedAt            int64   `db:"created_at" json:"created_at"`
+	UpdatedAt            int64   `db:"updated_at" json:"updated_at"`
+	RunID                *int64  `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) ListPendingOrDispatchingTaskDagWakeups(ctx context.Context) ([]ListPendingOrDispatchingTaskDagWakeupsRow, error) {
@@ -231,6 +236,7 @@ func (q *Queries) ListPendingOrDispatchingTaskDagWakeups(ctx context.Context) ([
 			&i.WakeupKind,
 			&i.TargetAgentID,
 			&i.IdempotencyKey,
+			&i.PayloadSchemaVersion,
 			&i.Status,
 			&i.AttemptCount,
 			&i.NextRetryAt,
@@ -260,7 +266,7 @@ func (q *Queries) ListPendingOrDispatchingTaskDagWakeups(ctx context.Context) ([
 
 const listSentUnboundTaskDagWakeups = `-- name: ListSentUnboundTaskDagWakeups :many
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
@@ -273,25 +279,26 @@ type ListSentUnboundTaskDagWakeupsParams struct {
 }
 
 type ListSentUnboundTaskDagWakeupsRow struct {
-	ID             int64   `db:"id" json:"id"`
-	DagKey         string  `db:"dag_key" json:"dag_key"`
-	NodeKey        string  `db:"node_key" json:"node_key"`
-	WakeupKind     string  `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string  `db:"target_agent_id" json:"target_agent_id"`
-	IdempotencyKey string  `db:"idempotency_key" json:"idempotency_key"`
-	Status         string  `db:"status" json:"status"`
-	AttemptCount   int64   `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    int64   `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      *int64  `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string  `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64  `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         *int64  `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    *int64  `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string  `db:"last_error" json:"last_error"`
-	CreatedAt      int64   `db:"created_at" json:"created_at"`
-	UpdatedAt      int64   `db:"updated_at" json:"updated_at"`
-	RunID          *int64  `db:"run_id" json:"run_id"`
+	ID                   int64   `db:"id" json:"id"`
+	DagKey               string  `db:"dag_key" json:"dag_key"`
+	NodeKey              string  `db:"node_key" json:"node_key"`
+	WakeupKind           string  `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID        string  `db:"target_agent_id" json:"target_agent_id"`
+	IdempotencyKey       string  `db:"idempotency_key" json:"idempotency_key"`
+	PayloadSchemaVersion int64   `db:"payload_schema_version" json:"payload_schema_version"`
+	Status               string  `db:"status" json:"status"`
+	AttemptCount         int64   `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt          int64   `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt            *int64  `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy            string  `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt       *int64  `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt               *int64  `db:"sent_at" json:"sent_at"`
+	BoundTurnID          *string `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt          *int64  `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError            string  `db:"last_error" json:"last_error"`
+	CreatedAt            int64   `db:"created_at" json:"created_at"`
+	UpdatedAt            int64   `db:"updated_at" json:"updated_at"`
+	RunID                *int64  `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) ListSentUnboundTaskDagWakeups(ctx context.Context, arg ListSentUnboundTaskDagWakeupsParams) ([]ListSentUnboundTaskDagWakeupsRow, error) {
@@ -310,6 +317,7 @@ func (q *Queries) ListSentUnboundTaskDagWakeups(ctx context.Context, arg ListSen
 			&i.WakeupKind,
 			&i.TargetAgentID,
 			&i.IdempotencyKey,
+			&i.PayloadSchemaVersion,
 			&i.Status,
 			&i.AttemptCount,
 			&i.NextRetryAt,

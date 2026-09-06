@@ -146,6 +146,7 @@ func publicTerminalMatchesAgent(outcome contract.TerminalOutcomeCommit, agent *a
 		outcome.Identity.Generation == agent.sessionGeneration
 }
 
+// terminalOutcomeCommitFromAgentTerminal 把 agent 终态转换为带 session/generation fence 的安全 commit。
 func terminalOutcomeCommitFromAgentTerminal(agent *agentRuntime, threadID, eventSessionID string, occurredAt time.Time, projectionKind string) (contract.TerminalOutcomeCommit, error) {
 	threadID, sessionID, err := validateAgentTerminalFence(agent, threadID, eventSessionID, occurredAt, projectionKind)
 	if err != nil {
@@ -269,6 +270,7 @@ func terminalOutcomeCommitFromEvent(agent *agentRuntime, ev turndto.TurnComplete
 	return commit, nil
 }
 
+// terminalTurnEventFence 校验 provider turn 的 thread、session 和当前 active generation。
 func terminalTurnEventFence(agent *agentRuntime, ev turndto.TurnCompleted) (string, string, string, error) {
 	if agent == nil {
 		return "", "", "", errAgentNotFound
@@ -404,7 +406,7 @@ func (s *service) projectTerminalOutcomeLocked(ctx context.Context, agent *agent
 	if terminalProjectionAlreadyApplied(agent, commit) {
 		return nil
 	}
-	if err := validateTerminalProjectionIdentity(agent, commit.Identity); err != nil {
+	if err := validateTerminalProjectionIdentity(agent, commit.Identity, commit.ProjectionKind); err != nil {
 		return err
 	}
 	if strings.TrimSpace(agent.activeTurnID) == "" && commit.ProjectionKind == "turn_completed" {
@@ -433,7 +435,7 @@ func (s *service) projectTerminalOutcomeLocked(ctx context.Context, agent *agent
 }
 
 // validateTerminalProjectionIdentity 在投影前复核 agent/thread/session/generation fence。
-func validateTerminalProjectionIdentity(agent *agentRuntime, identity contract.CanonicalTerminalIdentity) error {
+func validateTerminalProjectionIdentity(agent *agentRuntime, identity contract.CanonicalTerminalIdentity, projectionKind string) error {
 	if agent == nil {
 		return errTerminalProjectionNotReady
 	}
@@ -446,51 +448,13 @@ func validateTerminalProjectionIdentity(agent *agentRuntime, identity contract.C
 	if agentSessionID(agent) != identity.SessionID || agent.sessionGeneration != identity.Generation {
 		return errTerminalProjectionNotReady
 	}
-	if agent.terminalHeadVersion != identity.HeadVersion || string(agent.state) != identity.ExpectedActiveState {
+	if agent.terminalHeadVersion != identity.HeadVersion || !terminalProjectionStateMatches(agent, identity, projectionKind) {
 		return errTerminalProjectionNotReady
 	}
 	if !terminalProjectionTurnMatches(agent, identity) {
 		return errTerminalProjectionNotReady
 	}
 	return nil
-}
-
-func terminalProjectionTurnMatches(agent *agentRuntime, identity contract.CanonicalTerminalIdentity) bool {
-	if strings.TrimSpace(agent.activeTurnID) == "" {
-		return identity.ProviderTurnID == "session-terminal:"+identity.SessionID
-	}
-	_, ok := canonicalProviderTurnID(agent, identity.ProviderTurnID)
-	return ok
-}
-
-func terminalProjectionAlreadyApplied(agent *agentRuntime, commit contract.TerminalOutcomeCommit) bool {
-	if agent == nil || strings.TrimSpace(agent.activeTurnID) != "" || agent.outcome == nil {
-		return false
-	}
-	expected := agentOutcomeFromPublic(commit.PublicOutcome)
-	return terminalProjectionReplayFenceFromAgent(agent) == terminalProjectionReplayFenceFromIdentity(commit.Identity) &&
-		string(agent.state) == publicTerminalState(commit) &&
-		strings.TrimSpace(agent.lastReport) == strings.TrimSpace(commit.PublicReport) &&
-		*agent.outcome == *expected
-}
-
-type terminalProjectionReplayFence struct {
-	agentID, publicThreadID, sessionID string
-	generation, headVersion            uint64
-}
-
-func terminalProjectionReplayFenceFromAgent(agent *agentRuntime) terminalProjectionReplayFence {
-	return terminalProjectionReplayFence{
-		agentID: strings.TrimSpace(agent.id), publicThreadID: strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID)),
-		sessionID: agentSessionID(agent), generation: agent.sessionGeneration, headVersion: agent.terminalHeadVersion,
-	}
-}
-
-func terminalProjectionReplayFenceFromIdentity(identity contract.CanonicalTerminalIdentity) terminalProjectionReplayFence {
-	return terminalProjectionReplayFence{
-		agentID: identity.AgentID, publicThreadID: identity.PublicThreadID,
-		sessionID: identity.SessionID, generation: identity.Generation, headVersion: identity.HeadVersion,
-	}
 }
 
 func (s *service) projectAgentTerminalOutcomeLocked(ctx context.Context, agent *agentRuntime, commit contract.TerminalOutcomeCommit) error {
@@ -532,6 +496,11 @@ func (s *service) CommitProcessExitTerminalLocked(ctx context.Context, agent *ag
 	)
 	if err != nil {
 		return true, err
+	}
+	if projectionKind == "process_stopped" {
+		if err := s.alignProcessExitTerminalFence(ctx, agent, &commit); err != nil {
+			return true, err
+		}
 	}
 	_, err = s.terminalOutcomes.CommitTerminalOutcome(ctx, commit)
 	if err != nil {
@@ -671,12 +640,13 @@ func (s *service) ProcessTerminalOutcomeOutbox(ctx context.Context, workerID str
 	if err != nil {
 		return err
 	}
+	var processErrs []error
 	for _, item := range items {
 		if err := s.processTerminalOutcomeOutboxItem(ctx, workerID, lease, item); err != nil {
-			return err
+			processErrs = append(processErrs, err)
 		}
 	}
-	return nil
+	return errors.Join(processErrs...)
 }
 
 // processTerminalOutcomeOutboxItem 在 runtime/DAG 投影期间持续续租，ACK 前等待 heartbeat 收束。
@@ -695,7 +665,13 @@ func (s *service) processTerminalOutcomeOutboxItem(ctx context.Context, workerID
 	if err := errors.Join(workErr, heartbeatErr); err != nil {
 		return err
 	}
-	return s.terminalOutcomes.MarkTerminalOutcomeProjected(ctx, item.ID, workerID, item.ClaimToken)
+	if err := s.terminalOutcomes.MarkTerminalOutcomeProjected(ctx, item.ID, workerID, item.ClaimToken); err != nil {
+		return err
+	}
+	if isProcessTerminalProjection(item.Outcome.ProjectionKind) {
+		s.lifecycle.cleanupSessionAfterTerminalProjection(item.Outcome.Identity)
+	}
+	return nil
 }
 
 // startTerminalOutcomeHeartbeat 启动受统一 panic 恢复保护的续租，并保证所有退出路径都关闭完成通道。
@@ -733,9 +709,16 @@ func (s *service) renewTerminalOutcomeLease(ctx context.Context, cancelWork cont
 // projectTerminalOutcomeOutboxItem 执行公开 runtime 与 owner-scoped DAG 单向投影。
 func (s *service) projectTerminalOutcomeOutboxItem(ctx context.Context, item contract.TerminalOutcomeOutboxItem) error {
 	err := s.registry.withAgentLocked(item.Outcome.Identity.AgentID, func(agent *agentRuntime) error {
+		superseded, err := s.terminalProjectionSuperseded(ctx, agent, item.Outcome)
+		if err != nil {
+			return err
+		}
+		if superseded {
+			return errTerminalProjectionSuperseded
+		}
 		return s.projectTerminalOutcomeLocked(ctx, agent, item.Outcome)
 	})
-	if err != nil && !errors.Is(err, errAgentNotFound) {
+	if err != nil && !errors.Is(err, errAgentNotFound) && !errors.Is(err, errTerminalProjectionSuperseded) {
 		return err
 	}
 	return s.projectTerminalOutcomeDAG(ctx, item)

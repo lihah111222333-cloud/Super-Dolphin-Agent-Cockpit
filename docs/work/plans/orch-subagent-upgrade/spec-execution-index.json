@@ -1,0 +1,1869 @@
+{
+  "schema_version": 1,
+  "authority": "planning_only",
+  "release_decision": "NO-GO",
+  "evidence_classification": "planning_only; LOCAL_NON_AUTHORITATIVE/NOT_VERIFIED",
+  "specs": [
+    {
+      "spec_id": "TRUST",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+      "owner": "TrustPolicyOwner with ControllerSignatureOwner for the outer envelope",
+      "prerequisite_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "Gate S0 graph and rollout compatibility skeleton are present and still pending.",
+        "Provider and peer output remains untrusted until a typed trust tuple is reviewed."
+      ],
+      "exit_criteria": [
+        "A reviewed trust/content-role/sink contract names every producer and consumer.",
+        "Named negative and positive acceptance fixtures have independently captured evidence; no sink or declassification is enabled."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-red-trust-01",
+          "purpose": "Run the non-authorizing planning fixture for RED-TRUST-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-TRUST-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-TRUST-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-TRUST-01"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B04",
+            "B06",
+            "B07",
+            "B09",
+            "B12",
+            "B13",
+            "B14",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-red-trust-01"
+        },
+        {
+          "id": "acceptance-red-trust-07",
+          "purpose": "Run the non-authorizing planning fixture for RED-TRUST-07.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-TRUST-07",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-TRUST-07"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-TRUST-07"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B04",
+            "B06",
+            "B07",
+            "B09",
+            "B12",
+            "B13",
+            "B14",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-red-trust-07"
+        },
+        {
+          "id": "acceptance-red-trust-08",
+          "purpose": "Run the non-authorizing planning fixture for RED-TRUST-08.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-TRUST-08",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-TRUST-08"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-TRUST-08"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B04",
+            "B06",
+            "B07",
+            "B09",
+            "B12",
+            "B13",
+            "B14",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-red-trust-08"
+        },
+        {
+          "id": "acceptance-red-trust-09",
+          "purpose": "Run the non-authorizing planning fixture for RED-TRUST-09.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-TRUST-09",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-TRUST-09"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-TRUST-09"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B04",
+            "B06",
+            "B07",
+            "B09",
+            "B12",
+            "B13",
+            "B14",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-red-trust-09"
+        },
+        {
+          "id": "acceptance-green-trust-01",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-TRUST-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-TRUST-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-TRUST-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-TRUST-01"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B04",
+            "B06",
+            "B07",
+            "B09",
+            "B12",
+            "B13",
+            "B14",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-green-trust-01"
+        },
+        {
+          "id": "acceptance-green-trust-06",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-TRUST-06.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-TRUST-06",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-TRUST-06"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-TRUST-06"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B04",
+            "B06",
+            "B07",
+            "B09",
+            "B12",
+            "B13",
+            "B14",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-green-trust-06"
+        }
+      ],
+      "evidence_classification": "planning_only; local evidence is non-authoritative",
+      "blocker_ids": [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B06",
+        "B07",
+        "B09",
+        "B12",
+        "B13",
+        "B14",
+        "B15",
+        "B16",
+        "B17"
+      ]
+    },
+    {
+      "spec_id": "ID",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-identity-and-event-store-spec.md",
+      "owner": "IdentityRepository and EventStore as the sole identity and append owners",
+      "prerequisite_ids": [
+        "TRUST"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "TRUST remains Draft and its output is not admitted as control truth.",
+        "A source-fenced reservation or observation can be named without inventing an incarnation."
+      ],
+      "exit_criteria": [
+        "Identity, incarnation, current binding, event lane, and cursor owners have reviewed schemas and CAS boundaries.",
+        "Crash/replay and stale-writer fixtures produce no projection mutation; no public lifecycle tool is enabled."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-red-id-01",
+          "purpose": "Run the non-authorizing planning fixture for RED-ID-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-ID-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-ID-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-ID-01"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B08",
+            "B10",
+            "B16",
+            "B17",
+            "B18"
+          ],
+          "command_id": "acceptance-red-id-01"
+        },
+        {
+          "id": "acceptance-green-id-02",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-ID-02.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-ID-02",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-ID-02"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-ID-02"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B08",
+            "B10",
+            "B16",
+            "B17",
+            "B18"
+          ],
+          "command_id": "acceptance-green-id-02"
+        }
+      ],
+      "evidence_classification": "planning_only; local evidence is non-authoritative",
+      "blocker_ids": [
+        "B01",
+        "B02",
+        "B03",
+        "B08",
+        "B10",
+        "B16",
+        "B17",
+        "B18"
+      ]
+    },
+    {
+      "spec_id": "CONTENT",
+      "document": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+      "owner": "ContentOwner for encrypted objects, references, tombstones, and erasure state",
+      "prerequisite_ids": [
+        "ID"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "ID has a reviewed reservation/incarnation reference and no plaintext custody is assumed.",
+        "CONTENT-1 direction remains a candidate and not a production key or object owner."
+      ],
+      "exit_criteria": [
+        "Prepared ingest, encrypted object/ref, erase, restore, and orphan-GC contracts are reviewed end to end.",
+        "Crash and anti-rollback evidence is independently classified; no content key, object, or sink is enabled."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-red-content-01",
+          "purpose": "Run the non-authorizing planning fixture for RED-CONTENT-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-CONTENT-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-CONTENT-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-CONTENT-01"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-red-content-01"
+        },
+        {
+          "id": "acceptance-red-content-08",
+          "purpose": "Run the non-authorizing planning fixture for RED-CONTENT-08.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-CONTENT-08",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-CONTENT-08"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-CONTENT-08"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-red-content-08"
+        },
+        {
+          "id": "acceptance-red-content-09",
+          "purpose": "Run the non-authorizing planning fixture for RED-CONTENT-09.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-CONTENT-09",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-CONTENT-09"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-CONTENT-09"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-red-content-09"
+        },
+        {
+          "id": "acceptance-red-content-10",
+          "purpose": "Run the non-authorizing planning fixture for RED-CONTENT-10.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-CONTENT-10",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-CONTENT-10"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-CONTENT-10"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-red-content-10"
+        },
+        {
+          "id": "acceptance-green-content-03",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-CONTENT-03.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-CONTENT-03",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-CONTENT-03"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-CONTENT-03"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-green-content-03"
+        },
+        {
+          "id": "acceptance-green-content-05",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-CONTENT-05.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-CONTENT-05",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-CONTENT-05"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-CONTENT-05"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-green-content-05"
+        },
+        {
+          "id": "acceptance-green-content-06",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-CONTENT-06.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-CONTENT-06",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-CONTENT-06"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-CONTENT-06"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-green-content-06"
+        },
+        {
+          "id": "acceptance-green-content-07",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-CONTENT-07.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-CONTENT-07",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-CONTENT-07"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-CONTENT-07"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-green-content-07"
+        }
+      ],
+      "evidence_classification": "planning_only; local evidence is non-authoritative",
+      "blocker_ids": [
+        "B13"
+      ]
+    },
+    {
+      "spec_id": "RESOURCE",
+      "document": "docs/work/proposals/orch-subagent-s0/durable-resource-admission-and-budget-spec.md",
+      "owner": "ResourcePolicyRepository and AdmissionRepository as the sole policy and reservation writers",
+      "prerequisite_ids": [
+        "ID"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "ID supplies a source-fenced target identity and incarnation discriminator.",
+        "Policy snapshots, limits, and emergency reserve semantics are explicit; missing policy fails closed."
+      ],
+      "exit_criteria": [
+        "Admission, usage, release, quarantine, and room target accounting have reviewed receipts and bounds.",
+        "Pressure and isolation fixtures are classified without granting provider or runtime capacity."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-red-resource-01",
+          "purpose": "Run the non-authorizing planning fixture for RED-RESOURCE-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-RESOURCE-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-RESOURCE-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-RESOURCE-01"
+          ],
+          "blocker_ids": [
+            "B04",
+            "B11",
+            "B12",
+            "B17"
+          ],
+          "command_id": "acceptance-red-resource-01"
+        },
+        {
+          "id": "acceptance-green-resource-01",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-RESOURCE-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-RESOURCE-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-RESOURCE-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-RESOURCE-01"
+          ],
+          "blocker_ids": [
+            "B04",
+            "B11",
+            "B12",
+            "B17"
+          ],
+          "command_id": "acceptance-green-resource-01"
+        }
+      ],
+      "evidence_classification": "planning_only; local evidence is non-authoritative",
+      "blocker_ids": [
+        "B04",
+        "B11",
+        "B12",
+        "B17"
+      ]
+    },
+    {
+      "spec_id": "OUT",
+      "document": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+      "owner": "CommandOwner with SecurityDomainSequencer and RecoveryCustodyOwner for command facts and receipts",
+      "prerequisite_ids": [
+        "ID",
+        "CONTENT",
+        "RESOURCE"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "Identity, content, and resource references are durable and independently scoped.",
+        "A command intent can be recorded before any provider or runtime effect."
+      ],
+      "exit_criteria": [
+        "Accept/dispatch/effect/receipt/terminal/cleanup/reconcile transitions are generated and reviewed.",
+        "Unknown outcomes never re-dispatch and no legacy wakeup, room, or direct-peer path bypasses the owner."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-red-out-01",
+          "purpose": "Run the non-authorizing planning fixture for RED-OUT-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-OUT-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-OUT-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-OUT-01"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-red-out-01"
+        },
+        {
+          "id": "acceptance-red-out-10",
+          "purpose": "Run the non-authorizing planning fixture for RED-OUT-10.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-OUT-10",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-OUT-10"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-OUT-10"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-red-out-10"
+        },
+        {
+          "id": "acceptance-red-out-14",
+          "purpose": "Run the non-authorizing planning fixture for RED-OUT-14.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-OUT-14",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-OUT-14"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-OUT-14"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-red-out-14"
+        },
+        {
+          "id": "acceptance-red-out-19",
+          "purpose": "Run the non-authorizing planning fixture for RED-OUT-19.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token RED-OUT-19",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "RED-OUT-19"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "RED-OUT-19"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-red-out-19"
+        },
+        {
+          "id": "acceptance-green-out-01",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-OUT-01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-OUT-01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-OUT-01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-OUT-01"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-green-out-01"
+        },
+        {
+          "id": "acceptance-green-out-06",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-OUT-06.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-OUT-06",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-OUT-06"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-OUT-06"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-green-out-06"
+        },
+        {
+          "id": "acceptance-green-out-09",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-OUT-09.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-OUT-09",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-OUT-09"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-OUT-09"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-green-out-09"
+        },
+        {
+          "id": "acceptance-green-out-12",
+          "purpose": "Run the non-authorizing planning fixture for GREEN-OUT-12.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token GREEN-OUT-12",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "GREEN-OUT-12"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "GREEN-OUT-12"
+          ],
+          "blocker_ids": [
+            "B08",
+            "B09",
+            "B12"
+          ],
+          "command_id": "acceptance-green-out-12"
+        }
+      ],
+      "evidence_classification": "planning_only; local evidence is non-authoritative",
+      "blocker_ids": [
+        "B08",
+        "B09",
+        "B12"
+      ]
+    },
+    {
+      "spec_id": "PROBE",
+      "document": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+      "owner": "Provider conformance owner with independent per-provider evidence scope",
+      "prerequisite_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "Verification and rollout skeletons define immutable fixture and lineage inputs.",
+        "Each official CLI executable, version, and runtime closure is identified without inferring native child support."
+      ],
+      "exit_criteria": [
+        "Four provider profiles have independent positive/negative evidence classifications and scoped leases remain absent.",
+        "Unsupported, stale, tampered, and uncertain probe results are quarantined with no capability lease."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-probe-p01",
+          "purpose": "Run the non-authorizing planning fixture for PROBE-P01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token PROBE-P01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "PROBE-P01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "PROBE-P01"
+          ],
+          "blocker_ids": [
+            "B04",
+            "B15"
+          ],
+          "command_id": "acceptance-probe-p01"
+        },
+        {
+          "id": "acceptance-probe-p06",
+          "purpose": "Run the non-authorizing planning fixture for PROBE-P06.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token PROBE-P06",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "PROBE-P06"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "PROBE-P06"
+          ],
+          "blocker_ids": [
+            "B04",
+            "B15"
+          ],
+          "command_id": "acceptance-probe-p06"
+        },
+        {
+          "id": "acceptance-probe-p07",
+          "purpose": "Run the non-authorizing planning fixture for PROBE-P07.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token PROBE-P07",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "PROBE-P07"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "PROBE-P07"
+          ],
+          "blocker_ids": [
+            "B04",
+            "B15"
+          ],
+          "command_id": "acceptance-probe-p07"
+        },
+        {
+          "id": "acceptance-probe-n01",
+          "purpose": "Run the non-authorizing planning fixture for PROBE-N01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token PROBE-N01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "PROBE-N01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "PROBE-N01"
+          ],
+          "blocker_ids": [
+            "B04",
+            "B15"
+          ],
+          "command_id": "acceptance-probe-n01"
+        }
+      ],
+      "evidence_classification": "planning_only; external provider evidence required and currently unverified",
+      "blocker_ids": [
+        "B04",
+        "B15"
+      ]
+    },
+    {
+      "spec_id": "CTL",
+      "document": "docs/work/proposals/orch-subagent-s0/mcp-control-channel-and-native-agent-rpc-spec.md",
+      "owner": "standalone control-plane owner for server sessions, leases, and native-agent RPC",
+      "prerequisite_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "Accepted dual-channel contract revision is identified; stdio data plane and ctl lifecycle plane remain separate.",
+        "Server-owned principal, profile, endpoint, and boot identity are available for preflight."
+      ],
+      "exit_criteria": [
+        "Session, lease, HTTP carrier, cancel, heartbeat, and disconnect contracts have exact-one and zero-side-effect fixtures.",
+        "No reverse tools/list/tools/call path is promoted to lifecycle control or public capability."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-ctl-p01",
+          "purpose": "Run the non-authorizing planning fixture for CTL-P01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token CTL-P01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "CTL-P01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "CTL-P01"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B05",
+            "B11",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-ctl-p01"
+        },
+        {
+          "id": "acceptance-ctl-n01",
+          "purpose": "Run the non-authorizing planning fixture for CTL-N01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token CTL-N01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "CTL-N01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "CTL-N01"
+          ],
+          "blocker_ids": [
+            "B01",
+            "B02",
+            "B03",
+            "B05",
+            "B11",
+            "B15",
+            "B16",
+            "B17"
+          ],
+          "command_id": "acceptance-ctl-n01"
+        }
+      ],
+      "evidence_classification": "planning_only; local transport evidence is non-authoritative",
+      "blocker_ids": [
+        "B01",
+        "B02",
+        "B03",
+        "B05",
+        "B11",
+        "B15",
+        "B16",
+        "B17"
+      ]
+    },
+    {
+      "spec_id": "BRIDGE",
+      "document": "docs/work/proposals/orch-subagent-s0/provider-cli-native-bridge-profiles-spec.md",
+      "owner": "per-provider bridge owner with an independently fenced profile for each CLI",
+      "prerequisite_ids": [
+        "CTL",
+        "PROBE",
+        "ID",
+        "CONTENT",
+        "RESOURCE",
+        "OUT",
+        "TRUST"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "CTL, PROBE, ID, CONTENT, RESOURCE, OUT, and TRUST remain reviewed prerequisites.",
+        "Provider profile and process boundary are identified without adopting shell, SDK, API, or TUI fallback."
+      ],
+      "exit_criteria": [
+        "Each provider bridge has independently reviewed identity, topology, admission, process, receipt, and replacement contracts.",
+        "Missing adoption or effect-boundary proof remains unsupported/quarantined and cannot enter TOOLS."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-bridge-p01",
+          "purpose": "Run the non-authorizing planning fixture for BRIDGE-P01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token BRIDGE-P01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "BRIDGE-P01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "BRIDGE-P01"
+          ],
+          "blocker_ids": [
+            "B05",
+            "B06",
+            "B15"
+          ],
+          "command_id": "acceptance-bridge-p01"
+        },
+        {
+          "id": "acceptance-bridge-n01",
+          "purpose": "Run the non-authorizing planning fixture for BRIDGE-N01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token BRIDGE-N01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "BRIDGE-N01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "BRIDGE-N01"
+          ],
+          "blocker_ids": [
+            "B05",
+            "B06",
+            "B15"
+          ],
+          "command_id": "acceptance-bridge-n01"
+        }
+      ],
+      "evidence_classification": "planning_only; external provider/process evidence required and currently unverified",
+      "blocker_ids": [
+        "B05",
+        "B06",
+        "B15"
+      ]
+    },
+    {
+      "spec_id": "TOOLS",
+      "document": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+      "owner": "tool-surface/rollout owner with the generated registry as schema source of truth",
+      "prerequisite_ids": [
+        "CTL",
+        "PROBE",
+        "ID",
+        "RESOURCE",
+        "OUT",
+        "TRUST",
+        "ROOM",
+        "BRIDGE"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "All ordinary dependencies and the BRIDGE provider-enable join are present in the DAG.",
+        "Generated schema, manifest, policy, and profile revisions are available as non-authorizing inputs."
+      ],
+      "exit_criteria": [
+        "Generated tool/schema/manifest/profile and handler mapper have exact-set and future-field guards.",
+        "Strict unified_v2 remains disabled until all joins and release ancestors are independently closed."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-tools-p01",
+          "purpose": "Run the non-authorizing planning fixture for TOOLS-P01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TOOLS-P01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TOOLS-P01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TOOLS-P01"
+          ],
+          "blocker_ids": [
+            "B05",
+            "B06",
+            "B07",
+            "B14"
+          ],
+          "command_id": "acceptance-tools-p01"
+        },
+        {
+          "id": "acceptance-tools-p04",
+          "purpose": "Run the non-authorizing planning fixture for TOOLS-P04.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TOOLS-P04",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TOOLS-P04"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TOOLS-P04"
+          ],
+          "blocker_ids": [
+            "B05",
+            "B06",
+            "B07",
+            "B14"
+          ],
+          "command_id": "acceptance-tools-p04"
+        },
+        {
+          "id": "acceptance-tools-p07",
+          "purpose": "Run the non-authorizing planning fixture for TOOLS-P07.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TOOLS-P07",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TOOLS-P07"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TOOLS-P07"
+          ],
+          "blocker_ids": [
+            "B05",
+            "B06",
+            "B07",
+            "B14"
+          ],
+          "command_id": "acceptance-tools-p07"
+        },
+        {
+          "id": "acceptance-tools-n04",
+          "purpose": "Run the non-authorizing planning fixture for TOOLS-N04.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TOOLS-N04",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TOOLS-N04"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TOOLS-N04"
+          ],
+          "blocker_ids": [
+            "B05",
+            "B06",
+            "B07",
+            "B14"
+          ],
+          "command_id": "acceptance-tools-n04"
+        },
+        {
+          "id": "acceptance-tools-n05",
+          "purpose": "Run the non-authorizing planning fixture for TOOLS-N05.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TOOLS-N05",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TOOLS-N05"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TOOLS-N05"
+          ],
+          "blocker_ids": [
+            "B05",
+            "B06",
+            "B07",
+            "B14"
+          ],
+          "command_id": "acceptance-tools-n05"
+        }
+      ],
+      "evidence_classification": "planning_only; local mapper evidence is non-authoritative",
+      "blocker_ids": [
+        "B05",
+        "B06",
+        "B07",
+        "B14"
+      ]
+    },
+    {
+      "spec_id": "ROOM",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-room-authz-and-flow-control-spec.md",
+      "owner": "Room domain owner for membership snapshots, fan-out inventory, receipts, close, and recovery",
+      "prerequisite_ids": [
+        "ID",
+        "CONTENT",
+        "RESOURCE",
+        "OUT",
+        "TRUST"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "Identity, content, resource, outbox, and trust owners provide scoped references; no Room capability is public.",
+        "A room operation has a frozen membership and per-target inventory discriminator."
+      ],
+      "exit_criteria": [
+        "Create/apply/close/drain/round contracts separate custody from operation resolution and preserve target-level receipts.",
+        "Room remains NO-GO until UI/TOOLS/VERIFY/ROLLOUT ancestors and cross-task evidence are closed."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-testroomfanoutclosesinglewinner",
+          "purpose": "Run the non-authorizing planning fixture for TestRoomFanoutCloseSingleWinner.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestRoomFanoutCloseSingleWinner",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestRoomFanoutCloseSingleWinner"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestRoomFanoutCloseSingleWinner"
+          ],
+          "blocker_ids": [],
+          "command_id": "acceptance-testroomfanoutclosesinglewinner"
+        },
+        {
+          "id": "acceptance-testroomfrozenunknowncannotreportcompleted",
+          "purpose": "Run the non-authorizing planning fixture for TestRoomFrozenUnknownCannotReportCompleted.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestRoomFrozenUnknownCannotReportCompleted",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestRoomFrozenUnknownCannotReportCompleted"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestRoomFrozenUnknownCannotReportCompleted"
+          ],
+          "blocker_ids": [],
+          "command_id": "acceptance-testroomfrozenunknowncannotreportcompleted"
+        }
+      ],
+      "evidence_classification": "planning_only; no direct historical blocker owner, cross-task evidence remains unverified",
+      "blocker_ids": []
+    },
+    {
+      "spec_id": "UI",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+      "owner": "host UI projection owner as a read-only consumer of canonical event, content, room, and tool owners",
+      "prerequisite_ids": [
+        "ID",
+        "CONTENT",
+        "RESOURCE",
+        "OUT",
+        "ROOM",
+        "TOOLS"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "Canonical event/content/room/tool projections and cursors are defined; UI cannot create handles or grants.",
+        "Untrusted output is classified before any render, network, file, or navigation sink."
+      ],
+      "exit_criteria": [
+        "Cursor/reconnect, receipt/unknown, capability downgrade, and inert rendering fixtures are reviewed.",
+        "UI is read-only and cannot enable unified_v2, Room, or provider capabilities."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-testuiprojectionresumesfromcursorafterrestart",
+          "purpose": "Run the non-authorizing planning fixture for TestUIProjectionResumesFromCursorAfterRestart.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestUIProjectionResumesFromCursorAfterRestart",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestUIProjectionResumesFromCursorAfterRestart"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestUIProjectionResumesFromCursorAfterRestart"
+          ],
+          "blocker_ids": [
+            "B07",
+            "B13"
+          ],
+          "command_id": "acceptance-testuiprojectionresumesfromcursorafterrestart"
+        },
+        {
+          "id": "acceptance-testuiuntrustedmarkdownisinert",
+          "purpose": "Run the non-authorizing planning fixture for TestUIUntrustedMarkdownIsInert.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestUIUntrustedMarkdownIsInert",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestUIUntrustedMarkdownIsInert"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestUIUntrustedMarkdownIsInert"
+          ],
+          "blocker_ids": [
+            "B07",
+            "B13"
+          ],
+          "command_id": "acceptance-testuiuntrustedmarkdownisinert"
+        },
+        {
+          "id": "acceptance-testuiconcurrentwaitfollowandmutationcancellationisolated",
+          "purpose": "Run the non-authorizing planning fixture for TestUIConcurrentWaitFollowAndMutationCancellationIsolated.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestUIConcurrentWaitFollowAndMutationCancellationIsolated",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestUIConcurrentWaitFollowAndMutationCancellationIsolated"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestUIConcurrentWaitFollowAndMutationCancellationIsolated"
+          ],
+          "blocker_ids": [
+            "B07",
+            "B13"
+          ],
+          "command_id": "acceptance-testuiconcurrentwaitfollowandmutationcancellationisolated"
+        },
+        {
+          "id": "acceptance-testuiconsumesgeneratednextactionswithoutcreatinghandles",
+          "purpose": "Run the non-authorizing planning fixture for TestUIConsumesGeneratedNextActionsWithoutCreatingHandles.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestUIConsumesGeneratedNextActionsWithoutCreatingHandles",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles"
+          ],
+          "blocker_ids": [
+            "B07",
+            "B13"
+          ],
+          "command_id": "acceptance-testuiconsumesgeneratednextactionswithoutcreatinghandles"
+        }
+      ],
+      "evidence_classification": "planning_only; local UI evidence is non-authoritative",
+      "blocker_ids": [
+        "B07",
+        "B13"
+      ]
+    },
+    {
+      "spec_id": "A2A",
+      "document": "docs/work/proposals/orch-subagent-s0/a2a-gateway-spec.md",
+      "owner": "A2A gateway owner for remote wire/auth/egress; local owners retain local facts and authorization",
+      "prerequisite_ids": [
+        "ID",
+        "CONTENT",
+        "RESOURCE",
+        "OUT",
+        "TRUST",
+        "ROOM"
+      ],
+      "ancestor_gate_ids": [
+        "VERIFY_S",
+        "ROLLOUT_S"
+      ],
+      "entry_criteria": [
+        "Local identity/content/resource/outbox/trust/room contracts are reviewed before any remote mapping.",
+        "Remote Agent Card, version carrier, grant, and egress policy are explicit and untrusted by default."
+      ],
+      "exit_criteria": [
+        "Strict version/auth/egress/task/stream/cancel/reconnect contracts have independent remote evidence.",
+        "A2A remains disabled; remote unknown outcomes never create a second task or local grant."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-testa2aidempotentsendafterlostresponse",
+          "purpose": "Run the non-authorizing planning fixture for TestA2AIdempotentSendAfterLostResponse.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestA2AIdempotentSendAfterLostResponse",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestA2AIdempotentSendAfterLostResponse"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestA2AIdempotentSendAfterLostResponse"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-testa2aidempotentsendafterlostresponse"
+        },
+        {
+          "id": "acceptance-testa2aunknownremoteoutcomeisnotretried",
+          "purpose": "Run the non-authorizing planning fixture for TestA2AUnknownRemoteOutcomeIsNotRetried.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestA2AUnknownRemoteOutcomeIsNotRetried",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestA2AUnknownRemoteOutcomeIsNotRetried"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestA2AUnknownRemoteOutcomeIsNotRetried"
+          ],
+          "blocker_ids": [
+            "B13"
+          ],
+          "command_id": "acceptance-testa2aunknownremoteoutcomeisnotretried"
+        }
+      ],
+      "evidence_classification": "planning_only; external remote evidence required and currently unverified",
+      "blocker_ids": [
+        "B13"
+      ]
+    },
+    {
+      "spec_id": "VERIFY",
+      "document": "docs/work/proposals/orch-subagent-s0/machine-verification-and-release-evidence-spec.md",
+      "owner": "trusted verification/evidence owner with independent assignment and decision evaluators",
+      "prerequisite_ids": [],
+      "ancestor_gate_ids": [],
+      "entry_criteria": [
+        "The machine DAG and blocker registry are loaded as planning-only inputs with NO-GO semantics.",
+        "Artifact, evidence, measurement, and eligibility heads are named without treating local output as authoritative."
+      ],
+      "exit_criteria": [
+        "Hermetic evidence, negative applicability, ancestor closure, and stage predicates are independently reviewed.",
+        "No verifier output can close a blocker or enable runtime without authoritative external receipts."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-verify-p01",
+          "purpose": "Run the non-authorizing planning fixture for VERIFY-P01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token VERIFY-P01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "VERIFY-P01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "VERIFY-P01"
+          ],
+          "blocker_ids": [
+            "B06",
+            "B07",
+            "B08",
+            "B09",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B16",
+            "B18"
+          ],
+          "command_id": "acceptance-verify-p01"
+        },
+        {
+          "id": "acceptance-verify-n01",
+          "purpose": "Run the non-authorizing planning fixture for VERIFY-N01.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token VERIFY-N01",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "VERIFY-N01"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "VERIFY-N01"
+          ],
+          "blocker_ids": [
+            "B06",
+            "B07",
+            "B08",
+            "B09",
+            "B10",
+            "B11",
+            "B12",
+            "B13",
+            "B14",
+            "B16",
+            "B18"
+          ],
+          "command_id": "acceptance-verify-n01"
+        }
+      ],
+      "evidence_classification": "planning_only; authoritative release evidence is required and absent",
+      "blocker_ids": [
+        "B06",
+        "B07",
+        "B08",
+        "B09",
+        "B10",
+        "B11",
+        "B12",
+        "B13",
+        "B14",
+        "B16",
+        "B18"
+      ]
+    },
+    {
+      "spec_id": "ROLLOUT",
+      "document": "docs/work/proposals/orch-subagent-s0/cross-process-rollout-and-rollback-spec.md",
+      "owner": "independent rollout owner with database, recovery-custody, and runtime-effect owner joins",
+      "prerequisite_ids": [],
+      "ancestor_gate_ids": [],
+      "entry_criteria": [
+        "Compatibility, writer, migration, recovery, and production-open heads are explicitly versioned.",
+        "Rollback and stale-writer paths are considered fenced and non-authorizing until proven."
+      ],
+      "exit_criteria": [
+        "Cross-process migration, restore, canary, rollback, and anti-rollback contracts have authoritative predecessor/receipt evidence.",
+        "No rollout stage changes runtime exposure while any blocker or ancestor remains unverified."
+      ],
+      "commands": [
+        {
+          "id": "s0-check",
+          "purpose": "Validate the planning graph, metadata, blocker ledger, and executable index.",
+          "command": "python3 scripts/orch_upgrade_gate.py --root . --check",
+          "runner": "scripts/orch_upgrade_gate.py",
+          "argv": [
+            "--root",
+            ".",
+            "--check"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO",
+          "expected_output": "orch_upgrade_gate: OK planning-only NO-GO",
+          "acceptance_tokens": [],
+          "blocker_ids": [],
+          "command_id": "s0-check"
+        },
+        {
+          "id": "acceptance-teststalewritercannotmutateaftercutover",
+          "purpose": "Run the non-authorizing planning fixture for TestStaleWriterCannotMutateAfterCutover.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestStaleWriterCannotMutateAfterCutover",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestStaleWriterCannotMutateAfterCutover"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestStaleWriterCannotMutateAfterCutover"
+          ],
+          "blocker_ids": [
+            "B06",
+            "B10",
+            "B18"
+          ],
+          "command_id": "acceptance-teststalewritercannotmutateaftercutover"
+        },
+        {
+          "id": "acceptance-testrestoreattemptcannotreuseoldopenreceipt",
+          "purpose": "Run the non-authorizing planning fixture for TestRestoreAttemptCannotReuseOldOpenReceipt.",
+          "command": "python3 scripts/orch_s0_planning_fixture.py --token TestRestoreAttemptCannotReuseOldOpenReceipt",
+          "runner": "scripts/orch_s0_planning_fixture.py",
+          "argv": [
+            "--token",
+            "TestRestoreAttemptCannotReuseOldOpenReceipt"
+          ],
+          "expected_exit": 0,
+          "expected_status": "planning_only; NO-GO; unverified",
+          "expected_output": "\"status\": \"unverified\"",
+          "acceptance_tokens": [
+            "TestRestoreAttemptCannotReuseOldOpenReceipt"
+          ],
+          "blocker_ids": [
+            "B06",
+            "B10",
+            "B18"
+          ],
+          "command_id": "acceptance-testrestoreattemptcannotreuseoldopenreceipt"
+        }
+      ],
+      "evidence_classification": "planning_only; authoritative rollout evidence is required and absent",
+      "blocker_ids": [
+        "B06",
+        "B10",
+        "B18"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,991 @@
+{
+  "schema_version": 1,
+  "authority": "planning_only",
+  "source_spec": "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md",
+  "baseline_commit": "a72d239f983f4d21d275ffc54a3337f6888ae058",
+  "evidence_slots": {
+    "B01": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B01",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B01",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B01",
+        "line": 22,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B01",
+        "line": 212,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B01",
+        "line": 24,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B02": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B02",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B02",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B02",
+        "line": 23,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B02",
+        "line": 213,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B02",
+        "line": 25,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B03": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B03",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B03",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B03",
+        "line": 24,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B03",
+        "line": 214,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B03",
+        "line": 26,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B04": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B04",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B04",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B04",
+        "line": 25,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B04",
+        "line": 215,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B04",
+        "line": 27,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B05": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B05",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B05",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B05",
+        "line": 26,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B05",
+        "line": 216,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B05",
+        "line": 28,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B06": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B06",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B06",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B06",
+        "line": 27,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B06",
+        "line": 217,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B06",
+        "line": 29,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B07": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B07",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B07",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B07",
+        "line": 28,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B07",
+        "line": 218,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B07",
+        "line": 30,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B08": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B08",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B08",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B08",
+        "line": 29,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B08",
+        "line": 219,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B08",
+        "line": 31,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B09": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B09",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B09",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B09",
+        "line": 30,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B09",
+        "line": 220,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B09",
+        "line": 32,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B10": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B10",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B10",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B10",
+        "line": 31,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B10",
+        "line": 221,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B10",
+        "line": 33,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B11": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B11",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B11",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B11",
+        "line": 32,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B11",
+        "line": 222,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B11",
+        "line": 34,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B12": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B12",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B12",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B12",
+        "line": 33,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B12",
+        "line": 223,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B12",
+        "line": 35,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B13": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B13",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B13",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B13",
+        "line": 34,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B13",
+        "line": 224,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B13",
+        "line": 36,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B14": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B14",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B14",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B14",
+        "line": 35,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B14",
+        "line": 225,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B14",
+        "line": 37,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B15": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B15",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B15",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B15",
+        "line": 36,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B15",
+        "line": 226,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B15",
+        "line": 38,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B16": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B16",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B16",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B16",
+        "line": 37,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B16",
+        "line": 227,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B16",
+        "line": 39,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B17": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B17",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B17",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B17",
+        "line": 38,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B17",
+        "line": 228,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B17",
+        "line": 40,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    },
+    "B18": {
+      "reproduction_ref": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+      "reproduction_anchor": "B18",
+      "closure_ref": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+      "closure_anchor": "B18",
+      "status": "unverified",
+      "red_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+        "symbol": "B18",
+        "line": 39,
+        "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+      },
+      "green_evidence": {
+        "kind": "fixture",
+        "path": "docs/work/plans/orch-subagent-upgrade/verification-notes.md",
+        "symbol": "B18",
+        "line": 229,
+        "sha256": "24fb29a83cd367fcd7ce6dd5e77f3ce4c2c016ccb388efd7101d49b6fe3b680c"
+      },
+      "guard_evidence": {
+        "kind": "guard",
+        "path": "scripts/orch_upgrade_gate_guard_test.go",
+        "symbol": "B18",
+        "line": 41,
+        "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+      }
+    }
+  },
+  "blockers": [
+    {
+      "id": "B01",
+      "title": "控制通道租约冒用",
+      "priority": "P0",
+      "scope": "D10 Security、D03 MCP",
+      "source_requirement": "`internal/platform/rpc/control_rpc_auth.go:30-51,83-110` 只把 ctl connection 标记为已认证；`internal/platform/mcpcontrol/handlers.go:110-152` 与 `registry.go:189-230` 从 payload 接受任意 `LeaseKey`，`factory.go:110-123`/`resolution.go:13-19` 只查 registry，未与当前 jrpc2 server 的 lease 比对。任一已注册 peer因此可冒用另一 active peer读取 context、注入 event/log/report/approval，发送 active heartbeat无限续命，或发送 disconnected主动驱逐并清 hook；hook path `handlers_hooks.go:138-172` 已展示 transport-bound lookup模式。",
+      "closure_requirement": "所有 ctl method先从 transport principal/current server解析自己的 LeaseKey；payload key若保留必须 constant-time exact match，不得选择目标principal。增加 peer A冒用 peer B的逐method及逐heartbeat status负测，任何 handler side effect、续租、evict、hook cleanup均为零。",
+      "owner_spec_ids": [
+        "CTL",
+        "TRUST",
+        "ID"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B02",
+      "title": "连接重复注册",
+      "priority": "P0",
+      "scope": "D03 MCP、D10 Security、D19 SSOT",
+      "source_requirement": "`control_rpc_auth.go:30-51,64-72,83-118` 只记录 authenticated bool；`registry.go:121-186` 每次 `ctl/register` 都创建 lease。同一 TCP connection 可连续注册相同或不同 instance，形成多个 active lease；`handlers_hooks.go:150-172` 按 server遍历 Go map取“首个”lease，使身份、fanout和 disconnect cleanup不确定。",
+      "closure_requirement": "首次 register原子建立唯一 server->LeaseKey索引并冻结 connection principal；同 connection第二次 register无论instance/capability是否相同都以稳定 `already_registered` 在索引副作用前拒绝。相同/不同instance重复注册、hook lookup、fanout、disconnect/reconnect race测试必须始终 one connection/one principal/one lease。",
+      "owner_spec_ids": [
+        "CTL",
+        "ID",
+        "TRUST"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B03",
+      "title": "代际恢复回退",
+      "priority": "P0",
+      "scope": "D10 Security、D19 SSOT",
+      "source_requirement": "`bootstrap/lifecycle.go:81-83` 发送 `ResumeFromGeneration`，但 `mcpcontrol/registry_support.go:22-44` 未校验；`registry.go:133-165` 只依据内存 `latestByInstance` 递增，而 disconnect `registry.go:306-318` 会删除它。相同 instance 重连可再次得到 generation 1，使旧 LeaseKey 与新连接碰撞、fence 失效。",
+      "closure_requirement": "generation owner 保留进程期 monotonic tombstone，注册使用 `max(last_seen,resume_from)+1` 并拒绝回退/冲突；host 重启无法证明连续性时必须换 boot/instance epoch。增加 disconnect/reconnect、stale resume、并发 register 与 host-restart epoch 负测。",
+      "owner_spec_ids": [
+        "ID",
+        "CTL",
+        "TRUST"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B04",
+      "title": "PID弱信号误杀",
+      "priority": "P1",
+      "scope": "D10 Security、D05 Provider",
+      "source_requirement": "`internal/provider/codexapp/module.go:341-363` 在 identity-aware PID registry cleanup 后继续 legacy sweep；`module.go:460-504` 与 `orphan_sweeper.go:9-30,51-106,149-170` 只按 binary/PPID 等弱信号执行 kill，没有在 TERM/KILL 前复核 start token + executable identity。PID reuse 或合法 detached instance 可被误杀。",
+      "closure_requirement": "legacy scan 仅 discovery/告警；若仍允许 kill，采集 provenance/process identity，并在 TERM 与 KILL 两次复核。增加 PID reuse、同名合法 detached 进程、identity changed between TERM/KILL 的负测。",
+      "owner_spec_ids": [
+        "RESOURCE",
+        "TRUST",
+        "PROBE"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B05",
+      "title": "控制面数据面混道",
+      "priority": "P1",
+      "scope": "D01 Architecture、D03 MCP",
+      "source_requirement": "上述 reverse `tools/list|tools/call` 把 tool data plane 混入 ctl lifecycle channel，与 accepted 双通道契约冲突，也会混淆 request-id、cancel、auth/fence 与 backpressure registry。",
+      "closure_requirement": "首选恢复严格双通道，通过受管 stdio/data-plane connection 调用工具；若确需 reverse proxy，必须先修订 accepted contract，并使用独立版本化 `ctl/tool-proxy/*`、独立 request/cancel registry 与 auth/fence，不得伪装为标准 MCP `tools/*`。增加 contract/archtest 阻止回归。",
+      "owner_spec_ids": [
+        "CTL",
+        "TOOLS",
+        "BRIDGE"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B06",
+      "title": "运行时发现冒充清单",
+      "priority": "P0",
+      "scope": "D01 Architecture、D03 MCP、D13 Release、D17 Field Guard、D19 SSOT",
+      "source_requirement": "accepted lifecycle ADR允许HTTP、stdio、peer聚合与proxy可信discovery；当前 `internal/platform/toolbridge/handler_peer_decode.go:54-75,119-145,178-230`/`stdio_mcp_client.go:137-143` 的 `PrepareCodexToolSurface`会启动stdio MCP、调用data-plane `tools/list`并backfill，`internal/module/mcp_server/service.go:222-265` 的HTTP路径也会discover/backfill，ctl reverse只是其中一条且违反双通道。真正缺口是这些运行时结果都不是与binary/profile/hash绑定、签名/versioned的canonical build artifact；strict `unified_v2`若在policy前依赖任一runtime `tools/list`建立canonical identity，fresh workspace或new-tool upgrade仍受可变运行时发现结果支配，无法形成immutable profile bootstrap。",
+      "closure_requirement": "构建从唯一registry产出non-authorizing signed canonical manifest，host安装/升级期事务性seed/reconcile后签policy，sidecar才完成join/admission。迁移测试证明accepted legacy stdio/HTTP discovery仍可用；strict profile缺artifact时必须在sidecar启动及任何runtime `tools/list`前fail closed。另锁定空表、新工具、artifact tamper、missing、mixed binary/profile、ctl reverse disabled与signed artifact成功seed。",
+      "owner_spec_ids": [
+        "TOOLS",
+        "BRIDGE",
+        "TRUST",
+        "VERIFY",
+        "ROLLOUT"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B07",
+      "title": "工具目录越权成真值",
+      "priority": "P1",
+      "scope": "D03 MCP、D09 Frontend、D17 Field Guard、D19 SSOT",
+      "source_requirement": "`internal/app/tool_catalog_rpc.go:13-58` 已把 `toolbridge/tools/list` 注册进production RPC；`internal/platform/toolbridge/handler_host_tools.go:130-199` 又从live host/peer discovery与lifecycle backfill生成仅含 `serverName/toolName/displayName/description/enabled/disabledReason` 的UX目录，不返回workspace effective-snapshot revision/hash、canonical manifest/tool schema digest或source cursor。该投影若被strict profile、安装/升级或selected-tool binding当成canonical identity，会把运行时发现结果重新变成可授权SSOT，并让schema/lifecycle漂移不可判定。",
+      "closure_requirement": "明确该RPC只读且non-authorizing，只能从已验证manifest派生的workspace effective snapshot单向投影；response绑定workspace/snapshot/lifecycle revision、`tool_manifest_hash`、source cursor与每tool canonical id/schema digest，未知/缺失/重复字段fail-first。任何call仍独立按current policy/direct deny校验，RPC不得触发discovery backfill、seed manifest或签policy；生成式producer-consumer差集与future wire-field测试锁定DTO、Go mapper、前端validator/binding及direct-call gate。",
+      "owner_spec_ids": [
+        "TOOLS",
+        "UI",
+        "TRUST",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B08",
+      "title": "唤醒外部副作用先行",
+      "priority": "P0",
+      "scope": "D06 Orchestration、D10 Security、D12 Testing",
+      "source_requirement": "`cmd/mcp-orch/orchestration/wakeup_dispatcher.go:234-274` 先执行 `LaunchAgent` 外部副作用，再调用 `MarkWakeupSent`；`internal/contract/orchestration.go:278-296` 的 `LaunchRequest` 没有 wakeup command/attempt/idempotency/receipt fence。provider 已成功但进程在 mark 前崩溃或超时后，wakeup lease 可被 reclaim 并再次 launch。",
+      "closure_requirement": "legacy/DAG wakeup launch 必须先原子形成 canonical command intent，并复用 outbox attempt/idempotency/receipt/reconcile；未能证明第一次未执行时只能 `outcome_unknown`，不能重发。增加 provider-success -> before-mark kill/restart/reclaim 测试，外部创建计数必须为 1。",
+      "owner_spec_ids": [
+        "OUT",
+        "ID",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B09",
+      "title": "唤醒载荷静默回退",
+      "priority": "P1",
+      "scope": "D02 Fail-fast、D06 Orchestration、D17 Field Guard",
+      "source_requirement": "`wakeup_dispatcher.go:368-390` 先猜 `DownstreamWakeupPayload`，再静默回退 `LaunchRequest`；invalid JSON返回只有 target id的空请求，unknown字段又被 `json.Unmarshal`忽略。`store/taskdag/store_wakeup.go:46-63` enqueue不验证payload discriminator/schema，DB仅 `CHECK(json_valid(prompt_payload))`，因此 `{}`、`{\"promt\":\"x\"}`或mixed union可持久化并真的调用launcher。",
+      "closure_requirement": "引入versioned `wakeup_payload_kind/schema_version`判别联合，在enqueue与dispatch都用 `DisallowUnknownFields`等严格generated decoder；legacy只允许显式迁移，不在runtime猜schema。invalid/missing/unknown/mixed payload必须在launcher call前进入typed failed/quarantine，call count=0。",
+      "owner_spec_ids": [
+        "OUT",
+        "VERIFY",
+        "TRUST"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B10",
+      "title": "旧写者越权写入",
+      "priority": "P0",
+      "scope": "D07 Store、D13 Release、D19 SSOT",
+      "source_requirement": "当前 `internal/platform/db/module.go:234-249` 与 `sqlite/migrate.go:18-151` 只打开共享 RW SQLite、执行 migration/schema gate；例如 `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql:5-32,57-65` 的 mutation 没有 DB-resident writer epoch。active-binary lease/deployment handshake 是软门，仍持 RW connection 的旧进程可在 lease 过期或 cutover 后继续写。",
+      "closure_requirement": "新 owner 的每次 mutation transaction 都必须 CAS `writer_epoch/deployment_fence`；旧 binary cutover 通过文件/DB写权撤销、新 DB namespace或进程终止硬隔离。增加 subprocess A(epoch N) 持连接、B bump/freeze N+1 后 A 对全部 mutation owner 写入均 `stale_writer` 且 zero rows 的生成测试。",
+      "owner_spec_ids": [
+        "ROLLOUT",
+        "ID",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B11",
+      "title": "控制连接资源耗尽",
+      "priority": "P1",
+      "scope": "D10 Security、D14 Performance",
+      "source_requirement": "`internal/platform/rpc/server.go:407-433,455-508` 对每个 control TCP accept启动goroutine并无限等待，`prepareServerOptions:629-642`没有 pre-auth connection/read deadline；`channel/split.go:44-58` 在 LF 前持续扩张 buffer，只有 UI WebSocket路径有32-slot cap。loopback任意本地进程可用idle sockets或无换行字节流耗尽fd/goroutine/内存；认证后也没有per-principal/global cap。",
+      "closure_requirement": "listener在启动jrpc2 server/大buffer前取得process-global pre-auth slot，设置auth/register/read/frame/idle deadline与硬byte cap，认证后转入per-principal/global公平限流；timeout/超限关闭连接。增加 >cap idle、无LF slowloris/oversized frame与合法ctl heartbeat/interrupt隔离测试，结束后fd/goroutine/buffer归零。",
+      "owner_spec_ids": [
+        "RESOURCE",
+        "CTL",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B12",
+      "title": "安全时间不统一",
+      "priority": "P1",
+      "scope": "D06 Orchestration、D10 Security",
+      "source_requirement": "`cmd/mcp-orch/store/taskdag/store_wakeup.go:123-133` 用 wall clock生成 claim fence，`task_dag_wakeup_dispatch.sql:18,48-55,57-65` 又用 SQLite `strftime('now')` 决定到期/续约/terminal CAS；规格中其他 credential/lease/handle 也尚无统一 security-time owner。系统时钟回拨可把授权或 worker lease事实延长，跨进程 clock不一致会产生相反裁决。",
+      "closure_requirement": "增加持久 security-time high-water/clock epoch；同 boot 用 monotonic deadline，跨 boot/进程验证 wall high-water + bounded skew，不确定即 fail closed/re-auth/reprobe。注入 backward/forward jump、sleep/resume、restart与 mixed-process clock 测试。",
+      "owner_spec_ids": [
+        "TRUST",
+        "RESOURCE",
+        "OUT",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B13",
+      "title": "不可信内容主动联网",
+      "priority": "P1",
+      "scope": "D09 Frontend、D10 Security",
+      "source_requirement": "`frontend-app/src/pages/chat/markdown/MarkdownMessage.jsx:42-45` 允许任意 HTTP(S) image，`MarkdownImagePreview.jsx:46-52` 自动创建 `<img src>`，`frontend-app/src/App.test.jsx:1710-1731` 还锁定自动远程加载。provider/A2A/peer 不可信输出因此可让 WebView 对外网、loopback或私网主动请求，泄漏 IP/环境并形成 SSRF/端口探测 sink。",
+      "closure_requirement": "默认把 untrusted image/link/media 渲染为 inert metadata；只有用户同意且 URL 通过 scheme/host/IP/redirect/DNS-rebind/egress policy 后由无 ambient credential 的受限 proxy加载，并配 CSP/sanitizer。增加 zero-network、localhost/private-IP、redirect/rebind、XSS/ANSI/OSC 负测。",
+      "owner_spec_ids": [
+        "TRUST",
+        "CONTENT",
+        "UI",
+        "A2A",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B14",
+      "title": "工具字段映射丢失",
+      "priority": "P0",
+      "scope": "strict `unified_v2` / D03 MCP、D12 Testing、D17 Field Guard、D19 SSOT",
+      "source_requirement": "`cmd/mcp-orch/tools/types.go:107-130` 的 producer已生成 `Metadata.OutputSchema`，但 `runtime.go:284-303` 的 `registryToolProvider.ListTools` 只复制 name/description/inputSchema，wire `tools/list`静默丢 outputSchema；`internal/dto/mcp/tool.go:5-12` 也无法表达锁定MCP revision的 title/icons/annotations/execution.taskSupport/_meta，`registry.go:53-74` 对重复name还会map覆盖而slice保留。当前producer测试没有覆盖wire mapper。",
+      "closure_requirement": "由锁定MCP revision的generated Tool schema驱动唯一renderer与canonical manifest hash；立即贯通outputSchema，动态枚举全部wire字段，missing/unknown/stale字段与duplicate tool name在registry init失败。one-hot逐字段tools/list round-trip/hash变更、删除mapper fail-first、future-schema新增字段未消费、duplicate-name测试必须锁定。",
+      "owner_spec_ids": [
+        "TOOLS",
+        "VERIFY",
+        "TRUST"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B15",
+      "title": "Peer自报身份越权",
+      "priority": "P0",
+      "scope": "D03 MCP、D10 Security、D19 SSOT",
+      "source_requirement": "`internal/platform/mcpcontrol/registry_support.go:22-44`、`registry.go:132-185` 把 peer 自报的 binary/PID/client kind 与 `CapabilitiesOffered` 原样纳入 active/capability index，`CapabilitiesRejected` 恒空；`fanout.go:40-52` 随后按该索引路由。任一拿到 session token 的 peer可冒充 sidecar identity并自授高权限 capability。",
+      "closure_requirement": "server-owned profile catalog与 supervisor/PID registry attestation生成 `allowed`，negotiated 固定为 `offered ∩ attested_allowed`；unknown/越权 required capability和身份不匹配在建索引/副作用前拒绝。动态枚举 Register request/response 全字段，伪 PID/binary/kind/unknown capability负测必须零索引、零 fanout。",
+      "owner_spec_ids": [
+        "TRUST",
+        "CTL",
+        "BRIDGE",
+        "PROBE"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B16",
+      "title": "配置应用假确认",
+      "priority": "P0",
+      "scope": "D02 Fail-fast、D03 MCP、D11 Observability",
+      "source_requirement": "`internal/dto/mcp/protocol.go:45-60` 定义 `ObservedConfigVersion`，但 `registry.go:189-230`/`registry_helpers.go:31-48` 不消费；`config_fanout_worker.go:233-249` 通知失败只记录，server仍推进 desired version，`bootstrap/heartbeat.go:118-140` 又把 heartbeat response version无条件写成 local current；`bootstrap/lifecycle.go:203-210` 的 void callback无法显式ack apply成功。通知丢失/callback失败/乱序可被伪装成配置已应用。",
+      "closure_requirement": "配置状态拆 `desired|delivered|applied_acked`；ack固定 LeaseKey、boot epoch、config family、monotonic revision、canonical snapshot digest、issued/expiry/security-time与apply receipt，只有client原子应用成功后的显式fenced ack推进applied，heartbeat只回显该tuple。gap/lag触发snapshot/resync，安全policy未applied时admission fail closed。",
+      "owner_spec_ids": [
+        "CTL",
+        "TRUST",
+        "ID",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B17",
+      "title": "断连租约迟滞清理",
+      "priority": "P1",
+      "scope": "D06 Orchestration、D10 Security、D14 Performance",
+      "source_requirement": "`internal/platform/rpc/server.go:472-508` connection退出只 `removeActive`；`internal/platform/mcpcontrol/registry.go:306-318` 的 exact lease evict没有接到 production disconnect callback，`sweeper.go:97-136` 只能等 heartbeat timeout。断开的 peer在窗口内仍留active index/route/hook target；在 one-connection-one-lease未建立前，server反查还可能选错lease。",
+      "closure_requirement": "先建立唯一server->LeaseKey principal，再让transport close以该exact lease幂等evict capability/config/hook索引；sweeper只兜底。关闭socket后无需等待sweep即 `FindActive=false`、索引/hook归零，duplicate close无副作用，disconnect/reconnect race不删除新generation。",
+      "owner_spec_ids": [
+        "CTL",
+        "ID",
+        "TRUST",
+        "RESOURCE"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    },
+    {
+      "id": "B18",
+      "title": "迁移并发与恢复缺口",
+      "priority": "P1",
+      "scope": "D07 Store、D13 Release",
+      "source_requirement": "`internal/platform/db/sqlite/migrate.go:18-43,115-153` 在事务外读取 pending migration，并以普通 deferred `BeginTx` 逐个执行；没有 durable migration leader/fence、锁内重读 marker/hash或 stale-leader恢复。双进程 fresh/rolling startup或 leader中途崩溃可能竞争/重复/部分应用。",
+      "closure_requirement": "migration 使用 DB-resident leader lease + writer epoch、`BEGIN IMMEDIATE`/等价强锁，锁内重读 version+script hash并保存 per-step checkpoint；timeout/stale leader接管 fail-fast。双 subprocess 同时 migrate每版只应用一次，kill leader mid-step可恢复，script hash漂移拒绝。",
+      "owner_spec_ids": [
+        "ROLLOUT",
+        "ID",
+        "VERIFY"
+      ],
+      "status": "needs_revalidation",
+      "evidence_refs": [
+        "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md"
+      ],
+      "red_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md"
+      ],
+      "green_evidence_refs": [
+        "docs/work/plans/orch-subagent-upgrade/verification-notes.md"
+      ],
+      "guard_evidence_refs": [
+        "scripts/orch_upgrade_gate_guard_test.go"
+      ]
+    }
+  ]
+}

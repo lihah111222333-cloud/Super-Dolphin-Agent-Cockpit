@@ -77,7 +77,8 @@ func TestRunMigrationsRealDBUpgradeBackfillsLegacyProviderThreadPlaceholder(t *t
 	ctx, db := openBranchLocalPreUpgradeDB(t)
 	insertLegacyProviderThreadPlaceholders(t, db)
 
-	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+	dir := copyMigrationsThroughVersion(t, "migrations", 123)
+	if err := RunMigrations(ctx, db, dir); err != nil {
 		t.Fatalf("RunMigrations(123) error = %v", err)
 	}
 	assertMaxMigrationVersion(t, db, 123)

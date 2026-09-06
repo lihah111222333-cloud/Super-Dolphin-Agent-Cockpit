@@ -1155,7 +1155,7 @@
       "codemap_line": 582,
       "target_path": "cmd/mcp-orch/fx.go",
       "line_spec": "30",
-      "content_sha256": "da95c0737155909d54b352fd043ff0fd1991bef8d98c6f19d874ce8f3e4bac56",
+      "content_sha256": "64896d8d5c9c40ecf21450efe55148a510f25c2a51abc600676eeece0e474558",
       "symbol": "run"
     },
     {
@@ -1163,15 +1163,15 @@
       "codemap_line": 583,
       "target_path": "cmd/mcp-orch/fx.go",
       "line_spec": "77",
-      "content_sha256": "29931d5e238c1b781df16407043d54654756b1246fb5159865931e807ffe8734",
-      "symbol": "buildOrchestrationOptions"
+      "content_sha256": "dd2076b4034a5e3ecec66076424ea9c083200b1ef06ba6459d0f64f9faf3a888",
+      "symbol": "newMCPOrchApp"
     },
     {
       "codemap_file": "02-mcp-orch.md",
       "codemap_line": 585,
       "target_path": "cmd/mcp-orch/runtime.go",
       "line_spec": "184",
-      "content_sha256": "114076ee553fb02c8a8ff526b8fd104bd337484c81e831c80accd2c605b801f8",
+      "content_sha256": "695e929bb311d5d3aea68e633d998572c0f5d8837ded4d244819cb479b03cd26",
       "symbol": "newRegistryParams"
     },
     {
@@ -1179,7 +1179,7 @@
       "codemap_line": 586,
       "target_path": "cmd/mcp-orch/http_runner.go",
       "line_spec": "33-57",
-      "content_sha256": "314ffc7f24372a9a0ea637c3f43ad54d79c7da208216a37b6950cb6161504bfd"
+      "content_sha256": "f54fd5ff02e66cd2ff4b758d198c859e236e44197836dec6b765593860deea59"
     },
     {
       "codemap_file": "02-mcp-orch.md",
@@ -1210,7 +1210,7 @@
       "codemap_line": 714,
       "target_path": "cmd/mcp-orch/tools/orchestration_tools.go",
       "line_spec": "36",
-      "content_sha256": "94c966ff062e587bf6eceb0352a843c152b2321739715677f547a5e019e51576",
+      "content_sha256": "65b4573a03aaf1794769b88279e525e84105349cb9ad6759ef4d865f230b6121",
       "symbol": "LaunchAgentInput"
     },
     {
@@ -1218,8 +1218,7 @@
       "codemap_line": 715,
       "target_path": "cmd/mcp-orch/orchestration/launcher.go",
       "line_spec": "141",
-      "content_sha256": "860354d238eb965eaf939d16d2f01c64b9d9128006ce2a6be9ee00aa83cf9eba",
-      "symbol": "NewRemoteLauncher"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "02-mcp-orch.md",
@@ -1258,7 +1257,7 @@
       "codemap_line": 718,
       "target_path": "cmd/mcp-orch/orchestration/process_lifecycle.go",
       "line_spec": "82",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
       "symbol": "*service.resolveTerminalHeadVersion"
     },
     {
@@ -1304,7 +1303,7 @@
       "codemap_line": 15,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "40",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "2228346515a39ecbb348e9a8e011f198421fcb2753763629fa987ead5bde1874"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1377,7 +1376,7 @@
       "codemap_line": 80,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "40",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "2228346515a39ecbb348e9a8e011f198421fcb2753763629fa987ead5bde1874"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
@@ -1509,7 +1508,7 @@
       "codemap_line": 141,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "105",
-      "content_sha256": "18314916a1498bf52bb5745baf7cefd6e12e0211d9870df28a250c50b1942e08",
+      "content_sha256": "61bc91f6224b19ceed29f516d219834ffd01b9714fcf3f4fc733e196a691dcaf",
       "symbol": "NewHTTPServer"
     },
     {
@@ -1517,7 +1516,7 @@
       "codemap_line": 142,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "161",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "91f1a2ff41ba158bcdf4a23d68084196c4d1aef6ba1909001497fb8dbf53e31a",
       "symbol": "*HTTPServer.Stop"
     },
     {
@@ -1533,7 +1532,7 @@
       "codemap_line": 209,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "161",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "91f1a2ff41ba158bcdf4a23d68084196c4d1aef6ba1909001497fb8dbf53e31a",
       "symbol": "*HTTPServer.Stop"
     },
     {
@@ -1861,7 +1860,7 @@
       "codemap_line": 265,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "79",
-      "content_sha256": "ad25bcd077b250fc84a5ac7cfbdd8ddf846c2457bc33e06529c837a2697edfd6",
+      "content_sha256": "ae964a19ad2a95d519b07319206859726d997f0077a2d5648a660ff8d0bda899",
       "symbol": "HTTPServer"
     },
     {
@@ -1876,7 +1875,7 @@
       "codemap_line": 266,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "106",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "18314916a1498bf52bb5745baf7cefd6e12e0211d9870df28a250c50b1942e08",
       "symbol": "NewHTTPServer"
     },
     {
@@ -1891,7 +1890,7 @@
       "codemap_line": 267,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "120",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "6256dfc09c58ac3f88a749676234b1f8522e1ae19711da5d9fb11367baddf85e",
       "symbol": "*HTTPServer.Start"
     },
     {
@@ -1907,7 +1906,7 @@
       "codemap_line": 268,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "130",
-      "content_sha256": "17ce015f667352000c7e4b29ad29c8e833ce9f222fda609489e7b70003929eee",
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
       "symbol": "*HTTPServer.Start"
     },
     {
@@ -1915,7 +1914,7 @@
       "codemap_line": 268,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "163",
-      "content_sha256": "82e8d9e895ff7f57002b2fa6044957644f83e8e61594a29a57b44d9109455a34",
+      "content_sha256": "8f0eec77f8907777c4c25bfd9023e15edf4a48e3a188c474cd6962cd4a770aca",
       "symbol": "*HTTPServer.Stop"
     },
     {
@@ -1939,14 +1938,14 @@
       "codemap_line": 269,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "155",
-      "content_sha256": "b1352188aeeda58f50c6d9ea8f4b0873ce6a76cd038d51555fbcfe154a299bc6"
+      "content_sha256": "ecbd94c27fc48abcf990908b5cd7fd019d17a2c14927c1636bb28be2e53a6750"
     },
     {
       "codemap_file": "03-mcp-lsp-ida.md",
       "codemap_line": 269,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "182",
-      "content_sha256": "999b380437277cd3a63682868e375c091dc0f2f640c5f798097aed4811e46058",
+      "content_sha256": "1362fd0811464462b8b907d8bc8158f5c3f8e74824f5c6a788f0ecd8c6e72696",
       "symbol": "*HTTPServer.startSessionReaper"
     },
     {
@@ -1961,7 +1960,7 @@
       "codemap_line": 270,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "174",
-      "content_sha256": "4398171e4786898d80f2ce42cd0ae949d273aef1f93ae73ff5e5a84ea7645c82",
+      "content_sha256": "9e31999c4e72e462ca933e0806fbdd7b0b618d951b058355b0153381e0cb39a5",
       "symbol": "*HTTPServer.startSessionReaper"
     },
     {
@@ -2025,7 +2024,7 @@
       "codemap_line": 289,
       "target_path": "internal/mcpserver/common/http_transport.go",
       "line_spec": "161",
-      "content_sha256": "b67d3d86206f77dd936fdd88a992d528bd33dfa8b5f119279245b2b19f3660cf",
+      "content_sha256": "91f1a2ff41ba158bcdf4a23d68084196c4d1aef6ba1909001497fb8dbf53e31a",
       "symbol": "*HTTPServer.Stop"
     },
     {
@@ -2394,14 +2393,15 @@
       "codemap_line": 180,
       "target_path": "cmd/mcp-orch/runtime.go",
       "line_spec": "122",
-      "content_sha256": "05d01417a03631e297828c0d3556f629d1c4a41213dc0f4f3a13a3ea13d7283c"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "04-app-contract.md",
       "codemap_line": 181,
       "target_path": "cmd/mcp-orch/runtime.go",
       "line_spec": "141",
-      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
+      "content_sha256": "5553524d74f5852459d6d69794a63fac21c7cb3bcfc8d55c756757b379695a2f",
+      "symbol": "noopSessionCleaner"
     },
     {
       "codemap_file": "04-app-contract.md",
@@ -2428,14 +2428,14 @@
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 928,
+      "codemap_line": 930,
       "target_path": "cmd/mcp-orch/store/taskdag/contract.go",
       "line_spec": "25-27",
       "content_sha256": "c620507384b8e77d731d6b18bc1d527461569f9f5df21b514e84575c8f4b6e4f"
     },
     {
       "codemap_file": "04-app-contract.md",
-      "codemap_line": 929,
+      "codemap_line": 931,
       "target_path": "cmd/mcp-orch/store/taskdag/contract.go",
       "line_spec": "25-27",
       "content_sha256": "c620507384b8e77d731d6b18bc1d527461569f9f5df21b514e84575c8f4b6e4f"
@@ -3618,24 +3618,22 @@
       "codemap_line": 372,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "89",
-      "content_sha256": "6bd62b7613eb44965500c5bff946ef53f66d03acafedbb41d943aca6fc92b7d4",
-      "symbol": "EventHeader"
+      "content_sha256": "d507e9ffb29c116dec3b5f3d5010620e141cad84652fbc6261974cb34b4aaccf",
+      "symbol": "EventTypeOrchestrationDirectPeer"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 373,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "96",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "ThreadHeader"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 374,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "102",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "AgentHeader"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
@@ -3643,31 +3641,29 @@
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "113",
       "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "TurnIDHeader"
+      "symbol": "AgentSessionHeader"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 376,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "119",
-      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
-      "symbol": "TurnHeader"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 377,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "125",
-      "content_sha256": "2bf7675dfed8c04a7aec08b1cc9f11fe82490bf0a04d32272d398045d169df69",
-      "symbol": "ToolCallHeader"
+      "content_sha256": "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6"
     },
     {
       "codemap_file": "05-dto.md",
       "codemap_line": 378,
       "target_path": "internal/dto/shared/event.go",
       "line_spec": "131",
-      "content_sha256": "b2ffedf928c51ee7277c4b6ed680cbabca264f5b631e4ebee1bc787fb7c753d8",
-      "symbol": "ToolApprovalHeader"
+      "content_sha256": "79f7dd2b136f787da35ba83971b75c62d0eb1f66260bcb343443594441a91501",
+      "symbol": "ToolCallHeader"
     },
     {
       "codemap_file": "05-dto.md",
@@ -10749,7 +10745,7 @@
       "codemap_line": 906,
       "target_path": "sqlc.yaml",
       "line_spec": "14",
-      "content_sha256": "6adc61c5ce43bcfcac405927954fe7c927f5d85e7f02e965fa0acea6bc1e59ed"
+      "content_sha256": "490a8fac2dbc830149de1300e5da268bb14a6569d4da4e41623c6d14253adeef"
     },
     {
       "codemap_file": "10-store.md",

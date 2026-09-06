@@ -124,7 +124,8 @@ func NewBindingStore(db *sql.DB) orchestration.AgentBindingStore {
 
 const getBindingSQL = `
 SELECT agent_id, provider, provider_thread_id, codex_thread_id, cwd,
-       archived, created_at, updated_at
+       archived, created_at, updated_at, session_uuid, codex_home,
+       provider_recovery_home, codex_instance_key, codex_model_provider
 FROM agent_provider_binding
 WHERE agent_id = ?
 `
@@ -137,6 +138,8 @@ func (s *bindingStore) GetByAgentID(ctx context.Context, agentID string) (*orche
 		&b.AgentID, &b.Provider, &b.ProviderThreadID,
 		&b.CodexThreadID, &b.Cwd, &b.Archived,
 		&b.CreatedAt, &b.UpdatedAt,
+		&b.SessionUUID, &b.CodexHome, &b.ProviderRecoveryHome,
+		&b.CodexInstanceKey, &b.CodexModelProvider,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

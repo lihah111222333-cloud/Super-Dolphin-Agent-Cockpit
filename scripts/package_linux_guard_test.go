@@ -45,6 +45,16 @@ func TestPackageLinuxScriptBundlesVerifiedCodexArtifact(t *testing.T) {
 	assertScriptOrder(t, script, "copy_packaged_codex \"$stage\" \"$stage/bin/codex\"", "tar -C \"$dist\"")
 }
 
+func TestRecoveryCustodyCandidateBuildTargetIsExplicitAndOptIn(t *testing.T) {
+	makefile := readRepoFile(t, "../Makefile")
+	assertScriptContains(t, makefile, "build-recovery-custody-candidate")
+	assertScriptContains(t, makefile, "go build -o \"$$tmp\" ./cmd/mcp-recovery-custody")
+	assertScriptContains(t, makefile, "mv -f \"$$tmp\" bin/mcp-recovery-custody")
+	assertScriptContains(t, makefile, "build: guard frontend-build")
+	assertScriptDoesNotContain(t, makefile, "build: guard frontend-build build-recovery-custody-candidate")
+	assertScriptDoesNotContain(t, makefile, "build-peer-binaries: build-recovery-custody-candidate")
+}
+
 func TestPackageLinuxScriptBundlesVerifiedLSPBundle(t *testing.T) {
 	script := readScript(t, "package_linux.sh")
 	body := functionBody(t, script, "write_runtime_manifest")
@@ -84,6 +94,26 @@ func TestPackageLinuxScriptBundlesVerifiedLSPBundle(t *testing.T) {
 	assertScriptOrder(t, script, "resolve_packaged_lsp_bundle", "mkdir -p \"$stage/bin\"")
 	assertScriptOrder(t, script, "copy_packaged_lsp_bundle \"$stage\"", "write_lsp_manifest \"$stage\"")
 	assertScriptOrder(t, script, "write_lsp_manifest \"$stage\"", "write_runtime_manifest \"$stage\"")
+}
+
+func TestPackageLinuxScriptStagesRecoveryCustodyCandidateWithoutLaunchingIt(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+
+	assertScriptContains(t, script, "recovery_custody_candidate_package=\"${RECOVERY_CUSTODY_CANDIDATE_PACKAGE:-0}\"")
+	assertScriptContains(t, script, "unsupported RECOVERY_CUSTODY_CANDIDATE_PACKAGE")
+	assertScriptContains(t, script, "if [[ \"$recovery_custody_candidate_package\" == \"1\" ]]; then")
+	assertScriptContains(t, script, "go_binary_cache_outputs+=(\"$root/bin/mcp-recovery-custody\")")
+	assertScriptContains(t, script, "input:RECOVERY_CUSTODY_CANDIDATE_PACKAGE=$recovery_custody_candidate_package")
+	assertScriptContains(t, script, "make APP_COMMIT=\"$app_commit\" build-recovery-custody-candidate")
+	assertScriptContains(t, script, "build-recovery-custody-candidate")
+	assertScriptContains(t, script, "\"$root/bin/mcp-recovery-custody\"")
+	assertScriptContains(t, script, "cp \"$root/bin/mcp-recovery-custody\" \"$stage/bin/mcp-recovery-custody\"")
+	assertScriptContains(t, script, "\"recovery_custody_candidate_path\": \"bin/mcp-recovery-custody\"")
+	assertScriptContains(t, script, "\"recovery_custody_candidate_status\": \"candidate\"")
+	assertScriptContains(t, script, "\"recovery_custody_candidate_runtime\": \"disabled\"")
+	assertScriptContains(t, script, "\"recovery_custody_candidate_startup\": \"requires-external-evidence-finalizer-and-receipt-verifier\"")
+	assertScriptDoesNotContain(t, script, "bundled_execs+=(mcp-recovery-custody)")
+	assertScriptOrder(t, script, "build-recovery-custody-candidate", "cp \"$root/bin/mcp-recovery-custody\"")
 }
 
 func TestPackageLinuxLSPBundleRequiresNoSystemPythonShadowStubs(t *testing.T) {
@@ -276,6 +306,7 @@ func TestPackageLinuxScriptWritesRuntimeManifestContract(t *testing.T) {
 set -euo pipefail
 source ` + bashQuote(bashArg("", scriptPath)) + `
 platform=linux-amd64
+recovery_custody_candidate_package=1
 write_runtime_manifest ` + bashQuote(bashArg("", stage)) + `
 `
 	harnessPath := filepath.Join(t.TempDir(), "package-linux-runtime-manifest-test.sh")
@@ -298,11 +329,15 @@ write_runtime_manifest ` + bashQuote(bashArg("", stage)) + `
 		t.Fatalf("runtime-manifest.json is not JSON: %v\n%s", err, raw)
 	}
 	wants := map[string]string{
-		"bundled_codex_path":  "bin/codex",
-		"bundled_gopls_path":  "bin/gopls",
-		"lsp_bundle_path":     "lsp",
-		"lsp_manifest_path":   "lsp/lsp-manifest.json",
-		"model_registry_path": "models.yaml",
+		"bundled_codex_path":                 "bin/codex",
+		"bundled_gopls_path":                 "bin/gopls",
+		"lsp_bundle_path":                    "lsp",
+		"lsp_manifest_path":                  "lsp/lsp-manifest.json",
+		"model_registry_path":                "models.yaml",
+		"recovery_custody_candidate_path":    "bin/mcp-recovery-custody",
+		"recovery_custody_candidate_status":  "candidate",
+		"recovery_custody_candidate_runtime": "disabled",
+		"recovery_custody_candidate_startup": "requires-external-evidence-finalizer-and-receipt-verifier",
 	}
 	for key, want := range wants {
 		got := manifest[key]
@@ -315,6 +350,45 @@ write_runtime_manifest ` + bashQuote(bashArg("", stage)) + `
 	}
 	if _, ok := manifest["embedded_postgres_resource_path"]; ok {
 		t.Fatal("runtime manifest must not include embedded_postgres_resource_path")
+	}
+}
+
+func TestPackageLinuxScriptWritesLegacyRuntimeManifestWithoutRecoveryCustodyCandidate(t *testing.T) {
+	scriptPath, err := filepath.Abs("package_linux.sh")
+	if err != nil {
+		t.Fatalf("Abs(package_linux.sh) error = %v", err)
+	}
+	stage := t.TempDir()
+	harness := `#!/usr/bin/env bash
+set -euo pipefail
+source ` + bashQuote(bashArg("", scriptPath)) + `
+write_runtime_manifest ` + bashQuote(bashArg("", stage)) + `
+`
+	harnessPath := filepath.Join(t.TempDir(), "package-linux-legacy-runtime-manifest-test.sh")
+	if err := os.WriteFile(harnessPath, []byte(harness), 0o700); err != nil {
+		t.Fatalf("write legacy runtime manifest harness: %v", err)
+	}
+	cmd := exec.Command("bash", bashArg("", harnessPath))
+	cmd.Env = packageScriptValidationEnv(t, "linux", nil)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("legacy write_runtime_manifest failed: %v; output=%s", err, out)
+	}
+	raw, err := os.ReadFile(filepath.Join(stage, "runtime-manifest.json"))
+	if err != nil {
+		t.Fatalf("read legacy runtime-manifest.json: %v", err)
+	}
+	var manifest map[string]string
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatalf("legacy runtime-manifest.json is not JSON: %v\n%s", err, raw)
+	}
+	if len(manifest) != 5 {
+		t.Fatalf("legacy runtime manifest field count = %d, want 5: %s", len(manifest), raw)
+	}
+	for key := range manifest {
+		if strings.HasPrefix(key, "recovery_custody_candidate_") {
+			t.Fatalf("legacy runtime manifest unexpectedly contains %s", key)
+		}
 	}
 }
 
@@ -363,6 +437,13 @@ func TestPackageLinuxVerifierScriptContracts(t *testing.T) {
 		"runtime-manifest.json",
 		"codex-manifest.json",
 		"lsp/lsp-manifest.json",
+		"mcp-recovery-custody",
+		"recovery_custody_candidate_status",
+		"recovery_custody_candidate_runtime",
+		"requires-external-evidence-finalizer-and-receipt-verifier",
+		"recovery_custody_candidate_key_count",
+		"recovery_custody_candidate_declared",
+		"metadata is incomplete",
 		"verify_runtime_manifest",
 		"verify_codex_manifest",
 		"verify_lsp_manifest",
@@ -490,6 +571,50 @@ func TestVerifyPackagedAppLinuxRequiresRuntimeManifest(t *testing.T) {
 	}
 	if !strings.Contains(output, "missing runtime manifest") {
 		t.Fatalf("expected missing runtime manifest error, got:\n%s", output)
+	}
+}
+
+func TestVerifyPackagedAppLinuxRejectsRecoveryCustodyRuntimeEnablement(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	writeExecutable(t, filepath.Join(stage, "bin", "mcp-recovery-custody"))
+	writeRuntimeManifest(t, stage, map[string]string{
+		"bundled_codex_path":                 "bin/codex",
+		"bundled_gopls_path":                 "bin/gopls",
+		"lsp_bundle_path":                    "lsp",
+		"lsp_manifest_path":                  "lsp/lsp-manifest.json",
+		"model_registry_path":                "models.yaml",
+		"recovery_custody_candidate_path":    "bin/mcp-recovery-custody",
+		"recovery_custody_candidate_status":  "candidate",
+		"recovery_custody_candidate_runtime": "enabled",
+		"recovery_custody_candidate_startup": "requires-external-evidence-finalizer-and-receipt-verifier",
+	})
+
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err == nil {
+		t.Fatalf("expected Linux verifier to reject enabled RecoveryCustody candidate, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "runtime manifest recovery custody candidate metadata is not fail-closed") {
+		t.Fatalf("expected RecoveryCustody metadata rejection, got:\n%s", output)
+	}
+}
+
+func TestVerifyPackagedAppLinuxRejectsPartialRecoveryCustodyMetadata(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	writeRuntimeManifest(t, stage, map[string]string{
+		"bundled_codex_path":                "bin/codex",
+		"bundled_gopls_path":                "bin/gopls",
+		"lsp_bundle_path":                   "lsp",
+		"lsp_manifest_path":                 "lsp/lsp-manifest.json",
+		"model_registry_path":               "models.yaml",
+		"recovery_custody_candidate_status": "candidate",
+	})
+
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err == nil {
+		t.Fatalf("expected Linux verifier to reject partial RecoveryCustody metadata, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "runtime manifest recovery custody candidate metadata is incomplete") {
+		t.Fatalf("expected partial RecoveryCustody metadata rejection, got:\n%s", output)
 	}
 }
 

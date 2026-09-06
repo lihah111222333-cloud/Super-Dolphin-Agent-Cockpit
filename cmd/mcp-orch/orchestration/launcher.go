@@ -2,8 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/creachadair/jrpc2"
@@ -586,36 +584,133 @@ func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
 
 // handleRemoteTurnTerminal 通过 canonical threadId 的 runtime 绑定解析 owner，再推进内部 turn 生命周期。
 func (s *service) handleRemoteTurnTerminal(ctx context.Context, terminal turndto.TurnTerminalV2) {
-	if s == nil || s.registry == nil {
-		return
+	// Keep the void sink compatible with legacy notification callers. Receipt-
+	// capable callers use the strict result path below.
+	if err := s.handleRemoteTurnTerminalResultWithMode(ctx, terminal, false); err != nil {
+		pkglogger.Warn("orchestration: remote terminal handling failed", "thread_id", strings.TrimSpace(terminal.ThreadID), "turn_id", strings.TrimSpace(terminal.TurnID), "error", err)
 	}
-	ownerAgentID, err := s.registry.ownerAgentIDForThreadID(terminal.ThreadID)
+}
+
+// handleRemoteTurnTerminalResult 是 provider terminal 的可确认内部接收路径。
+// 已由 durable outcome/head 精确证明的 duplicate（包括 stale replay）返回 nil；
+// 只有 owner、fence、projection 或 durable commit 失败才返回错误，供 standalone
+// provider sink fail-closed。
+func (s *service) handleRemoteTurnTerminalResult(ctx context.Context, terminal turndto.TurnTerminalV2) error {
+	return s.handleRemoteTurnTerminalResultWithMode(ctx, terminal, true)
+}
+
+// handleRemoteTurnTerminalResultWithMode 按兼容模式接收远端终态并确保 durable 提交。
+func (s *service) handleRemoteTurnTerminalResultWithMode(ctx context.Context, terminal turndto.TurnTerminalV2, requireCanonical bool) error {
+	if err := validateRemoteTurnTerminalRequest(s, terminal, requireCanonical); err != nil {
+		return err
+	}
+	ownerAgentID, err := s.resolveTerminalOwner(ctx, terminal.ThreadID)
 	if err != nil {
-		pkglogger.Warn("orchestration: remote terminal owner lookup failed", "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", err)
-		return
+		return fmt.Errorf("remote terminal owner lookup: %w", err)
 	}
-	if !s.routeRemoteTurnTerminal(ownerAgentID, terminal) {
-		return
+	deliver, err := s.routeRemoteTurnTerminalResult(ctx, ownerAgentID, terminal, requireCanonical)
+	if err != nil || !deliver {
+		return err
+	}
+	return s.commitRemoteTurnTerminal(ctx, ownerAgentID, terminal, requireCanonical)
+}
+
+// validateRemoteTurnTerminalRequest 在路由和封存前校验终态契约及 durable 依赖。
+func validateRemoteTurnTerminalRequest(s *service, terminal turndto.TurnTerminalV2, requireCanonical bool) error {
+	if requireCanonical {
+		if err := turndto.ValidateTurnTerminalV2(terminal); err != nil {
+			return fmt.Errorf("remote canonical terminal contract: %w", err)
+		}
+	}
+	if s == nil || s.registry == nil || s.turns == nil {
+		return errors.New("orchestration terminal handler is not configured")
+	}
+	if requireCanonical && s.terminalOutcomes == nil {
+		return errors.New("remote canonical terminal owner is not configured")
+	}
+	return nil
+}
+
+// routeRemoteTurnTerminalResult 路由终态并为 stale/buffered 结果执行 canonical 证明。
+func (s *service) routeRemoteTurnTerminalResult(ctx context.Context, ownerAgentID string, terminal turndto.TurnTerminalV2, requireCanonical bool) (bool, error) {
+	deliver, buffered, routeErr := s.turns.routeRemoteTurnTerminal(ownerAgentID, terminal)
+	if routeErr != nil {
+		return false, fmt.Errorf("remote terminal reconciliation: %w", routeErr)
+	}
+	if buffered {
+		if requireCanonical {
+			return false, fmt.Errorf("%w: terminal is buffered only in memory for owner=%q thread=%q turn=%q",
+				errRemoteTerminalRecoveryRequired, strings.TrimSpace(ownerAgentID),
+				strings.TrimSpace(terminal.ThreadID), strings.TrimSpace(terminal.TurnID))
+		}
+		return false, nil
+	}
+	if deliver || !requireCanonical {
+		return deliver, nil
+	}
+	proven, proofErr := s.durableRemoteTerminalNoop(ctx, ownerAgentID, terminal)
+	if proofErr != nil {
+		return false, errors.Join(errRemoteTerminalRecoveryRequired,
+			fmt.Errorf("remote terminal durable no-op proof: %w", proofErr))
+	}
+	if !proven {
+		return false, fmt.Errorf("%w: owner=%q thread=%q turn=%q", errRemoteTerminalRecoveryRequired,
+			strings.TrimSpace(ownerAgentID), strings.TrimSpace(terminal.ThreadID), strings.TrimSpace(terminal.TurnID))
+	}
+	return false, nil
+}
+
+// commitRemoteTurnTerminal 投影、封存并提交已路由的远端终态。
+func (s *service) commitRemoteTurnTerminal(ctx context.Context, ownerAgentID string, terminal turndto.TurnTerminalV2, requireCanonical bool) error {
+	// Validate/project before sealing so malformed provider payloads cannot
+	// consume bounded first-truth capacity or require pointless retries.
+	ev, err := eventsurface.ProjectRemoteTurnTerminal(terminal, ownerAgentID)
+	if err != nil {
+		return fmt.Errorf("remote terminal projection: %w", err)
 	}
 	acceptance, err := s.turns.acceptRemoteTurnTerminal(terminal)
 	if err != nil {
-		pkglogger.Warn("orchestration: conflicting remote terminal rejected", "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "event_id", terminal.EventID, "error", err)
-		return
+		return fmt.Errorf("remote terminal acceptance: %w", err)
 	}
 	if !acceptance.accepted {
-		return
+		return nil
 	}
-	defer s.turns.releaseRemoteTurnTerminal(acceptance)
+	completed := false
+	defer func() {
+		if completed {
+			s.turns.releaseRemoteTurnTerminal(acceptance)
+			return
+		}
+		// Keep the first canonical truth sealed while allowing an exact retry;
+		// conflicting terminal payloads must still be rejected.
+		s.turns.retryRemoteTurnTerminal(acceptance)
+	}()
 	if acceptance.evicted {
 		stats := s.turns.remoteTerminalSealStats()
 		pkglogger.Info("orchestration: remote terminal seal capacity eviction", "capacity", stats.Capacity, "entries", stats.Entries, "capacity_evictions", stats.CapacityEvictions)
 	}
-	ev, err := eventsurface.ProjectRemoteTurnTerminal(terminal, ownerAgentID)
-	if err != nil {
-		pkglogger.Warn("orchestration: remote terminal projection failed", "agent_id", ownerAgentID, "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", err)
-		return
+	if err := s.handleRemoteTurnCompletedResultWithMode(ctx, ev, requireCanonical); err != nil {
+		return fmt.Errorf("remote terminal commit: %w", err)
 	}
-	s.handleRemoteTurnCompleted(ctx, ev)
+	completed = true
+	return nil
+}
+
+// resolveTerminalOwner 优先通过持久化 provider binding 解析 terminal owner。
+// 一旦 service 已装配持久化 thread store 但该 store 没有 durable lookup，立即
+// fail-closed；只有纯单元测试/未装配 store 的旧构造路径才允许使用内存 registry。
+func (s *service) resolveTerminalOwner(ctx context.Context, threadID string) (string, error) {
+	if s == nil || s.registry == nil {
+		return "", errors.New("orchestration terminal owner resolver is not configured")
+	}
+	if s.lifecycle != nil && s.lifecycle.agentThreads != nil {
+		lookup, ok := s.lifecycle.agentThreads.(TerminalOwnerLookup)
+		if !ok || lookup == nil {
+			return "", errors.New("durable terminal owner lookup is unavailable")
+		}
+		return lookup.LookupOwnerByThread(ctx, threadID)
+	}
+	return s.registry.ownerAgentIDForThreadID(threadID)
 }
 
 // routeRemoteTurnTerminal 按当前 active turn 或受限的启动期缓冲决定是否接收远端终态。
@@ -635,192 +730,32 @@ func (s *service) routeRemoteTurnTerminal(ownerAgentID string, terminal turndto.
 	return true
 }
 
-type remoteTerminalTurnRef struct {
-	threadID string
-	turnID   string
-}
-
-type remoteTerminalTruth struct {
-	eventID     string
-	fingerprint [sha256.Size]byte
-}
-
-const defaultRemoteTerminalSealCapacity = 4096
-
-type remoteTerminalSealEntry struct {
-	truth             remoteTerminalTruth
-	sequence          uint64
-	inFlight          bool
-	clearWhenReleased bool
-}
-
-// remoteTerminalSealStats exposes bounded-seal accounting for logs and regression tests.
-type remoteTerminalSealStats struct {
-	Capacity          int
-	Entries           int
-	InFlight          int
-	CapacityEvictions uint64
-	LifecycleClears   uint64
-	LifecycleDeferred uint64
-}
-
-type remoteTerminalAcceptance struct {
-	accepted bool
-	ref      remoteTerminalTurnRef
-	evicted  bool
-}
-
-// acceptRemoteTurnTerminal 封存每个 TurnRef 的首个 canonical event，直到所属 thread
-// 被归档或被有界的确定性淘汰回收。处理中条目不得淘汰，避免生命周期尚未收敛时被冲突终态抢占。
-func (c *turnController) acceptRemoteTurnTerminal(terminal turndto.TurnTerminalV2) (remoteTerminalAcceptance, error) {
-	if c == nil {
-		return remoteTerminalAcceptance{}, errors.New("turn controller is required")
-	}
-	truth, err := remoteTerminalTruthFor(terminal)
-	if err != nil {
-		return remoteTerminalAcceptance{}, err
-	}
-	ref := remoteTerminalTurnRef{threadID: terminal.ThreadID, turnID: terminal.TurnID}
-	c.remoteTerminalMu.Lock()
-	defer c.remoteTerminalMu.Unlock()
-	if c.remoteTerminalSeal == nil {
-		c.remoteTerminalSeal = make(map[remoteTerminalTurnRef]remoteTerminalSealEntry)
-	}
-	first, exists := c.remoteTerminalSeal[ref]
-	if !exists {
-		if c.remoteTerminalNext == ^uint64(0) {
-			return remoteTerminalAcceptance{}, errors.New("remote terminal seal sequence exhausted")
-		}
-		evicted := false
-		if len(c.remoteTerminalSeal) >= c.remoteTerminalSealLimitLocked() {
-			if !c.evictOldestRemoteTerminalSealLocked() {
-				return remoteTerminalAcceptance{}, errors.New("remote terminal seal capacity exhausted by in-flight terminals")
-			}
-			evicted = true
-		}
-		c.remoteTerminalNext++
-		c.remoteTerminalSeal[ref] = remoteTerminalSealEntry{truth: truth, sequence: c.remoteTerminalNext, inFlight: true}
-		return remoteTerminalAcceptance{accepted: true, ref: ref, evicted: evicted}, nil
-	}
-	if first.truth == truth {
-		return remoteTerminalAcceptance{}, nil
-	}
-	return remoteTerminalAcceptance{}, fmt.Errorf("remote terminal truth conflict: first_event_id=%q conflicting_event_id=%q", first.truth.eventID, truth.eventID)
-}
-
-func remoteTerminalTruthFor(terminal turndto.TurnTerminalV2) (remoteTerminalTruth, error) {
-	encoded, err := json.Marshal(terminal)
-	if err != nil {
-		return remoteTerminalTruth{}, fmt.Errorf("marshal remote terminal fingerprint: %w", err)
-	}
-	return remoteTerminalTruth{eventID: terminal.EventID, fingerprint: sha256.Sum256(encoded)}, nil
-}
-
-func (c *turnController) remoteTerminalSealLimitLocked() int {
-	if c.remoteTerminalCapacity > 0 {
-		return c.remoteTerminalCapacity
-	}
-	return defaultRemoteTerminalSealCapacity
-}
-
-// evictOldestRemoteTerminalSealLocked 确定性淘汰最早且已完成处理的封存条目。
-func (c *turnController) evictOldestRemoteTerminalSealLocked() bool {
-	var oldestRef remoteTerminalTurnRef
-	var oldestSequence uint64
-	found := false
-	for ref, entry := range c.remoteTerminalSeal {
-		if entry.inFlight {
-			continue
-		}
-		if !found || entry.sequence < oldestSequence {
-			oldestRef, oldestSequence, found = ref, entry.sequence, true
-		}
-	}
-	if !found {
-		return false
-	}
-	delete(c.remoteTerminalSeal, oldestRef)
-	c.remoteTerminalEvictions++
-	return true
-}
-
-// releaseRemoteTurnTerminal 在 terminal 生命周期处理结束后解除条目的淘汰保护。
-func (c *turnController) releaseRemoteTurnTerminal(acceptance remoteTerminalAcceptance) {
-	if c == nil || !acceptance.accepted {
-		return
-	}
-	c.remoteTerminalMu.Lock()
-	defer c.remoteTerminalMu.Unlock()
-	entry, exists := c.remoteTerminalSeal[acceptance.ref]
-	if !exists || !entry.inFlight {
-		return
-	}
-	if entry.clearWhenReleased {
-		delete(c.remoteTerminalSeal, acceptance.ref)
-		c.remoteTerminalLifecycleClears++
-		return
-	}
-	entry.inFlight = false
-	c.remoteTerminalSeal[acceptance.ref] = entry
-}
-
-// clearRemoteTerminalsForThread 在归档时回收该 thread 的已完成封存；处理中 terminal
-// 延后到 handler 释放后清理，避免重新打开 target-changed 防护窗口。
-func (c *turnController) clearRemoteTerminalsForThread(threadID string) remoteTerminalSealStats {
-	if c == nil || strings.TrimSpace(threadID) == "" {
-		return remoteTerminalSealStats{}
-	}
-	c.remoteTerminalMu.Lock()
-	defer c.remoteTerminalMu.Unlock()
-	for ref, entry := range c.remoteTerminalSeal {
-		if ref.threadID != threadID {
-			continue
-		}
-		if entry.inFlight {
-			entry.clearWhenReleased = true
-			c.remoteTerminalSeal[ref] = entry
-			c.remoteTerminalLifecycleDeferred++
-			continue
-		}
-		delete(c.remoteTerminalSeal, ref)
-		c.remoteTerminalLifecycleClears++
-	}
-	return c.remoteTerminalSealStatsLocked()
-}
-
-func (c *turnController) remoteTerminalSealStats() remoteTerminalSealStats {
-	if c == nil {
-		return remoteTerminalSealStats{}
-	}
-	c.remoteTerminalMu.Lock()
-	defer c.remoteTerminalMu.Unlock()
-	return c.remoteTerminalSealStatsLocked()
-}
-
-func (c *turnController) remoteTerminalSealStatsLocked() remoteTerminalSealStats {
-	stats := remoteTerminalSealStats{
-		Capacity:          c.remoteTerminalSealLimitLocked(),
-		Entries:           len(c.remoteTerminalSeal),
-		CapacityEvictions: c.remoteTerminalEvictions,
-		LifecycleClears:   c.remoteTerminalLifecycleClears,
-		LifecycleDeferred: c.remoteTerminalLifecycleDeferred,
-	}
-	for _, entry := range c.remoteTerminalSeal {
-		if entry.inFlight {
-			stats.InFlight++
-		}
-	}
-	return stats
-}
-
 // handleRemoteTurnCompleted 处理来自 remote launcher 的 turn 完成通知，写入 report 并推进状态机。
 func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
+	if err := s.handleRemoteTurnCompletedResultWithMode(ctx, ev, false); err != nil {
+		pkglogger.Warn("orchestration: remote turn completion failed", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID), "turn_id", strings.TrimSpace(ev.TurnID), "error", err)
+	}
+}
+
+// handleRemoteTurnCompletedResult 返回 canonical commit 错误，供 provider terminal receipt 使用。
+func (s *service) handleRemoteTurnCompletedResult(ctx context.Context, ev turndto.TurnCompleted) error {
+	return s.handleRemoteTurnCompletedResultWithMode(ctx, ev, true)
+}
+
+// handleRemoteTurnCompletedResultWithMode 提交远端完成事件并写入兼容 report。
+func (s *service) handleRemoteTurnCompletedResultWithMode(ctx context.Context, ev turndto.TurnCompleted, requireCanonical bool) error {
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
-		return
+		return errors.New("remote turn completion agent is not active")
+	}
+	// Provider canonical terminal receipts require the durable terminal owner.
+	// Keep CommitTurnCompleted's false,nil result for legacy void callers, but
+	// never let this receipt-capable path fall through to reports/runtime hooks
+	// when the canonical store is not wired.
+	if requireCanonical && s.terminalOutcomes == nil {
+		return errors.New("remote canonical terminal owner is not configured")
 	}
 	if strings.TrimSpace(ev.TurnID) == "" {
-		pkglogger.Warn("orchestration: remote turn completion missing turn_id", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID))
-		return
+		return errors.New("remote turn completion missing turn_id")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -828,24 +763,30 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 	eventCtx := withEventTime(ctx, ev.Timestamp)
 	handled, err := s.CommitTurnCompleted(eventCtx, ev)
 	if err != nil {
-		pkglogger.Warn("orchestration: remote canonical terminal commit failed",
-			"agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID),
-			"turn_id", strings.TrimSpace(ev.TurnID), "error", err)
-		return
+		return fmt.Errorf("remote canonical terminal commit: %w", err)
 	}
 	if handled {
-		return
+		return nil
 	}
-	_, err = s.reports.HandleReportEvent(eventCtx, ReportEvent{
+	if err := s.recordRemoteTurnCompletedReport(eventCtx, ev); err != nil {
+		return err
+	}
+	handleTurnCompletedEventWithCtx(s, s.logger, ev, eventCtx)
+	return nil
+}
+
+// recordRemoteTurnCompletedReport 写入终态 report，并保留 agent 缺失时的兼容忽略。
+func (s *service) recordRemoteTurnCompletedReport(eventCtx context.Context, ev turndto.TurnCompleted) error {
+	_, err := s.reports.HandleReportEvent(eventCtx, ReportEvent{
 		AgentID:   strings.TrimSpace(ev.AgentID),
 		Report:    turnCompletedReportText(ev),
 		EventType: eventsurface.MethodTurnTerminal,
 		EventData: mustMarshalHookReportEvent(ev),
 	})
 	if err != nil && !errors.Is(err, errAgentNotFound) {
-		pkglogger.Warn("orchestration: remote turn completion report failed", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID), "turn_id", strings.TrimSpace(ev.TurnID), "error", err)
+		return fmt.Errorf("remote turn completion report: %w", err)
 	}
-	handleTurnCompletedEventWithCtx(s, s.logger, ev, eventCtx)
+	return nil
 }
 
 // handleRemoteTurnInterrupted 处理来自 remote launcher 的 turn 中断通知，写入 report 并推进状态机。

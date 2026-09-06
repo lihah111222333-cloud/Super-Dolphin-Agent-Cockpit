@@ -3,9 +3,9 @@
 > 由 `go run ./scripts/archtestmap` 从 `DefaultBackendBoundaryRegistry()` 自动生成。请勿手工维护本页事实。
 
 - Owners: 14
-- Canonical rules: 26
-- Specialized guards: 10
-- Governed backend surfaces: 36
+- Canonical rules: 27
+- Specialized guards: 12
+- Governed backend surfaces: 37
 
 ## Rule owners
 
@@ -16,7 +16,7 @@
 | `contract_boundary` | `internal/contract/**/*.go`<br>`internal/dto/**/*.go` | contract and DTO packages are the stable transport-neutral port surface |
 | `fx_assembly` | `cmd/**/*.go`<br>`internal/**/*.go` | Fx belongs only to typed assembly scopes |
 | `internal_support_boundary` | `internal/devtools/**/*.go`<br>`internal/devtools/archtestmap/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | shared support packages keep narrow, per-source internal dependency surfaces |
-| `mcp_sidecar_boundary` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go` | MCP sidecars are standalone entrypoints with only narrow shared internal dependencies |
+| `mcp_sidecar_boundary` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go`<br>`cmd/mcp-recovery-custody/**/*.go` | MCP sidecars are standalone entrypoints with only narrow shared internal dependencies |
 | `mcpserver_family` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-orch/**/*.go` | MCP server families must not couple to sibling tool implementations |
 | `module_boundary` | `internal/module/**/*.go` | business modules own their internals and must communicate through contract or DTO ports |
 | `platform_control_boundary` | `internal/platform/hooks/**/*.go`<br>`internal/platform/mcpcontrol/**/*.go` | hooks and MCP control stay decoupled and hooks do not own database lifecycle |
@@ -38,8 +38,9 @@
 | `hooks_no_mcpcontrol` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/mcpcontrol` | — | — | hooks publish contracts instead of importing MCP control implementations |
 | `hooks_no_platform_db` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/db` | — | — | hooks must not own database lifecycle in production or test helpers |
 | `internal_support_narrow_import_surface` | `internal_support_boundary` | `allow_internal_imports` | `internal/devtools/**/*.go`<br>`internal/devtools/archtestmap/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | 15 policies across 5 file patterns | — | — | — | support packages may import only descendants and explicitly registered shared seams |
+| `mcp_orch_no_embedded_recovery_custody_authority` | `mcp_sidecar_boundary` | `deny_imports` | `cmd/mcp-orch/**/*.go` | — | `cmd/mcp-orch/**/*.go` → `cmd/mcp-orch/orchestration/recoverycustody/sqliteauthority` | — | — | mcp-orch clients must reach RecoveryCustody through the transport-neutral Client and an independent service protocol adapter |
 | `mcp_orch_sqlc_sidecar_only` | `sqlc_boundary` | `scoped_import` | `cmd/**/*.go`<br>`internal/**/*.go` | — | `cmd/**/*.go` → `cmd/mcp-orch/store`<br>`internal/**/*.go` → `cmd/mcp-orch/store` | `cmd/mcp-orch/**/*.go` (`fx_mcp_orch`) | — | mcp-orch SQLC generated types remain private to the orchestrator sidecar |
-| `mcp_sidecar_narrow_import_surface` | `mcp_sidecar_boundary` | `allow_internal_imports` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go` | 51 policies across 3 file patterns | 21 policies across 3 file patterns | — | — | cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services |
+| `mcp_sidecar_narrow_import_surface` | `mcp_sidecar_boundary` | `allow_internal_imports` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go`<br>`cmd/mcp-recovery-custody/**/*.go` | 63 policies across 4 file patterns | 45 policies across 4 file patterns | — | `content_contract_object`: `cmd/mcp-orch/store/content/contract.go` → `internal/platform/contentobject` (`permanent`)<br>`content_mapping_object`: `cmd/mcp-orch/store/content/mapping.go` → `internal/platform/contentobject` (`permanent`)<br>`content_prepare_crypto`: `cmd/mcp-orch/store/content/prepare_single.go` → `internal/platform/contentcrypto` (`permanent`)<br>`content_prepare_object`: `cmd/mcp-orch/store/content/prepare_single.go` → `internal/platform/contentobject` (`permanent`)<br>`content_store_crypto`: `cmd/mcp-orch/store/content/store.go` → `internal/platform/contentcrypto` (`permanent`)<br>`content_store_object`: `cmd/mcp-orch/store/content/store.go` → `internal/platform/contentobject` (`permanent`)<br>`content_validate_crypto`: `cmd/mcp-orch/store/content/validate.go` → `internal/platform/contentcrypto` (`permanent`)<br>`custody_config_authority`: `cmd/mcp-recovery-custody/config.go` → `cmd/mcp-orch/orchestration/recoverycustody` (`permanent`)<br>`custody_service_authority`: `cmd/mcp-recovery-custody/service.go` → `cmd/mcp-orch/orchestration/recoverycustody` (`permanent`)<br>`custody_transitive_authority`: `cmd/mcp-recovery-custody/main.go` → `cmd/mcp-orch/orchestration/recoverycustody` (`permanent`)<br>`custody_transitive_sqlite`: `cmd/mcp-recovery-custody/main.go` → `internal/platform/db/sqlite` (`permanent`)<br>`managedruntime_pidregistry`: `cmd/mcp-orch/standalone/managedruntime/verifier.go` → `internal/platform/pidregistry` (`permanent`)<br>`mcp_orch_transitive_contentcrypto`: `cmd/mcp-orch/main.go` → `internal/platform/contentcrypto` (`permanent`)<br>`mcp_orch_transitive_contentobject`: `cmd/mcp-orch/main.go` → `internal/platform/contentobject` (`permanent`)<br>`mcp_orch_transitive_pidregistry`: `cmd/mcp-orch/main.go` → `internal/platform/pidregistry` (`permanent`) | cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services |
 | `mcpcontrol_no_hooks` | `platform_control_boundary` | `deny_imports` | `internal/platform/mcpcontrol/**/*.go` | — | `internal/platform/mcpcontrol/**/*.go` → `internal/platform/hooks` | — | — | MCP control consumes injected hook ports instead of hook implementations |
 | `mcpserver_ida_family` | `mcpserver_family` | `deny_imports` | `cmd/mcp-ida/**/*.go` | — | `cmd/mcp-ida/**/*.go` → `internal/tool/lsp`<br>`cmd/mcp-ida/**/*.go` → `internal/tool/orchestration` | — | — | IDA MCP servers must not depend on LSP or orchestration tool families |
 | `mcpserver_orch_family` | `mcpserver_family` | `deny_imports` | `cmd/mcp-orch/**/*.go` | — | `cmd/mcp-orch/**/*.go` → `internal/tool/ida`<br>`cmd/mcp-orch/**/*.go` → `internal/tool/lsp` | — | — | orchestration MCP servers must not depend on LSP or IDA tool families |
@@ -68,6 +69,8 @@
 | `fx_graph` | `internal/archtest/fx_graph_test.go` | — | `TestFxValidateApp` | `internal/app` | the desktop composition root must retain a valid Fx graph |
 | `ignored_go_tests` | `internal/guards/ignored_test_guard_test.go` | — | `TestTrackedGoTestsDoNotUseIgnoreBuildConstraint` | `internal/guards` | tracked Go tests must remain attached to an executable test chain instead of using the unowned ignore build tag |
 | `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | `pkg/cronmetrics`<br>`pkg/dagmetrics`<br>`pkg/dreammetrics`<br>`pkg/logger`<br>`pkg/skillblocks`<br>`pkg/skillmetrics` | public pkg libraries must reject both repository internals and command entrypoints |
+| `recovery_custody_authority_sqlite_open` | `internal/archtest/recovery_custody_authority_sqlite_open_guard_test.go` | — | `TestMCPOrchProductionDoesNotOpenRecoveryCustodyAuthoritySQLite` | `cmd/mcp-orch` | ordinary mcp-orch production code must not open the private RecoveryCustody authority SQLite database in process |
+| `recovery_custody_sqlite_only` | `internal/archtest/recovery_custody_sqlite_only_guard_test.go` | — | `TestRecoveryCustodyServiceUsesPrivateSQLiteOnly` | `cmd/mcp-recovery-custody` | the independent RecoveryCustody service must use its private SQLite authority and never introduce a PostgreSQL or product-DB writer |
 | `rollback_skip_markers` | `internal/guards/rollback_skip_guard_test.go` | — | `TestGoTestsDoNotContainRollbackSkipMarkers` | `internal/guards` | the repository guard rejects hidden rollback skip markers in Go tests |
 | `rpc_runtime_e2e` | `internal/e2e/rpc_runtime/runtime_e2e_test.go` | `e2e` | `TestAgentRuntimeRPCBlackBox`<br>`TestRPCRuntimeE2EEnvIsIsolated` | `internal/e2e` | the tagged RPC runtime suite validates the backend process boundary end to end |
 | `ui_wails_boundary` | `internal/archtest/ui_wails_guard_test.go` | — | `TestUIWailsActiveAgentPredicateFromContract`<br>`TestUIWailsNoDirectUIStateImport` | `internal/ui` | Wails UI bindings consume contract-facing state instead of module implementations |
@@ -83,7 +86,8 @@
 | `cmd/codex-worktree-setup` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | Codex worktree LSP bootstrap command |
 | `cmd/mcp-ida` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_ida_family` | — | IDA MCP sidecar boundary |
 | `cmd/mcp-lsp` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface` | — | LSP MCP sidecar boundary |
-| `cmd/mcp-orch` | `fx_assembly_scope`<br>`mcp_orch_sqlc_sidecar_only`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_orch_family` | — | orchestration MCP sidecar boundary |
+| `cmd/mcp-orch` | `fx_assembly_scope`<br>`mcp_orch_no_embedded_recovery_custody_authority`<br>`mcp_orch_sqlc_sidecar_only`<br>`mcp_sidecar_narrow_import_surface`<br>`mcpserver_orch_family` | `recovery_custody_authority_sqlite_open` | orchestration MCP sidecar boundary |
+| `cmd/mcp-recovery-custody` | `fx_assembly_scope`<br>`mcp_sidecar_narrow_import_surface` | `recovery_custody_sqlite_only` | independent RecoveryCustody SQLite authority service |
 | `cmd/mcp-schema-compiler-helper` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | one-shot MCP schema compiler helper |
 | `cmd/super-dolphin-gate` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | standalone gate coordinator and worker command |
 | `cmd/super-dolphin-guard` | `command_narrow_import_surface`<br>`fx_assembly_scope` | — | detached probation Guard command |

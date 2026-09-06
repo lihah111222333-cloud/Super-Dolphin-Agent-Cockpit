@@ -3,6 +3,7 @@ package terminaloutcome
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -248,6 +249,80 @@ func TestPoisonOutboxItemDoesNotBlockLaterValidItem(t *testing.T) {
 	}
 	if status != "poisoned" || strings.Contains(lastError, terminalSecretFixture) {
 		t.Fatalf("poison record = status:%q error:%q", status, lastError)
+	}
+}
+
+func TestClaimTerminalOutcomeOutboxQuarantinesCrossStoreIdentityMismatches(t *testing.T) {
+	for _, test := range terminalOutboxCorruptionCases() {
+		t.Run(test.name, func(t *testing.T) {
+			runTerminalOutboxCorruptionCase(t, test)
+		})
+	}
+}
+
+func TestOutboxMutationIsQuarantinedBeforeRenewOrACK(t *testing.T) {
+	for _, operation := range []string{"renew", "ack"} {
+		t.Run(operation, func(t *testing.T) {
+			store, db := newTestStore(t)
+			commit := terminalCommitFixture("terminal:mutation:" + operation)
+			commit = activateCommitFixture(t, store, commit)
+			result, err := store.CommitTerminalOutcome(context.Background(), commit)
+			if err != nil {
+				t.Fatalf("CommitTerminalOutcome() error = %v", err)
+			}
+			items, err := store.ClaimTerminalOutcomeOutbox(context.Background(), "mutation-worker", time.Minute, 1)
+			if err != nil || len(items) != 1 {
+				t.Fatalf("ClaimTerminalOutcomeOutbox() = %#v, %v", items, err)
+			}
+			mustExecTerminalCorruption(t, db, "UPDATE public_terminal_outcome_history SET public_thread_id = 'foreign-thread' WHERE terminal_identity = ?", commit.Identity.TerminalIdentity)
+			switch operation {
+			case "renew":
+				if _, err := store.RenewTerminalOutcomeOutbox(context.Background(), items[0].ID, "mutation-worker", items[0].ClaimToken, time.Minute); !errors.Is(err, errTerminalOutboxIntegrity) {
+					t.Fatalf("RenewTerminalOutcomeOutbox() error = %v, want integrity error", err)
+				}
+			case "ack":
+				if err := store.MarkTerminalOutcomeProjected(context.Background(), items[0].ID, "mutation-worker", items[0].ClaimToken); !errors.Is(err, errTerminalOutboxIntegrity) {
+					t.Fatalf("MarkTerminalOutcomeProjected() error = %v, want integrity error", err)
+				}
+			}
+			assertTerminalOutboxPoisoned(t, db, result.OutboxID)
+		})
+	}
+}
+
+func mutateTerminalPublicPayload(t *testing.T, db *sql.DB, id int64, mutate func(*contract.TerminalOutcomeCommit)) {
+	t.Helper()
+	var raw []byte
+	if err := db.QueryRow("SELECT public_payload_json FROM terminal_outcome_outbox_v2 WHERE id = ?", id).Scan(&raw); err != nil {
+		t.Fatalf("load public payload: %v", err)
+	}
+	var commit contract.TerminalOutcomeCommit
+	if err := json.Unmarshal(raw, &commit); err != nil {
+		t.Fatalf("decode public payload fixture: %v", err)
+	}
+	mutate(&commit)
+	encoded, err := json.Marshal(commit)
+	if err != nil {
+		t.Fatalf("encode public payload fixture: %v", err)
+	}
+	mustExecTerminalCorruption(t, db, "UPDATE terminal_outcome_outbox_v2 SET public_payload_json = ? WHERE id = ?", encoded, id)
+}
+
+func mustExecTerminalCorruption(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatalf("corrupt terminal outcome fixture: %v", err)
+	}
+}
+
+func assertTerminalOutboxPoisoned(t *testing.T, db *sql.DB, id int64) {
+	t.Helper()
+	var status, lastError string
+	if err := db.QueryRow("SELECT status, last_error FROM terminal_outcome_outbox_v2 WHERE id = ?", id).Scan(&status, &lastError); err != nil {
+		t.Fatalf("read poisoned terminal outbox: %v", err)
+	}
+	if status != "poisoned" || lastError != "terminal outbox payload failed strict validation" {
+		t.Fatalf("poisoned terminal outbox = status:%q error:%q", status, lastError)
 	}
 }
 

@@ -11,7 +11,9 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/processctl"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -148,10 +150,39 @@ func (c *recoveryController) recoverWithReason(ctx context.Context, agentID, rea
 	if c == nil {
 		return errors.New("recovery controller is not configured")
 	}
+	if err, blocked := c.managedClaudeRecoveryError(agentID); blocked {
+		return err
+	}
 	if c.canRecoverAgentViaLauncher(ctx, agentID) {
 		return c.recoverLauncherWithReason(ctx, agentID, reason)
 	}
 	return c.recoverLocalWithReason(ctx, agentID, reason)
+}
+
+// managedClaudeRecoveryError 在进入本地 recovery 前拒绝尚未实现持久恢复的 standalone Claude。
+// It blocks unsupported standalone Claude recovery
+// before the legacy local process path can consume LaunchRequest.Command.
+// Claude's managed execution backend does not yet expose a durable resume
+// capability; returning a typed capability error is fail-closed and leaves
+// both the managed session and local runtime untouched.
+func (c *recoveryController) managedClaudeRecoveryError(agentID string) (error, bool) {
+	if c == nil || c.registry == nil {
+		return nil, false
+	}
+	if _, ok := c.launcher.(*cliLauncher); !ok {
+		return nil, false
+	}
+	c.registry.rLock()
+	defer c.registry.rUnlock()
+	agent, err := c.registry.lookupAgentByIDLocked(agentID)
+	if err != nil || agent == nil || !isManagedCLIRecovery(c.launcher, agent) {
+		return nil, false
+	}
+	provider, _ := snapshotProvider(agent)
+	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return nil, false
+	}
+	return contract.NewCapabilityError(providerdto.CapThreadResume, "claude"), true
 }
 
 // recoverLocalWithReason 在 agent registry 锁内停止旧进程、重建本地进程，并发布恢复事件。

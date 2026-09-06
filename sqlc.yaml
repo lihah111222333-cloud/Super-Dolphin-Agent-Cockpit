@@ -8,6 +8,16 @@ sql:
       - "internal/platform/db/sqlite/migrations/109_mcp_tool_lifecycle.sql"
       - "internal/platform/db/sqlite/migrations/119_datasource_v2_pdf_quality.sql"
       - "internal/platform/db/sqlite/migrations/123_agent_provider_binding_recovery_owner.sql"
+      - "internal/platform/db/sqlite/migrations/124_orchestration_direct_peer.sql"
+      - "internal/platform/db/sqlite/migrations/126_orchestration_command_intents.sql"
+      - "internal/platform/db/sqlite/migrations/127_orchestration_command_journal.sql"
+      - "internal/platform/db/sqlite/migrations/128_orchestration_identity_owner.sql"
+      - "internal/platform/db/sqlite/migrations/129_orchestration_event_store.sql"
+      - "internal/platform/db/sqlite/migrations/130_orchestration_access_wait.sql"
+      - "internal/platform/db/sqlite/migrations/131_orchestration_command_intent_profiles.sql"
+      - "internal/platform/db/sqlite/migrations/132_orchestration_content_single.sql"
+      - "internal/platform/db/sqlite/migrations/133_orchestration_resource_reserved.sql"
+      - "internal/platform/db/sqlite/migrations/134_orchestration_wakeup_payload_version.sql"
     strict_order_by: true
     gen:
       go:

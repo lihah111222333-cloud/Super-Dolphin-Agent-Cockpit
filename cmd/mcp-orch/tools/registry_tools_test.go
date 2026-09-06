@@ -86,7 +86,7 @@ func TestHandleListModels_UsesInjectedRegistry(t *testing.T) {
 	}
 }
 
-func TestHandleListModels_MarksCodexAlwaysAvailable(t *testing.T) {
+func TestHandleListModels_MarksCodexAvailable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "")
@@ -106,6 +106,21 @@ func TestHandleListModels_MarksCodexAlwaysAvailable(t *testing.T) {
 	}
 	if provider.Available != true {
 		t.Fatalf("codex available = %#v, want true; json=%s", provider.Available, raw)
+	}
+}
+
+func TestHandleListModels_PreservesExplicitAvailability(t *testing.T) {
+	available := true
+	h := HandleListModels(WithModelRegistry(stubModelRegistry{providers: []ProviderModels{{
+		Provider: "claude", Models: []string{"sonnet"}, Available: &available,
+	}}}))
+	out, err := h(context.Background(), json.RawMessage(`{"provider":"claude"}`))
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	provider, _ := decodeFirstProviderModelsJSON(t, out)
+	if provider.Available != true || provider.UnavailableReason != "" {
+		t.Fatalf("explicit availability was overwritten: %#v", provider)
 	}
 }
 

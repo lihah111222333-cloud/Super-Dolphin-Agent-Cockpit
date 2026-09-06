@@ -9,10 +9,12 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/operatorreservation"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/orchestrationcommand"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 )
 
 var ErrInvalid = errors.New("invalid launch request")
 
+// Request 是launch intent的不可变来源、内容和幂等输入。
 type Request struct {
 	CommandID, CallerPrincipalRef, ScopeRef                             string
 	IdempotencyNamespace, IdempotencyDigest, RequestDigest, DigestKeyID string
@@ -21,12 +23,15 @@ type Request struct {
 	OperatorGeneration                                                  int64
 	ContentKind, Profile                                                string
 }
+
+// Assembler 只拥有launch intent和operator reservation两个持久owner。
 type Assembler struct {
 	commands     *orchestrationcommand.Store
 	reservations *operatorreservation.Store
 }
 
 // New requires both immutable intent and source-fenced reservation owners.
+// New 构造只负责创建不可变launch intent的assembler。
 func New(commands *orchestrationcommand.Store, reservations *operatorreservation.Store) (*Assembler, error) {
 	if commands == nil || reservations == nil {
 		return nil, ErrInvalid
@@ -34,9 +39,9 @@ func New(commands *orchestrationcommand.Store, reservations *operatorreservation
 	return &Assembler{commands: commands, reservations: reservations}, nil
 }
 
-// Assemble validates the caller-supplied proof and reserves an immutable launch intent.
+// Assemble 校验当前operator reservation并保存launch_agent意图，不执行provider。
 func (a *Assembler) Assemble(ctx context.Context, r Request) (orchestrationcommand.Record, error) {
-	if a == nil || ctx == nil {
+	if a == nil || a.commands == nil || a.reservations == nil || ctx == nil {
 		return orchestrationcommand.Record{}, ErrInvalid
 	}
 	if err := validate(r); err != nil {
@@ -46,15 +51,25 @@ func (a *Assembler) Assemble(ctx context.Context, r Request) (orchestrationcomma
 	if err != nil {
 		return orchestrationcommand.Record{}, err
 	}
-	x := res.OrchestrationOperatorReservation
-	if x.ReservationID != r.OperatorReservationID || x.SourceID != r.OperatorSourceID || x.Generation != r.OperatorGeneration || x.CallerPrincipalRef != r.CallerPrincipalRef || x.PrincipalRef != r.CallerPrincipalRef || x.ScopeRef != r.ScopeRef || x.SourceFenceRef != r.SourceFenceRef {
-		return orchestrationcommand.Record{}, fmt.Errorf("%w: reservation binding", ErrInvalid)
-	}
-	if x.ContentCandidate != r.ContentRef || x.ProfileRef != r.Profile {
-		return orchestrationcommand.Record{}, fmt.Errorf("%w: content binding", ErrInvalid)
+	if err := verifyReservationBinding(res.OrchestrationOperatorReservation, r); err != nil {
+		return orchestrationcommand.Record{}, err
 	}
 	return a.commands.Reserve(ctx, orchestrationcommand.Intent{CommandID: r.CommandID, CommandKind: "launch_agent", CallerPrincipalRef: r.CallerPrincipalRef, ScopeRef: r.ScopeRef, IdempotencyNamespace: r.IdempotencyNamespace, IdempotencyKeyDigest: r.IdempotencyDigest, RequestDigest: r.RequestDigest, DigestKeyID: r.DigestKeyID, RequestContentRef: r.ContentRef, SourceFenceRef: r.SourceFenceRef, TargetFenceRef: r.TargetFenceRef})
 }
+
+// verifyReservationBinding 比较reservation与launch请求的全部来源和内容绑定字段。
+// verifyReservationBinding 比较reservation与launch请求的来源和内容字段。
+func verifyReservationBinding(row sqlc.OrchestrationOperatorReservation, r Request) error {
+	if row.ReservationID != r.OperatorReservationID || row.SourceID != r.OperatorSourceID || row.Generation != r.OperatorGeneration || row.CallerPrincipalRef != r.CallerPrincipalRef || row.PrincipalRef != r.CallerPrincipalRef || row.ScopeRef != r.ScopeRef || row.SourceFenceRef != r.SourceFenceRef {
+		return fmt.Errorf("%w: reservation binding", ErrInvalid)
+	}
+	if row.ContentCandidate != r.ContentRef || row.ProfileRef != r.Profile {
+		return fmt.Errorf("%w: content binding", ErrInvalid)
+	}
+	return nil
+}
+
+// validate 校验launch intent的必填身份、摘要和profile字段。
 func validate(r Request) error {
 	for _, v := range []string{r.CommandID, r.CallerPrincipalRef, r.ScopeRef, r.IdempotencyNamespace, r.IdempotencyDigest, r.RequestDigest, r.DigestKeyID, r.ContentRef, r.SourceFenceRef, r.OperatorReservationID, r.OperatorSourceID, r.ContentKind, r.Profile} {
 		if strings.TrimSpace(v) != v || v == "" {
@@ -64,7 +79,7 @@ func validate(r Request) error {
 	if r.TargetFenceRef != "" && strings.TrimSpace(r.TargetFenceRef) != r.TargetFenceRef {
 		return ErrInvalid
 	}
-	if r.OperatorGeneration <= 0 {
+	if r.OperatorGeneration <= 0 || r.ContentKind != "operator_content_ref" {
 		return ErrInvalid
 	}
 	if len(r.IdempotencyDigest) != 64 || len(r.RequestDigest) != 64 {

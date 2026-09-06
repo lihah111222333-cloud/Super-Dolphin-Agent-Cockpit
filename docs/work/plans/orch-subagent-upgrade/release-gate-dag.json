@@ -1,0 +1,694 @@
+{
+  "schema_version": 1,
+  "authority": "planning_only",
+  "source_spec": "docs/superpowers/specs/2026-07-11-unified-native-subagent-control-plane-design.md",
+  "nodes": [
+    {
+      "id": "TRUST",
+      "title": "输出信任与提示词边界",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "ID",
+      "title": "任务身份与事件存储",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-identity-and-event-store-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "CONTENT",
+      "title": "内容生命周期与加密擦除",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "RESOURCE",
+      "title": "持久资源准入与预算",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/durable-resource-admission-and-budget-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "OUT",
+      "title": "持久命令与事务发件箱",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "PROBE",
+      "title": "官方 CLI 能力探测",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "CTL",
+      "title": "控制通道与原生任务 RPC",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/mcp-control-channel-and-native-agent-rpc-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "BRIDGE",
+      "title": "各提供方 CLI 原生桥接",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/provider-cli-native-bridge-profiles-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "TOOLS",
+      "title": "版本化工具面迁移",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "ROOM",
+      "title": "协作房间授权与流控",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-room-authz-and-flow-control-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "UI",
+      "title": "任务与事件 UI 投影",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "A2A",
+      "title": "跨实例 A2A 网关",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/a2a-gateway-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "VERIFY",
+      "title": "机器验证与发布证据",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/machine-verification-and-release-evidence-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "ROLLOUT",
+      "title": "跨进程升级与回滚",
+      "kind": "spec",
+      "document": "docs/work/proposals/orch-subagent-s0/cross-process-rollout-and-rollback-spec.md",
+      "status": "draft"
+    },
+    {
+      "id": "VERIFY_S",
+      "title": "验证骨架获批",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "ROLLOUT_S",
+      "title": "升级回滚骨架获批",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "DOMAIN_DONE",
+      "title": "所有适用领域规格获批",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "VERIFY_DONE",
+      "title": "运行证明与验证裁决完成",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "PRECANARY_DONE",
+      "title": "混合版本迁移恢复回滚证明完成",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "CANARY_5_LEASE",
+      "title": "5%阶段准入",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "CANARY_5_ATTEST",
+      "title": "5%观测窗口证明",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "CANARY_25_LEASE",
+      "title": "25%阶段准入",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "CANARY_25_ATTEST",
+      "title": "25%观测窗口证明",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "CANARY_100_LEASE",
+      "title": "100%阶段准入",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "CANARY_100_ATTEST",
+      "title": "100%及24小时后观测证明",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "FINAL_DECISION",
+      "title": "GA认证裁决",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "FINAL_COMMIT",
+      "title": "证据与启用记录原子提交",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    },
+    {
+      "id": "ENABLE",
+      "title": "GA稳定运行许可",
+      "kind": "gate",
+      "document": "docs/work/plans/orch-subagent-upgrade/README.md",
+      "status": "pending"
+    }
+  ],
+  "edges": [
+    {
+      "from": "TRUST",
+      "to": "ID",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ID",
+      "to": "CONTENT",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ID",
+      "to": "RESOURCE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ID",
+      "to": "OUT",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CONTENT",
+      "to": "OUT",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "RESOURCE",
+      "to": "OUT",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CTL",
+      "to": "BRIDGE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "PROBE",
+      "to": "BRIDGE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ID",
+      "to": "BRIDGE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CONTENT",
+      "to": "BRIDGE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "RESOURCE",
+      "to": "BRIDGE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "OUT",
+      "to": "BRIDGE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "TRUST",
+      "to": "BRIDGE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ID",
+      "to": "ROOM",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CONTENT",
+      "to": "ROOM",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "RESOURCE",
+      "to": "ROOM",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "OUT",
+      "to": "ROOM",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "TRUST",
+      "to": "ROOM",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CTL",
+      "to": "TOOLS",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "PROBE",
+      "to": "TOOLS",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ID",
+      "to": "TOOLS",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "RESOURCE",
+      "to": "TOOLS",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "OUT",
+      "to": "TOOLS",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "TRUST",
+      "to": "TOOLS",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ROOM",
+      "to": "TOOLS",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "BRIDGE",
+      "to": "TOOLS",
+      "kind": "provider_enable",
+      "providers": [
+        "codex",
+        "claude",
+        "agy",
+        "grok"
+      ]
+    },
+    {
+      "from": "ID",
+      "to": "UI",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CONTENT",
+      "to": "UI",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "RESOURCE",
+      "to": "UI",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "OUT",
+      "to": "UI",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ROOM",
+      "to": "UI",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "TOOLS",
+      "to": "UI",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ID",
+      "to": "A2A",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CONTENT",
+      "to": "A2A",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "RESOURCE",
+      "to": "A2A",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "OUT",
+      "to": "A2A",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "TRUST",
+      "to": "A2A",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ROOM",
+      "to": "A2A",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "VERIFY",
+      "to": "VERIFY_S",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ROLLOUT",
+      "to": "ROLLOUT_S",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "VERIFY_S",
+      "to": "TRUST",
+      "kind": "root_requirement",
+      "providers": []
+    },
+    {
+      "from": "ROLLOUT_S",
+      "to": "TRUST",
+      "kind": "root_compatibility",
+      "providers": []
+    },
+    {
+      "from": "VERIFY_S",
+      "to": "PROBE",
+      "kind": "root_requirement",
+      "providers": []
+    },
+    {
+      "from": "ROLLOUT_S",
+      "to": "PROBE",
+      "kind": "root_compatibility",
+      "providers": []
+    },
+    {
+      "from": "VERIFY_S",
+      "to": "CTL",
+      "kind": "root_requirement",
+      "providers": []
+    },
+    {
+      "from": "ROLLOUT_S",
+      "to": "CTL",
+      "kind": "root_compatibility",
+      "providers": []
+    },
+    {
+      "from": "BRIDGE",
+      "to": "DOMAIN_DONE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "UI",
+      "to": "DOMAIN_DONE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "A2A",
+      "to": "DOMAIN_DONE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "DOMAIN_DONE",
+      "to": "VERIFY_DONE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "VERIFY",
+      "to": "VERIFY_DONE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "DOMAIN_DONE",
+      "to": "PRECANARY_DONE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "ROLLOUT",
+      "to": "PRECANARY_DONE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "VERIFY_DONE",
+      "to": "CANARY_5_LEASE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "PRECANARY_DONE",
+      "to": "CANARY_5_LEASE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CANARY_5_LEASE",
+      "to": "CANARY_5_ATTEST",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CANARY_5_ATTEST",
+      "to": "CANARY_25_LEASE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CANARY_25_LEASE",
+      "to": "CANARY_25_ATTEST",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CANARY_25_ATTEST",
+      "to": "CANARY_100_LEASE",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CANARY_100_LEASE",
+      "to": "CANARY_100_ATTEST",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "CANARY_100_ATTEST",
+      "to": "FINAL_DECISION",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "FINAL_DECISION",
+      "to": "FINAL_COMMIT",
+      "kind": "requires",
+      "providers": []
+    },
+    {
+      "from": "FINAL_COMMIT",
+      "to": "ENABLE",
+      "kind": "requires",
+      "providers": []
+    }
+  ],
+  "cross_task_requirements": [
+    {
+      "id": "CT_DELIVERY_UNION",
+      "capability": "direct_peer_delivery_union",
+      "title": "Direct peer message delivery union",
+      "canonical_surface": "unified_v2",
+      "owner_spec_ids": ["ID", "CONTENT", "RESOURCE", "OUT", "BRIDGE", "TOOLS"],
+      "depends_on": ["ID", "CONTENT", "RESOURCE", "OUT", "BRIDGE", "TOOLS"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "needs_revalidation"
+    },
+    {
+      "id": "CT_GRANT_SPLIT",
+      "capability": "strict_discover_read_send_grant",
+      "title": "Strict discover/read/send grant separation",
+      "canonical_surface": "unified_v2",
+      "owner_spec_ids": ["TRUST", "ID", "TOOLS", "VERIFY"],
+      "depends_on": ["TRUST", "ID", "TOOLS", "VERIFY"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "pending"
+    },
+    {
+      "id": "CT_MESSAGE_REPLY_ASSOCIATION",
+      "capability": "message_reply_association",
+      "title": "Message/reply association integrity",
+      "canonical_surface": "unified_v2",
+      "owner_spec_ids": ["ID", "CONTENT", "OUT", "TOOLS", "UI"],
+      "depends_on": ["ID", "CONTENT", "OUT", "TOOLS", "UI"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "pending"
+    },
+    {
+      "id": "CT_ROOM_NO_ESCALATION",
+      "capability": "room_no_escalation",
+      "title": "Room membership does not escalate direct-peer authority",
+      "canonical_surface": "room",
+      "owner_spec_ids": ["TRUST", "ID", "CONTENT", "RESOURCE", "OUT", "ROOM"],
+      "depends_on": ["TRUST", "ID", "CONTENT", "RESOURCE", "OUT", "ROOM"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "needs_revalidation"
+    },
+    {
+      "id": "CT_CURSOR_RESUME",
+      "capability": "cursor_resume",
+      "title": "Cursor resume after disconnect or restart",
+      "canonical_surface": "unified_v2",
+      "owner_spec_ids": ["ID", "TOOLS", "UI", "VERIFY"],
+      "depends_on": ["ID", "TOOLS", "UI", "VERIFY"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "pending"
+    },
+    {
+      "id": "CT_IDEMPOTENCY",
+      "capability": "idempotency",
+      "title": "Idempotent delivery and replay",
+      "canonical_surface": "unified_v2",
+      "owner_spec_ids": ["ID", "OUT", "TOOLS", "VERIFY"],
+      "depends_on": ["ID", "OUT", "TOOLS", "VERIFY"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "needs_revalidation"
+    },
+    {
+      "id": "CT_UNKNOWN_OUTCOME",
+      "capability": "unknown_outcome",
+      "title": "Unknown outcome remains indeterminate",
+      "canonical_surface": "unified_v2",
+      "owner_spec_ids": ["ID", "RESOURCE", "OUT", "TOOLS", "VERIFY"],
+      "depends_on": ["ID", "RESOURCE", "OUT", "TOOLS", "VERIFY"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "pending"
+    },
+    {
+      "id": "CT_UNAUTHORIZED_ZERO_EFFECT",
+      "capability": "unauthorized_zero_side_effect",
+      "title": "Unauthorized requests have zero side effects",
+      "canonical_surface": "unified_v2",
+      "owner_spec_ids": ["TRUST", "ID", "CONTENT", "RESOURCE", "OUT", "TOOLS", "ROOM", "VERIFY"],
+      "depends_on": ["TRUST", "ID", "CONTENT", "RESOURCE", "OUT", "TOOLS", "ROOM", "VERIFY"],
+      "ancestor_gates": ["VERIFY_S", "ROLLOUT_S", "DOMAIN_DONE", "VERIFY_DONE", "PRECANARY_DONE"],
+      "red_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "green_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "guard_evidence_refs": ["docs/work/plans/orch-subagent-upgrade/cross-task-requirements.md"],
+      "status": "needs_revalidation"
+    }
+  ]
+}

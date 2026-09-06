@@ -262,12 +262,152 @@ func TestSubmitTurnRehydratesPersistedAgentRuntimeAfterPeerRestart(t *testing.T)
 	if launcher.submittedRemoteThreadID != "provider-thread-1" {
 		t.Fatalf("submitted remote thread = %q, want provider-thread-1", launcher.submittedRemoteThreadID)
 	}
+	if launcher.activated.AgentID != "agent-1" || launcher.activated.ThreadID != "provider-thread-1" || launcher.activated.Provider != "codex" {
+		t.Fatalf("activated persisted runtime = %#v, want trusted binding identity", launcher.activated)
+	}
 	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	if snapshot.State != string(agentdto.StateTurnRunning) || snapshot.ActiveTurnID != "turn-1" {
 		t.Fatalf("Snapshot() = %#v, want rehydrated running turn", snapshot)
+	}
+}
+
+func TestSubmitTurnRehydratesProviderThreadWhenPublicThreadDiffers(t *testing.T) {
+	launcher := &persistedRuntimeTestLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	svc.lifecycle.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+		AgentID: "agent-provider-public", Provider: "codex", ProviderThreadID: "provider-thread",
+		CodexThreadID: "public-thread", Cwd: "/repo", CreatedAt: 1710000000, UpdatedAt: 1710000100,
+	}}
+	// agent_threads is keyed by the public thread while provider submission
+	// must retain the provider-native thread id from the binding projection.
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{
+		ThreadID: "public-thread", AgentID: "agent-provider-public", Name: "display", Cwd: "/repo",
+		Status: "created", CreatedAt: 1710000000, UpdatedAt: 1710000100,
+	}}}
+
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-provider-public"}); err != nil {
+		t.Fatalf("SubmitTurn() error = %v", err)
+	}
+	if launcher.submittedRemoteThreadID != "provider-thread" {
+		t.Fatalf("submitted remote thread = %q, want provider-thread (public thread must not replace provider identity)", launcher.submittedRemoteThreadID)
+	}
+}
+
+func TestPersistedBindingIdentityRejectsMalformedTuples(t *testing.T) {
+	tests := []struct {
+		name    string
+		binding PersistedBinding
+		wantErr bool
+	}{
+		{name: "empty thread pair", binding: PersistedBinding{AgentID: "agent", Provider: "codex"}, wantErr: true},
+		{name: "agent placeholder provider thread", binding: PersistedBinding{AgentID: "agent", Provider: "codex", ProviderThreadID: "agent", CodexThreadID: "public"}, wantErr: true},
+		{name: "recovery home drift", binding: PersistedBinding{AgentID: "agent", Provider: "codex", ProviderThreadID: "provider", CodexHome: "/one", ProviderRecoveryHome: "/two"}, wantErr: true},
+		{name: "non-codex identity drift", binding: PersistedBinding{AgentID: "agent", Provider: "claude", ProviderThreadID: "provider", CodexHome: "/codex"}, wantErr: true},
+		{name: "provider-only binding", binding: PersistedBinding{AgentID: "agent", Provider: "codex", ProviderThreadID: "provider"}, wantErr: false},
+		{name: "legacy public fallback", binding: PersistedBinding{AgentID: "agent", Provider: "codex", CodexThreadID: "public"}, wantErr: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validatePersistedBindingIdentity(&test.binding, "agent")
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validatePersistedBindingIdentity() error = %v, wantErr=%v", err, test.wantErr)
+			}
+			if test.wantErr && !errors.Is(err, errPersistedBindingIdentity) {
+				t.Fatalf("validatePersistedBindingIdentity() error = %v, want errPersistedBindingIdentity", err)
+			}
+		})
+	}
+}
+
+func TestPersistedBindingRemoteThreadIDProviderPrecedence(t *testing.T) {
+	binding := &PersistedBinding{AgentID: "agent", Provider: "codex", ProviderThreadID: "provider", CodexThreadID: "public"}
+	if got := persistedBindingRemoteThreadID(binding); got != "provider" {
+		t.Fatalf("persistedBindingRemoteThreadID() = %q, want provider thread", got)
+	}
+	binding.ProviderThreadID = ""
+	if got := persistedBindingRemoteThreadID(binding); got != "public" {
+		t.Fatalf("persistedBindingRemoteThreadID() legacy fallback = %q, want public thread", got)
+	}
+}
+
+func TestPersistedRuntimeThreadIdentityDriftFailsClosed(t *testing.T) {
+	source := persistedRuntimeSource{
+		binding: &PersistedBinding{
+			AgentID: "agent", Provider: "codex", ProviderThreadID: "provider", CodexThreadID: "public", Cwd: "/binding",
+		},
+		provider:       "codex",
+		remoteThreadID: "provider",
+	}
+	err := validatePersistedRuntimeThread(source, &PersistedThread{
+		ThreadID: "public", AgentID: "agent", Cwd: "/drifted", Status: "created",
+	})
+	if !errors.Is(err, errPersistedThreadIdentity) {
+		t.Fatalf("validatePersistedRuntimeThread() error = %v, want identity drift", err)
+	}
+}
+
+func TestPersistedThreadProviderOwnerMismatchFailsClosed(t *testing.T) {
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{
+		{ThreadID: "provider-thread", AgentID: "other-agent", Status: "created"},
+		{ThreadID: "public-thread", AgentID: "agent", Status: "created"},
+	}}
+	_, err := svc.persistedThreadForBinding(context.Background(), "agent", "provider-thread")
+	if !errors.Is(err, errPersistedThreadIdentity) {
+		t.Fatalf("persistedThreadForBinding() error = %v, want provider owner mismatch", err)
+	}
+}
+
+func TestPersistedRuntimeActivationFailureRollsBackRuntimeProjection(t *testing.T) {
+	launcher := &persistedRuntimeTestLauncher{activationErr: errors.New("provider activation failed")}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	svc.lifecycle.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+		AgentID: "agent-activation-failure", Provider: "codex", ProviderThreadID: "provider-thread",
+		CodexThreadID: "public-thread", Cwd: "/repo", CreatedAt: 1710000000, UpdatedAt: 1710000100,
+	}}
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{
+		ThreadID: "public-thread", AgentID: "agent-activation-failure", Cwd: "/repo", Status: "created",
+		CreatedAt: 1710000000, UpdatedAt: 1710000100,
+	}}}
+
+	svc.ensureRuntimeForPersistedAgent(context.Background(), "agent-activation-failure")
+	if svc.hasRuntimeAgent("agent-activation-failure") {
+		t.Fatal("runtime projection survived provider activation failure")
+	}
+}
+
+func TestSubmitTurnRehydratesPersistedAgentBindsTerminalGeneration(t *testing.T) {
+	svc, _ := newTerminalOutcomeTestService(t)
+	launcher := &persistedRuntimeTestLauncher{}
+	svc.lifecycle.launcher = launcher
+	svc.turns.launcher = launcher
+	svc.lifecycle.agentBindings = fakeAgentBindingStore{binding: &PersistedBinding{
+		AgentID: "agent-1", Provider: "codex", CodexThreadID: "provider-thread-1", Cwd: "/repo",
+		CreatedAt: 1710000000, UpdatedAt: 1710000100,
+	}}
+	svc.lifecycle.agentThreads = fakeAgentThreadStore{threads: []PersistedThread{{
+		ThreadID: "provider-thread-1", AgentID: "agent-1", Name: "display one", Cwd: "/repo",
+		Status: "created", CreatedAt: 1710000000, UpdatedAt: 1710000100,
+	}}}
+
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: "agent-1"}); err != nil {
+		t.Fatalf("SubmitTurn() error = %v", err)
+	}
+	var got agentRuntime
+	if err := svc.registry.withAgentReadLockedByAgentID(context.Background(), "agent-1", func(agent *agentRuntime) error {
+		got = *agent
+		return nil
+	}); err != nil {
+		t.Fatalf("read rehydrated runtime: %v", err)
+	}
+	if got.sessionGeneration == 0 || got.sessionGeneration != got.launchSeq {
+		t.Fatalf("rehydrated session generation = %d, launch seq = %d; want non-zero matching generation", got.sessionGeneration, got.launchSeq)
+	}
+	if got.terminalHeadVersion == 0 {
+		t.Fatal("rehydrated terminal head version = 0, want activated durable head")
 	}
 }
 
@@ -432,6 +572,8 @@ func (s fakeAgentBindingStore) SetArchived(context.Context, PersistedBindingArch
 type persistedRuntimeTestLauncher struct {
 	submittedAgentID        string
 	submittedRemoteThreadID string
+	activated               PersistedRuntimeActivation
+	activationErr           error
 }
 
 func (l *persistedRuntimeTestLauncher) Launch(context.Context, *agentRuntime, LaunchRequest) (LaunchResult, error) {
@@ -462,6 +604,11 @@ func (l *persistedRuntimeTestLauncher) SubmitTurn(_ context.Context, agent *agen
 
 func (l *persistedRuntimeTestLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.remoteThreadID != ""
+}
+
+func (l *persistedRuntimeTestLauncher) ActivatePersistedRuntime(_ context.Context, activation PersistedRuntimeActivation) error {
+	l.activated = activation
+	return l.activationErr
 }
 
 func (l *persistedRuntimeTestLauncher) SupportsPersistedRuntimeRehydrate() bool {

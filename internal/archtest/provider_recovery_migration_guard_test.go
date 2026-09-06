@@ -31,10 +31,10 @@ type providerRecoveryMigrationContract struct {
 	migrationSHA     string
 	dispatchNames    []string
 	sqlcSchemaNames  []string
-	schemaFloor      int
+	schemaFloor      int // 当前二进制的 schema 最低版本，必须不低于恢复迁移版本。
 }
 
-// TestProviderRecoveryMigrationVersionFieldGuard 动态锁定恢复迁移、运行时 dispatch、sqlc schema 与版本门槛。
+// TestProviderRecoveryMigrationVersionFieldGuard 动态锁定恢复迁移、运行时 dispatch、sqlc schema 与最低 schema 版本。
 func TestProviderRecoveryMigrationVersionFieldGuard(t *testing.T) {
 	root := repoRoot(t)
 	migrationName, migrationVersion, migrationSHA := discoverProviderRecoveryMigration(t, root)
@@ -89,6 +89,35 @@ func TestProviderRecoveryMigrationVersionFieldGuardRejectsDrift(t *testing.T) {
 			test.mutate(&contract)
 			if violations := providerRecoveryMigrationContractViolations(contract); len(violations) == 0 {
 				t.Fatalf("mutation %q produced no field guard violation", test.name)
+			}
+		})
+	}
+}
+
+func TestProviderRecoveryMigrationVersionFieldGuardSchemaFloorDrift(t *testing.T) {
+	base := providerRecoveryMigrationContract{
+		migrationName:    "123_agent_provider_binding_recovery_owner.sql",
+		migrationVersion: providerRecoveryMigrationVersion,
+		migrationSHA:     providerRecoveryMigrationSHA256,
+		dispatchNames:    []string{"123_agent_provider_binding_recovery_owner.sql"},
+		sqlcSchemaNames:  []string{"123_agent_provider_binding_recovery_owner.sql"},
+	}
+	tests := []struct {
+		name          string
+		schemaFloor   int
+		wantViolation bool
+	}{
+		{name: "below recovery migration", schemaFloor: providerRecoveryMigrationVersion - 1, wantViolation: true},
+		{name: "equal recovery migration", schemaFloor: providerRecoveryMigrationVersion, wantViolation: false},
+		{name: "current floor above recovery migration", schemaFloor: platformdb.MinRequiredSchemaVersion, wantViolation: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contract := base
+			contract.schemaFloor = test.schemaFloor
+			violations := providerRecoveryMigrationContractViolations(contract)
+			if gotViolation := len(violations) != 0; gotViolation != test.wantViolation {
+				t.Fatalf("schema floor %d violations = %v, want violation=%t", test.schemaFloor, violations, test.wantViolation)
 			}
 		})
 	}
@@ -402,9 +431,11 @@ func providerRecoveryMigrationContractViolations(contract providerRecoveryMigrat
 			contract.sqlcSchemaNames, contract.migrationName,
 		))
 	}
-	if contract.schemaFloor != contract.migrationVersion {
+	// 后续迁移（如 124-133）可以继续抬高当前二进制的 schema floor；这里只要求
+	// provider recovery 迁移已包含在最低版本内，migration/dispatch/sqlc 仍必须 exact 123。
+	if contract.schemaFloor < contract.migrationVersion {
 		violations = append(violations, fmt.Sprintf(
-			"MinRequiredSchemaVersion = %d, want provider recovery migration version %d",
+			"MinRequiredSchemaVersion = %d, want provider recovery migration version %d or newer",
 			contract.schemaFloor, contract.migrationVersion,
 		))
 	}

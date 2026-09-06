@@ -16,6 +16,13 @@ var mcpStdout atomic.Pointer[os.File]
 
 // main 初始化 rlimit、环境变量和 GOMAXPROCS，保护 MCP stdio 通道后启动编排进程。
 func main() {
+	if len(os.Args) > 1 {
+		if err := runCommand(os.Args[1:]); err != nil {
+			_, _ = os.Stderr.WriteString("mcp-orch: " + err.Error() + "\n")
+			os.Exit(1)
+		}
+		return
+	}
 	rlimit.Init()
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {
 		_, _ = os.Stderr.WriteString("mcp-orch startup env failed: " + err.Error() + "\n")

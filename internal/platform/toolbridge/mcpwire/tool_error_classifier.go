@@ -162,8 +162,10 @@ func defaultToolErrorClassifiersCore() []toolErrorClassifier {
 		{
 			code: "capability_unsupported",
 			hint: staticToolHint("next: use a supported tool/action/language for this helper or language adapter"),
-			match: func(_ error, message string, _ string) bool {
-				return strings.Contains(message, "unsupported run language") ||
+			match: func(err error, message string, _ string) bool {
+				var capabilityErr *contract.CapabilityError
+				return errors.As(err, &capabilityErr) || strings.Contains(message, "capability_not_supported") ||
+					strings.Contains(message, "unsupported run language") ||
 					strings.Contains(message, "unsupported helper language") ||
 					(strings.Contains(message, "unsupported") && strings.Contains(message, "capability"))
 			},

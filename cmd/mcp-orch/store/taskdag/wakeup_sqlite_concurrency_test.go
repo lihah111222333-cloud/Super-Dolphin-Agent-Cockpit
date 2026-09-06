@@ -216,7 +216,7 @@ func TestSQLiteRetryWakeupWithNodeConfigPatchRollsBackRetryOnStaleConfig(t *test
 		RunID:          run.ID,
 		WakeupKind:     "node_start",
 		TargetAgentID:  "agent-smart",
-		PromptPayload:  json.RawMessage(`{}`),
+		PromptPayload:  canonicalDownstreamPayload("agent-smart"),
 		IdempotencyKey: "smart-retry-wakeup",
 	}); err != nil {
 		t.Fatalf("EnqueueWakeup() error = %v", err)
@@ -272,7 +272,7 @@ func TestSQLiteWakeupAndRunListsOmitLargeColumns(t *testing.T) {
 		RunID:          run.ID,
 		WakeupKind:     "node_start",
 		TargetAgentID:  "agent-large",
-		PromptPayload:  json.RawMessage(`{"heavy":"payload"}`),
+		PromptPayload:  canonicalDownstreamPayload("agent-large"),
 		IdempotencyKey: "large-list-wakeup",
 	}); err != nil {
 		t.Fatalf("EnqueueWakeup() error = %v", err)
@@ -321,7 +321,7 @@ func newSQLiteReclaimedWakeupFixture(t *testing.T, ctx context.Context, label st
 	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-multi", run.ID)
 	wakeupID, err := store.EnqueueWakeup(ctx, EnqueueWakeupInput{
 		DagKey: "dag-multi", NodeKey: "root", RunID: run.ID, WakeupKind: "node_start",
-		TargetAgentID: "agent-" + label, PromptPayload: json.RawMessage(`{}`), IdempotencyKey: "wakeup-" + label,
+		TargetAgentID: "agent-" + label, PromptPayload: canonicalDownstreamPayload("agent-" + label), IdempotencyKey: "wakeup-" + label,
 	})
 	if err != nil {
 		t.Fatalf("EnqueueWakeup() error = %v", err)
@@ -472,7 +472,7 @@ func assertWakeupListOmitsPayloadAndDetailLoadsIt(t *testing.T, ctx context.Cont
 	if err != nil {
 		t.Fatalf("GetWakeup() error = %v", err)
 	}
-	if string(detail.PromptPayload) != `{"heavy":"payload"}` {
+	if string(detail.PromptPayload) != string(canonicalDownstreamPayload("agent-large")) {
 		t.Fatalf("GetWakeup payload = %s, want full payload", detail.PromptPayload)
 	}
 }
@@ -504,7 +504,7 @@ func seedSQLiteWakeupClaimRows(t *testing.T, ctx context.Context, store *store, 
 			RunID:          run.ID,
 			WakeupKind:     "node_start",
 			TargetAgentID:  "agent-claim",
-			PromptPayload:  json.RawMessage(`{}`),
+			PromptPayload:  canonicalDownstreamPayload("agent-claim"),
 			IdempotencyKey: fmt.Sprintf("claim-%03d", i),
 		}); err != nil {
 			t.Fatalf("EnqueueWakeup(%d) error = %v", i, err)

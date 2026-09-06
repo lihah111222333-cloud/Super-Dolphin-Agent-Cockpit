@@ -20,6 +20,7 @@ func resetLaunchState(agent *agentState) {
 	agent.stopRequested = false
 	clearAgentTurnStateLocked(agent)
 	agent.remoteThreadID, agent.pendingLaunchThreadID = "", ""
+	agent.pendingCLIExit = nil
 	agent.pendingLaunchThreadAt, agent.remoteAgentID = time.Time{}, ""
 	agent.startedAt = time.Time{}
 	agent.updatedAt = time.Time{}
@@ -204,9 +205,29 @@ func shouldAutoRecoverProcessExitLocked(launcher recoveryLauncherPort, agent *ag
 }
 
 // processExitAutoRecoverable 判断进程退出后是否还能由本地命令或 launcher 恢复。
+// standalone CLI 的 LaunchRequest.Command 仅是请求载荷，Execution 明确不会
+// 执行它；managed Claude 不能因携带该载荷而落入 legacy 本地 recovery。
 func processExitAutoRecoverable(launcher recoveryLauncherPort, agent *agentRuntime, err error) bool {
-	return agent != nil && err != nil && !agent.stopRequested &&
-		(len(agent.command) > 0 || launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != "")
+	if agent == nil || err == nil || agent.stopRequested {
+		return false
+	}
+	if isManagedCLIRecovery(launcher, agent) {
+		provider, _ := snapshotProvider(agent)
+		if strings.EqualFold(strings.TrimSpace(provider), "claude") {
+			return false
+		}
+	}
+	return len(agent.command) > 0 || launcher != nil && agent.cmd == nil && strings.TrimSpace(agent.remoteThreadID) != ""
+}
+
+// isManagedCLIRecovery 识别 standalone Execution 所拥有的 provider session。
+// 仅接受具体 cliLauncher，避免把任意 launcher 实现误判为 CLI managed runtime。
+func isManagedCLIRecovery(launcher recoveryLauncherPort, agent *agentRuntime) bool {
+	if launcher == nil || agent == nil {
+		return false
+	}
+	_, ok := launcher.(*cliLauncher)
+	return ok
 }
 
 func resetProcessExitAutoRecoverWindowLocked(agent *agentRuntime, now time.Time) {

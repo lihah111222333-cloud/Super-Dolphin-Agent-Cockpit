@@ -47,6 +47,9 @@ func allowInternalImportViolations(rule BackendBoundaryRule, rel string, imports
 		if !isBackendBoundaryInternalOrCmdImport(imp.path) || isOwnMCPCommandImport(rel, imp.path) {
 			continue
 		}
+		if backendBoundaryExceptionAllows(rule.Exceptions, rel, imp.path) {
+			continue
+		}
 		if matchesBackendBoundaryPolicy(rule.Deny, rel, imp.path) || !matchesBackendBoundaryPolicy(rule.Allow, rel, imp.path) {
 			violations = append(violations, backendBoundaryViolation(rule, rel, imp))
 		}

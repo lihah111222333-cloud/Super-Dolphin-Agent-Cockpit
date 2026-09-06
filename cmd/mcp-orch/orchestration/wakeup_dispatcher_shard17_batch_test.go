@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -202,20 +203,78 @@ func TestWakeupDispatcherProcessBatchTruncatesLongError(t *testing.T) {
 func TestBuildLaunchRequestFromWakeupDecodesJSONPayload(t *testing.T) {
 	w := taskdag.Wakeup{
 		TargetAgentID: "fallback-agent",
-		PromptPayload: []byte(`{"agent_id":"agent-from-payload","prompt":"go"}`),
+		PromptPayload: []byte(`{"wakeup_payload_kind":"legacy_launch","schema_version":1,"agent_id":"fallback-agent","prompt":"go"}`),
 	}
-	req := buildLaunchRequestFromWakeup(w)
-	// json tag 走 Go 字段反射默认行为（exact field name），所以 agent_id 不会
-	// 被读到。但 AgentID 既不存在又不为空时，buildLaunchRequest 会用 wakeup
-	// fallback。验证 fallback 生效即可，payload 结构由 buildLaunchRequest 兼容处理。
+	req, err := buildLaunchRequestFromWakeup(w)
+	if err != nil {
+		t.Fatalf("buildLaunchRequestFromWakeup() error = %v", err)
+	}
 	if req.AgentID != "fallback-agent" {
-		t.Fatalf("AgentID = %q, want fallback-agent (json tag mismatch ignored, fallback applied)", req.AgentID)
+		t.Fatalf("AgentID = %q, want fallback-agent", req.AgentID)
 	}
 }
 
+func TestWakeupDispatcherRejectsInvalidPayloadBeforeLauncher(t *testing.T) {
+	now := time.Now().UTC()
+	w := makeClaimedWakeup(901, "agent-invalid", 1, now)
+	w.PromptPayload = []byte(`{"wakeup_payload_kind":"dag_downstream","schema_version":1,"agent_id":"agent-invalid","prompt":"mixed"}`)
+	store := &dispatcherStubStore{claimReply: []taskdag.Wakeup{w}}
+	launcher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{ClaimedBy: w.ClaimedBy})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher() error = %v", err)
+	}
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch() error = %v", err)
+	}
+	if len(launcher.calls) != 0 {
+		t.Fatalf("launcher calls = %d, want zero for invalid payload", len(launcher.calls))
+	}
+	if len(store.failCalls) != 1 {
+		t.Fatalf("fail calls = %d, want one typed failed transition", len(store.failCalls))
+	}
+}
+
+func TestWakeupDispatcherRejectsLegacyPayloadSchemaBeforeLauncher(t *testing.T) {
+	now := time.Now().UTC()
+	w := makeClaimedWakeup(902, "agent-legacy", 1, now)
+	w.PayloadSchemaVersion = 0
+	store := &dispatcherStubStore{claimReply: []taskdag.Wakeup{w}}
+	launcher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{ClaimedBy: w.ClaimedBy})
+	require.NoError(t, err)
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch() error = %v", err)
+	}
+	require.Empty(t, launcher.calls, "legacy payload must never reach launcher")
+	require.Len(t, store.failCalls, 1, "legacy payload must be terminally rejected")
+	require.Contains(t, store.failCalls[0].LastError, "explicit operator migration/quarantine")
+}
+
+func TestWakeupDispatcherRejectsDAGIdentityBranchMismatchBeforeLauncher(t *testing.T) {
+	now := time.Now().UTC()
+	w := makeClaimedWakeup(903, "agent-mismatch", 1, now)
+	w.DagKey = "dag-mismatch"
+	w.NodeKey = "node-mismatch"
+	w.RunID = int64Ptr(17)
+	store := &dispatcherStubStore{claimReply: []taskdag.Wakeup{w}}
+	launcher := &dispatcherStubLauncher{}
+	d, err := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{ClaimedBy: w.ClaimedBy})
+	require.NoError(t, err)
+	if _, err := d.ProcessBatch(context.Background()); err != nil {
+		t.Fatalf("ProcessBatch() error = %v", err)
+	}
+	require.Empty(t, launcher.calls, "legacy branch carrying DAG identity must never reach launcher")
+	require.Len(t, store.failCalls, 1)
+	require.Contains(t, store.failCalls[0].LastError, "legacy launch branch carries DAG row identity")
+}
+
 func TestBuildLaunchRequestFromWakeupEmptyPayloadUsesTarget(t *testing.T) {
-	w := taskdag.Wakeup{TargetAgentID: " agent-empty "}
-	req := buildLaunchRequestFromWakeup(w)
+	w := taskdag.Wakeup{TargetAgentID: " agent-empty ", PromptPayload: []byte(`{"wakeup_payload_kind":"legacy_launch","schema_version":1,"agent_id":"agent-empty"}`)}
+	req, err := buildLaunchRequestFromWakeup(w)
+	if err != nil {
+		t.Fatalf("buildLaunchRequestFromWakeup() error = %v", err)
+	}
 	if req.AgentID != "agent-empty" {
 		t.Fatalf("AgentID = %q, want trimmed agent-empty", req.AgentID)
 	}
@@ -284,6 +343,8 @@ func makeDAGWakeup(id int64, dagKey, nodeKey, agent string, attempt int32, ts ti
 	w := makeClaimedWakeup(id, agent, attempt, ts)
 	w.DagKey = dagKey
 	w.NodeKey = nodeKey
+	w.WakeupKind = "node_start"
+	w.PromptPayload = json.RawMessage(`{"wakeup_payload_kind":"dag_downstream","schema_version":1,"agent_id":` + strconv.Quote(agent) + `}`)
 	w.RunID = int64Ptr(9001)
 	return w
 }

@@ -92,7 +92,12 @@ func publicTerminalReportResult(outcome contract.TerminalOutcomeCommit) AgentRep
 	state := publicTerminalState(outcome)
 	return AgentReportResult{
 		AgentID: outcome.Identity.AgentID, Report: outcome.PublicReport,
-		ReportSeq: 1, UpdatedAt: outcome.OccurredAt, State: state,
+		// The terminal SSOT does not carry the legacy report-file counter. Its
+		// canonical head version is nevertheless a strictly advancing fence for
+		// each activated turn, so expose it as the report sequence instead of
+		// resetting every terminal outcome to one. This keeps wait_report from
+		// returning a previous turn after the public terminal head changes.
+		ReportSeq: int64(outcome.Identity.HeadVersion), UpdatedAt: outcome.OccurredAt, State: state,
 	}
 }
 

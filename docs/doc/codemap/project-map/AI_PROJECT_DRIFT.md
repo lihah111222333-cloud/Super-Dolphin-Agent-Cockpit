@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4898
+> 已索引文件：5664
 >
-> 未细分职责文件：23
+> 未细分职责文件：32
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 23 |
-| 未细分职责占比 | 0.47% |
+| 未细分职责文件数 | 32 |
+| 未细分职责占比 | 0.56% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 19 |
+| `cmd` | 28 |
 | `.githooks` | 2 |
 | `internal` | 2 |
 
@@ -42,6 +42,15 @@
 - `cmd/codex-worktree-setup/setup_probe.go`
 - `cmd/codex-worktree-setup/setup_test.go`
 - `cmd/codex-worktree-setup/worktree_integration_test.go`
+- `cmd/mcp-recovery-custody/config.go`
+- `cmd/mcp-recovery-custody/config_test.go`
+- `cmd/mcp-recovery-custody/lifecycle_contract_test.go`
+- `cmd/mcp-recovery-custody/main.go`
+- `cmd/mcp-recovery-custody/service.go`
+- `cmd/mcp-recovery-custody/service_coordinator_candidate_test.go`
+- `cmd/mcp-recovery-custody/service_test.go`
+- `cmd/mcp-recovery-custody/supervisor.go`
+- `cmd/mcp-recovery-custody/supervisor_test.go`
 - `cmd/mcp-schema-compiler-helper/main.go`
 - `cmd/super-dolphin-guard/main.go`
 - `cmd/super-dolphin-guard/main_test.go`

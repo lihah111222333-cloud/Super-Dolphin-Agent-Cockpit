@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// archguard:ignore global_vars -- 该原子变量负责进程级唯一性协调
+var processLastAgentIDValue atomic.Uint64
+
 // NewID 生成带前缀、毫秒时间戳和随机后缀的通用 ID。
 func NewID(prefix string) string {
 	buf := make([]byte, 8)
@@ -41,9 +44,16 @@ func (g *Generator) nextAgentIDValue() uint64 {
 	for {
 		now := uint64(time.Now().UnixNano())
 		last := g.lastAgentIDValue.Load()
+		processLast := processLastAgentIDValue.Load()
 		candidate := now
 		if candidate <= last {
 			candidate = last + 1
+		}
+		if candidate <= processLast {
+			candidate = processLast + 1
+		}
+		if !processLastAgentIDValue.CompareAndSwap(processLast, candidate) {
+			continue
 		}
 		if g.lastAgentIDValue.CompareAndSwap(last, candidate) {
 			return candidate

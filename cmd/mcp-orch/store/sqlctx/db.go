@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"runtime/debug"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
@@ -54,6 +55,27 @@ func WithTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sql
 	return platformdb.WithTx(ctx, database, func(tx *sql.Tx) error {
 		return fn(q.WithTx(tx), tx)
 	})
+}
+
+// RequireTransactionDBTX 只接受当前 sqlctx 能确认的 transaction-bound DBTX。
+// 裸 *sql.DB、*sql.Conn、typed-nil 和未知实现均不能作为跨 owner 原子接缝。
+func RequireTransactionDBTX(db sqlc.DBTX) error {
+	if db == nil {
+		return errors.New("transaction-bound DBTX is required")
+	}
+	value := reflect.ValueOf(db)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if value.IsNil() {
+			return errors.New("transaction-bound DBTX is required")
+		}
+	}
+	switch db.(type) {
+	case *sql.Tx, *immediateConnTx:
+		return nil
+	default:
+		return errors.New("transaction-bound DBTX is required")
+	}
 }
 
 // WithTxOrReuse 复用已绑定事务；没有事务时为 SQLite 连接开启普通事务。

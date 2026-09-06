@@ -1,0 +1,2169 @@
+{
+  "schema_version": 1,
+  "authority": "planning_only",
+  "release_decision": "NO-GO",
+  "acceptance_tokens": [
+    "BRIDGE-N01",
+    "BRIDGE-P01",
+    "CTL-N01",
+    "CTL-P01",
+    "GREEN-CONTENT-03",
+    "GREEN-CONTENT-05",
+    "GREEN-CONTENT-06",
+    "GREEN-CONTENT-07",
+    "GREEN-ID-02",
+    "GREEN-OUT-01",
+    "GREEN-OUT-06",
+    "GREEN-OUT-09",
+    "GREEN-OUT-12",
+    "GREEN-RESOURCE-01",
+    "GREEN-TRUST-01",
+    "GREEN-TRUST-06",
+    "PROBE-N01",
+    "PROBE-P01",
+    "PROBE-P06",
+    "PROBE-P07",
+    "RED-CONTENT-01",
+    "RED-CONTENT-08",
+    "RED-CONTENT-09",
+    "RED-CONTENT-10",
+    "RED-ID-01",
+    "RED-OUT-01",
+    "RED-OUT-10",
+    "RED-OUT-14",
+    "RED-OUT-19",
+    "RED-RESOURCE-01",
+    "RED-TRUST-01",
+    "RED-TRUST-07",
+    "RED-TRUST-08",
+    "RED-TRUST-09",
+    "TOOLS-N04",
+    "TOOLS-N05",
+    "TOOLS-P01",
+    "TOOLS-P04",
+    "TOOLS-P07",
+    "TestA2AIdempotentSendAfterLostResponse",
+    "TestA2AUnknownRemoteOutcomeIsNotRetried",
+    "TestRestoreAttemptCannotReuseOldOpenReceipt",
+    "TestRoomFanoutCloseSingleWinner",
+    "TestRoomFrozenUnknownCannotReportCompleted",
+    "TestStaleWriterCannotMutateAfterCutover",
+    "TestUIConcurrentWaitFollowAndMutationCancellationIsolated",
+    "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles",
+    "TestUIProjectionResumesFromCursorAfterRestart",
+    "TestUIUntrustedMarkdownIsInert",
+    "VERIFY-N01",
+    "VERIFY-P01"
+  ],
+  "blocker_ids": [
+    "B01",
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "B07",
+    "B08",
+    "B09",
+    "B10",
+    "B11",
+    "B12",
+    "B13",
+    "B14",
+    "B15",
+    "B16",
+    "B17",
+    "B18"
+  ],
+  "receipts": [
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestA2AIdempotentSendAfterLostResponse",
+        "spec_id": "A2A",
+        "command_id": "acceptance-testa2aidempotentsendafterlostresponse",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "ROOM",
+          "TRUST"
+        ],
+        "dependency_digest": "a254a3a2e5e5c6334b0b3b74c805232563d7564c1805f0beb53f8af5e7dc20e7",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/a2a-gateway-spec.md",
+          "symbol": "TestA2AIdempotentSendAfterLostResponse",
+          "line": 124,
+          "sha256": "85f420b1a1db6fb8503f042eba24279ade32bbe18333ef3e6cc4b3d62c4e9aad"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestA2AIdempotentSendAfterLostResponse"
+        ],
+        "command_id": "acceptance-testa2aidempotentsendafterlostresponse",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "bd905271a7889cd5ec1457dff08e146bbab1dc147f64396437b1436208ffc926",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestA2AUnknownRemoteOutcomeIsNotRetried",
+        "spec_id": "A2A",
+        "command_id": "acceptance-testa2aunknownremoteoutcomeisnotretried",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "ROOM",
+          "TRUST"
+        ],
+        "dependency_digest": "a254a3a2e5e5c6334b0b3b74c805232563d7564c1805f0beb53f8af5e7dc20e7",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/a2a-gateway-spec.md",
+          "symbol": "TestA2AUnknownRemoteOutcomeIsNotRetried",
+          "line": 137,
+          "sha256": "85f420b1a1db6fb8503f042eba24279ade32bbe18333ef3e6cc4b3d62c4e9aad"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestA2AUnknownRemoteOutcomeIsNotRetried"
+        ],
+        "command_id": "acceptance-testa2aunknownremoteoutcomeisnotretried",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "6dcc62e23de99f3e41427231bb22afb92a6153f5b91a84d166d16113a94d7dac",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-ID-01",
+        "spec_id": "ID",
+        "command_id": "acceptance-red-id-01",
+        "depends_on": [
+          "TRUST"
+        ],
+        "dependency_digest": "e0af02e713dfcb562b2565ea3d41256de213e9eb10773c5abb0c104a5f206241",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-identity-and-event-store-spec.md",
+          "symbol": "RED-ID-01",
+          "line": 126,
+          "sha256": "1ae4f75c897e970f187adbe0d93df3ea0950454fd289f0d9d07cb7d8d2a1e773"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-ID-01"
+        ],
+        "command_id": "acceptance-red-id-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "a800285c70a494b49f08efdfadcf97607b9e8c995a4e497db27712f644ef1df6",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-ID-02",
+        "spec_id": "ID",
+        "command_id": "acceptance-green-id-02",
+        "depends_on": [
+          "TRUST"
+        ],
+        "dependency_digest": "e0af02e713dfcb562b2565ea3d41256de213e9eb10773c5abb0c104a5f206241",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-identity-and-event-store-spec.md",
+          "symbol": "GREEN-ID-02",
+          "line": 140,
+          "sha256": "1ae4f75c897e970f187adbe0d93df3ea0950454fd289f0d9d07cb7d8d2a1e773"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-ID-02"
+        ],
+        "command_id": "acceptance-green-id-02",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "055afd2e389c231741400a74d474bff21b572c1c8f1dbb21d2287c2567b2c8db",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-TRUST-01",
+        "spec_id": "TRUST",
+        "command_id": "acceptance-red-trust-01",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-01",
+          "line": 106,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-TRUST-01"
+        ],
+        "command_id": "acceptance-red-trust-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "51ac6cfab90beedfeda4c02713d2f7ced5bbedb3a2196a8a3fc2d6517babf5d7",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-TRUST-07",
+        "spec_id": "TRUST",
+        "command_id": "acceptance-red-trust-07",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-07",
+          "line": 112,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-TRUST-07"
+        ],
+        "command_id": "acceptance-red-trust-07",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "ff49b559ac148805daf3a8203d7d1f9b67c81a939b5a0742ed5d9f590c13e9e8",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-TRUST-08",
+        "spec_id": "TRUST",
+        "command_id": "acceptance-red-trust-08",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-08",
+          "line": 113,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-TRUST-08"
+        ],
+        "command_id": "acceptance-red-trust-08",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "72e3bdd1f6a242999e1ccebcf79c93947df89bbe23af129d1ddd0c260a0c9aa3",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-TRUST-09",
+        "spec_id": "TRUST",
+        "command_id": "acceptance-red-trust-09",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-09",
+          "line": 114,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-TRUST-09"
+        ],
+        "command_id": "acceptance-red-trust-09",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "930be93409eaedb1bc275ce33bd09f9c6fd7863478ff4b909965db12d8fac18f",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-TRUST-01",
+        "spec_id": "TRUST",
+        "command_id": "acceptance-green-trust-01",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "GREEN-TRUST-01",
+          "line": 115,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-TRUST-01"
+        ],
+        "command_id": "acceptance-green-trust-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "6a19cfc216be95eb83583cf13c3087bd62fdadc9dd4e5603d81f33e73ff5caca",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-TRUST-06",
+        "spec_id": "TRUST",
+        "command_id": "acceptance-green-trust-06",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "GREEN-TRUST-06",
+          "line": 120,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-TRUST-06"
+        ],
+        "command_id": "acceptance-green-trust-06",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "5636dde005da8a4b2a92048799ac3a22d2f7c0047250f3f89df8805de5cc78e3",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestRoomFanoutCloseSingleWinner",
+        "spec_id": "ROOM",
+        "command_id": "acceptance-testroomfanoutclosesinglewinner",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "TRUST"
+        ],
+        "dependency_digest": "ff4f78c962a706117f23f1e522d58169a01fd0b0d7f5c6cd5094e8a5fb7e372f",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-room-authz-and-flow-control-spec.md",
+          "symbol": "TestRoomFanoutCloseSingleWinner",
+          "line": 85,
+          "sha256": "d05af6a6e8285d107a66533c3337c183e1e453feda170933f521f248c0d4fff7"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestRoomFanoutCloseSingleWinner"
+        ],
+        "command_id": "acceptance-testroomfanoutclosesinglewinner",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "b207fda45204d3df92ce95365aa0581c9a4023457632baf9cb5787a0e3d4eb2c",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestRoomFrozenUnknownCannotReportCompleted",
+        "spec_id": "ROOM",
+        "command_id": "acceptance-testroomfrozenunknowncannotreportcompleted",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "TRUST"
+        ],
+        "dependency_digest": "ff4f78c962a706117f23f1e522d58169a01fd0b0d7f5c6cd5094e8a5fb7e372f",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-room-authz-and-flow-control-spec.md",
+          "symbol": "TestRoomFrozenUnknownCannotReportCompleted",
+          "line": 98,
+          "sha256": "d05af6a6e8285d107a66533c3337c183e1e453feda170933f521f248c0d4fff7"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestRoomFrozenUnknownCannotReportCompleted"
+        ],
+        "command_id": "acceptance-testroomfrozenunknowncannotreportcompleted",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "4508a448e1f74fb911df8c1e663f7746ba44b97cbe5fa6d4e8055a56b72aa742",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestUIProjectionResumesFromCursorAfterRestart",
+        "spec_id": "UI",
+        "command_id": "acceptance-testuiprojectionresumesfromcursorafterrestart",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "ROOM",
+          "TOOLS"
+        ],
+        "dependency_digest": "b61b5dd2035d8a9e2feb0fb6c02002c80998d86594f2eac7fdaa0cd938a88a65",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIProjectionResumesFromCursorAfterRestart",
+          "line": 128,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestUIProjectionResumesFromCursorAfterRestart"
+        ],
+        "command_id": "acceptance-testuiprojectionresumesfromcursorafterrestart",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "932ecd327f7bed573a0d3d4da1759424752b87ca01925c6bab93698b711b07d8",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestUIUntrustedMarkdownIsInert",
+        "spec_id": "UI",
+        "command_id": "acceptance-testuiuntrustedmarkdownisinert",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "ROOM",
+          "TOOLS"
+        ],
+        "dependency_digest": "b61b5dd2035d8a9e2feb0fb6c02002c80998d86594f2eac7fdaa0cd938a88a65",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIUntrustedMarkdownIsInert",
+          "line": 138,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestUIUntrustedMarkdownIsInert"
+        ],
+        "command_id": "acceptance-testuiuntrustedmarkdownisinert",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "23baa48174cc575088a0ac518a0ef2f955d5b066118e142d561f9cb84f688c1b",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestUIConcurrentWaitFollowAndMutationCancellationIsolated",
+        "spec_id": "UI",
+        "command_id": "acceptance-testuiconcurrentwaitfollowandmutationcancellationisolated",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "ROOM",
+          "TOOLS"
+        ],
+        "dependency_digest": "b61b5dd2035d8a9e2feb0fb6c02002c80998d86594f2eac7fdaa0cd938a88a65",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIConcurrentWaitFollowAndMutationCancellationIsolated",
+          "line": 152,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestUIConcurrentWaitFollowAndMutationCancellationIsolated"
+        ],
+        "command_id": "acceptance-testuiconcurrentwaitfollowandmutationcancellationisolated",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "92b017f8dba90bcaeac9652478410417fefb6381c2d7f0f97788a607aef7b231",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles",
+        "spec_id": "UI",
+        "command_id": "acceptance-testuiconsumesgeneratednextactionswithoutcreatinghandles",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "OUT",
+          "RESOURCE",
+          "ROOM",
+          "TOOLS"
+        ],
+        "dependency_digest": "b61b5dd2035d8a9e2feb0fb6c02002c80998d86594f2eac7fdaa0cd938a88a65",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles",
+          "line": 147,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles"
+        ],
+        "command_id": "acceptance-testuiconsumesgeneratednextactionswithoutcreatinghandles",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "1eff5ccafe792acaeb9366acff7aedc75de8b3305c1380b78e22468d04d6eda5",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-CONTENT-01",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-red-content-01",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-01",
+          "line": 119,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-CONTENT-01"
+        ],
+        "command_id": "acceptance-red-content-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "b4bf320504e0409f10f316c1ffb9a7ef5c9e0c123b2a52a886694d49fc7cce62",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-CONTENT-08",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-red-content-08",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-08",
+          "line": 126,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-CONTENT-08"
+        ],
+        "command_id": "acceptance-red-content-08",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "520cbde5a2018ec75dc68181840e08195ffd282b64a93cd73da178df7ad79491",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-CONTENT-09",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-red-content-09",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-09",
+          "line": 127,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-CONTENT-09"
+        ],
+        "command_id": "acceptance-red-content-09",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "47c58fa46716b97500916b398d67ae4c6c7a24549ee65ca243a215c330d70d6b",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-CONTENT-10",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-red-content-10",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-10",
+          "line": 128,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-CONTENT-10"
+        ],
+        "command_id": "acceptance-red-content-10",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "eae06abbd71c1bd1d6de46b259075b61829b3d1d00492a380712827466b1286f",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-CONTENT-03",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-green-content-03",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-03",
+          "line": 131,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-CONTENT-03"
+        ],
+        "command_id": "acceptance-green-content-03",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "527af7c5760645a58a9fae681e2edd9fdcf0fb95e0bc8dc9d2f1dafcd7d5d434",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-CONTENT-05",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-green-content-05",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-05",
+          "line": 133,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-CONTENT-05"
+        ],
+        "command_id": "acceptance-green-content-05",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "d49df91ea694d21f35fc5f191656ec81a4e94ca7865f62ca4f11d8e4eaeff926",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-CONTENT-06",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-green-content-06",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-06",
+          "line": 134,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-CONTENT-06"
+        ],
+        "command_id": "acceptance-green-content-06",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "361430696eb0b60f9405a6425e3ac49088c20ab996b132d64c5d0ff25ff57fa7",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-CONTENT-07",
+        "spec_id": "CONTENT",
+        "command_id": "acceptance-green-content-07",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-07",
+          "line": 135,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-CONTENT-07"
+        ],
+        "command_id": "acceptance-green-content-07",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "6d3bdffc2c20f93376c5c0b120b13b16a06f83433a68e4ed0753523bf13755ef",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestStaleWriterCannotMutateAfterCutover",
+        "spec_id": "ROLLOUT",
+        "command_id": "acceptance-teststalewritercannotmutateaftercutover",
+        "depends_on": [],
+        "dependency_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/cross-process-rollout-and-rollback-spec.md",
+          "symbol": "TestStaleWriterCannotMutateAfterCutover",
+          "line": 156,
+          "sha256": "3c691c6201a603dab65638ddc4fae9e168730753e846125a0c193079488e2577"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestStaleWriterCannotMutateAfterCutover"
+        ],
+        "command_id": "acceptance-teststalewritercannotmutateaftercutover",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "f910978934bfae52f07e89a03f30b3913ab723d31d5af5380ed95b5f9db396b7",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TestRestoreAttemptCannotReuseOldOpenReceipt",
+        "spec_id": "ROLLOUT",
+        "command_id": "acceptance-testrestoreattemptcannotreuseoldopenreceipt",
+        "depends_on": [],
+        "dependency_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/cross-process-rollout-and-rollback-spec.md",
+          "symbol": "TestRestoreAttemptCannotReuseOldOpenReceipt",
+          "line": 158,
+          "sha256": "3c691c6201a603dab65638ddc4fae9e168730753e846125a0c193079488e2577"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TestRestoreAttemptCannotReuseOldOpenReceipt"
+        ],
+        "command_id": "acceptance-testrestoreattemptcannotreuseoldopenreceipt",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "6bb59caf669c9c7589c64592e1370dbde2aa52d89fea41406e25d58fd353106e",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-OUT-01",
+        "spec_id": "OUT",
+        "command_id": "acceptance-red-out-01",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-01",
+          "line": 261,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-OUT-01"
+        ],
+        "command_id": "acceptance-red-out-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "e26a6bcc7f75ac26dbb99625a7c854bf51e927fc0cf1780ea8b1a6a0d06655fb",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-OUT-10",
+        "spec_id": "OUT",
+        "command_id": "acceptance-red-out-10",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-10",
+          "line": 270,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-OUT-10"
+        ],
+        "command_id": "acceptance-red-out-10",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "261b8c556b0018874d864b3564e99c88e42614e07bd68199ff9e9d7b947303ec",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-OUT-14",
+        "spec_id": "OUT",
+        "command_id": "acceptance-red-out-14",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-14",
+          "line": 274,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-OUT-14"
+        ],
+        "command_id": "acceptance-red-out-14",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "02afb2d52b663e0be1ef4961ddab0ad83742d234994d711225f3fd6206fab5b2",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-OUT-19",
+        "spec_id": "OUT",
+        "command_id": "acceptance-red-out-19",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-19",
+          "line": 279,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-OUT-19"
+        ],
+        "command_id": "acceptance-red-out-19",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "c1d56d9ab0c860c8f97c8cdd2099927a8dd9d3401ff32e343a70f238ca053c7c",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-OUT-01",
+        "spec_id": "OUT",
+        "command_id": "acceptance-green-out-01",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-01",
+          "line": 281,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-OUT-01"
+        ],
+        "command_id": "acceptance-green-out-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "741e10c00a376cc276b5c275cd3fbd74abbf83ea8d8a981d4d38c75bb6b43772",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-OUT-06",
+        "spec_id": "OUT",
+        "command_id": "acceptance-green-out-06",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-06",
+          "line": 286,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-OUT-06"
+        ],
+        "command_id": "acceptance-green-out-06",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "2f3a1eb185d22a1c2adc1e74d7b0023462d9162215e9eb4a29656c044bca7275",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-OUT-09",
+        "spec_id": "OUT",
+        "command_id": "acceptance-green-out-09",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-09",
+          "line": 289,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-OUT-09"
+        ],
+        "command_id": "acceptance-green-out-09",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "2e71b9d1a25e9dc8261da1e4e540724533ed584e7166d4105aa3040fd11e1c33",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-OUT-12",
+        "spec_id": "OUT",
+        "command_id": "acceptance-green-out-12",
+        "depends_on": [
+          "CONTENT",
+          "ID",
+          "RESOURCE"
+        ],
+        "dependency_digest": "c6e394e7e6ca7b4f50909f424c6507532f550738d5331d47139eb750095b95bc",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-12",
+          "line": 292,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-OUT-12"
+        ],
+        "command_id": "acceptance-green-out-12",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "a93bec6fb802045ecdfdf7dfc17f2d5120ff5a10b68dc0365d9ba0220faeaed9",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "RED-RESOURCE-01",
+        "spec_id": "RESOURCE",
+        "command_id": "acceptance-red-resource-01",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-resource-admission-and-budget-spec.md",
+          "symbol": "RED-RESOURCE-01",
+          "line": 98,
+          "sha256": "5f3c94800f729a27b7c8bbab44dfb8ef1951d1292c576ef56dcab0b22ac76f4a"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "RED-RESOURCE-01"
+        ],
+        "command_id": "acceptance-red-resource-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "0df438880f4864574292b846fe3e280efc4093727e9d23a03047363903efe62e",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "GREEN-RESOURCE-01",
+        "spec_id": "RESOURCE",
+        "command_id": "acceptance-green-resource-01",
+        "depends_on": [
+          "ID"
+        ],
+        "dependency_digest": "b4d8b0dacb3612ddfef5af003d988d5a8e98711e98ef816da4c22adb41127d6a",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/durable-resource-admission-and-budget-spec.md",
+          "symbol": "GREEN-RESOURCE-01",
+          "line": 106,
+          "sha256": "5f3c94800f729a27b7c8bbab44dfb8ef1951d1292c576ef56dcab0b22ac76f4a"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "GREEN-RESOURCE-01"
+        ],
+        "command_id": "acceptance-green-resource-01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "064551503218adca207dcb714bb99888f2543c9b69a2ce47c0ae98a347e6b87f",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "VERIFY-P01",
+        "spec_id": "VERIFY",
+        "command_id": "acceptance-verify-p01",
+        "depends_on": [],
+        "dependency_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/machine-verification-and-release-evidence-spec.md",
+          "symbol": "VERIFY-P01",
+          "line": 56,
+          "sha256": "847866de7cb05d90dbee7d61ddd92bd49108f09c917b5d9951bbc2b1283c3537"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "VERIFY-P01"
+        ],
+        "command_id": "acceptance-verify-p01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "9acd930036647759988984c052402fbcf257b8e391743bc484f55759d710699c",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "VERIFY-N01",
+        "spec_id": "VERIFY",
+        "command_id": "acceptance-verify-n01",
+        "depends_on": [],
+        "dependency_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/machine-verification-and-release-evidence-spec.md",
+          "symbol": "VERIFY-N01",
+          "line": 56,
+          "sha256": "847866de7cb05d90dbee7d61ddd92bd49108f09c917b5d9951bbc2b1283c3537"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "VERIFY-N01"
+        ],
+        "command_id": "acceptance-verify-n01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "27e595b93c421037ee078c306cfc58a9e8e580c51da87078e8b05d723c637852",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "CTL-P01",
+        "spec_id": "CTL",
+        "command_id": "acceptance-ctl-p01",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/mcp-control-channel-and-native-agent-rpc-spec.md",
+          "symbol": "CTL-P01",
+          "line": 134,
+          "sha256": "0b12e17e5cad652dd5d9fefd15a330476c5bfe65d67555d1c8f5cb449120c454"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "CTL-P01"
+        ],
+        "command_id": "acceptance-ctl-p01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "689090af9847c3a9c01607e5d96dfa918bc5f09f2b7d8dc9bb9fccf853266fe9",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "CTL-N01",
+        "spec_id": "CTL",
+        "command_id": "acceptance-ctl-n01",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/mcp-control-channel-and-native-agent-rpc-spec.md",
+          "symbol": "CTL-N01",
+          "line": 140,
+          "sha256": "0b12e17e5cad652dd5d9fefd15a330476c5bfe65d67555d1c8f5cb449120c454"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "CTL-N01"
+        ],
+        "command_id": "acceptance-ctl-n01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "1f98a057cfa8b8d5536fc56ee41e18e5c1bd9d8ce1e920e33e2235f28c156314",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "BRIDGE-P01",
+        "spec_id": "BRIDGE",
+        "command_id": "acceptance-bridge-p01",
+        "depends_on": [
+          "CONTENT",
+          "CTL",
+          "ID",
+          "OUT",
+          "PROBE",
+          "RESOURCE",
+          "TRUST"
+        ],
+        "dependency_digest": "212463498c340e9e80c4b30249b3b302f349983721024a41505da89935c0d505",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/provider-cli-native-bridge-profiles-spec.md",
+          "symbol": "BRIDGE-P01",
+          "line": 137,
+          "sha256": "dc522c8d1ce127c75717f9e45f067460a0e553a5bc581ed7573f92a1928d4643"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "BRIDGE-P01"
+        ],
+        "command_id": "acceptance-bridge-p01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "237d427b9f703332f41c62c8367cd9c8adb978a440331b21bbc8193b4a2bff1d",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "BRIDGE-N01",
+        "spec_id": "BRIDGE",
+        "command_id": "acceptance-bridge-n01",
+        "depends_on": [
+          "CONTENT",
+          "CTL",
+          "ID",
+          "OUT",
+          "PROBE",
+          "RESOURCE",
+          "TRUST"
+        ],
+        "dependency_digest": "212463498c340e9e80c4b30249b3b302f349983721024a41505da89935c0d505",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/provider-cli-native-bridge-profiles-spec.md",
+          "symbol": "BRIDGE-N01",
+          "line": 143,
+          "sha256": "dc522c8d1ce127c75717f9e45f067460a0e553a5bc581ed7573f92a1928d4643"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "BRIDGE-N01"
+        ],
+        "command_id": "acceptance-bridge-n01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "c2f777cb76c702d0799c956d2f95be5214fed88a93a92fa9920ac77808350f29",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "PROBE-P01",
+        "spec_id": "PROBE",
+        "command_id": "acceptance-probe-p01",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-P01",
+          "line": 149,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "PROBE-P01"
+        ],
+        "command_id": "acceptance-probe-p01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "4e170b86a54a03e9520cad889ec7a7d0037d0199f58d82e5415b2a87a0acebf0",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "PROBE-P06",
+        "spec_id": "PROBE",
+        "command_id": "acceptance-probe-p06",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-P06",
+          "line": 154,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "PROBE-P06"
+        ],
+        "command_id": "acceptance-probe-p06",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "9b8ba4e02606c3bcee1f8c6982cb970b494f96a1322ca773fb189c0bedefc0d6",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "PROBE-P07",
+        "spec_id": "PROBE",
+        "command_id": "acceptance-probe-p07",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-P07",
+          "line": 155,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "PROBE-P07"
+        ],
+        "command_id": "acceptance-probe-p07",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "8c9c0fa9612fafba5b913a74223358458b097229c26cc8c0d0868e9af8998001",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "PROBE-N01",
+        "spec_id": "PROBE",
+        "command_id": "acceptance-probe-n01",
+        "depends_on": [
+          "ROLLOUT_S",
+          "VERIFY_S"
+        ],
+        "dependency_digest": "5077c02b77769ba3ea4d2116b57d27e4ee6887c72e7211ec7bc57ac7407c4b3e",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-N01",
+          "line": 156,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "PROBE-N01"
+        ],
+        "command_id": "acceptance-probe-n01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "49bb571c0998ec59861a0a6ba4a196f56892f6759d9404de40a095220bf1ccec",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TOOLS-P01",
+        "spec_id": "TOOLS",
+        "command_id": "acceptance-tools-p01",
+        "depends_on": [
+          "CTL",
+          "ID",
+          "OUT",
+          "PROBE",
+          "RESOURCE",
+          "ROOM",
+          "TRUST"
+        ],
+        "dependency_digest": "6ad085161574a075ac89565e9378b30f3fb4d0f789b060d05bedda9590370855",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-P01",
+          "line": 155,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TOOLS-P01"
+        ],
+        "command_id": "acceptance-tools-p01",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "a9734bdfb741a60c72c77cbd6003912809a936d80d09b29d38929285e3d7d9b1",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TOOLS-P04",
+        "spec_id": "TOOLS",
+        "command_id": "acceptance-tools-p04",
+        "depends_on": [
+          "CTL",
+          "ID",
+          "OUT",
+          "PROBE",
+          "RESOURCE",
+          "ROOM",
+          "TRUST"
+        ],
+        "dependency_digest": "6ad085161574a075ac89565e9378b30f3fb4d0f789b060d05bedda9590370855",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-P04",
+          "line": 158,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TOOLS-P04"
+        ],
+        "command_id": "acceptance-tools-p04",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "7e54f8b0a2bcd92e952ab26d953135ffad6dfdf00ab73c256beed7a9af6c0e2b",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TOOLS-P07",
+        "spec_id": "TOOLS",
+        "command_id": "acceptance-tools-p07",
+        "depends_on": [
+          "CTL",
+          "ID",
+          "OUT",
+          "PROBE",
+          "RESOURCE",
+          "ROOM",
+          "TRUST"
+        ],
+        "dependency_digest": "6ad085161574a075ac89565e9378b30f3fb4d0f789b060d05bedda9590370855",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-P07",
+          "line": 161,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TOOLS-P07"
+        ],
+        "command_id": "acceptance-tools-p07",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "54c4d24c7c641aee0fb93f657cb1881587d40d56bde597bab7382b17543848af",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TOOLS-N04",
+        "spec_id": "TOOLS",
+        "command_id": "acceptance-tools-n04",
+        "depends_on": [
+          "CTL",
+          "ID",
+          "OUT",
+          "PROBE",
+          "RESOURCE",
+          "ROOM",
+          "TRUST"
+        ],
+        "dependency_digest": "6ad085161574a075ac89565e9378b30f3fb4d0f789b060d05bedda9590370855",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-N04",
+          "line": 38,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TOOLS-N04"
+        ],
+        "command_id": "acceptance-tools-n04",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "424807e58e99df86018fe9b97db5c54ee15d4b9dee4af3b964448b30ec122b24",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    },
+    {
+      "schema_version": 1,
+      "authority": "planning_only",
+      "release_decision": "NO-GO",
+      "binding": {
+        "token": "TOOLS-N05",
+        "spec_id": "TOOLS",
+        "command_id": "acceptance-tools-n05",
+        "depends_on": [
+          "CTL",
+          "ID",
+          "OUT",
+          "PROBE",
+          "RESOURCE",
+          "ROOM",
+          "TRUST"
+        ],
+        "dependency_digest": "6ad085161574a075ac89565e9378b30f3fb4d0f789b060d05bedda9590370855",
+        "source": {
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-N05",
+          "line": 165,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      },
+      "execution": {
+        "status": "planned",
+        "runner_path": "scripts/orch_s0_planning_fixture.py",
+        "argv": [
+          "--token",
+          "TOOLS-N05"
+        ],
+        "command_id": "acceptance-tools-n05",
+        "expected_exit": 0,
+        "expected_status": "planning_only; NO-GO; unverified",
+        "expected_output": "\"status\": \"unverified\"",
+        "command_digest": "53931e77d387db4a481482f92bbda3cdb4c09c48f9f6637a3881bdcc4780503a",
+        "runner_digest": "6767f4f8853092db1ff91dd26304800c0c410effb248143142d3b9079bc2e013"
+      },
+      "authorization": {
+        "granted": false,
+        "runtime_effect": "none",
+        "capability_lease": null
+      }
+    }
+  ]
+}

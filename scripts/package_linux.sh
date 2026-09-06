@@ -4,6 +4,16 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 app_name="${APP_NAME:-super-dolphin}"
 version="${VERSION:-0.1.0}"
+recovery_custody_candidate_package="${RECOVERY_CUSTODY_CANDIDATE_PACKAGE:-0}"
+
+case "$recovery_custody_candidate_package" in
+  0|1)
+    ;;
+  *)
+    echo "unsupported RECOVERY_CUSTODY_CANDIDATE_PACKAGE=$recovery_custody_candidate_package; expected 0 or 1" >&2
+    exit 1
+    ;;
+esac
 
 validate_linux_package_identity() {
   local name_pattern='^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$'
@@ -774,7 +784,14 @@ write_runtime_manifest() {
   "bundled_gopls_path": "bin/gopls",
   "lsp_bundle_path": "lsp",
   "lsp_manifest_path": "lsp/lsp-manifest.json",
-  "model_registry_path": "models.yaml"
+  "model_registry_path": "models.yaml"$(if [[ "$recovery_custody_candidate_package" == "1" ]]; then cat <<'CANDIDATE'
+,
+  "recovery_custody_candidate_path": "bin/mcp-recovery-custody",
+  "recovery_custody_candidate_status": "candidate",
+  "recovery_custody_candidate_runtime": "disabled",
+  "recovery_custody_candidate_startup": "requires-external-evidence-finalizer-and-receipt-verifier"
+CANDIDATE
+fi)
 }
 JSON
 }
@@ -888,6 +905,7 @@ package_linux_main() {
     "input:GOAMD64=$(go env GOAMD64)"
     "input:GOARM64=$(go env GOARM64)"
     "input:GOARM=$(go env GOARM)"
+    "input:RECOVERY_CUSTODY_CANDIDATE_PACKAGE=$recovery_custody_candidate_package"
     "input:APP_COMMIT=$app_commit"
     "input:VCS_MODIFIED=$(go_vcs_modified_input)"
     "input:CGO_ENABLED=$linux_cgo_enabled"
@@ -906,6 +924,9 @@ package_linux_main() {
     "$root/bin/mcp-schema-compiler-helper.manifest.json"
     "$root/bin/mcp-ida"
   )
+  if [[ "$recovery_custody_candidate_package" == "1" ]]; then
+    go_binary_cache_outputs+=("$root/bin/mcp-recovery-custody")
+  fi
   if phase_cache_restore "go-binaries" "${go_binary_cache_outputs[@]}" -- "${go_binary_cache_inputs[@]}" "${go_binary_cache_paths[@]}"; then
     :
   else
@@ -917,6 +938,9 @@ package_linux_main() {
       cd "$root"
       export CGO_ENABLED="$linux_cgo_enabled"
       make APP_COMMIT="$app_commit" build-peer-binaries
+      if [[ "$recovery_custody_candidate_package" == "1" ]]; then
+        make APP_COMMIT="$app_commit" build-recovery-custody-candidate
+      fi
       go build -ldflags "$schema_build_identity_ldflag" -o bin/agent-terminal ./cmd/agent-terminal
       go build -o bin/mcp-ida ./cmd/mcp-ida
     )
@@ -929,6 +953,9 @@ package_linux_main() {
   cp "$root/bin/mcp-schema-compiler-helper" "$stage/bin/mcp-schema-compiler-helper"
   cp "$root/bin/mcp-schema-compiler-helper.manifest.json" "$stage/bin/mcp-schema-compiler-helper.manifest.json"
   cp "$root/bin/mcp-ida" "$stage/bin/mcp-ida"
+  if [[ "$recovery_custody_candidate_package" == "1" ]]; then
+    cp "$root/bin/mcp-recovery-custody" "$stage/bin/mcp-recovery-custody"
+  fi
   copy_sqlite_migrations "$stage"
   copy_packaged_lsp_bundle "$stage"
   copy_packaged_codex "$stage" "$stage/bin/codex"

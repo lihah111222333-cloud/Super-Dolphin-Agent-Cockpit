@@ -4,14 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kelindar/event"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
@@ -25,6 +30,47 @@ func TestRecoverReplaysStoreBackedActiveTurnAheadOfQueuedWork(t *testing.T) {
 		t.Fatalf("Recover() error = %v", err)
 	}
 	assertRecoveredReplayQueue(t, agent)
+}
+
+func TestRecoverManagedClaudeRejectsLegacyCommandExecution(t *testing.T) {
+	t.Parallel()
+
+	backend := &managedCLIRecoveryBackendSpy{}
+	launcher := &cliLauncher{backend: backend}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	marker := filepath.Join(t.TempDir(), "legacy-command-executed")
+	command := []string{"sh", "-c", "printf executed > " + shellQuoteForRecoveryTest(marker)}
+	if runtime.GOOS == "windows" {
+		command = []string{"cmd.exe", "/C", "echo executed>" + marker}
+	}
+	agent := svc.newAgentLocked("claude-agent")
+	agent.state = agentdto.StateTurnRunning
+	agent.provider, agent.providerSource = "claude", "inferred"
+	agent.threadID, agent.remoteThreadID = "claude-session", "claude-session"
+	agent.command = command
+	svc.registry.agents[agent.id] = agent
+
+	err := svc.Recover(context.Background(), agent.id)
+	if err == nil {
+		t.Fatal("Recover() error = nil, want managed Claude capability rejection")
+	}
+	var capabilityErr *contract.CapabilityError
+	if !errors.As(err, &capabilityErr) || capabilityErr.Capability != providerdto.CapThreadResume || capabilityErr.Driver != "claude" {
+		t.Fatalf("Recover() error = %v, want typed thread_resume/claude capability error", err)
+	}
+	if backend.launchCalls != 0 || backend.stopCalls != 0 {
+		t.Fatalf("managed Claude recovery calls = launch:%d stop:%d, want 0/0", backend.launchCalls, backend.stopCalls)
+	}
+	if agent.cmd != nil {
+		t.Fatal("managed Claude Recover started a local process")
+	}
+	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("legacy LaunchRequest.Command was executed: marker stat error = %v", statErr)
+	}
+}
+
+func shellQuoteForRecoveryTest(path string) string {
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 func TestRecoveredReplayCurrentThreadStoppedWritesFallback(t *testing.T) {

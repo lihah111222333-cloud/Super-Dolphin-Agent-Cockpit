@@ -39,7 +39,7 @@ func newHTTPRunner(registry tools.Registry, logRuntime *pkglogger.Runtime) (plat
 		// Non-peer mode: return a runner that blocks until context done.
 		return blockRunner{}, nil
 	}
-	toolProvider := registryToolProvider{registry: registry}
+	toolProvider := legacyToolProvider{base: registryToolProvider{registry: registry}}
 	bearerToken := bootstrap.SessionTokenFromEnv()
 	return &httpRunner{
 		bearerToken: bearerToken,

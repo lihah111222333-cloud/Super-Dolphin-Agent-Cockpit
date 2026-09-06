@@ -68,14 +68,13 @@ func TestRunMigrationsAcceptsSelfRecordedBaselineMarker(t *testing.T) {
 func TestRunMigrationsFreshDatabaseReachesProviderRecoveryVersion(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrationTestDB(t)
-
-	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+	if err := RunMigrations(ctx, db, copyMigrationsThroughVersion(t, "migrations", 123)); err != nil {
 		t.Fatalf("RunMigrations(fresh to 123) error = %v", err)
 	}
 	assertMaxMigrationVersion(t, db, 123)
 	assertMigrationMarkerCount(t, db, "123_agent_provider_binding_recovery_owner.sql", 1)
 
-	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+	if err := RunMigrations(ctx, db, copyMigrationsThroughVersion(t, "migrations", 123)); err != nil {
 		t.Fatalf("RunMigrations(fresh repeat) error = %v", err)
 	}
 	assertMaxMigrationVersion(t, db, 123)
@@ -105,8 +104,7 @@ func TestRunMigrationsProviderRecoveryVersion123FollowsLegacy120Marker(t *testin
 			4800123
 		)
 	`)
-
-	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+	if err := RunMigrations(ctx, db, copyMigrationsThroughVersion(t, "migrations", 123)); err != nil {
 		t.Fatalf("RunMigrations(legacy 120 marker to 123) error = %v", err)
 	}
 	assertMaxMigrationVersion(t, db, 123)
@@ -919,7 +917,7 @@ func TestRunMigrationsRealDBUpgradeCanonicalizesProviderBindingUUIDs(t *testing.
 			'019E218F-B514-7733-BE85-B3EE7F6A78A7', '/instances/codex-real'
 		)
 	`)
-	if err := RunMigrations(ctx, db, "migrations"); err != nil {
+	if err := RunMigrations(ctx, db, copyMigrationsThroughVersion(t, "migrations", 123)); err != nil {
 		t.Fatalf("RunMigrations(123) error = %v", err)
 	}
 	assertMaxMigrationVersion(t, db, 123)

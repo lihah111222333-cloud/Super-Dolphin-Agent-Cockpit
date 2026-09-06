@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestCombinedMigrationUpgradeMatrixReaches123(t *testing.T) {
+func TestCombinedMigrationUpgradeMatrixReaches133(t *testing.T) {
 	for _, startVersion := range []int{0, 119, 120, 121, 122} {
 		t.Run("start="+migrationVersionLabel(startVersion), func(t *testing.T) {
 			t.Parallel()
@@ -21,12 +21,12 @@ func TestCombinedMigrationUpgradeMatrixReaches123(t *testing.T) {
 				assertMaxMigrationVersion(t, db, startVersion)
 			}
 			if err := RunMigrations(context.Background(), db, "migrations"); err != nil {
-				t.Fatalf("RunMigrations(%d→123) error = %v", startVersion, err)
+				t.Fatalf("RunMigrations(%d→133) error = %v", startVersion, err)
 			}
 			if err := RunMigrations(context.Background(), db, "migrations"); err != nil {
-				t.Fatalf("RunMigrations(%d→123 repeat) error = %v", startVersion, err)
+				t.Fatalf("RunMigrations(%d→133 repeat) error = %v", startVersion, err)
 			}
-			assertMaxMigrationVersion(t, db, 123)
+			assertMaxMigrationVersion(t, db, 136)
 			assertMigrationMarkerCount(t, db, terminalOutcomeOutboxMigration, 1)
 			assertMigrationMarkerCount(t, db, canonicalManagedGeneration122, 1)
 			assertMigrationMarkerCount(t, db, canonicalProviderRecovery123, 1)
@@ -53,7 +53,7 @@ func TestLegacy120CompatibilityUpgradesOldAndCanonicalTargetStates(t *testing.T)
 				if err := RunMigrations(fixture.ctx, fixture.db, "migrations"); err != nil {
 					t.Fatalf("RunMigrations(repeat) error = %v", err)
 				}
-				assertMaxMigrationVersion(t, fixture.db, 123)
+				assertMaxMigrationVersion(t, fixture.db, 136)
 				assertLegacy120CompatibilityApplied(t, fixture, targetExists)
 			})
 		}

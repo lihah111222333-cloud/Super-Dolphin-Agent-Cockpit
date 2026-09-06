@@ -10,6 +10,15 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 )
 
+func mustMarshalDownstreamWakeupPayload(t *testing.T, agentID string) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{AgentID: agentID})
+	if err != nil {
+		t.Fatalf("marshal downstream wakeup payload: %v", err)
+	}
+	return payload
+}
+
 func TestWakeupDispatcherSQLiteReclaimedTerminalNodeSkipsSideEffect(t *testing.T) {
 	ctx := context.Background()
 	db := openOrchestrationSQLiteDB(t)
@@ -67,7 +76,7 @@ func enqueueSQLiteWakeupTerminalNode(t *testing.T, ctx context.Context, store sq
 		RunID:          runID,
 		WakeupKind:     "node_start",
 		TargetAgentID:  "auto-agent",
-		PromptPayload:  json.RawMessage(`{}`),
+		PromptPayload:  mustMarshalDownstreamWakeupPayload(t, "auto-agent"),
 		IdempotencyKey: "dag-wakeup-terminal:auto:start",
 	})
 	if err != nil {

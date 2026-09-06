@@ -82,8 +82,11 @@ func assertBackendBoundaryExternalVariantSyntaxDigest(t *testing.T, root string,
 		paths = append(paths, filepath.ToSlash(rel))
 	}
 	sort.Strings(paths)
-	const wantSyntaxCount = 63
-	const wantSyntaxDigest = "a5c14bf81d244a42fbbbbd04e693a552cd5e59da90a49c2f86a18514e162e40d"
+	// The frozen external variant includes the approved service, orch, custody,
+	// taskdag writer, and transport-neutral tasktransport candidates and guard,
+	// plus the current command-submission and recovery-candidate guards.
+	const wantSyntaxCount = 74
+	const wantSyntaxDigest = "d99165513a30eb90ce021a81ed9d14e24543845f77bf525d10c06af63367809c"
 	if len(paths) != wantSyntaxCount || stablePathDigest(paths) != wantSyntaxDigest {
 		t.Fatalf("external variant syntax candidate set changed: count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}
@@ -136,14 +139,19 @@ func assertWideOrchestrationLoaderCandidates(
 	paths := make([]string, len(pkgs))
 	copy(paths, pkgs)
 	sort.Strings(paths)
-	const wantCount = 243
-	const wantDigest = "4a7d13b018492a305c519327f3276a3f862585aff80b6854dd59e3050eb191aa"
+	t.Logf("wide candidates=%q", paths)
+	// Keep this in lockstep with the priority candidate seam above.
+	const wantCount = 292
+	const wantDigest = "3760083886d9f6d7f04eb1b276ec748e56967009b49113b4f1e12ff209c810a0"
 	if len(paths) != wantCount || stablePathDigest(paths) != wantDigest {
 		t.Fatalf("seam cd81d4c9a wide candidates count=%d digest=%s", len(paths), stablePathDigest(paths))
 	}
 	for _, required := range []string{
 		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processobserve",
 		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/internal/processprobe",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/childissuer",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/trustcandidate",
+		"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/standalone/managedruntime/issuer",
 	} {
 		if !containsWidePath(paths, required) {
 			t.Fatalf("wide candidate set is missing %s", required)

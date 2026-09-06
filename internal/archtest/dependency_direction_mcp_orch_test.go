@@ -15,6 +15,8 @@ import (
 const mcpOrchRPCHostSymbols = ",ApprovalManager,CallbackClient,Dispatch,HTTPRoute,HTTPRouteResult,Module,NewApprovalManager,NewPushBridge,NewServer,NotifyAll,NotifyClient,OnConnect,Params,PushBridge,Register,Run,Server,WSHandler,"
 const mcpOrchPkg = "cmd/" + "mcp-orch"
 
+const recoveryCustodyAuthorityRuleID archtest.BoundaryRuleID = "mcp_orch_no_embedded_recovery_custody_authority"
+
 func TestMCPSidecarTransitiveBoundaryCoversRegisteredPackages(t *testing.T) {
 	assertMCPSidecarTransitiveImportBoundary(t, repoRoot(t), archtest.DefaultBackendBoundaryRegistry())
 }
@@ -30,6 +32,64 @@ func TestMCPSidecarTransitiveBoundaryRejectsRPCHostDependency(t *testing.T) {
 	violations := mcpSidecarTransitiveViolations(t, archtest.DefaultBackendBoundaryRegistry(), "cmd/mcp-orch", []string{modulePath + "/internal/platform/rpc/server"})
 	if !strings.Contains(strings.Join(violations, "\n"), "rule=mcp_sidecar_narrow_import_surface") {
 		t.Fatalf("transitive RPC host dependency did not violate canonical sidecar rule: %v", violations)
+	}
+}
+
+func TestMCPOrchRecoveryCustodyAuthorityBoundary(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name          string
+		relPath       string
+		importPath    string
+		wantViolation bool
+	}{
+		{
+			name:          "production composition rejects embedded authority",
+			relPath:       "cmd/mcp-orch/runtime_authority_fixture.go",
+			importPath:    modulePath + "/cmd/mcp-orch/orchestration/recoverycustody/sqliteauthority",
+			wantViolation: true,
+		},
+		{
+			name:       "tests may exercise authority implementation",
+			relPath:    "cmd/mcp-orch/runtime_authority_fixture_test.go",
+			importPath: modulePath + "/cmd/mcp-orch/orchestration/recoverycustody/sqliteauthority",
+		},
+		{
+			name:       "production may consume transport neutral contract",
+			relPath:    "cmd/mcp-orch/orchestration/admissionproof/fixture.go",
+			importPath: modulePath + "/cmd/mcp-orch/orchestration/recoverycustody",
+		},
+		{
+			name:       "authority owner may use platform sqlite",
+			relPath:    "cmd/mcp-orch/orchestration/recoverycustody/sqliteauthority/fixture.go",
+			importPath: modulePath + "/internal/platform/db/sqlite",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeCanonicalSQLCGuardFixture(t, root)
+			source := "package fixture\n\nimport _ " + strconv.Quote(tc.importPath) + "\n"
+			path := writeBackendBoundaryFixtureAt(t, root, tc.relPath, source)
+			violations, err := archtest.EvaluateBackendBoundaryFile(
+				root,
+				path,
+				tc.relPath,
+				archtest.DefaultBackendBoundaryRegistry(),
+				recoveryCustodyAuthorityRuleID,
+			)
+			if err != nil {
+				t.Fatalf("evaluate RecoveryCustody authority boundary: %v", err)
+			}
+			got := strings.Join(violations, "\n")
+			if tc.wantViolation && !strings.Contains(got, "rule="+string(recoveryCustodyAuthorityRuleID)) {
+				t.Fatalf("embedded authority import did not trigger %q:\n%s", recoveryCustodyAuthorityRuleID, got)
+			}
+			if !tc.wantViolation && got != "" {
+				t.Fatalf("allowed RecoveryCustody boundary fixture violations:\n%s", got)
+			}
+		})
 	}
 }
 

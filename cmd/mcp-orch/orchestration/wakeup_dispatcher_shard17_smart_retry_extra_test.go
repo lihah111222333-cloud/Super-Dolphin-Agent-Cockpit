@@ -280,10 +280,13 @@ func TestBuildLaunchRequestPhase39_InjectsUpstreamOutputsIntoPrompt(t *testing.T
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
-		TargetAgentID: "agent-fallback",
+	req, err := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-downstream",
 		PromptPayload: payload,
 	})
+	if err != nil {
+		t.Fatalf("buildLaunchRequestFromWakeup() error = %v", err)
+	}
 	if req.AgentID != "agent-downstream" {
 		t.Fatalf("AgentID = %q, want agent-downstream (payload override)", req.AgentID)
 	}
@@ -306,15 +309,12 @@ func TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty(t
 			{NodeKey: "X", Path: "dag/d/X/output.json"},
 		},
 	})
-	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+	_, err := buildLaunchRequestFromWakeup(taskdag.Wakeup{
 		TargetAgentID: "agent-fallback",
 		PromptPayload: payload,
 	})
-	if req.AgentID != "agent-fallback" {
-		t.Fatalf("AgentID = %q, want fallback", req.AgentID)
-	}
-	if req.Prompt == "" {
-		t.Fatalf("Prompt empty, want render with X path")
+	if err == nil {
+		t.Fatal("buildLaunchRequestFromWakeup() error = nil, want missing agent_id rejection")
 	}
 }
 
@@ -322,11 +322,14 @@ func TestBuildLaunchRequestPhase39_FallsBackToWakeupAgentWhenPayloadAgentEmpty(t
 // 老式 LaunchRequest payload（无 upstream_outputs）仍然走 fallback 解析路径�?
 func TestBuildLaunchRequestPhase39_LegacyPayloadStillWorks(t *testing.T) {
 	// 仿照 TestBuildLaunchRequestFromWakeupDecodesJSONPayload 的形状�?
-	legacy := `{"agent_id":"agent-legacy","prompt":"hello"}`
-	req := buildLaunchRequestFromWakeup(taskdag.Wakeup{
-		TargetAgentID: "agent-fallback",
+	legacy := `{"wakeup_payload_kind":"legacy_launch","schema_version":1,"agent_id":"agent-legacy","prompt":"hello"}`
+	req, err := buildLaunchRequestFromWakeup(taskdag.Wakeup{
+		TargetAgentID: "agent-legacy",
 		PromptPayload: json.RawMessage(legacy),
 	})
+	if err != nil {
+		t.Fatalf("buildLaunchRequestFromWakeup() error = %v", err)
+	}
 	if req.Prompt != "hello" {
 		t.Fatalf("legacy payload prompt = %q, want hello", req.Prompt)
 	}

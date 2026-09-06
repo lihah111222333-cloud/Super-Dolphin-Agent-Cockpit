@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -25,9 +27,65 @@ func RunMigrations(ctx context.Context, db *sql.DB, dir string) error {
 	if dir == "" {
 		return fmt.Errorf("SQLite migration directory is empty")
 	}
-	files, err := os.ReadDir(dir)
+	return runMigrations(ctx, db, migrationSource{
+		filesystem:  os.DirFS(dir),
+		root:        ".",
+		displayPath: dir,
+	})
+}
+
+type migrationSource struct {
+	filesystem  fs.FS
+	root        string
+	displayPath string
+}
+
+func (source migrationSource) validate() error {
+	if source.filesystem == nil {
+		return fmt.Errorf("SQLite migration filesystem is nil")
+	}
+	if !fs.ValidPath(source.root) {
+		return fmt.Errorf("SQLite migration filesystem root is invalid")
+	}
+	if strings.TrimSpace(source.displayPath) == "" {
+		return fmt.Errorf("SQLite migration filesystem display path is empty")
+	}
+	return nil
+}
+
+func (source migrationSource) readDir() ([]fs.DirEntry, error) {
+	return fs.ReadDir(source.filesystem, source.root)
+}
+
+func (source migrationSource) readFile(name string) ([]byte, error) {
+	return fs.ReadFile(source.filesystem, path.Join(source.root, name))
+}
+
+func (source migrationSource) errorPath(name string) string {
+	if name == "" {
+		return source.displayPath
+	}
+	return filepath.Join(source.displayPath, name)
+}
+
+func (source migrationSource) redactedPath() string {
+	return redactPath(source.displayPath)
+}
+
+func runMigrations(ctx context.Context, db *sql.DB, source migrationSource) error {
+	if db == nil {
+		return fmt.Errorf("SQLite migration runner received nil DB")
+	}
+	if err := source.validate(); err != nil {
+		return err
+	}
+	files, err := source.readDir()
 	if err != nil {
-		return fmt.Errorf("read SQLite migration directory %s: %w", redactPath(dir), securefs.WrapErrorForPath(err, dir))
+		return fmt.Errorf(
+			"read SQLite migration directory %s: %w",
+			source.redactedPath(),
+			securefs.WrapErrorForPath(err, source.errorPath("")),
+		)
 	}
 	applied, err := loadAppliedMigrations(ctx, db)
 	if err != nil {
@@ -38,7 +96,7 @@ func RunMigrations(ctx context.Context, db *sql.DB, dir string) error {
 		return err
 	}
 	for _, name := range pending {
-		if err := applyMigration(ctx, db, dir, name); err != nil {
+		if err := applyMigration(ctx, db, source, name); err != nil {
 			return err
 		}
 	}
@@ -68,7 +126,7 @@ func requireBaselineFirst(applied map[string]bool, pending []string) error {
 	return fmt.Errorf("SQLite baseline migration 001_baseline.sql must create schema_migrations before incremental migrations")
 }
 
-func pendingMigrationNames(files []os.DirEntry, applied map[string]bool) []string {
+func pendingMigrationNames(files []fs.DirEntry, applied map[string]bool) []string {
 	var pending []string
 	for _, file := range files {
 		name := file.Name()
@@ -114,10 +172,15 @@ func appliedMigrations(ctx context.Context, db *sql.DB) (map[string]bool, error)
 
 // applyMigration 在单个事务内执行迁移文件并记录 schema_migrations。
 // 迁移脚本已自行写入 marker 时只提交事务，不重复插入记录；任何执行失败都会回滚。
-func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
-	body, err := os.ReadFile(filepath.Join(dir, name))
+func applyMigration(ctx context.Context, db *sql.DB, dir migrationSource, name string) error {
+	body, err := dir.readFile(name)
 	if err != nil {
-		return fmt.Errorf("read SQLite migration %s from %s: %w", name, redactPath(dir), securefs.WrapErrorForPath(err, filepath.Join(dir, name)))
+		return fmt.Errorf(
+			"read SQLite migration %s from %s: %w",
+			name,
+			dir.redactedPath(),
+			securefs.WrapErrorForPath(err, dir.errorPath(name)),
+		)
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -144,7 +207,7 @@ func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
 func prepareMigrationTransaction(
 	ctx context.Context,
 	tx *sql.Tx,
-	dir string,
+	dir migrationSource,
 	name string,
 ) (bool, error) {
 	if isLegacy120CanonicalTarget(name) {

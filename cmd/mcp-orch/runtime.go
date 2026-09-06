@@ -16,6 +16,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration"
 	agentstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/agent"
 	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/commandcard"
+	directpeerstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/directpeer"
 	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sharedfile"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
@@ -196,6 +197,7 @@ type newRegistryParams struct {
 	SharedFile       sharedfilestore.Store
 	ModelRegistry    modelregistry.Registry
 	AgentIDGenerator *idgen.Generator
+	DirectPeer       *directpeerstore.Store
 }
 
 // newModelRegistry 创建模型注册表，失败时报错阻断启动。
@@ -215,13 +217,16 @@ func newBuiltinPromptRegistry() (contract.BuiltinPromptRegistry, error) {
 // newRegistry 汇总 orchestration、workspace、prompt 等依赖并注册 MCP tools。
 func newRegistry(p newRegistryParams) tools.Registry {
 	return tools.NewRegistryWithAgentIDGenerator(tools.Dependencies{
-		ToolPorts:      toolPortsFromRegistryParams(p),
-		Workspace:      p.WS,
-		Prompt:         p.Prompt,
-		BuiltinPrompts: p.BuiltinPrompts,
-		CommandCard:    p.Command,
-		SharedFile:     p.SharedFile,
-		ModelRegistry:  p.ModelRegistry,
+		ToolPorts:        toolPortsFromRegistryParams(p),
+		Workspace:        p.WS,
+		Prompt:           p.Prompt,
+		BuiltinPrompts:   p.BuiltinPrompts,
+		CommandCard:      p.Command,
+		SharedFile:       p.SharedFile,
+		ModelRegistry:    p.ModelRegistry,
+		DirectPeer:       p.DirectPeer,
+		DirectPeerAgents: p.AgentState,
+		DirectPeerTurns:  p.TurnSubmission,
 	}, p.AgentIDGenerator)
 }
 
@@ -285,7 +290,7 @@ func newStdioServer(registry tools.Registry, logRuntime *pkglogger.Runtime) (*co
 		"mcp-orch",
 		"dev",
 		transport,
-		registryToolProvider{registry: registry},
+		legacyToolProvider{base: registryToolProvider{registry: registry}},
 		common.WithToolErrorClassifier(tools.ToolErrorClassifier),
 		common.WithLoggerRuntime(logRuntime),
 	), nil
@@ -313,17 +318,31 @@ func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, erro
 	}
 	toolsList := make([]mcpdto.MCPTool, 0, len(defs))
 	for _, def := range defs {
-		schema, err := marshalInputSchema(def.InputSchema)
+		tool, err := mapRegistryToolDefinition(def)
 		if err != nil {
 			return nil, err
 		}
-		toolsList = append(toolsList, mcpdto.MCPTool{
-			Name:        def.Name,
-			Description: def.Description,
-			InputSchema: schema,
-		})
+		toolsList = append(toolsList, tool)
 	}
 	return toolsList, nil
+}
+
+// mapRegistryToolDefinition 将单个 registry 定义完整映射为 MCP tools/list 工具描述。
+func mapRegistryToolDefinition(def tools.ToolDefinition) (mcpdto.MCPTool, error) {
+	inputSchema, err := marshalInputSchema(def.InputSchema)
+	if err != nil {
+		return mcpdto.MCPTool{}, err
+	}
+	outputSchema, err := marshalOutputSchema(def.Metadata.OutputSchema)
+	if err != nil {
+		return mcpdto.MCPTool{}, err
+	}
+	return mcpdto.MCPTool{
+		Name:         def.Name,
+		Description:  def.Description,
+		InputSchema:  inputSchema,
+		OutputSchema: outputSchema,
+	}, nil
 }
 
 // CallTool 调用已注册工具并返回标准工具结果。
@@ -333,8 +352,21 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 
 // marshalInputSchema 将工具 schema 复制为 JSON，空 schema 输出空对象。
 func marshalInputSchema(schema tools.Schema) (json.RawMessage, error) {
+	return marshalToolSchema(schema, true)
+}
+
+// marshalOutputSchema 将工具输出 schema 复制为 JSON，空 schema 保持缺省以遵循可选字段语义。
+func marshalOutputSchema(schema tools.Schema) (json.RawMessage, error) {
+	return marshalToolSchema(schema, false)
+}
+
+// marshalToolSchema 将工具 schema 复制为 JSON，并按字段语义决定空 schema 的表示。
+func marshalToolSchema(schema tools.Schema, emptyObject bool) (json.RawMessage, error) {
 	if len(schema) == 0 {
-		return json.RawMessage("{}"), nil
+		if emptyObject {
+			return json.RawMessage("{}"), nil
+		}
+		return nil, nil
 	}
 	raw, err := json.Marshal(map[string]any(schema))
 	if err != nil {
@@ -344,6 +376,7 @@ func marshalInputSchema(schema tools.Schema) (json.RawMessage, error) {
 }
 
 // handleToolCall 查找并调用 registry tool，未知工具和未配置 handler 都直接报错。
+// Registry 构造期已为显式 output_schema 安装结果 guard，因此这里保持 transport-neutral 查表入口。
 func handleToolCall(ctx context.Context, registry tools.Registry, name string, args json.RawMessage) (any, error) {
 	def, ok := registry.Lookup(strings.TrimSpace(name))
 	if !ok {
@@ -412,9 +445,18 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	var (
 		cancel       context.CancelFunc
 		shutdownOnce sync.Once
+		shutdownMu   sync.Mutex
+		stopping     bool
 	)
 	done := make(chan error, 1)
 	requestShutdown := func() {
+		shutdownMu.Lock()
+		if stopping {
+			shutdownMu.Unlock()
+			return
+		}
+		stopping = true
+		shutdownMu.Unlock()
 		shutdownOnce.Do(func() {
 			platformshared.LogIgnoredError(logger, "mcp-orch shutdown error", params.Shutdowner.Shutdown())
 		})
@@ -441,6 +483,9 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
+			shutdownMu.Lock()
+			stopping = true
+			shutdownMu.Unlock()
 			if cancel != nil {
 				cancel()
 			}

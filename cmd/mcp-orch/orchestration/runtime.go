@@ -222,6 +222,7 @@ func resetRuntimeStateLocked(agent *agentRuntime) {
 	agent.runtimePort = 0
 	agent.runtimeProvider = ""
 	agent.remoteThreadID, agent.pendingLaunchThreadID = "", ""
+	agent.pendingCLIExit = nil
 	agent.pendingLaunchThreadAt, agent.remoteAgentID = time.Time{}, ""
 }
 

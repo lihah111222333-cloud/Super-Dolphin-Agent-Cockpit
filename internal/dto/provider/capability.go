@@ -8,10 +8,13 @@ const (
 	CapMessageSend    = "message_send"    // 支持发送消息。
 	CapThreadList     = "thread_list"     // 支持列举 thread。
 	CapThreadFork     = "thread_fork"     // 支持 fork thread。
+	CapThreadResume   = "thread_resume"   // 支持从持久 thread 恢复 session。
+	CapThreadArchive  = "thread_archive"  // 支持归档 thread。
 	CapThreadRealtime = "realtime"        // 支持实时推送。
 	CapModelSwitch    = "model_switch"    // 支持运行时切换模型。
 	CapContextCompact = "context_compact" // 支持上下文压缩。
 	CapTurnOverride   = "turn_override"   // 支持 turn 级别参数覆盖。
+	CapTurnInterrupt  = "turn_interrupt"  // 支持中断当前 turn。
 )
 
 // Has 判断能力集中是否包含指定能力，nil 集合始终返回 false。

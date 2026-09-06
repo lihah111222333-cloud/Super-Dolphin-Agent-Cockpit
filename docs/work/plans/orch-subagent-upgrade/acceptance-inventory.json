@@ -1,0 +1,1140 @@
+{
+  "schema_version": 1,
+  "authority": "planning_only",
+  "release_decision": "NO-GO",
+  "evidence_classification": {
+    "planned": "planning_only; path is an executable-spec location, not a test result",
+    "observed": "LOCAL_NON_AUTHORITATIVE/NOT_VERIFIED; observation is not a release attestation",
+    "unverified": "NOT_VERIFIED; closure evidence is still required"
+  },
+  "acceptance": [
+    {
+      "token": "TestA2AIdempotentSendAfterLostResponse",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/a2a-gateway-spec.md",
+          "symbol": "TestA2AIdempotentSendAfterLostResponse",
+          "line": 124,
+          "sha256": "85f420b1a1db6fb8503f042eba24279ade32bbe18333ef3e6cc4b3d62c4e9aad"
+        }
+      ],
+      "spec_id": "A2A",
+      "command_id": "acceptance-testa2aidempotentsendafterlostresponse"
+    },
+    {
+      "token": "TestA2AUnknownRemoteOutcomeIsNotRetried",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/a2a-gateway-spec.md",
+          "symbol": "TestA2AUnknownRemoteOutcomeIsNotRetried",
+          "line": 137,
+          "sha256": "85f420b1a1db6fb8503f042eba24279ade32bbe18333ef3e6cc4b3d62c4e9aad"
+        }
+      ],
+      "spec_id": "A2A",
+      "command_id": "acceptance-testa2aunknownremoteoutcomeisnotretried"
+    },
+    {
+      "token": "RED-ID-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-identity-and-event-store-spec.md",
+          "symbol": "RED-ID-01",
+          "line": 126,
+          "sha256": "1ae4f75c897e970f187adbe0d93df3ea0950454fd289f0d9d07cb7d8d2a1e773"
+        }
+      ],
+      "spec_id": "ID",
+      "command_id": "acceptance-red-id-01"
+    },
+    {
+      "token": "GREEN-ID-02",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-identity-and-event-store-spec.md",
+          "symbol": "GREEN-ID-02",
+          "line": 140,
+          "sha256": "1ae4f75c897e970f187adbe0d93df3ea0950454fd289f0d9d07cb7d8d2a1e773"
+        }
+      ],
+      "spec_id": "ID",
+      "command_id": "acceptance-green-id-02"
+    },
+    {
+      "token": "RED-TRUST-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-01",
+          "line": 106,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      ],
+      "spec_id": "TRUST",
+      "command_id": "acceptance-red-trust-01"
+    },
+    {
+      "token": "RED-TRUST-07",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-07",
+          "line": 112,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      ],
+      "spec_id": "TRUST",
+      "command_id": "acceptance-red-trust-07"
+    },
+    {
+      "token": "RED-TRUST-08",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-08",
+          "line": 113,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      ],
+      "spec_id": "TRUST",
+      "command_id": "acceptance-red-trust-08"
+    },
+    {
+      "token": "RED-TRUST-09",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "RED-TRUST-09",
+          "line": 114,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      ],
+      "spec_id": "TRUST",
+      "command_id": "acceptance-red-trust-09"
+    },
+    {
+      "token": "GREEN-TRUST-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "GREEN-TRUST-01",
+          "line": 115,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      ],
+      "spec_id": "TRUST",
+      "command_id": "acceptance-green-trust-01"
+    },
+    {
+      "token": "GREEN-TRUST-06",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-output-trust-and-prompt-boundary-spec.md",
+          "symbol": "GREEN-TRUST-06",
+          "line": 120,
+          "sha256": "2de29cf8f04672a325d55a160ef5f681680d25a3ab8496f9b26112ce7b4d4e70"
+        }
+      ],
+      "spec_id": "TRUST",
+      "command_id": "acceptance-green-trust-06"
+    },
+    {
+      "token": "TestRoomFanoutCloseSingleWinner",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-room-authz-and-flow-control-spec.md",
+          "symbol": "TestRoomFanoutCloseSingleWinner",
+          "line": 85,
+          "sha256": "d05af6a6e8285d107a66533c3337c183e1e453feda170933f521f248c0d4fff7"
+        }
+      ],
+      "spec_id": "ROOM",
+      "command_id": "acceptance-testroomfanoutclosesinglewinner"
+    },
+    {
+      "token": "TestRoomFrozenUnknownCannotReportCompleted",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-room-authz-and-flow-control-spec.md",
+          "symbol": "TestRoomFrozenUnknownCannotReportCompleted",
+          "line": 98,
+          "sha256": "d05af6a6e8285d107a66533c3337c183e1e453feda170933f521f248c0d4fff7"
+        }
+      ],
+      "spec_id": "ROOM",
+      "command_id": "acceptance-testroomfrozenunknowncannotreportcompleted"
+    },
+    {
+      "token": "TestUIProjectionResumesFromCursorAfterRestart",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIProjectionResumesFromCursorAfterRestart",
+          "line": 128,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      ],
+      "spec_id": "UI",
+      "command_id": "acceptance-testuiprojectionresumesfromcursorafterrestart"
+    },
+    {
+      "token": "TestUIUntrustedMarkdownIsInert",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIUntrustedMarkdownIsInert",
+          "line": 138,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      ],
+      "spec_id": "UI",
+      "command_id": "acceptance-testuiuntrustedmarkdownisinert"
+    },
+    {
+      "token": "TestUIConcurrentWaitFollowAndMutationCancellationIsolated",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIConcurrentWaitFollowAndMutationCancellationIsolated",
+          "line": 152,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      ],
+      "spec_id": "UI",
+      "command_id": "acceptance-testuiconcurrentwaitfollowandmutationcancellationisolated"
+    },
+    {
+      "token": "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/agent-ui-projection-spec.md",
+          "symbol": "TestUIConsumesGeneratedNextActionsWithoutCreatingHandles",
+          "line": 147,
+          "sha256": "1456a9dd0f376c64f2ff08684a193fa1e1484d51cf5fa0a712325cea63175fd5"
+        }
+      ],
+      "spec_id": "UI",
+      "command_id": "acceptance-testuiconsumesgeneratednextactionswithoutcreatinghandles"
+    },
+    {
+      "token": "RED-CONTENT-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-01",
+          "line": 119,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-red-content-01"
+    },
+    {
+      "token": "RED-CONTENT-08",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-08",
+          "line": 126,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-red-content-08"
+    },
+    {
+      "token": "RED-CONTENT-09",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-09",
+          "line": 127,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-red-content-09"
+    },
+    {
+      "token": "RED-CONTENT-10",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "RED-CONTENT-10",
+          "line": 128,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-red-content-10"
+    },
+    {
+      "token": "GREEN-CONTENT-03",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-03",
+          "line": 131,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-green-content-03"
+    },
+    {
+      "token": "GREEN-CONTENT-05",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-05",
+          "line": 133,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-green-content-05"
+    },
+    {
+      "token": "GREEN-CONTENT-06",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-06",
+          "line": 134,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-green-content-06"
+    },
+    {
+      "token": "GREEN-CONTENT-07",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/content-lifecycle-and-crypto-erasure-spec.md",
+          "symbol": "GREEN-CONTENT-07",
+          "line": 135,
+          "sha256": "83379b63e6bf04d9dec9f00ee5e4e7b975a37d43c3cb802de6764ea899e57909"
+        }
+      ],
+      "spec_id": "CONTENT",
+      "command_id": "acceptance-green-content-07"
+    },
+    {
+      "token": "TestStaleWriterCannotMutateAfterCutover",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/cross-process-rollout-and-rollback-spec.md",
+          "symbol": "TestStaleWriterCannotMutateAfterCutover",
+          "line": 156,
+          "sha256": "3c691c6201a603dab65638ddc4fae9e168730753e846125a0c193079488e2577"
+        }
+      ],
+      "spec_id": "ROLLOUT",
+      "command_id": "acceptance-teststalewritercannotmutateaftercutover"
+    },
+    {
+      "token": "TestRestoreAttemptCannotReuseOldOpenReceipt",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/cross-process-rollout-and-rollback-spec.md",
+          "symbol": "TestRestoreAttemptCannotReuseOldOpenReceipt",
+          "line": 158,
+          "sha256": "3c691c6201a603dab65638ddc4fae9e168730753e846125a0c193079488e2577"
+        }
+      ],
+      "spec_id": "ROLLOUT",
+      "command_id": "acceptance-testrestoreattemptcannotreuseoldopenreceipt"
+    },
+    {
+      "token": "RED-OUT-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-01",
+          "line": 261,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-red-out-01"
+    },
+    {
+      "token": "RED-OUT-10",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-10",
+          "line": 270,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-red-out-10"
+    },
+    {
+      "token": "RED-OUT-14",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-14",
+          "line": 274,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-red-out-14"
+    },
+    {
+      "token": "RED-OUT-19",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "RED-OUT-19",
+          "line": 279,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-red-out-19"
+    },
+    {
+      "token": "GREEN-OUT-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-01",
+          "line": 281,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-green-out-01"
+    },
+    {
+      "token": "GREEN-OUT-06",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-06",
+          "line": 286,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-green-out-06"
+    },
+    {
+      "token": "GREEN-OUT-09",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-09",
+          "line": 289,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-green-out-09"
+    },
+    {
+      "token": "GREEN-OUT-12",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-native-command-outbox-spec.md",
+          "symbol": "GREEN-OUT-12",
+          "line": 292,
+          "sha256": "b87ae7128e8d88921b84901cdad2e11d4324ccc5df8ea7193d62e79c57947177"
+        }
+      ],
+      "spec_id": "OUT",
+      "command_id": "acceptance-green-out-12"
+    },
+    {
+      "token": "RED-RESOURCE-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-resource-admission-and-budget-spec.md",
+          "symbol": "RED-RESOURCE-01",
+          "line": 98,
+          "sha256": "5f3c94800f729a27b7c8bbab44dfb8ef1951d1292c576ef56dcab0b22ac76f4a"
+        }
+      ],
+      "spec_id": "RESOURCE",
+      "command_id": "acceptance-red-resource-01"
+    },
+    {
+      "token": "GREEN-RESOURCE-01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/durable-resource-admission-and-budget-spec.md",
+          "symbol": "GREEN-RESOURCE-01",
+          "line": 106,
+          "sha256": "5f3c94800f729a27b7c8bbab44dfb8ef1951d1292c576ef56dcab0b22ac76f4a"
+        }
+      ],
+      "spec_id": "RESOURCE",
+      "command_id": "acceptance-green-resource-01"
+    },
+    {
+      "token": "VERIFY-P01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/machine-verification-and-release-evidence-spec.md",
+          "symbol": "VERIFY-P01",
+          "line": 56,
+          "sha256": "847866de7cb05d90dbee7d61ddd92bd49108f09c917b5d9951bbc2b1283c3537"
+        }
+      ],
+      "spec_id": "VERIFY",
+      "command_id": "acceptance-verify-p01"
+    },
+    {
+      "token": "VERIFY-N01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/machine-verification-and-release-evidence-spec.md",
+          "symbol": "VERIFY-N01",
+          "line": 56,
+          "sha256": "847866de7cb05d90dbee7d61ddd92bd49108f09c917b5d9951bbc2b1283c3537"
+        }
+      ],
+      "spec_id": "VERIFY",
+      "command_id": "acceptance-verify-n01"
+    },
+    {
+      "token": "CTL-P01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/mcp-control-channel-and-native-agent-rpc-spec.md",
+          "symbol": "CTL-P01",
+          "line": 134,
+          "sha256": "0b12e17e5cad652dd5d9fefd15a330476c5bfe65d67555d1c8f5cb449120c454"
+        }
+      ],
+      "spec_id": "CTL",
+      "command_id": "acceptance-ctl-p01"
+    },
+    {
+      "token": "CTL-N01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/mcp-control-channel-and-native-agent-rpc-spec.md",
+          "symbol": "CTL-N01",
+          "line": 140,
+          "sha256": "0b12e17e5cad652dd5d9fefd15a330476c5bfe65d67555d1c8f5cb449120c454"
+        }
+      ],
+      "spec_id": "CTL",
+      "command_id": "acceptance-ctl-n01"
+    },
+    {
+      "token": "BRIDGE-P01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/provider-cli-native-bridge-profiles-spec.md",
+          "symbol": "BRIDGE-P01",
+          "line": 137,
+          "sha256": "dc522c8d1ce127c75717f9e45f067460a0e553a5bc581ed7573f92a1928d4643"
+        }
+      ],
+      "spec_id": "BRIDGE",
+      "command_id": "acceptance-bridge-p01"
+    },
+    {
+      "token": "BRIDGE-N01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/provider-cli-native-bridge-profiles-spec.md",
+          "symbol": "BRIDGE-N01",
+          "line": 143,
+          "sha256": "dc522c8d1ce127c75717f9e45f067460a0e553a5bc581ed7573f92a1928d4643"
+        }
+      ],
+      "spec_id": "BRIDGE",
+      "command_id": "acceptance-bridge-n01"
+    },
+    {
+      "token": "PROBE-P01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-P01",
+          "line": 149,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      ],
+      "spec_id": "PROBE",
+      "command_id": "acceptance-probe-p01"
+    },
+    {
+      "token": "PROBE-P06",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-P06",
+          "line": 154,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      ],
+      "spec_id": "PROBE",
+      "command_id": "acceptance-probe-p06"
+    },
+    {
+      "token": "PROBE-P07",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-P07",
+          "line": 155,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      ],
+      "spec_id": "PROBE",
+      "command_id": "acceptance-probe-p07"
+    },
+    {
+      "token": "PROBE-N01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/provider-conformance-probe-spec.md",
+          "symbol": "PROBE-N01",
+          "line": 156,
+          "sha256": "213f995b45c31dd66e6070b7d37626649c3175de5a3ade10bcd2781ae00853db"
+        }
+      ],
+      "spec_id": "PROBE",
+      "command_id": "acceptance-probe-n01"
+    },
+    {
+      "token": "TOOLS-P01",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-P01",
+          "line": 155,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      ],
+      "spec_id": "TOOLS",
+      "command_id": "acceptance-tools-p01"
+    },
+    {
+      "token": "TOOLS-P04",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-P04",
+          "line": 158,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      ],
+      "spec_id": "TOOLS",
+      "command_id": "acceptance-tools-p04"
+    },
+    {
+      "token": "TOOLS-P07",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-P07",
+          "line": 161,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      ],
+      "spec_id": "TOOLS",
+      "command_id": "acceptance-tools-p07"
+    },
+    {
+      "token": "TOOLS-N04",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-N04",
+          "line": 38,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      ],
+      "spec_id": "TOOLS",
+      "command_id": "acceptance-tools-n04"
+    },
+    {
+      "token": "TOOLS-N05",
+      "status": "planned",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/proposals/orch-subagent-s0/versioned-tool-surface-rollout-spec.md",
+          "symbol": "TOOLS-N05",
+          "line": 165,
+          "sha256": "f28ed6ad8d3556b6728bbae417d4f3709c229029be0636440cedaaea3d87bbbc"
+        }
+      ],
+      "spec_id": "TOOLS",
+      "command_id": "acceptance-tools-n05"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "B01",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B01",
+          "line": 22,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B02",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B02",
+          "line": 23,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B03",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B03",
+          "line": 24,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B04",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B04",
+          "line": 25,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B05",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B05",
+          "line": 26,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B06",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B06",
+          "line": 27,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B07",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B07",
+          "line": 28,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B08",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B08",
+          "line": 29,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B09",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B09",
+          "line": 30,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B10",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B10",
+          "line": 31,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B11",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B11",
+          "line": 32,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B12",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B12",
+          "line": 33,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B13",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B13",
+          "line": 34,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B14",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B14",
+          "line": 35,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B15",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B15",
+          "line": 36,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B16",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B16",
+          "line": 37,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B17",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B17",
+          "line": 38,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    },
+    {
+      "id": "B18",
+      "status": "needs_revalidation",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "path": "docs/work/plans/orch-subagent-upgrade/blocker-revalidation-2026-09-02.md",
+          "symbol": "B18",
+          "line": 39,
+          "sha256": "2bbd499411be9a5a4bdef69186cefb3f3cab21655fb589aec97698579a9da766"
+        },
+        {
+          "kind": "guard",
+          "path": "scripts/orch_upgrade_gate_guard_test.go",
+          "symbol": "TestOrchUpgradePlanningGuardIsReadOnlyAndWired",
+          "line": 5,
+          "sha256": "ede82076e2e41ced7316ab93d3aae03c2ce34266860aa3a641b22244a511687c"
+        }
+      ]
+    }
+  ],
+  "document_snapshot_digest": "8919df39c514f7de0f89bde6a15619d1f9ae8d3c72e483df04af3f1dbdcea8ea"
+}

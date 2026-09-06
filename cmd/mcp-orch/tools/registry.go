@@ -37,13 +37,16 @@ type ToolPorts struct {
 
 // Dependencies 汇总 mcp-orch 工具注册所需的服务和 store 依赖。
 type Dependencies struct {
-	ToolPorts      ToolPorts
-	Workspace      workspace.Service
-	Prompt         promptstore.Store
-	BuiltinPrompts contract.BuiltinPromptRegistry
-	CommandCard    commandcardstore.Store
-	SharedFile     sharedfilestore.Store
-	ModelRegistry  modelregistry.Registry
+	ToolPorts        ToolPorts
+	Workspace        workspace.Service
+	Prompt           promptstore.Store
+	BuiltinPrompts   contract.BuiltinPromptRegistry
+	CommandCard      commandcardstore.Store
+	SharedFile       sharedfilestore.Store
+	ModelRegistry    modelregistry.Registry
+	DirectPeer       directPeerPort
+	DirectPeerAgents contract.AgentStateReader
+	DirectPeerTurns  contract.TurnSubmissionPort
 }
 
 // Registry 持有 MCP 工具定义快照和名称索引。
@@ -113,19 +116,46 @@ func NewRegistryWithAgentIDGenerator(deps Dependencies, generator *idgen.Generat
 	tools = append(tools, commandToolDefinitions(deps.CommandCard)...)
 	tools = append(tools, sharedFileToolDefinitions(deps.SharedFile)...)
 	tools = append(tools, registryToolDefinitions(deps.SharedFile, deps.ModelRegistry)...)
+	tools = append(tools, directPeerToolDefinitions(DirectPeerPorts{Store: deps.DirectPeer, Agents: deps.DirectPeerAgents, Turns: deps.DirectPeerTurns})...)
 	tools = append(tools, ttsToolDefinitions()...)
 	tools = append(tools, avMergeToolDefinitions()...)
 	tools = append(tools, videoWithAudioToolDefinitions()...)
+	return newRegistryFromToolDefinitions(runtimeState, tools)
+}
+
+// newRegistryFromToolDefinitions 校验并建立工具定义快照与名称索引；显式 output_schema
+// 在这里编译并安装 handler guard，保证 runtime 查表不会绕过结果契约。
+func newRegistryFromToolDefinitions(runtimeState *toolRuntimeState, tools []ToolDefinition) Registry {
 	if err := validateRegistryPathPolicies(tools); err != nil {
+		return Registry{runtimeState: runtimeState, initErr: err}
+	}
+	if err := validateRegistryToolNames(tools); err != nil {
 		return Registry{runtimeState: runtimeState, initErr: err}
 	}
 	byName := make(map[string]ToolDefinition, len(tools))
 	for i, tool := range tools {
+		outputValidator, err := compileToolOutputSchema(tool.Name, tool.Metadata.OutputSchema)
+		if err != nil {
+			return Registry{runtimeState: runtimeState, initErr: err}
+		}
+		tool = withToolOutputSchema(tool, outputValidator)
 		tool = withToolPathPolicy(tool)
 		tools[i] = tool
 		byName[tool.Name] = tool
 	}
 	return Registry{tools: tools, byName: byName, runtimeState: runtimeState}
+}
+
+// validateRegistryToolNames 拒绝名称重复的工具定义，避免名称索引覆盖而列表仍保留重复项。
+func validateRegistryToolNames(defs []ToolDefinition) error {
+	seen := make(map[string]int, len(defs))
+	for index, def := range defs {
+		if previous, ok := seen[def.Name]; ok {
+			return fmt.Errorf("duplicate tool name %q at indexes %d and %d", def.Name, previous, index)
+		}
+		seen[def.Name] = index
+	}
+	return nil
 }
 
 // List 返回工具定义副本，避免调用方修改 Registry 内部切片。

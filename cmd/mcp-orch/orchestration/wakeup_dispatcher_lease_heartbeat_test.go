@@ -210,15 +210,19 @@ func newHeartbeatDispatcherFixture(t *testing.T, renewErrAt int, renewErr error)
 	leaseExpiresAt := now.Add(90 * time.Millisecond)
 	runID := int64(7100)
 	wakeup := taskdag.Wakeup{
-		ID:             3700,
-		DagKey:         "dag-heartbeat",
-		NodeKey:        "automation-heartbeat",
-		RunID:          &runID,
-		Status:         "dispatching",
-		AttemptCount:   1,
-		ClaimedAt:      &now,
-		ClaimedBy:      "dispatcher-heartbeat",
-		LeaseExpiresAt: &leaseExpiresAt,
+		ID:                   3700,
+		DagKey:               "dag-heartbeat",
+		NodeKey:              "automation-heartbeat",
+		WakeupKind:           "node_start",
+		TargetAgentID:        "agent-heartbeat",
+		PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-heartbeat"),
+		PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
+		RunID:                &runID,
+		Status:               "dispatching",
+		AttemptCount:         1,
+		ClaimedAt:            &now,
+		ClaimedBy:            "dispatcher-heartbeat",
+		LeaseExpiresAt:       &leaseExpiresAt,
 	}
 	base := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{wakeup},

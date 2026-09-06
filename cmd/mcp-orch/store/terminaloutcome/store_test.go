@@ -137,6 +137,24 @@ func TestLoadTerminalOutcomeCurrentHeadRoundTripPreservesFullIdentityAndVersion(
 	}
 }
 
+func TestGetPublicTerminalOutcomeRejectsCurrentHeadHistoryIdentityMismatch(t *testing.T) {
+	store, db := newTestStore(t)
+	commit := activateCommitFixture(t, store, terminalCommitFixture("terminal:head-history-mismatch"))
+	if _, err := store.CommitTerminalOutcome(context.Background(), commit); err != nil {
+		t.Fatalf("CommitTerminalOutcome() error = %v", err)
+	}
+	if _, err := db.Exec(`
+		UPDATE terminal_outcome_current_heads
+		SET public_thread_id = 'foreign-thread'
+		WHERE agent_id = ?
+	`, commit.Identity.AgentID); err != nil {
+		t.Fatalf("corrupt terminal current head: %v", err)
+	}
+	if _, err := store.GetPublicTerminalOutcome(context.Background(), commit.Identity.AgentID); err == nil {
+		t.Fatal("GetPublicTerminalOutcome() error = nil, want current-head/history identity rejection")
+	}
+}
+
 func TestCommitTerminalOutcomeConcurrentCASHasOneWinner(t *testing.T) {
 	store, _ := newTestStore(t)
 	ctx := context.Background()

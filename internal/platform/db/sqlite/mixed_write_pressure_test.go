@@ -429,9 +429,9 @@ VALUES (?, 'root', ?, 'task', ?, 'running', 'mixed', '{}', '{}', ?, ?, ?, ?)`,
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `
-INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, status, next_retry_at, created_at, updated_at)
-VALUES (?, 'root', ?, 'node_start', ?, ?, ?, 'pending', ?, ?, ?)`,
-		dagKey, runID, targetAgent, sqliteJSONPayload(1024), idempotencyKey, now, now, now)
+INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, payload_schema_version, idempotency_key, status, next_retry_at, created_at, updated_at)
+VALUES (?, 'root', ?, 'node_start', ?, ?, 1, ?, 'pending', ?, ?, ?)`,
+		dagKey, runID, targetAgent, `{"wakeup_payload_kind":"dag_downstream","schema_version":1,"agent_id":"`+targetAgent+`"}`, idempotencyKey, now, now, now)
 	return err
 }
 

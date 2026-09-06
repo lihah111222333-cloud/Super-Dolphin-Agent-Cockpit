@@ -13,12 +13,16 @@ func TestWakeupDispatcher_RouterFrameworkErrorWithRecordedSpawnDoesNotFailDAGAtM
 	spawningThreadID := "thread-already-launched"
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{
-			ID:           59,
-			DagKey:       "dag-1",
-			NodeKey:      "n1",
-			RunID:        int64Ptr(7004),
-			ClaimedBy:    "worker-a",
-			AttemptCount: 1,
+			ID:                   59,
+			DagKey:               "dag-1",
+			NodeKey:              "n1",
+			WakeupKind:           "node_start",
+			TargetAgentID:        "agent-a",
+			PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-a"),
+			PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
+			RunID:                int64Ptr(7004),
+			ClaimedBy:            "worker-a",
+			AttemptCount:         1,
 		}},
 		dagReply: &taskdag.DAG{
 			DagKey:   "dag-1",
@@ -63,12 +67,16 @@ func TestWakeupDispatcher_RouterFrameworkErrorWithRecordedSpawnDoesNotFailDAGAtM
 func TestWakeupDispatcher_SpawnWritebackFailureDoesNotRetryUnrecordedLaunch(t *testing.T) {
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{
-			ID:           60,
-			DagKey:       "dag-1",
-			NodeKey:      "n1",
-			RunID:        int64Ptr(7005),
-			ClaimedBy:    "worker-a",
-			AttemptCount: 1,
+			ID:                   60,
+			DagKey:               "dag-1",
+			NodeKey:              "n1",
+			WakeupKind:           "node_start",
+			TargetAgentID:        "agent-a",
+			PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-a"),
+			PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
+			RunID:                int64Ptr(7005),
+			ClaimedBy:            "worker-a",
+			AttemptCount:         1,
 		}},
 		dagReply: &taskdag.DAG{
 			DagKey:   "dag-1",

@@ -81,7 +81,7 @@ func orchestrationToolDefinitionsWithRuntimeState(ports ToolPorts, state *toolRu
 }
 
 func stopAgentToolDefinition(svc contract.AgentStopWaitPort) ToolDefinition {
-	return defineTool("stop_agent", "Stop and recycle an orchestration agent by archiving its persisted thread when available.", ObjectSchema(map[string]Schema{
+	return defineTool("stop_agent", "Stop an orchestration agent; archive its persisted thread when the provider supports archive, otherwise stop without claiming archived.", ObjectSchema(map[string]Schema{
 		"pos":        StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 		"agent_id":   StringSchema("Target orchestration agent ID."),
 		"wait":       BooleanSchema("Optional. When true, wait for stop state settlement after requesting stop/archive."),

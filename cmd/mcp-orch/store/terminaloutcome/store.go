@@ -2,7 +2,6 @@
 package terminaloutcome
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -10,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"reflect"
 	"strings"
 	"time"
@@ -60,6 +58,7 @@ type terminalOutcomeRowScanner interface {
 	Scan(dest ...any) error
 }
 
+// scanDurableTerminalOutcomeHead 将 SQLite current-head 行转换为已验证的 durable head。
 func scanDurableTerminalOutcomeHead(row terminalOutcomeRowScanner) (contract.DurableTerminalOutcomeHead, error) {
 	var head contract.DurableTerminalOutcomeHead
 	var generation, version, activatedAt, updatedAt int64
@@ -115,6 +114,7 @@ type storedCurrentHead struct {
 	TerminalIdentity string
 }
 
+// activateTerminalHeadTx 在事务内执行 current-head 的创建、幂等推进或冲突拒绝。
 func activateTerminalHeadTx(ctx context.Context, tx *sql.Tx, activation contract.TerminalOutcomeHeadActivation) (contract.TerminalOutcomeHead, error) {
 	current, found, err := loadCurrentHeadTx(ctx, tx, activation.AgentID)
 	if err != nil {
@@ -144,6 +144,7 @@ func activateTerminalHeadTx(ctx context.Context, tx *sql.Tx, activation contract
 	return advanceTerminalHeadTx(ctx, tx, current, activation)
 }
 
+// advanceTerminalHeadTx 将已终态 head CAS 推进到下一真实 provider turn。
 func advanceTerminalHeadTx(ctx context.Context, tx *sql.Tx, current storedCurrentHead, activation contract.TerminalOutcomeHeadActivation) (contract.TerminalOutcomeHead, error) {
 	if activation.Generation < current.Generation {
 		return contract.TerminalOutcomeHead{}, contract.ErrTerminalOutcomeConflict
@@ -187,6 +188,7 @@ func terminalHeadReopensSameTurn(current storedCurrentHead, activation contract.
 		activation.ProviderTurnID == current.ProviderTurnID
 }
 
+// activeSessionHeadCanAdvanceToTurn 只允许同一 session/generation 从 session-terminal 前进到真实 turn。
 func activeSessionHeadCanAdvanceToTurn(current storedCurrentHead, activation contract.TerminalOutcomeHeadActivation) bool {
 	return current.Capability == activation.Capability &&
 		current.AgentID == activation.AgentID &&
@@ -261,6 +263,7 @@ func insertCurrentHeadTx(ctx context.Context, tx *sql.Tx, activation contract.Te
 	return nil
 }
 
+// sameActiveHead 判断重复激活是否与现有 active head 完整相同。
 func sameActiveHead(current storedCurrentHead, activation contract.TerminalOutcomeHeadActivation) bool {
 	return current.Capability == activation.Capability &&
 		current.AgentID == activation.AgentID &&
@@ -313,6 +316,7 @@ func normalizeTerminalTime(value time.Time) time.Time {
 	return time.UnixMilli(value.UTC().UnixMilli()).UTC()
 }
 
+// commitTerminalOutcomeTx 在单事务中执行 replay 检查、head seal、历史/private/outbox 写入。
 func commitTerminalOutcomeTx(ctx context.Context, tx *sql.Tx, commit contract.TerminalOutcomeCommit, publicPayload []byte) (contract.TerminalOutcomeCommitResult, error) {
 	existing, outboxID, found, err := loadHistoryByIdentityTx(ctx, tx, commit.Identity.TerminalIdentity, commit.Identity.EventID)
 	if err != nil {
@@ -493,6 +497,7 @@ func (s *Store) GetPublicTerminalOutcome(ctx context.Context, agentID string) (c
 	return commit, nil
 }
 
+// getPublicTerminalOutcomeTx 读取 current head 指向的公开历史并复核完整 identity 闭包。
 func getPublicTerminalOutcomeTx(ctx context.Context, tx *sql.Tx, agentID string) (contract.TerminalOutcomeCommit, error) {
 	head, found, err := loadCurrentHeadTx(ctx, tx, agentID)
 	if err != nil {
@@ -511,15 +516,19 @@ func getPublicTerminalOutcomeTx(ctx context.Context, tx *sql.Tx, agentID string)
 	if !found {
 		return contract.TerminalOutcomeCommit{}, errors.New("terminal current head references missing public history")
 	}
+	if !currentHeadMatchesTerminalCommit(head, commit) {
+		return contract.TerminalOutcomeCommit{}, terminalOutboxIntegrityf("current head and public history identity mismatch")
+	}
 	return commit, nil
 }
 
+// loadHistoryByIdentityTx 读取历史并确认其 outbox/public payload/private 关联仍保持同一身份。
 func loadHistoryByIdentityTx(ctx context.Context, tx *sql.Tx, terminalIdentity, eventID string) (contract.TerminalOutcomeCommit, int64, bool, error) {
 	var commit contract.TerminalOutcomeCommit
 	var publicOutcome []byte
 	var occurredAt int64
 	var generation, headVersion int64
-	var outboxID int64
+	var outboxID sql.NullInt64
 	err := tx.QueryRowContext(ctx, `
 		SELECT p.schema_version, p.projection_kind, p.agent_id, h.capability,
 		       p.public_thread_id, p.provider_turn_id, p.session_id, p.generation,
@@ -527,7 +536,7 @@ func loadHistoryByIdentityTx(ctx context.Context, tx *sql.Tx, terminalIdentity, 
 		       p.public_outcome_json, p.public_report, p.occurred_at, o.id
 		FROM public_terminal_outcome_history p
 		JOIN terminal_outcome_current_heads h ON h.agent_id = p.agent_id
-		JOIN terminal_outcome_outbox_v2 o ON o.terminal_identity = p.terminal_identity
+		LEFT JOIN terminal_outcome_outbox_v2 o ON o.terminal_identity = p.terminal_identity
 		WHERE p.terminal_identity = ? OR p.event_id = ?
 	`, terminalIdentity, eventID).Scan(
 		&commit.SchemaVersion, &commit.ProjectionKind, &commit.Identity.AgentID,
@@ -543,6 +552,9 @@ func loadHistoryByIdentityTx(ctx context.Context, tx *sql.Tx, terminalIdentity, 
 	if err != nil {
 		return contract.TerminalOutcomeCommit{}, 0, false, fmt.Errorf("load canonical terminal history: %w", err)
 	}
+	if !outboxID.Valid || outboxID.Int64 <= 0 {
+		return contract.TerminalOutcomeCommit{}, 0, false, terminalOutboxIntegrityf("terminal history references missing outbox")
+	}
 	if generation <= 0 || headVersion <= 0 {
 		return contract.TerminalOutcomeCommit{}, 0, false, errors.New("terminal history contains invalid generation or head version")
 	}
@@ -555,13 +567,10 @@ func loadHistoryByIdentityTx(ctx context.Context, tx *sql.Tx, terminalIdentity, 
 	if err := commit.Validate(); err != nil {
 		return contract.TerminalOutcomeCommit{}, 0, false, fmt.Errorf("validate canonical public terminal outcome: %w", err)
 	}
-	return commit, outboxID, true, nil
-}
-
-type outboxCandidate struct {
-	id             int64
-	publicPayload  []byte
-	privatePayload []byte
+	if err := validateHistoryOutboxLinkTx(ctx, tx, commit, outboxID.Int64); err != nil {
+		return contract.TerminalOutcomeCommit{}, 0, false, err
+	}
+	return commit, outboxID.Int64, true, nil
 }
 
 // ClaimTerminalOutcomeOutbox 为每次 claim 生成唯一 token 和绝对 lease expiry。
@@ -589,6 +598,7 @@ func (s *Store) ClaimTerminalOutcomeOutbox(ctx context.Context, workerID string,
 	return items, nil
 }
 
+// claimOutboxTx 在 claim 事务内 quarantine 损坏候选，并为有效候选建立 token fence。
 func claimOutboxTx(ctx context.Context, tx *sql.Tx, workerID string, now time.Time, lease time.Duration, limit int) ([]contract.TerminalOutcomeOutboxItem, error) {
 	candidates, err := listOutboxCandidatesTx(ctx, tx, now.UnixMilli(), limit)
 	if err != nil {
@@ -627,66 +637,6 @@ func claimOutboxTx(ctx context.Context, tx *sql.Tx, workerID string, now time.Ti
 	return items, nil
 }
 
-func listOutboxCandidatesTx(ctx context.Context, tx *sql.Tx, now int64, limit int) ([]outboxCandidate, error) {
-	rows, err := tx.QueryContext(ctx, `
-		SELECT o.id, o.public_payload_json, COALESCE(d.payload_json, '')
-		FROM terminal_outcome_outbox_v2 o
-		LEFT JOIN terminal_outcome_private_dag_payloads d ON d.id = o.private_dag_payload_id
-		WHERE o.status = 'pending' OR (o.status = 'claimed' AND o.lease_expires_at <= ?)
-		ORDER BY o.id
-		LIMIT ?
-	`, now, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list terminal outcome outbox: %w", err)
-	}
-	defer rows.Close()
-	var candidates []outboxCandidate
-	for rows.Next() {
-		var candidate outboxCandidate
-		if err := rows.Scan(&candidate.id, &candidate.publicPayload, &candidate.privatePayload); err != nil {
-			return nil, fmt.Errorf("scan terminal outcome outbox: %w", err)
-		}
-		candidates = append(candidates, candidate)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate terminal outcome outbox: %w", err)
-	}
-	return candidates, nil
-}
-
-func decodeOutboxCandidate(candidate outboxCandidate) (contract.TerminalOutcomeOutboxItem, error) {
-	item := contract.TerminalOutcomeOutboxItem{ID: candidate.id}
-	if err := json.Unmarshal(candidate.publicPayload, &item.Outcome); err != nil {
-		return contract.TerminalOutcomeOutboxItem{}, fmt.Errorf("decode public payload: %w", err)
-	}
-	if len(candidate.privatePayload) != 0 {
-		var payload contract.OwnerScopedDAGPayload
-		if err := strictJSONDecode(candidate.privatePayload, &payload); err != nil {
-			return contract.TerminalOutcomeOutboxItem{}, fmt.Errorf("decode private DAG payload: %w", err)
-		}
-		if err := payload.Validate(item.Outcome.Identity); err != nil {
-			return contract.TerminalOutcomeOutboxItem{}, err
-		}
-		item.PrivateDAG = &payload
-	}
-	return item, nil
-}
-
-func strictJSONDecode(raw []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("JSON contains multiple values")
-		}
-		return err
-	}
-	return nil
-}
-
 func poisonOutboxTx(ctx context.Context, tx *sql.Tx, id int64, _ error) error {
 	result, err := tx.ExecContext(ctx, `
 		UPDATE terminal_outcome_outbox_v2
@@ -717,22 +667,31 @@ func (s *Store) RenewTerminalOutcomeOutbox(ctx context.Context, outboxID int64, 
 		return time.Time{}, errors.New("terminal outcome store database is required")
 	}
 	workerID, claimToken = strings.TrimSpace(workerID), strings.TrimSpace(claimToken)
-	if outboxID <= 0 || workerID == "" || claimToken == "" || lease <= 0 {
-		return time.Time{}, errors.New("terminal outcome renewal requires id, worker, token and positive lease")
+	if err := validateTerminalOutboxRenewal(outboxID, workerID, claimToken, lease); err != nil {
+		return time.Time{}, err
 	}
 	now := time.Now().UTC()
 	expiresAt := now.Add(lease)
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.beginValidatedOutboxMutationTx(ctx, outboxID, "renewal")
+	if err != nil {
+		return time.Time{}, err
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE terminal_outcome_outbox_v2
 		SET lease_expires_at = ?
 		WHERE id = ? AND status = 'claimed' AND claimed_by = ? AND claim_token = ?
 		  AND lease_expires_at > ?
 	`, expiresAt.UnixMilli(), outboxID, workerID, claimToken, now.UnixMilli())
 	if err != nil {
+		_ = tx.Rollback()
 		return time.Time{}, fmt.Errorf("renew terminal outcome outbox: %w", err)
 	}
 	if err := requireOneRow(result); err != nil {
+		_ = tx.Rollback()
 		return time.Time{}, contract.ErrTerminalOutboxFence
+	}
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, fmt.Errorf("commit terminal outcome renewal: %w", err)
 	}
 	return expiresAt, nil
 }
@@ -747,7 +706,11 @@ func (s *Store) MarkTerminalOutcomeProjected(ctx context.Context, outboxID int64
 		return errors.New("terminal outcome outbox id, worker id and claim token are required")
 	}
 	now := time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.beginValidatedOutboxMutationTx(ctx, outboxID, "projection ACK")
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE terminal_outcome_outbox_v2
 		SET status = 'projected', claimed_by = '', claim_token = '', lease_expires_at = NULL,
 		    projected_at = ?
@@ -755,10 +718,15 @@ func (s *Store) MarkTerminalOutcomeProjected(ctx context.Context, outboxID int64
 		  AND lease_expires_at > ?
 	`, now.UnixMilli(), outboxID, workerID, claimToken, now.UnixMilli())
 	if err != nil {
+		_ = tx.Rollback()
 		return fmt.Errorf("mark terminal outcome projected: %w", err)
 	}
 	if err := requireOneRow(result); err != nil {
+		_ = tx.Rollback()
 		return contract.ErrTerminalOutboxFence
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit terminal outcome projection ACK: %w", err)
 	}
 	return nil
 }

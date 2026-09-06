@@ -362,6 +362,28 @@ func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaun
 		registry.unlock()
 		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
 	}
+	if launchErr == nil && agent.lastExitedSeq >= attempt.expectedSeq {
+		// A provider may exit after returning its session identity but before
+		// launch activation commits the runtime snapshot. Do not resurrect that
+		// fenced lifecycle with a late success result.
+		staleErr := fmt.Errorf("agent %q process exited before launch activation", attempt.agentID)
+		pkglogger.Warn("orchestration: launch finish ignored after process exit",
+			"agent_id", attempt.agentID, "launch_seq", attempt.expectedSeq)
+		registry.unlock()
+		_ = s.discardStaleLaunchResult(ctx, &attempt.launching, nil)
+		return staleErr
+	}
+	if launchErr == nil {
+		if pendingExit, matched := takePendingCLIProcessExitLocked(agent, attempt.agentID, attempt.expectedSeq, result.ThreadID); matched {
+			staleErr := pendingCLIProcessExitLaunchError(attempt.agentID, pendingExit)
+			now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
+			agent.exitedAt, agent.updatedAt, agent.lastExitedSeq = &now, now, attempt.expectedSeq
+			pkglogger.Warn("orchestration: launch finish rejected after pending process exit",
+				"agent_id", attempt.agentID, "launch_seq", attempt.expectedSeq,
+				"session_id", pendingExit.SessionID)
+			return s.failLauncherLaunchLocked(ctx, agent, &attempt.launching, staleErr)
+		}
+	}
 	if launchErr != nil {
 		pkglogger.Warn("orchestration: launch failed", "agent_id", attempt.agentID, "state", agent.state, "launch_seq", attempt.expectedSeq, "error", launchErr)
 		return s.failLauncherLaunchLocked(ctx, agent, &attempt.launching, launchErr)
@@ -418,7 +440,13 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		}
 		return err
 	}
+	agentID, generation := agent.id, agent.launchSeq
 	s.registry.unlock()
+	if _, managedCLI := s.lifecycle.launcher.(*cliLauncher); managedCLI {
+		if err := s.BindSessionGeneration(ctx, agentID, generation); err != nil {
+			return errors.Join(err, s.lifecycle.launcher.Stop(ctx, launching))
+		}
+	}
 	return nil
 }
 

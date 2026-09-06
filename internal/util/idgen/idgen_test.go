@@ -2,6 +2,8 @@ package idgen
 
 import (
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -42,4 +44,53 @@ func TestGeneratorInstancesOwnIndependentState(t *testing.T) {
 	if second.lastAgentIDValue.Load() != 0 {
 		t.Fatal("generator state leaked across owners")
 	}
+}
+
+func TestGeneratorInstancesProduceStrictlyIncreasingIDs(t *testing.T) {
+	first := NewGenerator()
+	second := NewGenerator()
+
+	firstID := first.NewAgentID()
+	secondID := second.NewAgentID()
+	firstValue := parseAgentIDValue(t, firstID)
+	secondValue := parseAgentIDValue(t, secondID)
+	if secondValue <= firstValue {
+		t.Fatalf("IDs are not strictly increasing across generators: %q then %q", firstID, secondID)
+	}
+}
+
+func TestGeneratorInstancesConcurrentIDsAreUnique(t *testing.T) {
+	const generatorCount = 16
+	const idsPerGenerator = 250
+	generators := make([]*Generator, generatorCount)
+	for index := range generators {
+		generators[index] = NewGenerator()
+	}
+
+	ids := make(chan string, generatorCount*idsPerGenerator)
+	var wg sync.WaitGroup
+	for _, generator := range generators {
+		for range idsPerGenerator {
+			wg.Go(func() { ids <- generator.NewAgentID() })
+		}
+	}
+	wg.Wait()
+	close(ids)
+
+	seen := make(map[string]struct{}, generatorCount*idsPerGenerator)
+	for id := range ids {
+		if _, exists := seen[id]; exists {
+			t.Fatalf("duplicate agent id across generators: %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+}
+
+func parseAgentIDValue(t *testing.T, id string) uint64 {
+	t.Helper()
+	value, err := strconv.ParseUint(strings.TrimPrefix(id, "agent_"), 10, 64)
+	if err != nil {
+		t.Fatalf("parse agent ID %q: %v", id, err)
+	}
+	return value
 }

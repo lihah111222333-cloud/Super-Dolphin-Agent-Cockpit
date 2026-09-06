@@ -204,6 +204,7 @@ func CrossDomainBoundaryRuleIDs() []BoundaryRuleID {
 		"module_horizontal_deep_import",
 		"module_no_outer_implementation_imports",
 		"mcp_sidecar_narrow_import_surface",
+		"mcp_orch_no_embedded_recovery_custody_authority",
 		"provider_external_import_surface",
 		"provider_no_store",
 		"provider_no_platform_db",
@@ -241,6 +242,8 @@ func defaultBackendBoundaryGuards() []BackendBoundaryGuard {
 		{ID: "backend_surface_governance", File: "internal/archtest/backend_boundary_governance_test.go", TestNames: []string{"TestValidateDefaultBackendBoundaryGovernance"}, AppliesTo: []BoundarySurfaceID{"internal/archtest"}, Reason: "the governance guard fails when a backend top-level Go surface is missing or stale"},
 		{ID: "acp_node_boundary", File: "internal/archtest/acp_node_boundary_guard_test.go", TestNames: []string{"TestACPNodeBoundary", "TestACPNodeNarrowImportBoundary"}, AppliesTo: []BoundarySurfaceID{"cmd/acp-node", "internal/devtools"}, Reason: "experimental ACP development code must remain isolated from production provider, UI, RPC, and persistence surfaces"},
 		{ID: "backend_boundary_single_source", File: "internal/archtest/backend_boundary_single_source_test.go", TestNames: []string{"TestBackendBoundaryRuleFactsHaveOneSource"}, AppliesTo: []BoundarySurfaceID{"internal/archtest"}, Reason: "canonical backend boundary facts must not be duplicated by procedural evaluators"},
+		{ID: "recovery_custody_authority_sqlite_open", File: "internal/archtest/recovery_custody_authority_sqlite_open_guard_test.go", TestNames: []string{"TestMCPOrchProductionDoesNotOpenRecoveryCustodyAuthoritySQLite"}, AppliesTo: []BoundarySurfaceID{"cmd/mcp-orch"}, Reason: "ordinary mcp-orch production code must not open the private RecoveryCustody authority SQLite database in process"},
+		{ID: "recovery_custody_sqlite_only", File: "internal/archtest/recovery_custody_sqlite_only_guard_test.go", TestNames: []string{"TestRecoveryCustodyServiceUsesPrivateSQLiteOnly"}, AppliesTo: []BoundarySurfaceID{"cmd/mcp-recovery-custody"}, Reason: "the independent RecoveryCustody service must use its private SQLite authority and never introduce a PostgreSQL or product-DB writer"},
 		{ID: "rpc_runtime_e2e", File: "internal/e2e/rpc_runtime/runtime_e2e_test.go", TestNames: []string{"TestAgentRuntimeRPCBlackBox", "TestRPCRuntimeE2EEnvIsIsolated"}, BuildTags: []string{"e2e"}, AppliesTo: []BoundarySurfaceID{"internal/e2e"}, Reason: "the tagged RPC runtime suite validates the backend process boundary end to end"},
 		{ID: "ignored_go_tests", File: "internal/guards/ignored_test_guard_test.go", TestNames: []string{"TestTrackedGoTestsDoNotUseIgnoreBuildConstraint"}, AppliesTo: []BoundarySurfaceID{"internal/guards"}, Reason: "tracked Go tests must remain attached to an executable test chain instead of using the unowned ignore build tag"},
 		{ID: "rollback_skip_markers", File: "internal/guards/rollback_skip_guard_test.go", TestNames: []string{"TestGoTestsDoNotContainRollbackSkipMarkers"}, AppliesTo: []BoundarySurfaceID{"internal/guards"}, Reason: "the repository guard rejects hidden rollback skip markers in Go tests"},
@@ -260,7 +263,8 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/build-trusted-gate-launcher", "trusted gate launcher build command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
-		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "mcp_orch_sqlc_sidecar_only", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
+		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "mcp_orch_no_embedded_recovery_custody_authority", "mcp_orch_sqlc_sidecar_only", "fx_assembly_scope", "mcpserver_orch_family"}, []BoundaryGuardID{"recovery_custody_authority_sqlite_open"}),
+		backendBoundarySurface("cmd/mcp-recovery-custody", "independent RecoveryCustody SQLite authority service", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, []BoundaryGuardID{"recovery_custody_sqlite_only"}),
 		backendBoundarySurface("cmd/mcp-schema-compiler-helper", "one-shot MCP schema compiler helper", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-gate", "standalone gate coordinator and worker command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-heteroci-node", "repository-neutral heterogeneous CI node probe", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
@@ -338,7 +342,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		providerModules: []string{"internal/provider/**/module.go"},
 		providerUnified: []string{"internal/provider/unified/**/*.go"},
 		platform:        []string{"internal/platform/**/*.go"},
-		sidecar:         []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"},
+		sidecar:         []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go", "cmd/mcp-recovery-custody/**/*.go"},
 		agentRuntime:    []string{"cmd/agent-runtime/**/*.go"},
 		agentTerminal:   []string{"cmd/agent-terminal/**/*.go"},
 		codexWorktree:   []string{"cmd/codex-worktree-setup/**/*.go"},
@@ -395,6 +399,7 @@ func defaultBackendBoundaryRules(patterns backendBoundaryPatterns) []BackendBoun
 		defaultModuleOuterImplementationRule(patterns),
 		defaultModuleStoreRule(patterns),
 		defaultMCPSidecarRule(patterns),
+		defaultMCPOrchRecoveryCustodyAuthorityRule(patterns),
 		defaultCommandNarrowImportRule(patterns),
 		defaultInternalSupportNarrowImportRule(patterns),
 		defaultProviderExternalImportRule(patterns),
@@ -421,151 +426,6 @@ func defaultOrchestratorSQLCRule(patterns backendBoundaryPatterns) BackendBounda
 	return BackendBoundaryRule{ID: orchestratorSQLCBoundaryRuleID, Owner: "sqlc_boundary", Reason: "mcp-orch SQLC generated types remain private to the orchestrator sidecar",
 		Kind: BoundaryRuleScopedImport, FilePatterns: patterns.sqlc, Deny: boundaryPolicies("sqlc_boundary", patterns.sqlc, []string{sqlcconfig.OrchestratorOutputOwnerParent}, "orchestrator SQLC imports stay inside mcp-orch"),
 		ScopeAllow: []BoundaryFilePolicy{boundaryFilePolicy("sqlc_boundary", BoundaryScopeFXMCPOrch, "mcp-orch owns its configured SQLC output")}, SkipTestFiles: true}
-}
-
-func defaultContractDTOFrameworkRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	files := combineBoundaryPatterns(patterns.contract, patterns.dto)
-	return BackendBoundaryRule{
-		ID:           "contract_dto_no_framework_imports",
-		Owner:        "contract_boundary",
-		Reason:       "contract and DTO packages stay transport-neutral and must not depend on runtime frameworks",
-		Kind:         BoundaryRuleDenyImports,
-		FilePatterns: files,
-		Deny: boundaryPolicies(
-			"contract_boundary",
-			files,
-			[]string{"go.uber.org/fx", "github.com/creachadair/jrpc2", "github.com/jackc/pgx/v5", "github.com/wailsapp/wails"},
-			"contract and DTO packages must remain free of framework dependencies",
-		),
-		SkipTestFiles: true,
-	}
-}
-
-func defaultContractReversePollutionRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:           "contract_reverse_pollution",
-		Owner:        "contract_boundary",
-		Reason:       "contract may only define stable DTOs and ports, never depend on implementation details",
-		Kind:         BoundaryRuleAllowRepositoryImports,
-		FilePatterns: patterns.contract,
-		Allow: boundaryPolicies("contract_boundary", patterns.contract, []string{
-			"internal/contract",
-			"internal/dto/agent",
-			"internal/dto/mcp",
-			"internal/dto/provider",
-			"internal/dto/shared",
-			"internal/dto/thread",
-			"internal/dto/turn",
-			"internal/dto/ui",
-		}, "contract may import only the exact registered repository DTO packages"),
-		SkipTestFiles: true,
-	}
-}
-
-func defaultModuleSiblingRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:            "module_horizontal_deep_import",
-		Owner:         "module_boundary",
-		Reason:        "module packages must not import sibling module internals; use contract DTOs or injected ports instead",
-		Kind:          BoundaryRuleModuleSiblings,
-		FilePatterns:  patterns.module,
-		SkipTestFiles: true,
-	}
-}
-
-func defaultModuleDatabaseRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:           "module_no_direct_db_imports",
-		Owner:        "module_boundary",
-		Reason:       "module production code must not own direct database imports outside audited skill persistence seams",
-		Kind:         BoundaryRuleDenyImports,
-		FilePatterns: patterns.module,
-		Deny: boundaryPolicies("module_boundary", patterns.module, []string{
-			"database/sql",
-			"github.com/jackc/pgx/v5",
-			"github.com/jackc/pgx/v5/pgxpool",
-			"github.com/jackc/pgx/v5/pgconn",
-		}, "module code must not own direct database dependencies"),
-		SkipTestFiles: true,
-	}
-}
-
-func defaultModuleOuterImplementationRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:           "module_no_outer_implementation_imports",
-		Owner:        "module_boundary",
-		Reason:       "business modules must depend on contracts and injected ports instead of provider, MCP server, or command implementations",
-		Kind:         BoundaryRuleDenyImports,
-		FilePatterns: patterns.module,
-		Deny: boundaryPolicies(
-			"module_boundary",
-			patterns.module,
-			[]string{"internal/provider", "internal/mcpserver", "cmd"},
-			"module production code must not import outer implementation packages",
-		),
-		SkipTestFiles: true,
-	}
-}
-
-func defaultModuleStoreRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:           "module_no_store_imports",
-		Owner:        "module_boundary",
-		Reason:       "business modules own persistence ports and receive Store adapters from internal/app",
-		Kind:         BoundaryRuleDenyImports,
-		FilePatterns: patterns.module,
-		Deny: boundaryPolicies(
-			"module_boundary",
-			patterns.module,
-			[]string{"internal/store"},
-			"module production code must not import Store implementations",
-		),
-		SkipTestFiles: true,
-	}
-}
-
-func defaultMCPSidecarRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:           "mcp_sidecar_narrow_import_surface",
-		Owner:        "mcp_sidecar_boundary",
-		Reason:       "cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services",
-		Kind:         BoundaryRuleAllowInternalImports,
-		FilePatterns: patterns.sidecar,
-		Allow:        mcpSidecarAllowPolicies(),
-		Deny: boundaryPolicies("mcp_sidecar_boundary", patterns.sidecar, []string{
-			"internal/app",
-			"internal/module",
-			"internal/provider",
-			"cmd/agent-terminal",
-			"internal/platform/rpc/server",
-			"internal/platform/rpc/push",
-			"internal/platform/rpc/notification",
-		}, "sidecars must not reach app host, module, provider, agent terminal, or RPC host internals"),
-		SkipTestFiles:      true,
-		DependencyPackages: []string{"cmd/mcp-orch", "cmd/mcp-lsp", "cmd/mcp-ida"},
-	}
-}
-
-func defaultCommandNarrowImportRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:           "command_narrow_import_surface",
-		Owner:        "command_boundary",
-		Reason:       "standalone commands may import only their registered application or runtime seams",
-		Kind:         BoundaryRuleAllowInternalImports,
-		FilePatterns: commandBoundaryPatterns(patterns),
-		Allow:        commandNarrowAllowPolicies(patterns),
-	}
-}
-
-func defaultInternalSupportNarrowImportRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
-	return BackendBoundaryRule{
-		ID:           "internal_support_narrow_import_surface",
-		Owner:        "internal_support_boundary",
-		Reason:       "support packages may import only descendants and explicitly registered shared seams",
-		Kind:         BoundaryRuleAllowInternalImports,
-		FilePatterns: internalSupportBoundaryPatterns(patterns),
-		Allow:        internalSupportNarrowAllowPolicies(patterns),
-	}
 }
 
 func defaultProviderExternalImportRule(patterns backendBoundaryPatterns) BackendBoundaryRule {
@@ -769,7 +629,7 @@ func boundaryPolicies(owner BoundaryOwnerID, filePatterns, prefixes []string, re
 // mcpSidecarAllowPolicies 保留各 sidecar 的既有精确导入白名单，禁止泛化为全局平台许可。
 func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 	owner := BoundaryOwnerID("mcp_sidecar_boundary")
-	patterns := []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go"}
+	patterns := []string{"cmd/mcp-orch/**/*.go", "cmd/mcp-lsp/**/*.go", "cmd/mcp-ida/**/*.go", "cmd/mcp-recovery-custody/**/*.go"}
 	policies := boundaryPolicies(owner, patterns, []string{
 		"internal/contract",
 		"internal/dto",

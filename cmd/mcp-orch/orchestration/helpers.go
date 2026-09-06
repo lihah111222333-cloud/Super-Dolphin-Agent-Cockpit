@@ -332,7 +332,7 @@ func (c *turnController) activateTerminalTurnHeadLocked(ctx context.Context, age
 	threadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
 	sessionID := agentSessionID(agent)
 	if threadID == "" || strings.TrimSpace(providerTurnID) == "" || sessionID == "" || agent.sessionGeneration == 0 {
-		return contract.TerminalOutcomeHead{}, errors.New("terminal outcome v2 head activation requires thread, turn, session and generation")
+		return contract.TerminalOutcomeHead{}, fmt.Errorf("terminal outcome v2 head activation requires thread, turn, session and generation: thread=%q turn=%q session=%q generation=%d launch_seq=%d state=%q agent=%q", threadID, strings.TrimSpace(providerTurnID), sessionID, agent.sessionGeneration, agent.launchSeq, agent.state, agent.id)
 	}
 	head, err := c.terminalOutcomes.ActivateTerminalOutcomeHead(ctx, contract.TerminalOutcomeHeadActivation{
 		Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),

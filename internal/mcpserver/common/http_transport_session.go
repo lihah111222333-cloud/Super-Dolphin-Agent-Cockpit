@@ -23,20 +23,44 @@ const (
 )
 
 var (
-	errHTTPMCPSessionRequired = errors.New("Mcp-Session-Id header is required")
-	errHTTPMCPSessionUnknown  = errors.New("Mcp-Session-Id does not identify an active session")
+	errHTTPMCPSessionRequired  = errors.New("Mcp-Session-Id header is required")
+	errHTTPMCPSessionUnknown   = errors.New("Mcp-Session-Id does not identify an active session")
+	errHTTPMCPTaskUnauthorized = errors.New("task session authentication failed")
 )
+
+// localHTTPRequestAuthentication 是 local preflight 的脱敏结果；原始 bearer 不进入该结构。
+type localHTTPRequestAuthentication struct {
+	task             bool
+	credentialDigest SessionCredentialDigest
+	identity         TaskSessionIdentity
+}
 
 // httpMCPSession 隔离单个 Streamable HTTP 客户端的请求 ID 与取消函数。
 type httpMCPSession struct {
-	mu         sync.Mutex
-	inFlight   map[jsonRPCIDKey]*inFlightToolCall
-	lastAccess time.Time
-	closed     bool
+	mu               sync.Mutex
+	inFlight         map[jsonRPCIDKey]*inFlightToolCall
+	lastAccess       time.Time
+	closed           bool
+	initialized      bool
+	principal        CallerPrincipal
+	principalOn      bool
+	taskAuthOn       bool
+	credentialDigest SessionCredentialDigest
+	taskIdentity     TaskSessionIdentity
 }
 
 // handleInitializeRequest 完成握手后创建 session；失败握手不得占用 session。
 func (h *HTTPServer) handleInitializeRequest(w http.ResponseWriter, r *http.Request, req jsonRPCRequest) {
+	h.handleInitializeRequestWithAuthentication(w, r, req, localHTTPRequestAuthentication{})
+}
+
+// handleInitializeRequestWithAuthentication 在握手成功后冻结 task digest/identity 或 operator principal。
+func (h *HTTPServer) handleInitializeRequestWithAuthentication(
+	w http.ResponseWriter,
+	r *http.Request,
+	req jsonRPCRequest,
+	authentication localHTTPRequestAuthentication,
+) {
 	if strings.TrimSpace(r.Header.Get(httpMCPHeaderSessionID)) != "" {
 		writeHTTPJSONError(w, http.StatusBadRequest, req.ID, codeInvalidReq, "initialize must not include Mcp-Session-Id")
 		return
@@ -50,13 +74,43 @@ func (h *HTTPServer) handleInitializeRequest(w http.ResponseWriter, r *http.Requ
 		writeHTTPResponse(w, resp)
 		return
 	}
-	sessionID, err := h.createSession()
+	binding, status, err := h.authenticationForNewSession(authentication)
+	if err != nil {
+		if status == http.StatusUnauthorized {
+			w.WriteHeader(status)
+			return
+		}
+		writeHTTPJSONError(w, http.StatusServiceUnavailable, req.ID, codeInternal, "session caller principal issuance failed")
+		return
+	}
+	sessionID, err := h.createSessionWithAuthentication(binding)
 	if err != nil {
 		writeHTTPJSONError(w, http.StatusServiceUnavailable, req.ID, codeInternal, err.Error())
 		return
 	}
 	w.Header().Set(httpMCPHeaderSessionID, sessionID)
 	writeHTTPResponse(w, resp)
+}
+
+// authenticationForNewSession 将 profile 模式投影为一次性冻结的 session 认证绑定。
+func (h *HTTPServer) authenticationForNewSession(
+	authentication localHTTPRequestAuthentication,
+) (httpSessionAuthentication, int, error) {
+	if h.localProfile == nil {
+		return httpSessionAuthentication{}, 0, nil
+	}
+	if h.localProfile.usesTaskAuthentication() {
+		if err := authentication.validateTask(); err != nil {
+			return httpSessionAuthentication{}, http.StatusUnauthorized, err
+		}
+		return httpSessionAuthentication{
+			taskAuthOn:       true,
+			credentialDigest: authentication.credentialDigest,
+			taskIdentity:     authentication.identity,
+		}, 0, nil
+	}
+	principal, err := h.localProfile.issueCallerPrincipal()
+	return httpSessionAuthentication{principal: principal, principalOn: !principal.IsZero()}, 0, err
 }
 
 // writeHTTPResponse 写出单个 JSON-RPC HTTP 响应。
@@ -69,8 +123,63 @@ func writeHTTPResponse(w http.ResponseWriter, resp *jsonRPCResponse) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// createSession 创建不可预测的 session ID，并对 session 总数设硬上限。
-func (h *HTTPServer) createSession() (string, error) {
+// httpSessionAuthentication 是创建 session 时一次性冻结的 transport 身份事实。
+type httpSessionAuthentication struct {
+	principal        CallerPrincipal
+	principalOn      bool
+	taskAuthOn       bool
+	credentialDigest SessionCredentialDigest
+	taskIdentity     TaskSessionIdentity
+}
+
+// Validate 校验 session 认证绑定只携带当前模式允许的字段。
+func (a httpSessionAuthentication) Validate() error {
+	if a.taskAuthOn {
+		return a.validateTask()
+	}
+	if a.principalOn {
+		return a.principal.Validate()
+	}
+	if !a.principal.IsZero() {
+		return errors.New("HTTP MCP session principal flag is inconsistent")
+	}
+	return nil
+}
+
+// validateTask 校验 task session 不混入 operator principal，并携带完整 digest/identity。
+func (a httpSessionAuthentication) validateTask() error {
+	if a.principalOn || !a.principal.IsZero() || a.credentialDigest == (SessionCredentialDigest{}) {
+		return errors.New("HTTP MCP task session authentication binding is invalid")
+	}
+	return a.taskIdentity.Validate()
+}
+
+// validateTask 复验 preflight 结果，防止 task profile 落入 operator/legacy 创建路径。
+func (a localHTTPRequestAuthentication) validateTask() error {
+	if !a.task || a.credentialDigest == (SessionCredentialDigest{}) {
+		return errHTTPMCPTaskUnauthorized
+	}
+	return a.identity.Validate()
+}
+
+// createSession 保留 legacy/operator 测试入口，并转入单一 session 创建实现。
+func (h *HTTPServer) createSession(principals ...CallerPrincipal) (string, error) {
+	if len(principals) > 1 {
+		return "", errors.New("HTTP MCP session accepts at most one caller principal")
+	}
+	var binding httpSessionAuthentication
+	if len(principals) == 1 {
+		binding.principal = principals[0]
+		binding.principalOn = !principals[0].IsZero()
+	}
+	return h.createSessionWithAuthentication(binding)
+}
+
+// createSessionWithAuthentication 创建不可预测的 session ID，并冻结认证模式与身份快照。
+func (h *HTTPServer) createSessionWithAuthentication(binding httpSessionAuthentication) (string, error) {
+	if err := binding.Validate(); err != nil {
+		return "", fmt.Errorf("bind HTTP MCP session authentication: %w", err)
+	}
 	raw := make([]byte, httpMCPSessionRandomByteSize)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generate HTTP MCP session ID: %w", err)
@@ -85,39 +194,144 @@ func (h *HTTPServer) createSession() (string, error) {
 		return "", errors.New("generated duplicate HTTP MCP session ID")
 	}
 	h.sessions[sessionID] = &httpMCPSession{
-		inFlight:   make(map[jsonRPCIDKey]*inFlightToolCall),
-		lastAccess: time.Now(),
+		inFlight:         make(map[jsonRPCIDKey]*inFlightToolCall),
+		lastAccess:       time.Now(),
+		principal:        binding.principal,
+		principalOn:      binding.principalOn,
+		taskAuthOn:       binding.taskAuthOn,
+		credentialDigest: binding.credentialDigest,
+		taskIdentity:     binding.taskIdentity,
 	}
 	return sessionID, nil
 }
 
+// bindCallerPrincipal 从不可变 session 快照派生请求 context；task 模式按 principal、
+// attribution 固定顺序绑定，任一步失败都返回原始 context。
+func (s *httpMCPSession) bindCallerPrincipal(ctx context.Context) (context.Context, error) {
+	s.mu.Lock()
+	principalOn := s.principalOn
+	principal := s.principal
+	taskAuthOn := s.taskAuthOn
+	taskIdentity := s.taskIdentity
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return ctx, errors.New("HTTP MCP session is closed")
+	}
+	if taskAuthOn {
+		return BindTaskSessionIdentity(ctx, taskIdentity)
+	}
+	if !principalOn {
+		return ctx, nil
+	}
+	return BindCallerPrincipal(ctx, principal)
+}
+
+// validateCallerPrincipal 在生命周期状态变化前检查 session 快照，阻止过期身份解锁本地会话。
+func (s *httpMCPSession) validateCallerPrincipal() error {
+	s.mu.Lock()
+	principalOn := s.principalOn
+	principal := s.principal
+	taskAuthOn := s.taskAuthOn
+	taskIdentity := s.taskIdentity
+	closed := s.closed
+	s.mu.Unlock()
+	if closed {
+		return errors.New("HTTP MCP session is closed")
+	}
+	if taskAuthOn {
+		return taskIdentity.Validate()
+	}
+	if !principalOn {
+		return nil
+	}
+	return principal.Validate()
+}
+
 // requireSession 解析并验证后续请求携带的 session header。
 func (h *HTTPServer) requireSession(r *http.Request) (*httpMCPSession, int, error) {
+	return h.requireSessionWithAuthentication(r, localHTTPRequestAuthentication{})
+}
+
+// requireSessionWithAuthentication 在 registry/session 锁外完成的认证结果与冻结绑定逐字段比较，
+// 通过后才刷新访问时间。
+func (h *HTTPServer) requireSessionWithAuthentication(
+	r *http.Request,
+	authentication localHTTPRequestAuthentication,
+) (*httpMCPSession, int, error) {
 	sessionID := strings.TrimSpace(r.Header.Get(httpMCPHeaderSessionID))
 	if sessionID == "" {
 		return nil, http.StatusBadRequest, errHTTPMCPSessionRequired
 	}
 	h.sessionsMu.RLock()
 	session := h.sessions[sessionID]
-	if session != nil && session.touch(time.Now()) {
-		h.sessionsMu.RUnlock()
+	h.sessionsMu.RUnlock()
+	if session == nil {
+		return nil, http.StatusNotFound, errHTTPMCPSessionUnknown
+	}
+	if h.localProfile != nil && h.localProfile.usesTaskAuthentication() {
+		if err := session.authorizeTaskRequest(authentication, true); err != nil {
+			return nil, http.StatusUnauthorized, errHTTPMCPTaskUnauthorized
+		}
 		return session, 0, nil
 	}
-	h.sessionsMu.RUnlock()
+	if session.touch(time.Now()) {
+		return session, 0, nil
+	}
 	return nil, http.StatusNotFound, errHTTPMCPSessionUnknown
+}
+
+// authorizeTaskRequest 原子比较 digest 和完整身份对；只有匹配时才可选 touch。
+func (s *httpMCPSession) authorizeTaskRequest(authentication localHTTPRequestAuthentication, touch bool) error {
+	if err := authentication.validateTask(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || !s.taskAuthOn || s.credentialDigest != authentication.credentialDigest ||
+		!s.taskIdentity.Equal(authentication.identity) {
+		return errHTTPMCPTaskUnauthorized
+	}
+	if touch {
+		s.lastAccess = time.Now()
+	}
+	return nil
 }
 
 // handleDeleteSession 终止一个 session，并取消其全部进行中工具调用。
 func (h *HTTPServer) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	h.handleDeleteSessionWithAuthentication(w, r, localHTTPRequestAuthentication{})
+}
+
+// handleDeleteSessionWithAuthentication 先复验 task session 绑定，再从 registry 原子摘除。
+func (h *HTTPServer) handleDeleteSessionWithAuthentication(
+	w http.ResponseWriter,
+	r *http.Request,
+	authentication localHTTPRequestAuthentication,
+) {
 	sessionID := strings.TrimSpace(r.Header.Get(httpMCPHeaderSessionID))
 	if sessionID == "" {
 		writeHTTPJSONError(w, http.StatusBadRequest, nil, codeInvalidReq, errHTTPMCPSessionRequired.Error())
 		return
 	}
-	h.sessionsMu.Lock()
+	h.sessionsMu.RLock()
 	session := h.sessions[sessionID]
-	if session != nil {
+	h.sessionsMu.RUnlock()
+	if session == nil {
+		writeHTTPJSONError(w, http.StatusNotFound, nil, codeInvalidReq, errHTTPMCPSessionUnknown.Error())
+		return
+	}
+	if h.localProfile != nil && h.localProfile.usesTaskAuthentication() {
+		if err := session.authorizeTaskRequest(authentication, false); err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+	}
+	h.sessionsMu.Lock()
+	if h.sessions[sessionID] == session {
 		delete(h.sessions, sessionID)
+	} else {
+		session = nil
 	}
 	h.sessionsMu.Unlock()
 	if session == nil {

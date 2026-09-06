@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-embed-verify-after-build frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort test-e2e-gopls-daemon-lifecycle test-e2e-mcp-lsp-idle-quick test-e2e-mcp-lsp-native-process-tree test-e2e-mcp-lsp-default-15m mcp-lsp-workload-catalog-check vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-local-toolchain-check sqlc-generate-worktree sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify frontend-embed-verify-after-build frontend-gate-health run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries build-recovery-custody-candidate package-macos package-linux package-windows release-update-gate test test-deferred test-e2e test-e2e-rpc-runtime test-e2e-mcp-lsp-resource-cohort test-e2e-gopls-daemon-lifecycle test-e2e-mcp-lsp-idle-quick test-e2e-mcp-lsp-native-process-tree test-e2e-mcp-lsp-default-15m mcp-lsp-workload-catalog-check vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report sqlc-local-toolchain-check sqlc-generate-worktree sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
 
 # MCP-LSP gates require the trusted candidate tree supplied by the materialized executor.
 MCP_LSP_CANDIDATE_TREE ?=
@@ -135,6 +135,18 @@ build-peer-binaries:
 		go build -o "$$tmp" ./cmd/mcp-lsp; \
 		mv -f "$$tmp" bin/mcp-lsp
 
+# RecoveryCustody remains an explicit, unregistered candidate binary.  It is
+# built only when this target is requested; production orch composition does
+# not depend on or launch it.  Keep the destination swap atomic so a failed
+# candidate build cannot leave a stale executable that looks current.
+build-recovery-custody-candidate:
+	@mkdir -p bin
+	@tmp="$$(mktemp "bin/.mcp-recovery-custody.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		go build -o "$$tmp" ./cmd/mcp-recovery-custody; \
+		chmod +x "$$tmp"; \
+		mv -f "$$tmp" bin/mcp-recovery-custody
+
 package-macos:
 	./scripts/package_macos.sh
 
@@ -263,6 +275,24 @@ clean:
 
 guard:
 	$(TEST_WITH_GUARD) --guard-only
+	$(MAKE) orch-upgrade-check
+
+.PHONY: orch-upgrade-check orch-upgrade-render orch-s0-receipt-check
+
+# 离线规划一致性检查，不签发运行时或发布许可。
+orch-upgrade-check:
+	python3 -m unittest scripts.orch_upgrade_gate_test
+	python3 -m unittest scripts.orch_acceptance_inventory_test
+	python3 -m unittest scripts.orch_s0_executable_receipt_test
+	python3 scripts/orch_acceptance_inventory.py --root "$(CURDIR)"
+	python3 scripts/orch_upgrade_gate.py --root "$(CURDIR)" --check
+
+orch-upgrade-render:
+	python3 scripts/orch_upgrade_gate.py --root "$(CURDIR)" --write
+
+# 校验一个显式 receipt；始终保持 planning-only/NO-GO。
+orch-s0-receipt-check:
+	python3 scripts/orch_s0_executable_receipt.py --root "$(CURDIR)" $(if $(RECEIPT),--receipt "$(RECEIPT)",--aggregate-only --aggregate "$(or $(AGGREGATE),docs/work/plans/orch-subagent-upgrade/s0-aggregate-receipt.json)")
 
 code-size-guard:
 	$(TEST_WITH_GUARD) --guard-only

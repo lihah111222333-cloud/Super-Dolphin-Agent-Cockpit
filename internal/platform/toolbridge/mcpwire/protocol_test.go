@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 func TestNegotiateProtocolVersionDoesNotEchoUnsupportedVersion(t *testing.T) {
@@ -80,6 +82,14 @@ func TestClassifyToolErrorKeepsDefaultAndCallerPrecedence(t *testing.T) {
 	})
 	if code != "caller_override" || !retryable || hint != "caller hint" || meta["source"] != "caller" {
 		t.Fatalf("caller classification = (%q, %v, %q, %#v), want caller override", code, retryable, hint, meta)
+	}
+}
+
+func TestClassifyToolErrorRecognizesTypedCapabilityError(t *testing.T) {
+	err := contract.NewCapabilityError("thread_archive", "claude")
+	code, retryable, hint, meta := ClassifyToolError("archive_agent", err)
+	if code != "capability_unsupported" || retryable || hint == "" || meta != nil {
+		t.Fatalf("typed capability classification = (%q, %v, %q, %#v), want capability_unsupported", code, retryable, hint, meta)
 	}
 }
 

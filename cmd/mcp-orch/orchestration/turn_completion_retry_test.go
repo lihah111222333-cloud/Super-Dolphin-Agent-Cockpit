@@ -121,16 +121,17 @@ func turnCompletionRetryWakeupForTest(t *testing.T, runID int64, result string) 
 	claimedAt := time.Unix(100, 0).UTC()
 	leaseAt := claimedAt.Add(time.Minute)
 	return taskdag.Wakeup{
-		ID:             99,
-		DagKey:         "dag-repair",
-		NodeKey:        "agent-done",
-		RunID:          &runID,
-		WakeupKind:     "turn_complete_retry",
-		TargetAgentID:  "mcp-orch",
-		PromptPayload:  []byte(result),
-		Status:         "dispatching",
-		ClaimedAt:      &claimedAt,
-		ClaimedBy:      "dispatcher-test",
-		LeaseExpiresAt: &leaseAt,
+		ID:                   99,
+		DagKey:               "dag-repair",
+		NodeKey:              "agent-done",
+		RunID:                &runID,
+		WakeupKind:           "turn_complete_retry",
+		TargetAgentID:        "mcp-orch",
+		PromptPayload:        []byte(result),
+		PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
+		Status:               "dispatching",
+		ClaimedAt:            &claimedAt,
+		ClaimedBy:            "dispatcher-test",
+		LeaseExpiresAt:       &leaseAt,
 	}
 }

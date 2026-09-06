@@ -102,6 +102,10 @@ func markModelProviderAvailability(providers []ProviderModels) []ProviderModels 
 	out := make([]ProviderModels, len(providers))
 	for i, provider := range providers {
 		out[i] = provider
+		if provider.Available != nil {
+			out[i].Available = boolPtr(*provider.Available)
+			continue
+		}
 		available, reason := modelProviderAvailability(provider.Provider)
 		out[i].Available = boolPtr(available)
 		out[i].UnavailableReason = reason

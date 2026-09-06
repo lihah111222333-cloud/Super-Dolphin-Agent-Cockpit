@@ -84,6 +84,11 @@ const (
 	EventTypeWorkspaceRunMergeError    uint32 = 1704
 )
 
+// Orchestration direct-peer 事件（1800-1849）。
+const (
+	EventTypeOrchestrationDirectPeer uint32 = 1800
+)
+
 // EventHeader 是所有类型事件共享的基础字段。
 type EventHeader struct {
 	Timestamp time.Time `json:"timestamp"`

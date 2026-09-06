@@ -460,11 +460,12 @@ type ScheduledDownstreamWakeup struct {
 }
 
 // DownstreamWakeupPayload 是写入 task_dag_wakeups.prompt_payload 的 wire 形状。
-// 当前 DAG 路由主要通过 inputs.from_nodes 和 node.result 取上游上下文；
-// UpstreamOutputs 仅保留给旧手工 wakeup payload 的兼容读取。
+// 当前 DAG 路由主要通过 inputs.from_nodes 和 node.result 取上游上下文。
 type DownstreamWakeupPayload struct {
-	AgentID         string                  `json:"agent_id,omitempty"`
-	UpstreamOutputs []DownstreamUpstreamRef `json:"upstream_outputs,omitempty"`
+	WakeupPayloadKind string                  `json:"wakeup_payload_kind"`
+	SchemaVersion     int64                   `json:"schema_version"`
+	AgentID           string                  `json:"agent_id,omitempty"`
+	UpstreamOutputs   []DownstreamUpstreamRef `json:"upstream_outputs,omitempty"`
 }
 
 // DownstreamUpstreamRef 指向旧 wakeup payload 消费者可读取的上游产物路径。
@@ -658,26 +659,27 @@ type Node struct {
 
 // Wakeup 是 task_dag_wakeups 表的一行运行时投递记录。
 type Wakeup struct {
-	ID             int64
-	DagKey         string
-	NodeKey        string
-	RunID          *int64
-	WakeupKind     string
-	TargetAgentID  string
-	PromptPayload  json.RawMessage
-	IdempotencyKey string
-	Status         string
-	AttemptCount   int32
-	NextRetryAt    time.Time
-	ClaimedAt      *time.Time
-	ClaimedBy      string
-	LeaseExpiresAt *time.Time
-	SentAt         *time.Time
-	BoundTurnID    *string
-	TurnBoundAt    *time.Time
-	LastError      string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                   int64
+	DagKey               string
+	NodeKey              string
+	RunID                *int64
+	WakeupKind           string
+	TargetAgentID        string
+	PromptPayload        json.RawMessage
+	PayloadSchemaVersion int64
+	IdempotencyKey       string
+	Status               string
+	AttemptCount         int32
+	NextRetryAt          time.Time
+	ClaimedAt            *time.Time
+	ClaimedBy            string
+	LeaseExpiresAt       *time.Time
+	SentAt               *time.Time
+	BoundTurnID          *string
+	TurnBoundAt          *time.Time
+	LastError            string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // WorkerLease 是 runtime worker 对目标 agent 的租约记录。

@@ -324,6 +324,19 @@ type serviceResult struct {
 	TurnLifecycle       TurnLifecyclePort
 	ApprovalLifecycle   ApprovalLifecyclePort
 	TerminalProjection  TerminalOutcomeProjectionRuntime
+	TerminalHandler     AgentTerminalHandler
+}
+
+// AgentTerminalHandler 是 provider canonical 终态的最小接收端口。
+type AgentTerminalHandler interface {
+	HandleTerminal(context.Context, turndto.TurnTerminalV2)
+}
+
+// AgentTerminalReceiptHandler 是 provider canonical 终态的内部可确认接收端口。
+// AgentTerminalHandler 保持无返回值兼容；生产组合优先探测此窄口，以便 provider
+// 在 canonical commit/投影失败时收到明确错误并停止报告成功。
+type AgentTerminalReceiptHandler interface {
+	HandleTerminalReceipt(context.Context, turndto.TurnTerminalV2) error
 }
 
 // recoveryTurnStore 是 recoveryTurnStore 接口的本地类型别名，用于内部断言。
@@ -345,6 +358,7 @@ type agentRuntime struct {
 	state                                                                                     agentdto.AgentState
 	threadID, remoteThreadID, pendingLaunchThreadID                                           string
 	pendingLaunchThreadAt                                                                     time.Time
+	pendingCLIExit                                                                            *pendingCLIProcessExit
 	remoteAgentID, requestedAgentID, activeTurnID, pendingProviderTurnID, lastReport          string
 	providerTurnAlias                                                                         providerTurnAlias
 	pendingProviderTerminal                                                                   *turndto.TurnCompleted
@@ -493,6 +507,7 @@ func ProvideServiceResult(p serviceParams) serviceResult {
 		TurnLifecycle:       svc,
 		ApprovalLifecycle:   svc,
 		TerminalProjection:  svc,
+		TerminalHandler:     svc,
 	}
 }
 

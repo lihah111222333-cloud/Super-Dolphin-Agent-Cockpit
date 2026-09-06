@@ -19,6 +19,7 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"go.uber.org/fx"
 )
 
@@ -59,6 +60,7 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 	})
 }
 
+// resolveTerminalHeadVersion 从 durable head 恢复 terminal 代际，拒绝身份漂移。
 func (s *service) resolveTerminalHeadVersion(
 	ctx context.Context,
 	agent *agentRuntime,
@@ -81,6 +83,7 @@ func (s *service) resolveTerminalHeadVersion(
 	return durable.Version, nil
 }
 
+// validateRehydratedTerminalHead 校验恢复的 head 与当前 agent/session/generation 完全一致。
 func validateRehydratedTerminalHead(
 	head contract.DurableTerminalOutcomeHead,
 	agent *agentRuntime,
@@ -110,6 +113,29 @@ func (c *lifecycleController) removeSession(agent *agentRuntime) {
 	}
 	c.sessionCleaner.RemoveSessionGeneration(agent.id, agent.sessionGeneration)
 	agent.sessionGeneration = 0
+}
+
+// cleanupSessionAfterTerminalProjection 在 durable outbox ACK 后释放旧 session。
+// generation/session id 来自已提交的 terminal identity；只有当前 runtime 仍属于同一
+// 生命周期时才清掉它的 generation，避免 ACK 旧终态时误伤新启动的 session。
+func (c *lifecycleController) cleanupSessionAfterTerminalProjection(identity contract.CanonicalTerminalIdentity) {
+	if c == nil || c.sessionCleaner == nil {
+		return
+	}
+	if strings.TrimSpace(identity.AgentID) == "" || strings.TrimSpace(identity.SessionID) == "" || identity.Generation == 0 {
+		return
+	}
+	c.sessionCleaner.RemoveSessionGeneration(identity.AgentID, identity.Generation)
+	if c.registry == nil {
+		return
+	}
+	_ = c.registry.withAgentLocked(identity.AgentID, func(agent *agentRuntime) error {
+		if agentSessionID(agent) != identity.SessionID || agent.sessionGeneration != identity.Generation {
+			return nil
+		}
+		agent.sessionGeneration = 0
+		return nil
+	})
 }
 
 // claimTurnWork 从各 agent 队列领取可执行 turn，并在锁内先推进状态。
@@ -168,6 +194,127 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 	s.lifecycle.handleProcessExit(ctx, s, s.reports, s.eventBus, s.logger, agentID, launchSeq, err)
 }
 
+// pendingCLIProcessExit 保留启动绑定窗口内的一次严格退出身份。
+// 它是 agent runtime 上的单槽，不会随退出通知数量无界增长；事件只有在
+// AgentID、LaunchSeq 和 provider SessionID/thread 全部匹配启动结果时才能消费。
+type pendingCLIProcessExit struct {
+	agentID   string
+	sessionID string
+	launchSeq uint64
+	err       error
+}
+
+// handleCLIProcessExit 只接收带完整 session/launch fence 的 standalone 异常退出。
+// 明确 Stop/Close 产生的事件不在此重复推进状态机；启动尚未绑定 provider
+// thread 时暂存一个精确身份，交由 launch completion 决定是否为本次启动的退出。
+func (s *service) handleCLIProcessExit(event contract.CLIProcessExit) {
+	if s == nil || s.registry == nil || !event.Unexpected || !event.Valid() {
+		return
+	}
+	agentID, sessionID := strings.TrimSpace(event.AgentID), strings.TrimSpace(event.SessionID)
+	if agentID == "" || sessionID == "" {
+		return
+	}
+	event.AgentID, event.SessionID = agentID, sessionID
+	s.registry.lock()
+	agent, err := s.registry.lookupAgentBySeqLocked(agentID, event.LaunchSeq)
+	if err != nil {
+		s.registry.unlock()
+		return
+	}
+	if cliProcessExitSessionMatches(agent, sessionID) {
+		s.registry.unlock()
+		s.handleProcessExit(context.Background(), agentID, event.LaunchSeq, event.Err)
+		return
+	}
+	if canBufferCLIProcessExitLocked(agent, event) {
+		bufferCLIProcessExitLocked(agent, event)
+	}
+	s.registry.unlock()
+}
+
+// canBufferCLIProcessExitLocked 仅允许 provisioning/recovering 且尚未绑定 thread
+// 的 agent 暂存退出。AgentID 也必须是本次本地启动请求的确切身份。
+func canBufferCLIProcessExitLocked(agent *agentRuntime, event contract.CLIProcessExit) bool {
+	if agent == nil || !launchOwnsHookThreadBinding(agent.state) {
+		return false
+	}
+	if strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID)) != "" {
+		return false
+	}
+	return cliProcessExitAgentMatches(agent, event.AgentID)
+}
+
+// cliProcessExitAgentMatches 限制暂存事件只能来自当前 runtime 的本地或请求身份。
+func cliProcessExitAgentMatches(agent *agentRuntime, eventAgentID string) bool {
+	if agent == nil {
+		return false
+	}
+	eventAgentID = strings.TrimSpace(eventAgentID)
+	return eventAgentID != "" && (eventAgentID == strings.TrimSpace(agent.id) ||
+		eventAgentID == strings.TrimSpace(agent.requestedAgentID))
+}
+
+// bufferCLIProcessExitLocked 只保留首个身份相同的事件，冲突身份不会覆盖它。
+// 调用方必须持有 agentRegistry.mu；该单槽策略同时限制内存和回放范围。
+func bufferCLIProcessExitLocked(agent *agentRuntime, event contract.CLIProcessExit) {
+	if agent == nil {
+		return
+	}
+	if pending := agent.pendingCLIExit; pending != nil {
+		if pending.agentID == event.AgentID && pending.launchSeq == event.LaunchSeq && pending.sessionID == event.SessionID {
+			return
+		}
+		pkglogger.Warn("orchestration: conflicting pending process exit ignored",
+			"agent_id", event.AgentID, "launch_seq", event.LaunchSeq,
+			"session_id", event.SessionID)
+		return
+	}
+	agent.pendingCLIExit = &pendingCLIProcessExit{
+		agentID: event.AgentID, sessionID: event.SessionID,
+		launchSeq: event.LaunchSeq, err: event.Err,
+	}
+}
+
+// takePendingCLIProcessExitLocked 消费启动完成时的单槽退出事件。
+// 无论匹配与否都清槽，避免旧身份跨越下一次启动；只有三元身份全等才返回 true。
+func takePendingCLIProcessExitLocked(agent *agentRuntime, agentID string, launchSeq uint64, sessionID string) (contract.CLIProcessExit, bool) {
+	if agent == nil {
+		return contract.CLIProcessExit{}, false
+	}
+	pending := agent.pendingCLIExit
+	agent.pendingCLIExit = nil
+	if pending == nil || pending.agentID != strings.TrimSpace(agentID) || pending.launchSeq != launchSeq || pending.sessionID != strings.TrimSpace(sessionID) {
+		return contract.CLIProcessExit{}, false
+	}
+	return contract.CLIProcessExit{
+		AgentID: pending.agentID, SessionID: pending.sessionID,
+		LaunchSeq: pending.launchSeq, Err: pending.err, Unexpected: true,
+	}, true
+}
+
+// pendingCLIProcessExitLaunchError 将精确匹配的启动期退出转成启动失败原因。
+func pendingCLIProcessExitLaunchError(agentID string, event contract.CLIProcessExit) error {
+	cause := event.Err
+	if cause == nil {
+		cause = errors.New("CLI process exited unexpectedly")
+	}
+	return fmt.Errorf("agent %q process exited before launch activation (launch_seq=%d, session_id=%q): %w",
+		strings.TrimSpace(agentID), event.LaunchSeq, event.SessionID, cause)
+}
+
+// cliProcessExitSessionMatches validates the provider session identity. The
+// terminal-outcome session generation is the launch sequence rendered as a
+// string, but CLIProcessExit.SessionID is the actual provider thread/session
+// id (Codex thread id or Claude session UUID); they are distinct fences.
+func cliProcessExitSessionMatches(agent *agentState, sessionID string) bool {
+	if agent == nil || strings.TrimSpace(sessionID) == "" {
+		return false
+	}
+	expected := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
+	return expected != "" && expected == strings.TrimSpace(sessionID)
+}
+
 type processExitReportPort interface {
 	setProcessExitFallbackReportLocked(ctx context.Context, agent *agentRuntime, launchSeq uint64, shouldRecover bool)
 }
@@ -216,13 +363,7 @@ func (c *lifecycleController) handleProcessExit(
 	}
 	recoverAgentID := agent.id
 	now := resolveEventTime(ctx, agent.updatedAt, agent.startedAt)
-	closeAgentProcessGuard(agent)
-	agent.cmd = nil
-	agent.exitedAt = &now
-	agent.lastExitedSeq = launchSeq
-	agent.updatedAt = now
-	resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
-	c.removeSession(agent)
+	c.finalizeProcessExitRuntimeLocked(agent, now, launchSeq, recoverViaLauncher, terminalCommitted)
 	if !terminalCommitted {
 		c.recordProcessExitError(eventBus, agent, err)
 		c.handleProcessExitTransition(ctx, state, logger, agent)

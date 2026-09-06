@@ -13,7 +13,6 @@ import (
 	"time"
 
 	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/mcpwire"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -62,6 +61,8 @@ func WithHTTPLoggerRuntime(runtime *pkglogger.Runtime) HTTPServerOption {
 // 多个旧 Claude CLI 实例可共用同一 endpoint；当前工具执行路径应使用 stdio sidecar Server。
 // Legacy: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 type HTTPServer struct {
+	localProfile        *LocalHTTPProfile
+	requestSlots        chan struct{}
 	name                string
 	version             string
 	tools               ToolProvider
@@ -219,6 +220,10 @@ func (h *HTTPServer) stopSessionReaper(ctx context.Context) error {
 
 // handleMCP 处理单个 HTTP JSON-RPC 请求；notification 返回 202 且不写响应体。
 func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
+	if h.localProfile != nil {
+		h.handleLocalMCP(w, r)
+		return
+	}
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -232,15 +237,28 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 // handleAuthorizedMCP 在鉴权通过后按 HTTP method 分派 session 生命周期与 JSON-RPC 请求。
 func (h *HTTPServer) handleAuthorizedMCP(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodDelete {
-		h.handleDeleteSession(w, r)
-		return
-	}
-	h.handlePostMCP(w, r)
+	h.handleAuthorizedMCPWithAuthentication(w, r, localHTTPRequestAuthentication{})
 }
 
-// handlePostMCP 解码单个 POST 请求并在对应 session 内执行 JSON-RPC。
-func (h *HTTPServer) handlePostMCP(w http.ResponseWriter, r *http.Request) {
+// handleAuthorizedMCPWithAuthentication 携带仅含 digest 与身份快照的本地认证结果分派请求。
+func (h *HTTPServer) handleAuthorizedMCPWithAuthentication(
+	w http.ResponseWriter,
+	r *http.Request,
+	authentication localHTTPRequestAuthentication,
+) {
+	if r.Method == http.MethodDelete {
+		h.handleDeleteSessionWithAuthentication(w, r, authentication)
+		return
+	}
+	h.handlePostMCPWithAuthentication(w, r, authentication)
+}
+
+// handlePostMCPWithAuthentication 在已完成 transport 鉴权后解码并路由单个 POST。
+func (h *HTTPServer) handlePostMCPWithAuthentication(
+	w http.ResponseWriter,
+	r *http.Request,
+	authentication localHTTPRequestAuthentication,
+) {
 	defer r.Body.Close()
 	body, err := readLimitedHTTPBody(r.Body)
 	if err != nil {
@@ -259,10 +277,13 @@ func (h *HTTPServer) handlePostMCP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Method == "initialize" {
-		h.handleInitializeRequest(w, r, req)
+		if !h.validateInitializeProfile(w, req) {
+			return
+		}
+		h.handleInitializeRequestWithAuthentication(w, r, req, authentication)
 		return
 	}
-	session, status, err := h.requireSession(r)
+	session, status, err := h.requireSessionWithAuthentication(r, authentication)
 	if err != nil {
 		writeHTTPJSONError(w, status, req.ID, codeInvalidReq, err.Error())
 		return
@@ -324,12 +345,44 @@ func (h *HTTPServer) authorized(r *http.Request) bool {
 
 // dispatch 派发MCP 服务。
 func (h *HTTPServer) dispatch(ctx context.Context, session *httpMCPSession, req jsonRPCRequest) *jsonRPCResponse {
+	if response := validateHTTPDispatchRequest(req); response != nil {
+		return response
+	}
+	if handled, response := h.dispatchLocalLifecycle(session, req); handled {
+		return response
+	}
+	if h.localProfile != nil {
+		var response *jsonRPCResponse
+		ctx, response = h.bindLocalCallerPrincipal(ctx, session, req)
+		if response != nil {
+			return response
+		}
+	}
+	return h.dispatchHTTPMethod(ctx, session, req)
+}
+
+// validateHTTPDispatchRequest 在 session 路由前校验 JSON-RPC envelope。
+func validateHTTPDispatchRequest(req jsonRPCRequest) *jsonRPCResponse {
 	if err := validateJSONRPCID(req.ID); err != nil {
 		return errorResponse(nil, codeInvalidReq, err.Error())
 	}
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
 		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0")
 	}
+	return nil
+}
+
+// bindLocalCallerPrincipal 将 session 冻结的 operator principal 或 task 身份对绑定到 context。
+func (h *HTTPServer) bindLocalCallerPrincipal(ctx context.Context, session *httpMCPSession, req jsonRPCRequest) (context.Context, *jsonRPCResponse) {
+	boundCtx, err := session.bindCallerPrincipal(ctx)
+	if err != nil {
+		return ctx, maybeLocalLifecycleError(req, codeInvalidReq, "session caller principal is invalid")
+	}
+	return boundCtx, nil
+}
+
+// dispatchHTTPMethod 根据 JSON-RPC 方法执行对应的 session 操作。
+func (h *HTTPServer) dispatchHTTPMethod(ctx context.Context, session *httpMCPSession, req jsonRPCRequest) *jsonRPCResponse {
 	switch req.Method {
 	case "notifications/initialized", "exit":
 		return nil
@@ -356,7 +409,7 @@ func (h *HTTPServer) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
-	version, err := mcpwire.NegotiateProtocolVersion(params.ProtocolVersion)
+	version, err := h.negotiateHTTPProtocolVersion(params.ProtocolVersion)
 	if err != nil {
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
@@ -394,7 +447,10 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 	if err != nil {
 		return errorResponse(req.ID, codeInvalidParams, err.Error())
 	}
-	scope := params.Scope(h.name)
+	scope, err := h.resolveHTTPToolScope(ctx, params)
+	if err != nil {
+		return errorResponse(req.ID, codeInvalidParams, err.Error())
+	}
 	ctx = WithToolScope(ctx, scope)
 	requestPayload := h.payloadLogger.logRequest("http", h.name, req.ID, params, scope)
 	beginAttrs := []any{

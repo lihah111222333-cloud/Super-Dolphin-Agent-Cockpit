@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,11 +92,14 @@ func TestWakeupDispatcherFailsDAGWakeupMissingRunID(t *testing.T) {
 	d.WithNodeRouter(NewNodeExecutorRouter(store, nil, nil, nil, nil, nil))
 
 	d.handleClaimed(context.Background(), &taskdag.Wakeup{
-		ID:            77,
-		DagKey:        "dag-1",
-		NodeKey:       "n1",
-		TargetAgentID: "agent-a",
-		ClaimedBy:     "worker-a",
+		ID:                   77,
+		DagKey:               "dag-1",
+		NodeKey:              "n1",
+		WakeupKind:           "node_start",
+		TargetAgentID:        "agent-a",
+		PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-a"),
+		PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
+		ClaimedBy:            "worker-a",
 	})
 
 	if len(store.failCalls) != 1 {
@@ -180,13 +184,16 @@ func TestWakeupDispatcher_RouterTerminalFailureLifecycleHooks(t *testing.T) {
 	events := []string{}
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{
-			ID:            55,
-			DagKey:        "dag-1",
-			NodeKey:       "auto1",
-			RunID:         int64Ptr(7001),
-			ClaimedBy:     "worker-a",
-			AttemptCount:  1,
-			PromptPayload: testRawConfig(t, `{}`),
+			ID:                   55,
+			DagKey:               "dag-1",
+			NodeKey:              "auto1",
+			WakeupKind:           "node_start",
+			TargetAgentID:        "agent-auto",
+			RunID:                int64Ptr(7001),
+			ClaimedBy:            "worker-a",
+			AttemptCount:         1,
+			PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-auto"),
+			PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
 		}},
 		nodesReply: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -233,14 +240,18 @@ func TestWakeupDispatcherSkipsSideEffectForReclaimedTerminalNode(t *testing.T) {
 	leaseAt := now.Add(30 * time.Second)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{
-			ID:             66,
-			DagKey:         "dag-1",
-			NodeKey:        "auto-done",
-			RunID:          int64Ptr(7004),
-			ClaimedBy:      "worker-b",
-			ClaimedAt:      &now,
-			LeaseExpiresAt: &leaseAt,
-			AttemptCount:   2,
+			ID:                   66,
+			DagKey:               "dag-1",
+			NodeKey:              "auto-done",
+			WakeupKind:           "node_start",
+			TargetAgentID:        "agent-auto",
+			PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-auto"),
+			RunID:                int64Ptr(7004),
+			ClaimedBy:            "worker-b",
+			ClaimedAt:            &now,
+			LeaseExpiresAt:       &leaseAt,
+			AttemptCount:         2,
+			PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
 		}},
 		nodesReply: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -279,12 +290,16 @@ func TestWakeupDispatcherSkipsSideEffectForReclaimedTerminalNode(t *testing.T) {
 func TestWakeupDispatcher_RouterFrameworkErrorRetriesWakeup(t *testing.T) {
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{
-			ID:           58,
-			DagKey:       "dag-1",
-			NodeKey:      "n1",
-			RunID:        int64Ptr(7003),
-			ClaimedBy:    "worker-a",
-			AttemptCount: 1,
+			ID:                   58,
+			DagKey:               "dag-1",
+			NodeKey:              "n1",
+			WakeupKind:           "node_start",
+			TargetAgentID:        "agent-a",
+			PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-a"),
+			RunID:                int64Ptr(7003),
+			ClaimedBy:            "worker-a",
+			AttemptCount:         1,
+			PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
 		}},
 		nodesReply: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -329,14 +344,18 @@ func TestWakeupLeaseExpiryDoesNotDuplicateChildLaunch(t *testing.T) {
 	leaseAt := now.Add(30 * time.Second)
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{
-			ID:             61,
-			DagKey:         "dag-1",
-			NodeKey:        "n1",
-			RunID:          int64Ptr(7006),
-			ClaimedAt:      &now,
-			ClaimedBy:      "worker-a",
-			LeaseExpiresAt: &leaseAt,
-			AttemptCount:   4,
+			ID:                   61,
+			DagKey:               "dag-1",
+			NodeKey:              "n1",
+			WakeupKind:           "node_start",
+			TargetAgentID:        "agent-a",
+			PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-a"),
+			RunID:                int64Ptr(7006),
+			ClaimedAt:            &now,
+			ClaimedBy:            "worker-a",
+			LeaseExpiresAt:       &leaseAt,
+			AttemptCount:         4,
+			PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
 		}},
 		nodesReply: []taskdag.Node{{
 			DagKey:   "dag-1",
@@ -390,14 +409,10 @@ func assertRunningWakeupFence(t *testing.T, fence taskdag.WakeupFence, claimedAt
 }
 
 func TestWakeupDispatcherRetryWakeupPassesConfiguredMaxAttempts(t *testing.T) {
+	w := makeClaimedWakeup(59, "agent-transient", 1, time.Now().UTC())
+	w.ClaimedBy = "worker-a"
 	store := &dispatcherStubStore{
-		claimReply: []taskdag.Wakeup{{
-			ID:            59,
-			WakeupKind:    "start",
-			TargetAgentID: "agent-transient",
-			ClaimedBy:     "worker-a",
-			AttemptCount:  1,
-		}},
+		claimReply: []taskdag.Wakeup{w},
 	}
 	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
 	d, err := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{
@@ -426,12 +441,16 @@ func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testin
 	events := []string{}
 	store := &dispatcherStubStore{
 		claimReply: []taskdag.Wakeup{{
-			ID:           56,
-			DagKey:       "dag-1",
-			NodeKey:      "n1",
-			RunID:        int64Ptr(7002),
-			ClaimedBy:    "worker-a",
-			AttemptCount: 1,
+			ID:                   56,
+			DagKey:               "dag-1",
+			NodeKey:              "n1",
+			WakeupKind:           "node_start",
+			TargetAgentID:        "agent-a",
+			PromptPayload:        mustMarshalDownstreamWakeupPayload(t, "agent-a"),
+			RunID:                int64Ptr(7002),
+			ClaimedBy:            "worker-a",
+			AttemptCount:         1,
+			PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
 		}},
 		dagReply: &taskdag.DAG{
 			DagKey:   "dag-1",
@@ -641,14 +660,17 @@ func TestWakeupDispatcherConfigOrDefaultsKeepsExplicitValues(t *testing.T) {
 
 func makeClaimedWakeup(id int64, agentID string, attempt int32, now time.Time) taskdag.Wakeup {
 	lease := now.Add(30 * time.Second)
+	payload := json.RawMessage(`{"wakeup_payload_kind":"legacy_launch","schema_version":1,"agent_id":` + strconv.Quote(agentID) + `}`)
 	return taskdag.Wakeup{
-		ID:             id,
-		WakeupKind:     "start",
-		TargetAgentID:  agentID,
-		Status:         "dispatching",
-		AttemptCount:   attempt,
-		ClaimedAt:      &now,
-		ClaimedBy:      "mcp-orch-dispatcher-test",
-		LeaseExpiresAt: &lease,
+		ID:                   id,
+		WakeupKind:           "start",
+		TargetAgentID:        agentID,
+		PromptPayload:        payload,
+		PayloadSchemaVersion: taskdag.WakeupPayloadSchemaVersion1,
+		Status:               "dispatching",
+		AttemptCount:         attempt,
+		ClaimedAt:            &now,
+		ClaimedBy:            "mcp-orch-dispatcher-test",
+		LeaseExpiresAt:       &lease,
 	}
 }

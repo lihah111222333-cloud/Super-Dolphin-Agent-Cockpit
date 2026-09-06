@@ -308,6 +308,981 @@ type McpToolLifecycle struct {
 	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
 }
 
+type OrchestrationAccessGrant struct {
+	GrantID                     string `db:"grant_id" json:"grant_id"`
+	CallerPrincipalRef          string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef                    string `db:"scope_ref" json:"scope_ref"`
+	SourceAgentID               string `db:"source_agent_id" json:"source_agent_id"`
+	TargetAgentID               string `db:"target_agent_id" json:"target_agent_id"`
+	SourceReservationID         string `db:"source_reservation_id" json:"source_reservation_id"`
+	SourceReservationGeneration int64  `db:"source_reservation_generation" json:"source_reservation_generation"`
+	SourceIncarnationID         string `db:"source_incarnation_id" json:"source_incarnation_id"`
+	SourceIncarnationGeneration int64  `db:"source_incarnation_generation" json:"source_incarnation_generation"`
+	SourceBindingVersion        int64  `db:"source_binding_version" json:"source_binding_version"`
+	SourceBindingDigest         string `db:"source_binding_digest" json:"source_binding_digest"`
+	SourceFenceRef              string `db:"source_fence_ref" json:"source_fence_ref"`
+	TargetReservationID         string `db:"target_reservation_id" json:"target_reservation_id"`
+	TargetReservationGeneration int64  `db:"target_reservation_generation" json:"target_reservation_generation"`
+	TargetIncarnationID         string `db:"target_incarnation_id" json:"target_incarnation_id"`
+	TargetIncarnationGeneration int64  `db:"target_incarnation_generation" json:"target_incarnation_generation"`
+	TargetBindingVersion        int64  `db:"target_binding_version" json:"target_binding_version"`
+	TargetBindingDigest         string `db:"target_binding_digest" json:"target_binding_digest"`
+	TargetFenceRef              string `db:"target_fence_ref" json:"target_fence_ref"`
+	CanRead                     int64  `db:"can_read" json:"can_read"`
+	CanSend                     int64  `db:"can_send" json:"can_send"`
+	IdempotencyNamespace        string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest        string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	RequestDigest               string `db:"request_digest" json:"request_digest"`
+	Revision                    int64  `db:"revision" json:"revision"`
+	Status                      string `db:"status" json:"status"`
+	IssuedAt                    string `db:"issued_at" json:"issued_at"`
+	ExpiresAt                   string `db:"expires_at" json:"expires_at"`
+	CreatedAt                   string `db:"created_at" json:"created_at"`
+	UpdatedAt                   string `db:"updated_at" json:"updated_at"`
+	SchemaVersion               int64  `db:"schema_version" json:"schema_version"`
+}
+
+type OrchestrationAgentEvent struct {
+	EventID               string  `db:"event_id" json:"event_id"`
+	SourceID              string  `db:"source_id" json:"source_id"`
+	SourceEpoch           string  `db:"source_epoch" json:"source_epoch"`
+	Lane                  string  `db:"lane" json:"lane"`
+	SourceSequence        int64   `db:"source_sequence" json:"source_sequence"`
+	CanonicalCursor       string  `db:"canonical_cursor" json:"canonical_cursor"`
+	EnvelopeHash          string  `db:"envelope_hash" json:"envelope_hash"`
+	Status                string  `db:"status" json:"status"`
+	EventType             string  `db:"event_type" json:"event_type"`
+	SchemaVersion         int64   `db:"schema_version" json:"schema_version"`
+	RootAgentID           string  `db:"root_agent_id" json:"root_agent_id"`
+	SubjectAgentID        string  `db:"subject_agent_id" json:"subject_agent_id"`
+	ReservationID         string  `db:"reservation_id" json:"reservation_id"`
+	IncarnationID         *string `db:"incarnation_id" json:"incarnation_id"`
+	ExternalEpoch         string  `db:"external_epoch" json:"external_epoch"`
+	IncarnationGeneration int64   `db:"incarnation_generation" json:"incarnation_generation"`
+	IdentityDigest        string  `db:"identity_digest" json:"identity_digest"`
+	BindingVersion        int64   `db:"binding_version" json:"binding_version"`
+	BindingDigest         string  `db:"binding_digest" json:"binding_digest"`
+	SourceFenceRef        string  `db:"source_fence_ref" json:"source_fence_ref"`
+	Provenance            string  `db:"provenance" json:"provenance"`
+	TrustClass            string  `db:"trust_class" json:"trust_class"`
+	ContentRole           string  `db:"content_role" json:"content_role"`
+	ContentRef            string  `db:"content_ref" json:"content_ref"`
+	ContentSize           int64   `db:"content_size" json:"content_size"`
+	MediaType             string  `db:"media_type" json:"media_type"`
+	ProviderAt            *string `db:"provider_at" json:"provider_at"`
+	ObservedAt            string  `db:"observed_at" json:"observed_at"`
+	WriterEpoch           string  `db:"writer_epoch" json:"writer_epoch"`
+}
+
+type OrchestrationBindingPreparation struct {
+	PreparationID                 string `db:"preparation_id" json:"preparation_id"`
+	ReservationID                 string `db:"reservation_id" json:"reservation_id"`
+	IncarnationID                 string `db:"incarnation_id" json:"incarnation_id"`
+	AgentID                       string `db:"agent_id" json:"agent_id"`
+	IdentityKind                  string `db:"identity_kind" json:"identity_kind"`
+	PreparationGeneration         int64  `db:"preparation_generation" json:"preparation_generation"`
+	ExpectedBindingVersion        int64  `db:"expected_binding_version" json:"expected_binding_version"`
+	ExpectedIncarnationGeneration int64  `db:"expected_incarnation_generation" json:"expected_incarnation_generation"`
+	BindingDigest                 string `db:"binding_digest" json:"binding_digest"`
+	SourceFenceRef                string `db:"source_fence_ref" json:"source_fence_ref"`
+	ActiveProcessReceiptRef       string `db:"active_process_receipt_ref" json:"active_process_receipt_ref"`
+	State                         string `db:"state" json:"state"`
+	SchemaVersion                 int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt                     string `db:"created_at" json:"created_at"`
+	ResolvedAt                    string `db:"resolved_at" json:"resolved_at"`
+}
+
+type OrchestrationCommandAttempt struct {
+	CommandID            string `db:"command_id" json:"command_id"`
+	AttemptID            string `db:"attempt_id" json:"attempt_id"`
+	WakeupID             string `db:"wakeup_id" json:"wakeup_id"`
+	WakeupFence          string `db:"wakeup_fence" json:"wakeup_fence"`
+	IdempotencyNamespace string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	RequestDigest        string `db:"request_digest" json:"request_digest"`
+	AttemptNumber        int64  `db:"attempt_number" json:"attempt_number"`
+	DispatchReceipt      string `db:"dispatch_receipt" json:"dispatch_receipt"`
+	Permit               string `db:"permit" json:"permit"`
+	Nonce                string `db:"nonce" json:"nonce"`
+	Phase                string `db:"phase" json:"phase"`
+	Outcome              string `db:"outcome" json:"outcome"`
+	ProviderSubmissionID string `db:"provider_submission_id" json:"provider_submission_id"`
+	ProviderReceiptID    string `db:"provider_receipt_id" json:"provider_receipt_id"`
+	FailureCode          string `db:"failure_code" json:"failure_code"`
+	RecordedAt           string `db:"recorded_at" json:"recorded_at"`
+}
+
+type OrchestrationCommandContentDeletionFence struct {
+	CommandID            string `db:"command_id" json:"command_id"`
+	ReferenceID          string `db:"reference_id" json:"reference_id"`
+	CanonicalRef         string `db:"canonical_ref" json:"canonical_ref"`
+	ObjectID             string `db:"object_id" json:"object_id"`
+	ObjectVersion        int64  `db:"object_version" json:"object_version"`
+	RefVersion           int64  `db:"ref_version" json:"ref_version"`
+	FenceKind            string `db:"fence_kind" json:"fence_kind"`
+	FenceState           string `db:"fence_state" json:"fence_state"`
+	CommandProfileDigest string `db:"command_profile_digest" json:"command_profile_digest"`
+	SourceFenceRef       string `db:"source_fence_ref" json:"source_fence_ref"`
+	TargetFenceRef       string `db:"target_fence_ref" json:"target_fence_ref"`
+	SchemaVersion        int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt            string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationCommandIntent struct {
+	CommandID            string `db:"command_id" json:"command_id"`
+	CommandKind          string `db:"command_kind" json:"command_kind"`
+	CallerPrincipalRef   string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef             string `db:"scope_ref" json:"scope_ref"`
+	IdempotencyNamespace string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	RequestDigest        string `db:"request_digest" json:"request_digest"`
+	DigestKeyID          string `db:"digest_key_id" json:"digest_key_id"`
+	RequestContentRef    string `db:"request_content_ref" json:"request_content_ref"`
+	SourceFenceRef       string `db:"source_fence_ref" json:"source_fence_ref"`
+	TargetFenceRef       string `db:"target_fence_ref" json:"target_fence_ref"`
+	SchemaVersion        int64  `db:"schema_version" json:"schema_version"`
+	CommandVersion       int64  `db:"command_version" json:"command_version"`
+	RecordedAt           string `db:"recorded_at" json:"recorded_at"`
+}
+
+type OrchestrationCommandIntentProfile struct {
+	CommandID                     string `db:"command_id" json:"command_id"`
+	ProfileKind                   string `db:"profile_kind" json:"profile_kind"`
+	ProfileVersion                int64  `db:"profile_version" json:"profile_version"`
+	CallerProfile                 string `db:"caller_profile" json:"caller_profile"`
+	CallerAuthContext             string `db:"caller_auth_context" json:"caller_auth_context"`
+	CallerAuthExpiresAt           string `db:"caller_auth_expires_at" json:"caller_auth_expires_at"`
+	AuthorizationKind             string `db:"authorization_kind" json:"authorization_kind"`
+	AuthorizationDecision         string `db:"authorization_decision" json:"authorization_decision"`
+	AuthorizationRequestVersion   int64  `db:"authorization_request_version" json:"authorization_request_version"`
+	AuthorizationRequestID        string `db:"authorization_request_id" json:"authorization_request_id"`
+	AuthorizationRequestDigest    string `db:"authorization_request_digest" json:"authorization_request_digest"`
+	AuthorizationGrantID          string `db:"authorization_grant_id" json:"authorization_grant_id"`
+	AuthorizationGrantRevision    int64  `db:"authorization_grant_revision" json:"authorization_grant_revision"`
+	AuthorizationCapability       string `db:"authorization_capability" json:"authorization_capability"`
+	AuthorizationRequestedAt      string `db:"authorization_requested_at" json:"authorization_requested_at"`
+	AuthorizationDecidedAt        string `db:"authorization_decided_at" json:"authorization_decided_at"`
+	AuthorizationExpiresAt        string `db:"authorization_expires_at" json:"authorization_expires_at"`
+	GrantRequestDigest            string `db:"grant_request_digest" json:"grant_request_digest"`
+	GrantIssuedAt                 string `db:"grant_issued_at" json:"grant_issued_at"`
+	GrantUpdatedAt                string `db:"grant_updated_at" json:"grant_updated_at"`
+	SourceSelectorVersion         int64  `db:"source_selector_version" json:"source_selector_version"`
+	SourceSelectorKind            string `db:"source_selector_kind" json:"source_selector_kind"`
+	SourceAgentID                 string `db:"source_agent_id" json:"source_agent_id"`
+	SourceIdentityKind            string `db:"source_identity_kind" json:"source_identity_kind"`
+	SourceReservationID           string `db:"source_reservation_id" json:"source_reservation_id"`
+	SourceReservationGeneration   int64  `db:"source_reservation_generation" json:"source_reservation_generation"`
+	SourceIncarnationID           string `db:"source_incarnation_id" json:"source_incarnation_id"`
+	SourceIncarnationGeneration   int64  `db:"source_incarnation_generation" json:"source_incarnation_generation"`
+	SourceExternalIdentityRef     string `db:"source_external_identity_ref" json:"source_external_identity_ref"`
+	SourceBindingVersion          int64  `db:"source_binding_version" json:"source_binding_version"`
+	SourceBindingDigest           string `db:"source_binding_digest" json:"source_binding_digest"`
+	SourceFenceRef                string `db:"source_fence_ref" json:"source_fence_ref"`
+	SourceActiveProcessReceiptRef string `db:"source_active_process_receipt_ref" json:"source_active_process_receipt_ref"`
+	SourceBindingState            string `db:"source_binding_state" json:"source_binding_state"`
+	SourceBindingSchemaVersion    int64  `db:"source_binding_schema_version" json:"source_binding_schema_version"`
+	SourceBindingUpdatedAt        string `db:"source_binding_updated_at" json:"source_binding_updated_at"`
+	TargetSelectorVersion         int64  `db:"target_selector_version" json:"target_selector_version"`
+	TargetSelectorKind            string `db:"target_selector_kind" json:"target_selector_kind"`
+	TargetAgentID                 string `db:"target_agent_id" json:"target_agent_id"`
+	TargetIdentityKind            string `db:"target_identity_kind" json:"target_identity_kind"`
+	TargetReservationID           string `db:"target_reservation_id" json:"target_reservation_id"`
+	TargetReservationGeneration   int64  `db:"target_reservation_generation" json:"target_reservation_generation"`
+	TargetIncarnationID           string `db:"target_incarnation_id" json:"target_incarnation_id"`
+	TargetIncarnationGeneration   int64  `db:"target_incarnation_generation" json:"target_incarnation_generation"`
+	TargetExternalIdentityRef     string `db:"target_external_identity_ref" json:"target_external_identity_ref"`
+	TargetBindingVersion          int64  `db:"target_binding_version" json:"target_binding_version"`
+	TargetBindingDigest           string `db:"target_binding_digest" json:"target_binding_digest"`
+	TargetFenceRef                string `db:"target_fence_ref" json:"target_fence_ref"`
+	TargetActiveProcessReceiptRef string `db:"target_active_process_receipt_ref" json:"target_active_process_receipt_ref"`
+	TargetBindingState            string `db:"target_binding_state" json:"target_binding_state"`
+	TargetBindingSchemaVersion    int64  `db:"target_binding_schema_version" json:"target_binding_schema_version"`
+	TargetBindingUpdatedAt        string `db:"target_binding_updated_at" json:"target_binding_updated_at"`
+	CompleteIntentDigest          string `db:"complete_intent_digest" json:"complete_intent_digest"`
+	DigestDomain                  string `db:"digest_domain" json:"digest_domain"`
+	DigestAlgorithm               string `db:"digest_algorithm" json:"digest_algorithm"`
+	DigestKeyID                   string `db:"digest_key_id" json:"digest_key_id"`
+	DigestKeyVersion              int64  `db:"digest_key_version" json:"digest_key_version"`
+	SchemaVersion                 int64  `db:"schema_version" json:"schema_version"`
+	RecordedAt                    string `db:"recorded_at" json:"recorded_at"`
+}
+
+type OrchestrationCommandJournal struct {
+	CommandID        string `db:"command_id" json:"command_id"`
+	CommandVersion   int64  `db:"command_version" json:"command_version"`
+	Version          int64  `db:"version" json:"version"`
+	OperationID      string `db:"operation_id" json:"operation_id"`
+	OperationDigest  string `db:"operation_digest" json:"operation_digest"`
+	Phase            string `db:"phase" json:"phase"`
+	AcceptResolution string `db:"accept_resolution" json:"accept_resolution"`
+	AttemptID        string `db:"attempt_id" json:"attempt_id"`
+	Trigger          string `db:"trigger" json:"trigger"`
+	EvidenceRef      string `db:"evidence_ref" json:"evidence_ref"`
+	UncertainPhase   string `db:"uncertain_phase" json:"uncertain_phase"`
+	SchemaVersion    int64  `db:"schema_version" json:"schema_version"`
+	RecordedAt       string `db:"recorded_at" json:"recorded_at"`
+}
+
+type OrchestrationCommandSubmission struct {
+	CommandID                  string `db:"command_id" json:"command_id"`
+	CommandVersion             int64  `db:"command_version" json:"command_version"`
+	SubmissionID               string `db:"submission_id" json:"submission_id"`
+	SubjectSelector            string `db:"subject_selector" json:"subject_selector"`
+	CallerPrincipalRef         string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef                   string `db:"scope_ref" json:"scope_ref"`
+	SourceFenceRef             string `db:"source_fence_ref" json:"source_fence_ref"`
+	TargetFenceRef             string `db:"target_fence_ref" json:"target_fence_ref"`
+	IdempotencyNamespace       string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest       string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	RequestDigest              string `db:"request_digest" json:"request_digest"`
+	PendingCursor              string `db:"pending_cursor" json:"pending_cursor"`
+	PendingCursorDigest        string `db:"pending_cursor_digest" json:"pending_cursor_digest"`
+	AcceptResolution           string `db:"accept_resolution" json:"accept_resolution"`
+	ResolutionKind             string `db:"resolution_kind" json:"resolution_kind"`
+	AcceptReceiptRef           string `db:"accept_receipt_ref" json:"accept_receipt_ref"`
+	AcceptReceiptDigest        string `db:"accept_receipt_digest" json:"accept_receipt_digest"`
+	RejectReceiptRef           string `db:"reject_receipt_ref" json:"reject_receipt_ref"`
+	RejectReceiptDigest        string `db:"reject_receipt_digest" json:"reject_receipt_digest"`
+	RecoveryReceiptRef         string `db:"recovery_receipt_ref" json:"recovery_receipt_ref"`
+	RecoveryReceiptDigest      string `db:"recovery_receipt_digest" json:"recovery_receipt_digest"`
+	AcceptedCommandFenceRef    string `db:"accepted_command_fence_ref" json:"accepted_command_fence_ref"`
+	AcceptedCommandFenceDigest string `db:"accepted_command_fence_digest" json:"accepted_command_fence_digest"`
+	AcceptedCommandFenceCursor string `db:"accepted_command_fence_cursor" json:"accepted_command_fence_cursor"`
+	RejectedCommandFenceRef    string `db:"rejected_command_fence_ref" json:"rejected_command_fence_ref"`
+	RejectedCommandFenceDigest string `db:"rejected_command_fence_digest" json:"rejected_command_fence_digest"`
+	RejectedCommandFenceCursor string `db:"rejected_command_fence_cursor" json:"rejected_command_fence_cursor"`
+	Revision                   int64  `db:"revision" json:"revision"`
+	RecordedAt                 string `db:"recorded_at" json:"recorded_at"`
+	UpdatedAt                  string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationContentIngestReservation struct {
+	IngestReservationID           string `db:"ingest_reservation_id" json:"ingest_reservation_id"`
+	IngestTicketID                string `db:"ingest_ticket_id" json:"ingest_ticket_id"`
+	ObjectID                      string `db:"object_id" json:"object_id"`
+	ObjectVersion                 int64  `db:"object_version" json:"object_version"`
+	OwnerID                       string `db:"owner_id" json:"owner_id"`
+	OwnerGeneration               int64  `db:"owner_generation" json:"owner_generation"`
+	WriterFenceRef                string `db:"writer_fence_ref" json:"writer_fence_ref"`
+	SecurityTimeGeneration        int64  `db:"security_time_generation" json:"security_time_generation"`
+	WorkspaceRef                  string `db:"workspace_ref" json:"workspace_ref"`
+	CallerPrincipalRef            string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef                      string `db:"scope_ref" json:"scope_ref"`
+	SourceAgentID                 string `db:"source_agent_id" json:"source_agent_id"`
+	SourceIdentityKind            string `db:"source_identity_kind" json:"source_identity_kind"`
+	SourceIdentityReservationID   string `db:"source_identity_reservation_id" json:"source_identity_reservation_id"`
+	SourceReservationGeneration   int64  `db:"source_reservation_generation" json:"source_reservation_generation"`
+	SourceIncarnationID           string `db:"source_incarnation_id" json:"source_incarnation_id"`
+	SourceIncarnationGeneration   int64  `db:"source_incarnation_generation" json:"source_incarnation_generation"`
+	SourceExternalIdentityRef     string `db:"source_external_identity_ref" json:"source_external_identity_ref"`
+	SourceBindingVersion          int64  `db:"source_binding_version" json:"source_binding_version"`
+	SourceBindingDigest           string `db:"source_binding_digest" json:"source_binding_digest"`
+	SourceFenceRef                string `db:"source_fence_ref" json:"source_fence_ref"`
+	SourceActiveProcessReceiptRef string `db:"source_active_process_receipt_ref" json:"source_active_process_receipt_ref"`
+	SourceBindingUpdatedAt        string `db:"source_binding_updated_at" json:"source_binding_updated_at"`
+	IdempotencyNamespace          string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest          string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	ProofRequestDigest            string `db:"proof_request_digest" json:"proof_request_digest"`
+	CandidateRefDigest            string `db:"candidate_ref_digest" json:"candidate_ref_digest"`
+	ContentIntentDigest           string `db:"content_intent_digest" json:"content_intent_digest"`
+	DigestKeyID                   string `db:"digest_key_id" json:"digest_key_id"`
+	DigestKeyVersion              int64  `db:"digest_key_version" json:"digest_key_version"`
+	IngestKind                    string `db:"ingest_kind" json:"ingest_kind"`
+	SizeBytes                     int64  `db:"size_bytes" json:"size_bytes"`
+	MediaType                     string `db:"media_type" json:"media_type"`
+	PermittedSinkRole             string `db:"permitted_sink_role" json:"permitted_sink_role"`
+	AeadAlgorithm                 string `db:"aead_algorithm" json:"aead_algorithm"`
+	KeyWrapProfile                string `db:"key_wrap_profile" json:"key_wrap_profile"`
+	AadProfile                    string `db:"aad_profile" json:"aad_profile"`
+	QuotaSnapshotRef              string `db:"quota_snapshot_ref" json:"quota_snapshot_ref"`
+	QuotaSnapshotDigest           string `db:"quota_snapshot_digest" json:"quota_snapshot_digest"`
+	RetentionPolicyID             string `db:"retention_policy_id" json:"retention_policy_id"`
+	RetentionPolicyVersion        int64  `db:"retention_policy_version" json:"retention_policy_version"`
+	RetentionPolicyDigest         string `db:"retention_policy_digest" json:"retention_policy_digest"`
+	AssemblyDeadlineAt            string `db:"assembly_deadline_at" json:"assembly_deadline_at"`
+	PrepareOperationID            string `db:"prepare_operation_id" json:"prepare_operation_id"`
+	PrepareStartedAt              string `db:"prepare_started_at" json:"prepare_started_at"`
+	Revision                      int64  `db:"revision" json:"revision"`
+	State                         string `db:"state" json:"state"`
+	SchemaVersion                 int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt                     string `db:"created_at" json:"created_at"`
+	UpdatedAt                     string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationContentObject struct {
+	ObjectID               string `db:"object_id" json:"object_id"`
+	ObjectVersion          int64  `db:"object_version" json:"object_version"`
+	IngestReservationID    string `db:"ingest_reservation_id" json:"ingest_reservation_id"`
+	OwnerID                string `db:"owner_id" json:"owner_id"`
+	OwnerGeneration        int64  `db:"owner_generation" json:"owner_generation"`
+	WriterFenceRef         string `db:"writer_fence_ref" json:"writer_fence_ref"`
+	SecurityTimeGeneration int64  `db:"security_time_generation" json:"security_time_generation"`
+	WorkspaceRef           string `db:"workspace_ref" json:"workspace_ref"`
+	SourceAgentID          string `db:"source_agent_id" json:"source_agent_id"`
+	SourceFenceRef         string `db:"source_fence_ref" json:"source_fence_ref"`
+	AeadAlgorithm          string `db:"aead_algorithm" json:"aead_algorithm"`
+	KeyWrapProfile         string `db:"key_wrap_profile" json:"key_wrap_profile"`
+	KeyHandleRef           string `db:"key_handle_ref" json:"key_handle_ref"`
+	KeyReceiptRef          string `db:"key_receipt_ref" json:"key_receipt_ref"`
+	KeyReceiptDigest       string `db:"key_receipt_digest" json:"key_receipt_digest"`
+	NonceHex               string `db:"nonce_hex" json:"nonce_hex"`
+	AadProfile             string `db:"aad_profile" json:"aad_profile"`
+	AadDigest              string `db:"aad_digest" json:"aad_digest"`
+	MediaType              string `db:"media_type" json:"media_type"`
+	SizeBytes              int64  `db:"size_bytes" json:"size_bytes"`
+	CiphertextSha256       string `db:"ciphertext_sha256" json:"ciphertext_sha256"`
+	SealedPayloadSizeBytes int64  `db:"sealed_payload_size_bytes" json:"sealed_payload_size_bytes"`
+	RetentionPolicyDigest  string `db:"retention_policy_digest" json:"retention_policy_digest"`
+	ContentState           string `db:"content_state" json:"content_state"`
+	KeyState               string `db:"key_state" json:"key_state"`
+	RefVersion             int64  `db:"ref_version" json:"ref_version"`
+	Revision               int64  `db:"revision" json:"revision"`
+	PromotedAt             string `db:"promoted_at" json:"promoted_at"`
+	SchemaVersion          int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt              string `db:"created_at" json:"created_at"`
+	UpdatedAt              string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationContentPrivatePayloadReceipt struct {
+	ObjectID               string `db:"object_id" json:"object_id"`
+	ObjectVersion          int64  `db:"object_version" json:"object_version"`
+	IngestReservationID    string `db:"ingest_reservation_id" json:"ingest_reservation_id"`
+	BackendKind            string `db:"backend_kind" json:"backend_kind"`
+	ObjectStoreID          string `db:"object_store_id" json:"object_store_id"`
+	PayloadFormat          string `db:"payload_format" json:"payload_format"`
+	PrivatePayloadRef      string `db:"private_payload_ref" json:"private_payload_ref"`
+	SealedPayloadSizeBytes int64  `db:"sealed_payload_size_bytes" json:"sealed_payload_size_bytes"`
+	CiphertextSha256       string `db:"ciphertext_sha256" json:"ciphertext_sha256"`
+	StoreOperationID       string `db:"store_operation_id" json:"store_operation_id"`
+	StoreRequestDigest     string `db:"store_request_digest" json:"store_request_digest"`
+	StoreReceiptRef        string `db:"store_receipt_ref" json:"store_receipt_ref"`
+	StoreReceiptDigest     string `db:"store_receipt_digest" json:"store_receipt_digest"`
+	StoredAt               string `db:"stored_at" json:"stored_at"`
+	SchemaVersion          int64  `db:"schema_version" json:"schema_version"`
+}
+
+type OrchestrationContentRef struct {
+	ReferenceID            string `db:"reference_id" json:"reference_id"`
+	CanonicalRef           string `db:"canonical_ref" json:"canonical_ref"`
+	ObjectID               string `db:"object_id" json:"object_id"`
+	ObjectVersion          int64  `db:"object_version" json:"object_version"`
+	IngestReservationID    string `db:"ingest_reservation_id" json:"ingest_reservation_id"`
+	RefVersion             int64  `db:"ref_version" json:"ref_version"`
+	ReferenceKind          string `db:"reference_kind" json:"reference_kind"`
+	ReferenceState         string `db:"reference_state" json:"reference_state"`
+	CallerPrincipalRef     string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef               string `db:"scope_ref" json:"scope_ref"`
+	SourceAgentID          string `db:"source_agent_id" json:"source_agent_id"`
+	SourceFenceRef         string `db:"source_fence_ref" json:"source_fence_ref"`
+	ProofRequestDigest     string `db:"proof_request_digest" json:"proof_request_digest"`
+	ProofID                string `db:"proof_id" json:"proof_id"`
+	ProofRevision          int64  `db:"proof_revision" json:"proof_revision"`
+	OwnerID                string `db:"owner_id" json:"owner_id"`
+	OwnerGeneration        int64  `db:"owner_generation" json:"owner_generation"`
+	WriterFenceRef         string `db:"writer_fence_ref" json:"writer_fence_ref"`
+	SecurityTimeGeneration int64  `db:"security_time_generation" json:"security_time_generation"`
+	OwnerProofRef          string `db:"owner_proof_ref" json:"owner_proof_ref"`
+	ProofSnapshotDigest    string `db:"proof_snapshot_digest" json:"proof_snapshot_digest"`
+	ProofExpiresAt         string `db:"proof_expires_at" json:"proof_expires_at"`
+	MediaType              string `db:"media_type" json:"media_type"`
+	SizeBytes              int64  `db:"size_bytes" json:"size_bytes"`
+	RetentionPolicyDigest  string `db:"retention_policy_digest" json:"retention_policy_digest"`
+	SchemaVersion          int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt              string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationContentSourceUnion struct {
+	IngestReservationID    string  `db:"ingest_reservation_id" json:"ingest_reservation_id"`
+	SourceKind             string  `db:"source_kind" json:"source_kind"`
+	TaskSnapshotDigest     *string `db:"task_snapshot_digest" json:"task_snapshot_digest"`
+	TaskBindingVersion     *int64  `db:"task_binding_version" json:"task_binding_version"`
+	OperatorSourceID       *string `db:"operator_source_id" json:"operator_source_id"`
+	OperatorSourceFenceRef *string `db:"operator_source_fence_ref" json:"operator_source_fence_ref"`
+	OperatorPrincipalRef   *string `db:"operator_principal_ref" json:"operator_principal_ref"`
+	OperatorScopeRef       *string `db:"operator_scope_ref" json:"operator_scope_ref"`
+	OperatorAuthContext    *string `db:"operator_auth_context" json:"operator_auth_context"`
+	OperatorGeneration     *int64  `db:"operator_generation" json:"operator_generation"`
+	SchemaVersion          int64   `db:"schema_version" json:"schema_version"`
+	CreatedAt              string  `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationCurrentBinding struct {
+	AgentID                 string `db:"agent_id" json:"agent_id"`
+	BindingVersion          int64  `db:"binding_version" json:"binding_version"`
+	ReservationID           string `db:"reservation_id" json:"reservation_id"`
+	IncarnationID           string `db:"incarnation_id" json:"incarnation_id"`
+	IdentityKind            string `db:"identity_kind" json:"identity_kind"`
+	ReservationGeneration   int64  `db:"reservation_generation" json:"reservation_generation"`
+	IncarnationGeneration   int64  `db:"incarnation_generation" json:"incarnation_generation"`
+	ExternalIdentityRef     string `db:"external_identity_ref" json:"external_identity_ref"`
+	SourceFenceRef          string `db:"source_fence_ref" json:"source_fence_ref"`
+	ActiveProcessReceiptRef string `db:"active_process_receipt_ref" json:"active_process_receipt_ref"`
+	BindingDigest           string `db:"binding_digest" json:"binding_digest"`
+	State                   string `db:"state" json:"state"`
+	SchemaVersion           int64  `db:"schema_version" json:"schema_version"`
+	UpdatedAt               string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationDirectPeerEvent struct {
+	ID              int64  `db:"id" json:"id"`
+	EventID         string `db:"event_id" json:"event_id"`
+	EventType       string `db:"event_type" json:"event_type"`
+	WorkspaceRoot   string `db:"workspace_root" json:"workspace_root"`
+	GrantID         string `db:"grant_id" json:"grant_id"`
+	MessageID       string `db:"message_id" json:"message_id"`
+	SenderAgentID   string `db:"sender_agent_id" json:"sender_agent_id"`
+	ReceiverAgentID string `db:"receiver_agent_id" json:"receiver_agent_id"`
+	GrantRevision   int64  `db:"grant_revision" json:"grant_revision"`
+	PayloadJson     string `db:"payload_json" json:"payload_json"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationDirectPeerEventOutbox struct {
+	ID             int64  `db:"id" json:"id"`
+	EventID        string `db:"event_id" json:"event_id"`
+	Status         string `db:"status" json:"status"`
+	ClaimedBy      string `db:"claimed_by" json:"claimed_by"`
+	ClaimToken     string `db:"claim_token" json:"claim_token"`
+	LeaseExpiresAt *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+	AttemptCount   int64  `db:"attempt_count" json:"attempt_count"`
+	LastError      string `db:"last_error" json:"last_error"`
+	ProjectedAt    *int64 `db:"projected_at" json:"projected_at"`
+	CreatedAt      int64  `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationDirectPeerGrant struct {
+	GrantID         string `db:"grant_id" json:"grant_id"`
+	WorkspaceRoot   string `db:"workspace_root" json:"workspace_root"`
+	SenderAgentID   string `db:"sender_agent_id" json:"sender_agent_id"`
+	ReceiverAgentID string `db:"receiver_agent_id" json:"receiver_agent_id"`
+	IdempotencyKey  string `db:"idempotency_key" json:"idempotency_key"`
+	RequestDigest   string `db:"request_digest" json:"request_digest"`
+	CanSend         int64  `db:"can_send" json:"can_send"`
+	CanRead         int64  `db:"can_read" json:"can_read"`
+	Status          string `db:"status" json:"status"`
+	Revision        int64  `db:"revision" json:"revision"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationDirectPeerMessage struct {
+	ID              int64  `db:"id" json:"id"`
+	MessageID       string `db:"message_id" json:"message_id"`
+	IdempotencyKey  string `db:"idempotency_key" json:"idempotency_key"`
+	RequestDigest   string `db:"request_digest" json:"request_digest"`
+	WorkspaceRoot   string `db:"workspace_root" json:"workspace_root"`
+	SenderAgentID   string `db:"sender_agent_id" json:"sender_agent_id"`
+	ReceiverAgentID string `db:"receiver_agent_id" json:"receiver_agent_id"`
+	GrantRevision   int64  `db:"grant_revision" json:"grant_revision"`
+	Body            string `db:"body" json:"body"`
+	Status          string `db:"status" json:"status"`
+	SubmissionID    string `db:"submission_id" json:"submission_id"`
+	DeliveryError   string `db:"delivery_error" json:"delivery_error"`
+	DeliveredAt     *int64 `db:"delivered_at" json:"delivered_at"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationEventIngressReceipt struct {
+	SourceID              string  `db:"source_id" json:"source_id"`
+	SourceEpoch           string  `db:"source_epoch" json:"source_epoch"`
+	Lane                  string  `db:"lane" json:"lane"`
+	SourceSequence        int64   `db:"source_sequence" json:"source_sequence"`
+	EventID               string  `db:"event_id" json:"event_id"`
+	EnvelopeHash          string  `db:"envelope_hash" json:"envelope_hash"`
+	Status                string  `db:"status" json:"status"`
+	EventType             string  `db:"event_type" json:"event_type"`
+	SchemaVersion         int64   `db:"schema_version" json:"schema_version"`
+	RootAgentID           string  `db:"root_agent_id" json:"root_agent_id"`
+	SubjectAgentID        string  `db:"subject_agent_id" json:"subject_agent_id"`
+	ReservationID         string  `db:"reservation_id" json:"reservation_id"`
+	IncarnationID         *string `db:"incarnation_id" json:"incarnation_id"`
+	ExternalEpoch         string  `db:"external_epoch" json:"external_epoch"`
+	IncarnationGeneration int64   `db:"incarnation_generation" json:"incarnation_generation"`
+	IdentityDigest        string  `db:"identity_digest" json:"identity_digest"`
+	BindingVersion        int64   `db:"binding_version" json:"binding_version"`
+	BindingDigest         string  `db:"binding_digest" json:"binding_digest"`
+	SourceFenceRef        string  `db:"source_fence_ref" json:"source_fence_ref"`
+	Provenance            string  `db:"provenance" json:"provenance"`
+	TrustClass            string  `db:"trust_class" json:"trust_class"`
+	ContentRole           string  `db:"content_role" json:"content_role"`
+	ContentRef            string  `db:"content_ref" json:"content_ref"`
+	ContentSize           int64   `db:"content_size" json:"content_size"`
+	MediaType             string  `db:"media_type" json:"media_type"`
+	ProviderAt            *string `db:"provider_at" json:"provider_at"`
+	ObservedAt            string  `db:"observed_at" json:"observed_at"`
+	WriterEpoch           string  `db:"writer_epoch" json:"writer_epoch"`
+	CanonicalCursor       string  `db:"canonical_cursor" json:"canonical_cursor"`
+	ErrorRef              string  `db:"error_ref" json:"error_ref"`
+}
+
+type OrchestrationEventMaterializationCursor struct {
+	ProjectionID         string `db:"projection_id" json:"projection_id"`
+	SourceID             string `db:"source_id" json:"source_id"`
+	SourceEpoch          string `db:"source_epoch" json:"source_epoch"`
+	Lane                 string `db:"lane" json:"lane"`
+	MaterializedSequence int64  `db:"materialized_sequence" json:"materialized_sequence"`
+	MaterializedHash     string `db:"materialized_hash" json:"materialized_hash"`
+	Revision             int64  `db:"revision" json:"revision"`
+	Status               string `db:"status" json:"status"`
+	UpdatedAt            string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationEventSourceState struct {
+	SourceID             string `db:"source_id" json:"source_id"`
+	SourceEpoch          string `db:"source_epoch" json:"source_epoch"`
+	Lane                 string `db:"lane" json:"lane"`
+	NextSequence         int64  `db:"next_sequence" json:"next_sequence"`
+	MaterializedSequence int64  `db:"materialized_sequence" json:"materialized_sequence"`
+	DedupFloor           int64  `db:"dedup_floor" json:"dedup_floor"`
+	Revision             int64  `db:"revision" json:"revision"`
+	Status               string `db:"status" json:"status"`
+	GapReason            string `db:"gap_reason" json:"gap_reason"`
+	WriterEpoch          string `db:"writer_epoch" json:"writer_epoch"`
+	CreatedAt            string `db:"created_at" json:"created_at"`
+	UpdatedAt            string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationEventTombstone struct {
+	SourceID        string `db:"source_id" json:"source_id"`
+	SourceEpoch     string `db:"source_epoch" json:"source_epoch"`
+	Lane            string `db:"lane" json:"lane"`
+	SourceSequence  int64  `db:"source_sequence" json:"source_sequence"`
+	EnvelopeHash    string `db:"envelope_hash" json:"envelope_hash"`
+	EventID         string `db:"event_id" json:"event_id"`
+	CanonicalCursor string `db:"canonical_cursor" json:"canonical_cursor"`
+	DedupFloor      int64  `db:"dedup_floor" json:"dedup_floor"`
+	Status          string `db:"status" json:"status"`
+	CreatedAt       string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationEventWaitHandle struct {
+	WaitHandleID                string `db:"wait_handle_id" json:"wait_handle_id"`
+	GrantID                     string `db:"grant_id" json:"grant_id"`
+	GrantRevision               int64  `db:"grant_revision" json:"grant_revision"`
+	CallerPrincipalRef          string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef                    string `db:"scope_ref" json:"scope_ref"`
+	SourceAgentID               string `db:"source_agent_id" json:"source_agent_id"`
+	TargetAgentID               string `db:"target_agent_id" json:"target_agent_id"`
+	TargetReservationID         string `db:"target_reservation_id" json:"target_reservation_id"`
+	TargetReservationGeneration int64  `db:"target_reservation_generation" json:"target_reservation_generation"`
+	TargetIncarnationID         string `db:"target_incarnation_id" json:"target_incarnation_id"`
+	TargetIncarnationGeneration int64  `db:"target_incarnation_generation" json:"target_incarnation_generation"`
+	TargetBindingVersion        int64  `db:"target_binding_version" json:"target_binding_version"`
+	TargetBindingDigest         string `db:"target_binding_digest" json:"target_binding_digest"`
+	TargetFenceRef              string `db:"target_fence_ref" json:"target_fence_ref"`
+	SourceID                    string `db:"source_id" json:"source_id"`
+	SourceEpoch                 string `db:"source_epoch" json:"source_epoch"`
+	Lane                        string `db:"lane" json:"lane"`
+	SelectorVersion             int64  `db:"selector_version" json:"selector_version"`
+	SelectorJson                string `db:"selector_json" json:"selector_json"`
+	SelectorDigest              string `db:"selector_digest" json:"selector_digest"`
+	EventTypesJson              string `db:"event_types_json" json:"event_types_json"`
+	AfterSourceSequence         int64  `db:"after_source_sequence" json:"after_source_sequence"`
+	AfterCursor                 string `db:"after_cursor" json:"after_cursor"`
+	DeadlineAt                  string `db:"deadline_at" json:"deadline_at"`
+	IdempotencyNamespace        string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest        string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	RequestDigest               string `db:"request_digest" json:"request_digest"`
+	Revision                    int64  `db:"revision" json:"revision"`
+	Status                      string `db:"status" json:"status"`
+	MatchedEventID              string `db:"matched_event_id" json:"matched_event_id"`
+	MatchedSourceSequence       int64  `db:"matched_source_sequence" json:"matched_source_sequence"`
+	MatchedCanonicalCursor      string `db:"matched_canonical_cursor" json:"matched_canonical_cursor"`
+	ResolvedAt                  string `db:"resolved_at" json:"resolved_at"`
+	CreatedAt                   string `db:"created_at" json:"created_at"`
+	UpdatedAt                   string `db:"updated_at" json:"updated_at"`
+	SchemaVersion               int64  `db:"schema_version" json:"schema_version"`
+}
+
+type OrchestrationExecutionIncarnation struct {
+	IncarnationID         string `db:"incarnation_id" json:"incarnation_id"`
+	ReservationID         string `db:"reservation_id" json:"reservation_id"`
+	AgentID               string `db:"agent_id" json:"agent_id"`
+	IdentityKind          string `db:"identity_kind" json:"identity_kind"`
+	ExternalIdentityRef   string `db:"external_identity_ref" json:"external_identity_ref"`
+	ExternalEpoch         string `db:"external_epoch" json:"external_epoch"`
+	SourceFenceRef        string `db:"source_fence_ref" json:"source_fence_ref"`
+	IdentityDigest        string `db:"identity_digest" json:"identity_digest"`
+	IncarnationGeneration int64  `db:"incarnation_generation" json:"incarnation_generation"`
+	SchemaVersion         int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt             string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationIdentityReservation struct {
+	ReservationID          string  `db:"reservation_id" json:"reservation_id"`
+	CommandID              *string `db:"command_id" json:"command_id"`
+	AgentID                string  `db:"agent_id" json:"agent_id"`
+	IdentityKind           string  `db:"identity_kind" json:"identity_kind"`
+	SourceKind             string  `db:"source_kind" json:"source_kind"`
+	CallerPrincipalRef     string  `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef               string  `db:"scope_ref" json:"scope_ref"`
+	ParentAgentID          string  `db:"parent_agent_id" json:"parent_agent_id"`
+	IdempotencyNamespace   string  `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest   string  `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	RequestDigest          string  `db:"request_digest" json:"request_digest"`
+	SourceFenceRef         string  `db:"source_fence_ref" json:"source_fence_ref"`
+	TargetFenceRef         string  `db:"target_fence_ref" json:"target_fence_ref"`
+	ExpectedBindingVersion int64   `db:"expected_binding_version" json:"expected_binding_version"`
+	ReservationGeneration  int64   `db:"reservation_generation" json:"reservation_generation"`
+	State                  string  `db:"state" json:"state"`
+	SchemaVersion          int64   `db:"schema_version" json:"schema_version"`
+	CreatedAt              string  `db:"created_at" json:"created_at"`
+	UpdatedAt              string  `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationLegacyCommandContentQuarantine struct {
+	CommandID            string `db:"command_id" json:"command_id"`
+	CompleteIntentDigest string `db:"complete_intent_digest" json:"complete_intent_digest"`
+	Reason               string `db:"reason" json:"reason"`
+	SourceSchemaVersion  int64  `db:"source_schema_version" json:"source_schema_version"`
+	SchemaVersion        int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt            string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationLegacyWakeupQuarantine struct {
+	QuarantineID        string `db:"quarantine_id" json:"quarantine_id"`
+	SourceWakeupID      int64  `db:"source_wakeup_id" json:"source_wakeup_id"`
+	SourcePayloadDigest string `db:"source_payload_digest" json:"source_payload_digest"`
+	WakeupKind          string `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID       string `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload       string `db:"prompt_payload" json:"prompt_payload"`
+	Reason              string `db:"reason" json:"reason"`
+	SourceSchemaVersion int64  `db:"source_schema_version" json:"source_schema_version"`
+	SchemaVersion       int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt           int64  `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationOperatorContentObject struct {
+	ObjectID         string `db:"object_id" json:"object_id"`
+	ObjectVersion    int64  `db:"object_version" json:"object_version"`
+	ReservationID    string `db:"reservation_id" json:"reservation_id"`
+	SourceID         string `db:"source_id" json:"source_id"`
+	SourceGeneration int64  `db:"source_generation" json:"source_generation"`
+	AeadAlgorithm    string `db:"aead_algorithm" json:"aead_algorithm"`
+	KeyWrapProfile   string `db:"key_wrap_profile" json:"key_wrap_profile"`
+	KeyHandleRef     string `db:"key_handle_ref" json:"key_handle_ref"`
+	KeyReceiptRef    string `db:"key_receipt_ref" json:"key_receipt_ref"`
+	KeyReceiptDigest string `db:"key_receipt_digest" json:"key_receipt_digest"`
+	NonceHex         string `db:"nonce_hex" json:"nonce_hex"`
+	AadProfile       string `db:"aad_profile" json:"aad_profile"`
+	AadDigest        string `db:"aad_digest" json:"aad_digest"`
+	MediaType        string `db:"media_type" json:"media_type"`
+	SizeBytes        int64  `db:"size_bytes" json:"size_bytes"`
+	CiphertextSha256 string `db:"ciphertext_sha256" json:"ciphertext_sha256"`
+	ContentState     string `db:"content_state" json:"content_state"`
+	KeyState         string `db:"key_state" json:"key_state"`
+	RefVersion       int64  `db:"ref_version" json:"ref_version"`
+	Revision         int64  `db:"revision" json:"revision"`
+	ObjectReceiptRef string `db:"object_receipt_ref" json:"object_receipt_ref"`
+	CreatedAt        string `db:"created_at" json:"created_at"`
+	UpdatedAt        string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationOperatorContentRef struct {
+	ReferenceID        string `db:"reference_id" json:"reference_id"`
+	CanonicalRef       string `db:"canonical_ref" json:"canonical_ref"`
+	ObjectID           string `db:"object_id" json:"object_id"`
+	ObjectVersion      int64  `db:"object_version" json:"object_version"`
+	ReservationID      string `db:"reservation_id" json:"reservation_id"`
+	SourceID           string `db:"source_id" json:"source_id"`
+	SourceGeneration   int64  `db:"source_generation" json:"source_generation"`
+	RefVersion         int64  `db:"ref_version" json:"ref_version"`
+	CallerPrincipalRef string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef           string `db:"scope_ref" json:"scope_ref"`
+	ProofDigest        string `db:"proof_digest" json:"proof_digest"`
+	ValidUntil         string `db:"valid_until" json:"valid_until"`
+	ReferenceState     string `db:"reference_state" json:"reference_state"`
+	CreatedAt          string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationOperatorReservation struct {
+	ReservationID        string `db:"reservation_id" json:"reservation_id"`
+	SourceKind           string `db:"source_kind" json:"source_kind"`
+	SourceID             string `db:"source_id" json:"source_id"`
+	SourceFenceRef       string `db:"source_fence_ref" json:"source_fence_ref"`
+	PrincipalRef         string `db:"principal_ref" json:"principal_ref"`
+	ScopeRef             string `db:"scope_ref" json:"scope_ref"`
+	AuthContext          string `db:"auth_context" json:"auth_context"`
+	Generation           int64  `db:"generation" json:"generation"`
+	WorkspaceRef         string `db:"workspace_ref" json:"workspace_ref"`
+	CallerPrincipalRef   string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	IdempotencyNamespace string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	ContentIntent        string `db:"content_intent" json:"content_intent"`
+	ContentProof         string `db:"content_proof" json:"content_proof"`
+	ContentCandidate     string `db:"content_candidate" json:"content_candidate"`
+	ContentDigestKey     string `db:"content_digest_key" json:"content_digest_key"`
+	SizeBytes            int64  `db:"size_bytes" json:"size_bytes"`
+	MediaType            string `db:"media_type" json:"media_type"`
+	ProfileRef           string `db:"profile_ref" json:"profile_ref"`
+	QuotaRef             string `db:"quota_ref" json:"quota_ref"`
+	RetentionSeconds     int64  `db:"retention_seconds" json:"retention_seconds"`
+	Deadline             string `db:"deadline" json:"deadline"`
+	State                string `db:"state" json:"state"`
+	Revision             int64  `db:"revision" json:"revision"`
+	SchemaVersion        int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt            string `db:"created_at" json:"created_at"`
+	UpdatedAt            string `db:"updated_at" json:"updated_at"`
+}
+
+type OrchestrationOperatorSource struct {
+	SourceID       string  `db:"source_id" json:"source_id"`
+	SourceFenceRef string  `db:"source_fence_ref" json:"source_fence_ref"`
+	PrincipalRef   string  `db:"principal_ref" json:"principal_ref"`
+	ScopeRef       string  `db:"scope_ref" json:"scope_ref"`
+	AuthContext    string  `db:"auth_context" json:"auth_context"`
+	Generation     int64   `db:"generation" json:"generation"`
+	State          string  `db:"state" json:"state"`
+	CreatedAt      string  `db:"created_at" json:"created_at"`
+	RevokedAt      *string `db:"revoked_at" json:"revoked_at"`
+	SchemaVersion  int64   `db:"schema_version" json:"schema_version"`
+}
+
+type OrchestrationResourceEffectivePolicySnapshot struct {
+	PolicySnapshotID          string `db:"policy_snapshot_id" json:"policy_snapshot_id"`
+	PolicyLineageID           string `db:"policy_lineage_id" json:"policy_lineage_id"`
+	PolicyRevision            int64  `db:"policy_revision" json:"policy_revision"`
+	RequestedKind             string `db:"requested_kind" json:"requested_kind"`
+	CallerPrincipalRef        string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef                  string `db:"scope_ref" json:"scope_ref"`
+	PolicyApplicabilityDigest string `db:"policy_applicability_digest" json:"policy_applicability_digest"`
+	DimensionSet              string `db:"dimension_set" json:"dimension_set"`
+	SourcePolicySetRef        string `db:"source_policy_set_ref" json:"source_policy_set_ref"`
+	SourcePolicySetDigest     string `db:"source_policy_set_digest" json:"source_policy_set_digest"`
+	PrecedenceTraceRef        string `db:"precedence_trace_ref" json:"precedence_trace_ref"`
+	PrecedenceTraceDigest     string `db:"precedence_trace_digest" json:"precedence_trace_digest"`
+	CanonicalizationProfile   string `db:"canonicalization_profile" json:"canonicalization_profile"`
+	CanonicalPolicyHash       string `db:"canonical_policy_hash" json:"canonical_policy_hash"`
+	PolicySnapshotDigest      string `db:"policy_snapshot_digest" json:"policy_snapshot_digest"`
+	EffectiveLimitsDigest     string `db:"effective_limits_digest" json:"effective_limits_digest"`
+	ReleaseConditionDigest    string `db:"release_condition_digest" json:"release_condition_digest"`
+	LimitAgentCount           int64  `db:"limit_agent_count" json:"limit_agent_count"`
+	LimitInFlightCount        int64  `db:"limit_in_flight_count" json:"limit_in_flight_count"`
+	LimitFanoutCount          int64  `db:"limit_fanout_count" json:"limit_fanout_count"`
+	LimitConcurrencyCount     int64  `db:"limit_concurrency_count" json:"limit_concurrency_count"`
+	LimitWallTimeMs           int64  `db:"limit_wall_time_ms" json:"limit_wall_time_ms"`
+	LimitInputTokens          int64  `db:"limit_input_tokens" json:"limit_input_tokens"`
+	LimitOutputTokens         int64  `db:"limit_output_tokens" json:"limit_output_tokens"`
+	LimitCostMicrounit        int64  `db:"limit_cost_microunit" json:"limit_cost_microunit"`
+	LimitContentBytes         int64  `db:"limit_content_bytes" json:"limit_content_bytes"`
+	LimitIngressBytes         int64  `db:"limit_ingress_bytes" json:"limit_ingress_bytes"`
+	IdempotencyNamespace      string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest      string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	PublishRequestDigest      string `db:"publish_request_digest" json:"publish_request_digest"`
+	PublishOperationID        string `db:"publish_operation_id" json:"publish_operation_id"`
+	PublishOperationDigest    string `db:"publish_operation_digest" json:"publish_operation_digest"`
+	PublishReceiptRef         string `db:"publish_receipt_ref" json:"publish_receipt_ref"`
+	PublishReceiptDigest      string `db:"publish_receipt_digest" json:"publish_receipt_digest"`
+	PolicyOwnerID             string `db:"policy_owner_id" json:"policy_owner_id"`
+	PolicyOwnerGeneration     int64  `db:"policy_owner_generation" json:"policy_owner_generation"`
+	PolicyWriterFenceRef      string `db:"policy_writer_fence_ref" json:"policy_writer_fence_ref"`
+	PolicyOwnerProofRef       string `db:"policy_owner_proof_ref" json:"policy_owner_proof_ref"`
+	DeploymentFenceRef        string `db:"deployment_fence_ref" json:"deployment_fence_ref"`
+	SecurityTimeGeneration    int64  `db:"security_time_generation" json:"security_time_generation"`
+	EffectiveAt               string `db:"effective_at" json:"effective_at"`
+	ValidUntil                string `db:"valid_until" json:"valid_until"`
+	SchemaVersion             int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt                 string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationResourceReservation struct {
+	ReservationID                  string `db:"reservation_id" json:"reservation_id"`
+	ReservationVersion             int64  `db:"reservation_version" json:"reservation_version"`
+	ResourceSnapshotID             string `db:"resource_snapshot_id" json:"resource_snapshot_id"`
+	ResourceSnapshotDigest         string `db:"resource_snapshot_digest" json:"resource_snapshot_digest"`
+	ResourceStatus                 string `db:"resource_status" json:"resource_status"`
+	RequestedKind                  string `db:"requested_kind" json:"requested_kind"`
+	CommandID                      string `db:"command_id" json:"command_id"`
+	CommandVersion                 int64  `db:"command_version" json:"command_version"`
+	CommandProfileDigest           string `db:"command_profile_digest" json:"command_profile_digest"`
+	CallerPrincipalRef             string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef                       string `db:"scope_ref" json:"scope_ref"`
+	SourceAgentID                  string `db:"source_agent_id" json:"source_agent_id"`
+	SourceBindingVersion           int64  `db:"source_binding_version" json:"source_binding_version"`
+	SourceFenceRef                 string `db:"source_fence_ref" json:"source_fence_ref"`
+	TargetAgentID                  string `db:"target_agent_id" json:"target_agent_id"`
+	TargetBindingVersion           int64  `db:"target_binding_version" json:"target_binding_version"`
+	TargetFenceRef                 string `db:"target_fence_ref" json:"target_fence_ref"`
+	IdentityFenceDigest            string `db:"identity_fence_digest" json:"identity_fence_digest"`
+	ContentReferenceID             string `db:"content_reference_id" json:"content_reference_id"`
+	ContentRef                     string `db:"content_ref" json:"content_ref"`
+	ContentObjectID                string `db:"content_object_id" json:"content_object_id"`
+	ContentObjectVersion           int64  `db:"content_object_version" json:"content_object_version"`
+	ContentRefVersion              int64  `db:"content_ref_version" json:"content_ref_version"`
+	ContentOwnerSnapshotDigest     string `db:"content_owner_snapshot_digest" json:"content_owner_snapshot_digest"`
+	ContentAdmissionSnapshotDigest string `db:"content_admission_snapshot_digest" json:"content_admission_snapshot_digest"`
+	PolicySnapshotID               string `db:"policy_snapshot_id" json:"policy_snapshot_id"`
+	PolicyRevision                 int64  `db:"policy_revision" json:"policy_revision"`
+	PolicySnapshotDigest           string `db:"policy_snapshot_digest" json:"policy_snapshot_digest"`
+	PolicyCanonicalHash            string `db:"policy_canonical_hash" json:"policy_canonical_hash"`
+	EffectiveLimitsDigest          string `db:"effective_limits_digest" json:"effective_limits_digest"`
+	ReservedAgentCount             int64  `db:"reserved_agent_count" json:"reserved_agent_count"`
+	ReservedInFlightCount          int64  `db:"reserved_in_flight_count" json:"reserved_in_flight_count"`
+	ReservedFanoutCount            int64  `db:"reserved_fanout_count" json:"reserved_fanout_count"`
+	ReservedConcurrencyCount       int64  `db:"reserved_concurrency_count" json:"reserved_concurrency_count"`
+	ReservedWallTimeMs             int64  `db:"reserved_wall_time_ms" json:"reserved_wall_time_ms"`
+	ReservedInputTokens            int64  `db:"reserved_input_tokens" json:"reserved_input_tokens"`
+	ReservedOutputTokens           int64  `db:"reserved_output_tokens" json:"reserved_output_tokens"`
+	ReservedCostMicrounit          int64  `db:"reserved_cost_microunit" json:"reserved_cost_microunit"`
+	ReservedContentBytes           int64  `db:"reserved_content_bytes" json:"reserved_content_bytes"`
+	ReservedIngressBytes           int64  `db:"reserved_ingress_bytes" json:"reserved_ingress_bytes"`
+	UsageDigestDomain              string `db:"usage_digest_domain" json:"usage_digest_domain"`
+	UsageWatermark                 int64  `db:"usage_watermark" json:"usage_watermark"`
+	UsageDigest                    string `db:"usage_digest" json:"usage_digest"`
+	ReleaseConditionDigest         string `db:"release_condition_digest" json:"release_condition_digest"`
+	IdempotencyNamespace           string `db:"idempotency_namespace" json:"idempotency_namespace"`
+	IdempotencyKeyDigest           string `db:"idempotency_key_digest" json:"idempotency_key_digest"`
+	ReservationRequestDigest       string `db:"reservation_request_digest" json:"reservation_request_digest"`
+	ReservationOperationID         string `db:"reservation_operation_id" json:"reservation_operation_id"`
+	ReservationOperationDigest     string `db:"reservation_operation_digest" json:"reservation_operation_digest"`
+	ReservationReceiptRef          string `db:"reservation_receipt_ref" json:"reservation_receipt_ref"`
+	ReservationReceiptDigest       string `db:"reservation_receipt_digest" json:"reservation_receipt_digest"`
+	AdmissionOwnerID               string `db:"admission_owner_id" json:"admission_owner_id"`
+	AdmissionOwnerGeneration       int64  `db:"admission_owner_generation" json:"admission_owner_generation"`
+	AdmissionWriterFenceRef        string `db:"admission_writer_fence_ref" json:"admission_writer_fence_ref"`
+	AdmissionDeploymentFenceRef    string `db:"admission_deployment_fence_ref" json:"admission_deployment_fence_ref"`
+	SecurityTimeGeneration         int64  `db:"security_time_generation" json:"security_time_generation"`
+	OwnerProofRef                  string `db:"owner_proof_ref" json:"owner_proof_ref"`
+	ValidUntil                     string `db:"valid_until" json:"valid_until"`
+	SchemaVersion                  int64  `db:"schema_version" json:"schema_version"`
+	CreatedAt                      string `db:"created_at" json:"created_at"`
+}
+
+type OrchestrationResourceUsageLedger struct {
+	UsageEntryID                   string `db:"usage_entry_id" json:"usage_entry_id"`
+	ReservationID                  string `db:"reservation_id" json:"reservation_id"`
+	ReservationVersion             int64  `db:"reservation_version" json:"reservation_version"`
+	LedgerSequence                 int64  `db:"ledger_sequence" json:"ledger_sequence"`
+	PreviousUsageDigest            string `db:"previous_usage_digest" json:"previous_usage_digest"`
+	UsageEntryDigest               string `db:"usage_entry_digest" json:"usage_entry_digest"`
+	CommandID                      string `db:"command_id" json:"command_id"`
+	CommandVersion                 int64  `db:"command_version" json:"command_version"`
+	CommandProfileDigest           string `db:"command_profile_digest" json:"command_profile_digest"`
+	IdentityFenceDigest            string `db:"identity_fence_digest" json:"identity_fence_digest"`
+	ContentAdmissionSnapshotDigest string `db:"content_admission_snapshot_digest" json:"content_admission_snapshot_digest"`
+	PolicySnapshotID               string `db:"policy_snapshot_id" json:"policy_snapshot_id"`
+	PolicyRevision                 int64  `db:"policy_revision" json:"policy_revision"`
+	PolicySnapshotDigest           string `db:"policy_snapshot_digest" json:"policy_snapshot_digest"`
+	EffectiveLimitsDigest          string `db:"effective_limits_digest" json:"effective_limits_digest"`
+	ReleaseConditionDigest         string `db:"release_condition_digest" json:"release_condition_digest"`
+	DimensionSet                   string `db:"dimension_set" json:"dimension_set"`
+	Dimension                      string `db:"dimension" json:"dimension"`
+	Unit                           string `db:"unit" json:"unit"`
+	DeltaValue                     int64  `db:"delta_value" json:"delta_value"`
+	CumulativeValue                int64  `db:"cumulative_value" json:"cumulative_value"`
+	AttemptID                      string `db:"attempt_id" json:"attempt_id"`
+	AttemptFenceRef                string `db:"attempt_fence_ref" json:"attempt_fence_ref"`
+	MeasurementSourceRef           string `db:"measurement_source_ref" json:"measurement_source_ref"`
+	MeasurementID                  string `db:"measurement_id" json:"measurement_id"`
+	SourceSequence                 int64  `db:"source_sequence" json:"source_sequence"`
+	ObservedAt                     string `db:"observed_at" json:"observed_at"`
+	MeasurementReceiptRef          string `db:"measurement_receipt_ref" json:"measurement_receipt_ref"`
+	MeasurementReceiptDigest       string `db:"measurement_receipt_digest" json:"measurement_receipt_digest"`
+	UsageOperationID               string `db:"usage_operation_id" json:"usage_operation_id"`
+	UsageRequestDigest             string `db:"usage_request_digest" json:"usage_request_digest"`
+	AdmissionOwnerID               string `db:"admission_owner_id" json:"admission_owner_id"`
+	AdmissionOwnerGeneration       int64  `db:"admission_owner_generation" json:"admission_owner_generation"`
+	AdmissionWriterFenceRef        string `db:"admission_writer_fence_ref" json:"admission_writer_fence_ref"`
+	AdmissionDeploymentFenceRef    string `db:"admission_deployment_fence_ref" json:"admission_deployment_fence_ref"`
+	SecurityTimeGeneration         int64  `db:"security_time_generation" json:"security_time_generation"`
+	SchemaVersion                  int64  `db:"schema_version" json:"schema_version"`
+	RecordedAt                     string `db:"recorded_at" json:"recorded_at"`
+}
+
+type OrchestrationWaitOperation struct {
+	OperationKey                string `db:"operation_key" json:"operation_key"`
+	OperationDigest             string `db:"operation_digest" json:"operation_digest"`
+	TargetSetDigest             string `db:"target_set_digest" json:"target_set_digest"`
+	CallerPrincipalRef          string `db:"caller_principal_ref" json:"caller_principal_ref"`
+	ScopeRef                    string `db:"scope_ref" json:"scope_ref"`
+	SourceAgentID               string `db:"source_agent_id" json:"source_agent_id"`
+	SourceReservationID         string `db:"source_reservation_id" json:"source_reservation_id"`
+	SourceReservationGeneration int64  `db:"source_reservation_generation" json:"source_reservation_generation"`
+	SourceIncarnationID         string `db:"source_incarnation_id" json:"source_incarnation_id"`
+	SourceIncarnationGeneration int64  `db:"source_incarnation_generation" json:"source_incarnation_generation"`
+	SourceBindingVersion        int64  `db:"source_binding_version" json:"source_binding_version"`
+	SourceBindingDigest         string `db:"source_binding_digest" json:"source_binding_digest"`
+	SourceFenceRef              string `db:"source_fence_ref" json:"source_fence_ref"`
+	IssuedAt                    string `db:"issued_at" json:"issued_at"`
+	DeadlineAt                  string `db:"deadline_at" json:"deadline_at"`
+	TargetCount                 int64  `db:"target_count" json:"target_count"`
+	Revision                    int64  `db:"revision" json:"revision"`
+	Status                      string `db:"status" json:"status"`
+	UncertainPhase              string `db:"uncertain_phase" json:"uncertain_phase"`
+	CleanupRequestDigest        string `db:"cleanup_request_digest" json:"cleanup_request_digest"`
+	CleanupReasonRef            string `db:"cleanup_reason_ref" json:"cleanup_reason_ref"`
+	ResolvedAt                  string `db:"resolved_at" json:"resolved_at"`
+	CreatedAt                   string `db:"created_at" json:"created_at"`
+	UpdatedAt                   string `db:"updated_at" json:"updated_at"`
+	SchemaVersion               int64  `db:"schema_version" json:"schema_version"`
+}
+
+type OrchestrationWaitOperationCommitMarker struct {
+	MarkerKey       string `db:"marker_key" json:"marker_key"`
+	OperationKey    string `db:"operation_key" json:"operation_key"`
+	OperationDigest string `db:"operation_digest" json:"operation_digest"`
+	TargetKey       string `db:"target_key" json:"target_key"`
+	MutationKind    string `db:"mutation_kind" json:"mutation_kind"`
+	RequestDigest   string `db:"request_digest" json:"request_digest"`
+	PreStateDigest  string `db:"pre_state_digest" json:"pre_state_digest"`
+	PostStateDigest string `db:"post_state_digest" json:"post_state_digest"`
+	State           string `db:"state" json:"state"`
+	CreatedAt       string `db:"created_at" json:"created_at"`
+	ResolvedAt      string `db:"resolved_at" json:"resolved_at"`
+	SchemaVersion   int64  `db:"schema_version" json:"schema_version"`
+}
+
+type OrchestrationWaitOperationTargetJournal struct {
+	OperationKey                string  `db:"operation_key" json:"operation_key"`
+	OperationDigest             string  `db:"operation_digest" json:"operation_digest"`
+	TargetKey                   string  `db:"target_key" json:"target_key"`
+	TargetIndex                 int64   `db:"target_index" json:"target_index"`
+	Version                     int64   `db:"version" json:"version"`
+	TargetDigest                string  `db:"target_digest" json:"target_digest"`
+	RecordDigest                string  `db:"record_digest" json:"record_digest"`
+	PreviousRecordDigest        string  `db:"previous_record_digest" json:"previous_record_digest"`
+	TargetAgentID               string  `db:"target_agent_id" json:"target_agent_id"`
+	TargetReservationID         string  `db:"target_reservation_id" json:"target_reservation_id"`
+	TargetReservationGeneration int64   `db:"target_reservation_generation" json:"target_reservation_generation"`
+	TargetIncarnationID         string  `db:"target_incarnation_id" json:"target_incarnation_id"`
+	TargetIncarnationGeneration int64   `db:"target_incarnation_generation" json:"target_incarnation_generation"`
+	TargetBindingVersion        int64   `db:"target_binding_version" json:"target_binding_version"`
+	TargetBindingDigest         string  `db:"target_binding_digest" json:"target_binding_digest"`
+	TargetFenceRef              string  `db:"target_fence_ref" json:"target_fence_ref"`
+	SourceID                    string  `db:"source_id" json:"source_id"`
+	SourceEpoch                 string  `db:"source_epoch" json:"source_epoch"`
+	Lane                        string  `db:"lane" json:"lane"`
+	SelectorVersion             int64   `db:"selector_version" json:"selector_version"`
+	SelectorJson                string  `db:"selector_json" json:"selector_json"`
+	SelectorDigest              string  `db:"selector_digest" json:"selector_digest"`
+	EventTypesJson              string  `db:"event_types_json" json:"event_types_json"`
+	AfterSourceSequence         int64   `db:"after_source_sequence" json:"after_source_sequence"`
+	AfterCursor                 string  `db:"after_cursor" json:"after_cursor"`
+	DeadlineAt                  string  `db:"deadline_at" json:"deadline_at"`
+	OriginalGrantID             string  `db:"original_grant_id" json:"original_grant_id"`
+	GrantNamespace              string  `db:"grant_namespace" json:"grant_namespace"`
+	GrantKeyDigest              string  `db:"grant_key_digest" json:"grant_key_digest"`
+	GrantRequestDigest          string  `db:"grant_request_digest" json:"grant_request_digest"`
+	ResolvedGrantID             *string `db:"resolved_grant_id" json:"resolved_grant_id"`
+	GrantRevision               int64   `db:"grant_revision" json:"grant_revision"`
+	GrantStatus                 string  `db:"grant_status" json:"grant_status"`
+	WaitNamespace               string  `db:"wait_namespace" json:"wait_namespace"`
+	WaitKeyDigest               string  `db:"wait_key_digest" json:"wait_key_digest"`
+	WaitRequestDigest           string  `db:"wait_request_digest" json:"wait_request_digest"`
+	ResolvedWaitHandleID        *string `db:"resolved_wait_handle_id" json:"resolved_wait_handle_id"`
+	WaitRevision                int64   `db:"wait_revision" json:"wait_revision"`
+	WaitStatus                  string  `db:"wait_status" json:"wait_status"`
+	GrantCleanupState           string  `db:"grant_cleanup_state" json:"grant_cleanup_state"`
+	WaitCleanupState            string  `db:"wait_cleanup_state" json:"wait_cleanup_state"`
+	Phase                       string  `db:"phase" json:"phase"`
+	UncertainPhase              string  `db:"uncertain_phase" json:"uncertain_phase"`
+	ErrorCode                   string  `db:"error_code" json:"error_code"`
+	ErrorRef                    string  `db:"error_ref" json:"error_ref"`
+	ResolvedAt                  string  `db:"resolved_at" json:"resolved_at"`
+	RecordedAt                  string  `db:"recorded_at" json:"recorded_at"`
+	SchemaVersion               int64   `db:"schema_version" json:"schema_version"`
+}
+
 type Prompt struct {
 	ID         int64  `db:"id" json:"id"`
 	AgentKey   string `db:"agent_key" json:"agent_key"`
@@ -615,26 +1590,27 @@ type TaskDagRun struct {
 }
 
 type TaskDagWakeup struct {
-	ID             int64           `db:"id" json:"id"`
-	DagKey         string          `db:"dag_key" json:"dag_key"`
-	NodeKey        string          `db:"node_key" json:"node_key"`
-	RunID          *int64          `db:"run_id" json:"run_id"`
-	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
-	Status         string          `db:"status" json:"status"`
-	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         *int64          `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string          `db:"last_error" json:"last_error"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	ID                   int64           `db:"id" json:"id"`
+	DagKey               string          `db:"dag_key" json:"dag_key"`
+	NodeKey              string          `db:"node_key" json:"node_key"`
+	RunID                *int64          `db:"run_id" json:"run_id"`
+	WakeupKind           string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID        string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload        json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey       string          `db:"idempotency_key" json:"idempotency_key"`
+	Status               string          `db:"status" json:"status"`
+	AttemptCount         int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt          int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt            *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy            string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt       *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt               *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID          *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt          *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError            string          `db:"last_error" json:"last_error"`
+	CreatedAt            int64           `db:"created_at" json:"created_at"`
+	UpdatedAt            int64           `db:"updated_at" json:"updated_at"`
+	PayloadSchemaVersion int64           `db:"payload_schema_version" json:"payload_schema_version"`
 }
 
 type TaskDagWorkerLease struct {

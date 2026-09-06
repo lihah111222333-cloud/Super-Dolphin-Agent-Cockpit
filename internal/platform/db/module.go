@@ -30,8 +30,11 @@ func NewDB(cfg *config.Config) (*sql.DB, error) {
 }
 
 // MinRequiredSchemaVersion 是当前二进制正常运行所需的 schema_migrations.version 下限。
-const MinRequiredSchemaVersion = 123
+// canonical command intent 在126中加入，append-only command journal在127中加入，orchestration identity owner在128中加入，canonical event store在129中加入，access grant与event wait owner在130中加入，send_message完整身份/授权profile在131中加入，CONTENT-1 metadata owner在132中加入，RESOURCE reserved-only skeleton在133中加入，B09 wakeup payload version floor在134中加入；
+// 低于该版本的数据库不能通过启动门禁后再在第一次跨任务命令时延迟失败。
+const MinRequiredSchemaVersion = 134
 
+// requiredBaselineTables 返回当前最低 schema 启动所需的规范表集合。
 func requiredBaselineTables() []string {
 	return []string{
 		// agent_codex_binding: 历史遗留表，数据合并至 agent_provider_binding.codex_thread_id，无活跃 sqlc query
@@ -78,6 +81,34 @@ func requiredBaselineTables() []string {
 		"workspace_run_files",
 		"workspace_runs",
 		"runtime_locks",
+		"orchestration_direct_peer_grants",
+		"orchestration_direct_peer_messages",
+		"orchestration_direct_peer_events",
+		"orchestration_direct_peer_event_outbox",
+		"orchestration_command_intents",
+		"orchestration_command_journal",
+		"orchestration_identity_reservations",
+		"orchestration_execution_incarnations",
+		"orchestration_binding_preparations",
+		"orchestration_current_bindings",
+		"orchestration_event_source_states",
+		"orchestration_event_ingress_receipts",
+		"orchestration_agent_events",
+		"orchestration_event_tombstones",
+		"orchestration_event_materialization_cursors",
+		"orchestration_access_grants",
+		"orchestration_event_wait_handles",
+		"orchestration_command_intent_profiles",
+		"orchestration_legacy_command_content_quarantine",
+		"orchestration_content_ingest_reservations",
+		"orchestration_content_objects",
+		"orchestration_content_private_payload_receipts",
+		"orchestration_content_refs",
+		"orchestration_command_content_deletion_fences",
+		"orchestration_resource_effective_policy_snapshots",
+		"orchestration_resource_reservations",
+		"orchestration_resource_usage_ledger",
+		"orchestration_legacy_wakeup_quarantine",
 	}
 }
 
@@ -86,8 +117,9 @@ type requiredSQLiteColumn struct {
 	column string
 }
 
+// requiredBaselineColumns 返回启动 schema gate 所需的关键列集合。
 func requiredBaselineColumns() []requiredSQLiteColumn {
-	return []requiredSQLiteColumn{
+	required := []requiredSQLiteColumn{
 		{table: "agent_threads", column: "prompt_snapshot"},
 		{table: "agent_provider_binding", column: "provider_recovery_home"},
 		{table: "hook_pending_reviews", column: "thread_id"},
@@ -103,7 +135,68 @@ func requiredBaselineColumns() []requiredSQLiteColumn {
 		{table: "terminal_outcome_private_dag_payloads", column: "payload_json"},
 		{table: "terminal_outcome_outbox_v2", column: "public_payload_json"},
 		{table: "terminal_outcome_outbox_v2", column: "claim_token"},
+		{table: "orchestration_command_intents", column: "caller_principal_ref"},
+		{table: "orchestration_command_intents", column: "scope_ref"},
+		{table: "task_dag_wakeups", column: "payload_schema_version"},
+		{table: "orchestration_legacy_wakeup_quarantine", column: "quarantine_id"},
+		{table: "orchestration_legacy_wakeup_quarantine", column: "source_wakeup_id"},
+		{table: "orchestration_legacy_wakeup_quarantine", column: "source_payload_digest"},
 	}
+	for _, column := range requiredCommandIntentProfileColumns() {
+		required = append(required, requiredSQLiteColumn{table: "orchestration_command_intent_profiles", column: column})
+	}
+	for table, columns := range requiredContentSchemaColumns() {
+		for _, column := range columns {
+			required = append(required, requiredSQLiteColumn{table: table, column: column})
+		}
+	}
+	for table, columns := range requiredResourceSchemaColumns() {
+		for _, column := range columns {
+			required = append(required, requiredSQLiteColumn{table: table, column: column})
+		}
+	}
+	return required
+}
+
+func requiredCommandIntentProfileColumns() []string {
+	return []string{
+		"command_id", "profile_kind", "profile_version", "caller_profile", "caller_auth_context", "caller_auth_expires_at",
+		"authorization_kind", "authorization_decision", "authorization_request_version", "authorization_request_id",
+		"authorization_request_digest", "authorization_grant_id", "authorization_grant_revision", "authorization_capability",
+		"authorization_requested_at", "authorization_decided_at", "authorization_expires_at", "grant_request_digest",
+		"grant_issued_at", "grant_updated_at", "source_selector_version", "source_selector_kind", "source_agent_id",
+		"source_identity_kind", "source_reservation_id", "source_reservation_generation", "source_incarnation_id",
+		"source_incarnation_generation", "source_external_identity_ref", "source_binding_version", "source_binding_digest",
+		"source_fence_ref", "source_active_process_receipt_ref", "source_binding_state", "source_binding_schema_version",
+		"source_binding_updated_at", "target_selector_version", "target_selector_kind", "target_agent_id", "target_identity_kind",
+		"target_reservation_id", "target_reservation_generation", "target_incarnation_id", "target_incarnation_generation",
+		"target_external_identity_ref", "target_binding_version", "target_binding_digest", "target_fence_ref",
+		"target_active_process_receipt_ref", "target_binding_state", "target_binding_schema_version", "target_binding_updated_at",
+		"complete_intent_digest", "digest_domain", "digest_algorithm", "digest_key_id", "digest_key_version", "schema_version", "recorded_at",
+	}
+}
+
+func requiredCommandIntentProfileTriggers() []string {
+	return []string{
+		"trg_orchestration_command_intent_profiles_exact_relation",
+		"trg_orchestration_command_intent_profiles_immutable_update",
+		"trg_orchestration_command_intent_profiles_immutable_delete",
+	}
+}
+
+func requiredSQLiteTriggers() []string {
+	triggers := append([]string(nil), requiredCommandIntentProfileTriggers()...)
+	triggers = append(triggers, requiredContentSchemaTriggers()...)
+	triggers = append(triggers, requiredResourceSchemaTriggers()...)
+	return append(triggers,
+		"trg_orchestration_legacy_wakeup_quarantine_no_update",
+		"trg_orchestration_legacy_wakeup_quarantine_no_delete",
+		"trg_task_dag_wakeups_v134_insert_version",
+		"trg_task_dag_wakeups_v134_insert",
+		"trg_task_dag_wakeups_v134_update",
+		"trg_task_dag_wakeups_v134_version_immutable",
+		"trg_task_dag_wakeups_v134_legacy_immutable",
+	)
 }
 
 func requiredTerminalProtocolViews() []string {
@@ -136,8 +229,37 @@ func verifyMinSchemaVersion(ctx context.Context, q any) error {
 	if err := verifySQLiteRequiredColumns(ctx, q); err != nil {
 		return err
 	}
+	if err := verifyNoActiveLegacyWakeups(ctx, q); err != nil {
+		return err
+	}
+	if err := verifyContentSchemaColumnPolicy(ctx, q); err != nil {
+		return err
+	}
+	if err := verifyResourceSchemaColumnPolicy(ctx, q); err != nil {
+		return err
+	}
+	if err := verifySQLiteRequiredTriggers(ctx, q); err != nil {
+		return err
+	}
 	if err := verifyTerminalProtocolViews(ctx, q); err != nil {
 		return err
+	}
+	return nil
+}
+
+func verifySQLiteRequiredTriggers(ctx context.Context, q any) error {
+	v, ok := q.(sqlContextQueryRow)
+	if !ok {
+		return fmt.Errorf("unsupported SQLite required trigger queryer %T", q)
+	}
+	for _, trigger := range requiredSQLiteTriggers() {
+		var exists int
+		if err := v.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = ?", trigger).Scan(&exists); err != nil {
+			return fmt.Errorf("verify SQLite required trigger %s: %w", trigger, err)
+		}
+		if exists != 1 {
+			return fmt.Errorf("SQLite baseline schema incomplete: missing required trigger: %s", trigger)
+		}
 	}
 	return nil
 }
@@ -229,6 +351,48 @@ func verifySQLiteRequiredColumns(ctx context.Context, q any) error {
 		return fmt.Errorf("SQLite baseline schema incomplete: missing required column(s): %s", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+// verifyNoActiveLegacyWakeups 在可执行 wakeup 仍带 pre-B09 标记时阻断启动。
+// 源行必须由经过审查的 operator migration 或 quarantine 显式处理，启动绝不从旧字节推断分支。
+func verifyNoActiveLegacyWakeups(ctx context.Context, q any) error {
+	v, ok := q.(sqlContextQuery)
+	if !ok {
+		return fmt.Errorf("unsupported active legacy wakeup queryer %T", q)
+	}
+	rows, err := v.QueryContext(ctx, `
+		SELECT id, dag_key, node_key, wakeup_kind, status
+		FROM task_dag_wakeups
+		WHERE payload_schema_version = 0
+		  AND status IN ('pending', 'dispatching', 'sent')
+		ORDER BY id`)
+	if err != nil {
+		return fmt.Errorf("verify active legacy task dag wakeups: %w", err)
+	}
+	defer rows.Close()
+	var details []string
+	for rows.Next() {
+		var (
+			id      int64
+			dagKey  string
+			nodeKey string
+			kind    string
+			status  string
+		)
+		if err := rows.Scan(&id, &dagKey, &nodeKey, &kind, &status); err != nil {
+			return fmt.Errorf("verify active legacy task dag wakeups: %w", err)
+		}
+		details = append(details, fmt.Sprintf("id=%d dag_key=%q node_key=%q wakeup_kind=%q status=%q", id, dagKey, nodeKey, kind, status))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("verify active legacy task dag wakeups: %w", err)
+	}
+	if len(details) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"active legacy task_dag_wakeups with payload_schema_version=0 require explicit operator migration/quarantine before startup; refusing implicit payload inference: %s",
+		strings.Join(details, "; "))
 }
 
 // missingSQLiteRequiredColumns 汇总 schema gate 需要的缺失列列表。

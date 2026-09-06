@@ -819,6 +819,8 @@ type SessionResolver interface {
 - `sharedFileAdapterModule()`。
 - 旧 `promptIntentE2EFixtureModule` / `internal/provider/e2efixture` 测试注入已移除；当前 app graph 不含 prompt intent fixture，运行时 prompt 仍由 `prompt.Module` + `threadprompt` 组装。
 
+<!-- codemap-absent path="internal/provider/e2efixture" -->
+
 **本地提供者 / 适配器**
 
 - `NewLogger`
@@ -930,12 +932,15 @@ _Interface-isolation budget note_: `taskdag.RunStore` is intentionally **not** e
 
 ## 9. 常见修改路径（how-to）
 
+<!-- codemap-absent path="internal/archtest/backend_boundary_registry_app_adapter.go" -->
+
 | 场景 | 触发 | 步骤 | 锚点 | 验证 |
 | --- | --- | --- | --- | --- |
 | 根 Module | 新模块 / provider / platform 启动接线 | 1. 先在 owning `Module` 内导出 provider；2. 再把模块纳入 `internal/app/modules.go`；3. 如需跨边界收口，再补 `fx.Provide` adapter（如 `AsRPCRunner` / facade / reporter）。 | `internal/app/modules.go`、`AsRPCRunner` | LSP `structure → inspect → xref → file`；`./scripts/test_with_guard.sh ./internal/app/... -run 'TestAppModuleGraph' -count=1` |
 | Store adapter child | 新增或调整业务模块所需的 store 窄端口 | 1. 在 `internal/app/storeadapter/<domain>` 保留真实 store → owner port 投影；2. 用 child `Module` 导出 providers；3. 只把 child 加到 `storeadapter.Module`；4. 普通 child 不导入 sibling。 | `internal/app/storeadapter/module.go`、对应 child `module.go` / `adapter.go` | `./scripts/test_with_guard.sh ./internal/app/storeadapter/... -count=1`；再跑 canonical adapter guard |
 | Runtime adapter child | platform/provider 需要 store/module 具体实现桥接 | 1. 在 `internal/app/runtimeadapter/<consumer>` 提供窄端口；2. 简单 child 用 `fx.Module`；3. 需要 root decorate/invoke 时采用 toolbridge 的外层 `fx.Options` 结构；4. 登记到 `runtimeadapter.Module`。 | `internal/app/runtimeadapter/module.go`、对应 `adapter.go` | `./scripts/test_with_guard.sh ./internal/app/runtimeadapter/... -count=1`；再跑根 Module 图测试 |
 | App adapter canonical guard | adapter 新增真实 production import 或 child | 1. 更新 Go registry 中 `app_adapter_boundary` / `app_adapter_narrow_import_surface`；2. 保持逐文件精确 allow，禁止宽 `internal/module` / `internal/store` / adapter 根前缀；3. 同步 governance 与污染 fixture。 | `internal/archtest/backend_boundary_registry_app_adapter.go`、governance / coverage tests | `./scripts/test_with_guard.sh ./internal/archtest -run 'TestAppAdapter|TestAppRootDoesNotOwnLeafStoreAdapters' -count=1` |
+
 | RPC 收编 | 新模块需要暴露 JSON-RPC / Wails RPC | 1. 返回 `rpc.HandlerMapResult`；2. 在模块侧提供 `New*Handlers`；3. 由 `internal/platform/rpc.registerAllHandlers` 统一收编。 | `internal/platform/rpc/module.go`、`registerAllHandlers` | `internal/platform/rpc/server_minimal_test.go` |
 | freeze | 适配层膨胀 / bridge 临时收口触发架构 guard | 1. 优先把 helper / adapter 收回 owning module；2. 对照统一 `freeze_baseline.json` 找当前真值；3. 用 `TestCodeSizeGuard` 校验是否需要同步收缩 freeze。 | `internal/archtest/freeze_baseline.json`、`internal/archtest/code_size_guard_test.go` | `go test ./internal/archtest -run TestCodeSizeGuard` |
 | 接口隔离 / 窄端口 | 某个 `Service` / `Store` 方法集继续膨胀，或消费者只需要子集能力 | 1. 先在 owning package 拆 module-local narrow port；2. Fx assembly 层提供 aggregate -> narrow port adapter；3. 不把局部端口抬到 `internal/contract`，除非至少两个上层领域都需要稳定公共语义。 | `cmd/mcp-orch/store/taskdag/contract.go`、`internal/archtest/interface_isolation_guard_test.go` | `go test ./internal/archtest -run 'TestInterfaceIsolation|TestTaskDAG'` |

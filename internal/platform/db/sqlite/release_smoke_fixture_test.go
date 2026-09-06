@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const sqliteSmokeSchemaFloor = 123
+const sqliteSmokeSchemaFloor = 134
 
 type sqliteFixtureConfig struct {
 	Threads         int
@@ -313,11 +313,11 @@ func seedFixtureWakeups(t *testing.T, tx *sql.Tx, base time.Time, count int, run
 		execTx(t, tx, `
 INSERT INTO task_dag_wakeups (
     dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload,
-    idempotency_key, status, next_retry_at, claimed_at, claimed_by,
+    payload_schema_version, idempotency_key, status, next_retry_at, claimed_at, claimed_by,
     lease_expires_at, sent_at, last_error, created_at, updated_at
-) VALUES (?, 'root', ?, 'node_start', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+) VALUES (?, 'root', ?, 'node_start', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			fmt.Sprintf("fixture-dag-%04d", runIndex), runIDs[runIndex], fixtureAgentID(i),
-			sqliteJSONPayload(payloadSizeForIndex(i+53)), fmt.Sprintf("fixture-wakeup-%05d", i),
+			sqliteWakeupJSONPayload(fixtureAgentID(i)), fmt.Sprintf("fixture-wakeup-%05d", i),
 			status, ts, nullableClaimedAt(ts, status), nullableClaimedBy(i, status),
 			nullableLeaseExpiresAt(ts, status), nullableSentAt(ts, status), nullableLastError(status), ts, ts)
 	}
@@ -446,6 +446,10 @@ func sqliteJSONPayload(size int) string {
 		fill = 1
 	}
 	return prefix + strings.Repeat("x", fill) + suffix
+}
+
+func sqliteWakeupJSONPayload(agentID string) string {
+	return `{"wakeup_payload_kind":"dag_downstream","schema_version":1,"agent_id":"` + agentID + `"}`
 }
 
 func sqliteEventsJSON(count int) string {

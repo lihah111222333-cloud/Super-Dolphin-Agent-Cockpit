@@ -13,7 +13,7 @@ import (
 
 func validProviderNativeContext(t *testing.T) ProviderNativeContext {
 	t.Helper()
-	cwd := t.TempDir()
+	cwd := canonicalProviderNativeTestDir(t)
 	return ProviderNativeContext{
 		SchemaVersion:   ProviderNativeContextSchemaVersion,
 		Provider:        ProviderNativeProviderClaude,
@@ -36,6 +36,18 @@ func validProviderNativeContext(t *testing.T) ProviderNativeContext {
 			},
 		},
 	}
+}
+
+func canonicalProviderNativeTestDir(t *testing.T) string {
+	t.Helper()
+	// macOS exposes /tmp through the /private/tmp symlink. Keep test fixtures
+	// in the same canonical namespace as production CWD validation without
+	// making the expected value depend on the implementation under test.
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("filepath.EvalSymlinks(temp dir) error = %v", err)
+	}
+	return filepath.Clean(path)
 }
 
 func TestProviderNativeFeaturesReflectJSONFields(t *testing.T) {
@@ -452,7 +464,7 @@ func TestProviderNativeContextJSONFailureDoesNotMutate(t *testing.T) {
 }
 
 func TestProviderNativeContextCanonicalCWD(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalProviderNativeTestDir(t)
 	canonical, err := CanonicalizeProviderNativeCWD(root)
 	if err != nil {
 		t.Fatalf("CanonicalizeProviderNativeCWD() error = %v", err)
@@ -536,6 +548,11 @@ func TestCanonicalizeProviderNativeContextNormalizesProviderAndCWD(t *testing.T)
 	ctx := validProviderNativeContext(t)
 	ctx.Provider = " CLAUDE "
 	ctx.CWD = filepath.Join(ctx.CWD, ".")
+	wantCWD, err := filepath.EvalSymlinks(ctx.CWD)
+	if err != nil {
+		t.Fatalf("filepath.EvalSymlinks(cwd) error = %v", err)
+	}
+	wantCWD = filepath.Clean(wantCWD)
 	canonical, err := CanonicalizeProviderNativeContext(ctx)
 	if err != nil {
 		t.Fatalf("CanonicalizeProviderNativeContext() error = %v", err)
@@ -543,8 +560,8 @@ func TestCanonicalizeProviderNativeContextNormalizesProviderAndCWD(t *testing.T)
 	if canonical.Provider != ProviderNativeProviderClaude {
 		t.Fatalf("canonical provider = %q, want %q", canonical.Provider, ProviderNativeProviderClaude)
 	}
-	if canonical.CWD != filepath.Clean(ctx.CWD) {
-		t.Fatalf("canonical cwd = %q, want %q", canonical.CWD, filepath.Clean(ctx.CWD))
+	if canonical.CWD != wantCWD {
+		t.Fatalf("canonical cwd = %q, want %q", canonical.CWD, wantCWD)
 	}
 }
 

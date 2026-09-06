@@ -32,9 +32,13 @@ type OpenOptions struct {
 // Open 打开并校验 SQLite 数据库，启动期完成路径、权限和 PRAGMA 检查。
 // 任何文件系统或持久化能力异常都直接返回错误，避免运行时才暴露写入失败。
 func Open(ctx context.Context, opts OpenOptions) (*sql.DB, error) {
-	path := strings.TrimSpace(opts.Path)
+	path := opts.Path
 	if path == "" {
 		return nil, fmt.Errorf("SQLite path is empty")
+	}
+	base := filepath.Base(path)
+	if strings.TrimSpace(path) != path || strings.TrimSpace(base) != base {
+		return nil, fmt.Errorf("SQLite path must not have surrounding whitespace")
 	}
 	if err := prepareFilesystem(path); err != nil {
 		return nil, err

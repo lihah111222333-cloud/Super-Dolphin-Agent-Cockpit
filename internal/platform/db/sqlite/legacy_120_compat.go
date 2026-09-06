@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/securefs"
@@ -39,7 +37,7 @@ func isLegacy120CanonicalTarget(name string) bool {
 func skipRecordedCanonicalTarget(
 	ctx context.Context,
 	tx *sql.Tx,
-	dir string,
+	dir migrationSource,
 	name string,
 ) (bool, error) {
 	spec, err := canonicalTargetSpec(name)
@@ -79,7 +77,7 @@ func canonicalTargetSpec(name string) (legacy120MarkerSpec, error) {
 	}
 }
 
-func reconcileLegacy120Markers(ctx context.Context, tx *sql.Tx, dir string) error {
+func reconcileLegacy120Markers(ctx context.Context, tx *sql.Tx, dir migrationSource) error {
 	legacy, err := migrationMarkerByVersion(ctx, tx, 120)
 	if err != nil {
 		return err
@@ -155,15 +153,14 @@ func requireOnlySelectedLegacy120Marker(
 	return nil
 }
 
-func readCompatibilityMigrationBody(dir, name string) (string, error) {
-	path := filepath.Join(dir, name)
-	body, err := os.ReadFile(path)
+func readCompatibilityMigrationBody(dir migrationSource, name string) (string, error) {
+	body, err := dir.readFile(name)
 	if err != nil {
 		return "", fmt.Errorf(
 			"read compatibility migration %s from %s: %w",
 			name,
-			redactPath(dir),
-			securefs.WrapErrorForPath(err, path),
+			dir.redactedPath(),
+			securefs.WrapErrorForPath(err, dir.errorPath(name)),
 		)
 	}
 	return string(body), nil

@@ -36,7 +36,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
 	cfg.Metrics = metrics
-	p := registryToolProvider{registry: registry}
+	p := legacyToolProvider{base: registryToolProvider{registry: registry}}
 	cfg.OnToolsList = func(ctx context.Context) (any, error) {
 		tools, err := p.ListTools(ctx)
 		if err != nil {
@@ -67,7 +67,11 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.Bootstrap
 	return cfg
 }
 
-func handleScopedToolsCall(ctx context.Context, p registryToolProvider, family string, params json.RawMessage) (any, error) {
+type scopedToolProvider interface {
+	CallTool(context.Context, string, json.RawMessage) (any, error)
+}
+
+func handleScopedToolsCall(ctx context.Context, p scopedToolProvider, family string, params json.RawMessage) (any, error) {
 	return handleScopedToolsCallWithCaller(ctx, family, params, p.CallTool)
 }
 
@@ -81,6 +85,10 @@ func handleScopedToolsCallWithCaller(
 	req, err := common.DecodeToolCallParams(params)
 	if err != nil {
 		return nil, err
+	}
+	// Legacy bootstrap 只有客户端 metadata，没有 transport-owned principal；direct-peer 必须在 scope 绑定前阻断。
+	if tools.IsLegacyDirectPeerTool(req.Name) {
+		return wrapScopedToolResult(newOrchToolErrorEnvelope(req.Name, errLegacyDirectPeerUnavailable))
 	}
 	ctx = common.WithToolScope(ctx, req.Scope(family))
 	result, err := call(ctx, req.Name, req.Arguments)

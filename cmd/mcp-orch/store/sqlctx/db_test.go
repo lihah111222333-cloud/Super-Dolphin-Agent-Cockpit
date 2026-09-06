@@ -43,3 +43,13 @@ func TestWithTxOrReuseRejectsNonTransactionalDBTX(t *testing.T) {
 		t.Fatal("WithTxOrReuse() called callback without a transaction-capable DBTX")
 	}
 }
+
+// TestRequireTransactionDBTXRejectsNonTransactionalImplementations 锁定 Tx 接缝只接受真实事务对象。
+func TestRequireTransactionDBTXRejectsNonTransactionalImplementations(t *testing.T) {
+	if err := RequireTransactionDBTX(nil); err == nil {
+		t.Fatal("RequireTransactionDBTX(nil) unexpectedly succeeded")
+	}
+	if err := RequireTransactionDBTX(nonTransactionalDBTX{}); err == nil {
+		t.Fatal("RequireTransactionDBTX(non-transactional) unexpectedly succeeded")
+	}
+}

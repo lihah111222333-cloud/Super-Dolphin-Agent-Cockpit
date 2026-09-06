@@ -78,6 +78,9 @@ func allowedTimeoutFile(relPath string) bool {
 // registeredTimeoutOwners 记录每个允许直接创建 timeout context 的局部 owner 及其预算来源。
 // 每个条目都必须是精确文件路径；新增 timeout 不得通过目录级白名单绕过 owner 审查。
 var registeredTimeoutOwners = map[string]string{
+	"cmd/mcp-orch/serve.go":                                         "standalone orch lifecycle owns startup and shutdown deadlines",
+	"cmd/mcp-recovery-custody/service.go":                           "independent RecoveryCustody lifecycle owns bounded HTTP shutdown",
+	"internal/mcpserver/common/http_local_runner.go":                "local MCP runner owns bounded HTTP shutdown",
 	"internal/platform/config/timeouts.go":                          "platform shared timeout wrappers own ctxutil budgets",
 	"internal/devtools/gateprivate/timeouts.go":                     "trusted Gate private timeout wrapper owns gate budgets",
 	"internal/platform/toolbridge/schema/client.go":                 "schema client owns operation and reap deadlines",

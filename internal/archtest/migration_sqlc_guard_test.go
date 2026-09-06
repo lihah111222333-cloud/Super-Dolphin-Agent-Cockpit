@@ -14,7 +14,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sqlcconfig"
 )
 
-func TestMCPOrchSQLCUsesSQLiteBaseline(t *testing.T) {
+// TestMCPOrchSQLCUsesSQLiteMigrationManifest 校验编排器 SQLC 使用唯一 SQLite 迁移清单。
+func TestMCPOrchSQLCUsesSQLiteMigrationManifest(t *testing.T) {
 	root := repoRoot(t)
 	units, err := sqlcconfig.LoadDefault(root)
 	if err != nil {
@@ -32,9 +33,97 @@ func TestMCPOrchSQLCUsesSQLiteBaseline(t *testing.T) {
 	if entry == nil {
 		t.Fatal("cmd/mcp-orch/sqlc.yaml has no SQLC unit")
 	}
-	wantSchema := []string{"internal/platform/db/sqlite/migrations/001_baseline.sql"}
+	wantSchema := []string{
+		"internal/platform/db/sqlite/migrations/001_baseline.sql",
+		"internal/platform/db/sqlite/migrations/124_orchestration_direct_peer.sql",
+		"internal/platform/db/sqlite/migrations/125_orchestration_direct_peer_events.sql",
+		"internal/platform/db/sqlite/migrations/126_orchestration_command_intents.sql",
+		"internal/platform/db/sqlite/migrations/127_orchestration_command_journal.sql",
+		"internal/platform/db/sqlite/migrations/128_orchestration_identity_owner.sql",
+		"internal/platform/db/sqlite/migrations/129_orchestration_event_store.sql",
+		"internal/platform/db/sqlite/migrations/130_orchestration_access_wait.sql",
+		"internal/platform/db/sqlite/migrations/131_orchestration_command_intent_profiles.sql",
+		"internal/platform/db/sqlite/migrations/132_orchestration_content_single.sql",
+		"internal/platform/db/sqlite/migrations/133_orchestration_resource_reserved.sql",
+		"internal/platform/db/sqlite/migrations/134_orchestration_wakeup_payload_version.sql",
+		"internal/platform/db/sqlite/migrations/135_orchestration_command_attempts.sql",
+		"internal/platform/db/sqlite/migrations/136_orchestration_wait_operation.sql",
+		"cmd/mcp-orch/store/orchestrationcommand/candidate_migrations/137_orchestration_command_submissions.sql",
+	}
 	if !slices.Equal(entry.Schemas, wantSchema) {
-		t.Fatalf("cmd/mcp-orch/sqlc.yaml schema = %#v, want canonical SQLite baseline %#v", entry.Schemas, wantSchema)
+		t.Fatalf("cmd/mcp-orch/sqlc.yaml schema = %#v, want canonical SQLite migration manifest %#v", entry.Schemas, wantSchema)
+	}
+	for _, schema := range entry.Schemas {
+		if strings.Contains(schema, "candidate_migrations/") && strings.HasPrefix(schema, "internal/platform/db/sqlite/migrations/") {
+			t.Fatalf("candidate schema must not be placed in the default embedded migration directory: %s", schema)
+		}
+	}
+}
+
+// TestMCPOrchWaitOperationSQLCArtifactsAreManifestOwned 校验 wait_operation 产物归属清单声明的 SQLC 单元。
+func TestMCPOrchWaitOperationSQLCArtifactsAreManifestOwned(t *testing.T) {
+	root := repoRoot(t)
+	owner := migrationSQLCOwner(t, root)
+	assertWaitOperationOwnerPaths(t, owner)
+	assertWaitOperationQuery(t, root, owner)
+	assertWaitOperationGenerated(t, root, owner)
+}
+
+// migrationSQLCOwner 从规范 SQLC 配置中解析唯一的编排器所有者。
+func migrationSQLCOwner(t *testing.T, root string) *sqlcconfig.Unit {
+	t.Helper()
+	units, err := sqlcconfig.LoadDefault(root)
+	if err != nil {
+		t.Fatalf("load canonical SQLC configs: %v", err)
+	}
+	var owner *sqlcconfig.Unit
+	for index := range units {
+		unit := &units[index]
+		if unit.ConfigPath != sqlcconfig.OrchestratorConfigPath {
+			continue
+		}
+		if owner != nil {
+			t.Fatal("cmd/mcp-orch/sqlc.yaml has multiple SQLC units; wait_operation ownership is ambiguous")
+		}
+		owner = unit
+	}
+	if owner == nil {
+		t.Fatal("cmd/mcp-orch/sqlc.yaml has no SQLC unit owning wait_operation artifacts")
+	}
+	return owner
+}
+
+// assertWaitOperationOwnerPaths 固定 wait_operation 查询与生成物的 SQLC 路径。
+func assertWaitOperationOwnerPaths(t *testing.T, owner *sqlcconfig.Unit) {
+	t.Helper()
+	if owner.Queries != "cmd/mcp-orch/sql/queries" || owner.Output != "cmd/mcp-orch/store/sqlc" {
+		t.Fatalf("wait_operation SQLC owner paths = queries:%q output:%q", owner.Queries, owner.Output)
+	}
+}
+
+// assertWaitOperationQuery 确认查询同时引用 migration 136 的两张表。
+func assertWaitOperationQuery(t *testing.T, root string, owner *sqlcconfig.Unit) {
+	t.Helper()
+	queryPath := filepath.Join(root, filepath.FromSlash(owner.Queries), "wait_operation.sql")
+	query, err := os.ReadFile(queryPath)
+	if err != nil {
+		t.Fatalf("read manifest-owned wait_operation query: %v", err)
+	}
+	if !strings.Contains(string(query), "orchestration_wait_operations") || !strings.Contains(string(query), "orchestration_wait_operation_target_journal") {
+		t.Fatal("manifest-owned wait_operation query does not reference both migration 136 tables")
+	}
+}
+
+// assertWaitOperationGenerated 确认 wait_operation.sql.go 是该清单生成的 SQLC 文件。
+func assertWaitOperationGenerated(t *testing.T, root string, owner *sqlcconfig.Unit) {
+	t.Helper()
+	generatedPath := filepath.Join(root, filepath.FromSlash(owner.Output), "wait_operation.sql.go")
+	generated, err := os.ReadFile(generatedPath)
+	if err != nil {
+		t.Fatalf("read manifest-owned wait_operation generated file: %v", err)
+	}
+	if !strings.HasPrefix(string(generated), sqlcconfig.GeneratedGoMarker) || !strings.Contains(string(generated), "source: wait_operation.sql") {
+		t.Fatal("wait_operation.sql.go is not the generated output owned by the orchestrator SQLC manifest")
 	}
 }
 

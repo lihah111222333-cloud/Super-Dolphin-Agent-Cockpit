@@ -121,7 +121,7 @@ func TestMarkDispatchIncompleteIfMissingWakeupTreatsSentUnboundAsActive(t *testi
 			RunID:          run.ID,
 			WakeupKind:     "manual_dispatch",
 			TargetAgentID:  "agent-alpha",
-			PromptPayload:  json.RawMessage(`{"prompt":"dispatch"}`),
+			PromptPayload:  canonicalDownstreamPayload("agent-alpha"),
 			IdempotencyKey: "manual_dispatch:dag-core:sent-unbound:root:agent-alpha",
 		},
 	})
@@ -161,7 +161,7 @@ func TestMarkDispatchIncompleteIfMissingWakeupIsRunFenced(t *testing.T) {
 			RunID:          runA.ID,
 			WakeupKind:     "manual_dispatch",
 			TargetAgentID:  "agent-alpha",
-			PromptPayload:  json.RawMessage(`{"prompt":"dispatch"}`),
+			PromptPayload:  canonicalDownstreamPayload("agent-alpha"),
 			IdempotencyKey: "manual_dispatch:dag-core:run-active:root:agent-alpha",
 		},
 	}); err != nil {
@@ -506,7 +506,7 @@ func TestRecordNodeSpawnRequiresWakeupFence(t *testing.T) {
 		RunID:          run.ID,
 		WakeupKind:     "node_start",
 		TargetAgentID:  "agent-alpha",
-		PromptPayload:  json.RawMessage(`{"prompt":"start"}`),
+		PromptPayload:  canonicalDownstreamPayload("agent-alpha"),
 		IdempotencyKey: "node_start:dag-multi:run-spawn-fence:root",
 	})
 	if err != nil {

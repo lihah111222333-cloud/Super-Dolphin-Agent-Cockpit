@@ -15,7 +15,7 @@ WHERE status = 'dispatching'
 
 -- name: ListSentUnboundTaskDagWakeups :many
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
@@ -24,7 +24,7 @@ ORDER BY sent_at DESC, id DESC;
 
 -- name: ListPendingOrDispatchingTaskDagWakeups :many
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
@@ -44,7 +44,7 @@ WHERE run_id = :run_id
 
 -- name: GetTaskDagWakeup :one
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
@@ -52,7 +52,7 @@ WHERE id = :id;
 
 -- name: GetTaskDagWakeupByIdempotencyKey :one
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
-       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       idempotency_key, payload_schema_version, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups

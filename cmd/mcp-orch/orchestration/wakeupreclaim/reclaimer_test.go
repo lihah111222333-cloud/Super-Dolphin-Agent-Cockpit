@@ -16,6 +16,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func mustMarshalDownstreamWakeupPayload(t *testing.T, agentID string) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{AgentID: agentID})
+	if err != nil {
+		t.Fatalf("marshal downstream wakeup payload: %v", err)
+	}
+	return payload
+}
+
 type wakeupRecoveryTestStore interface {
 	taskdag.Store
 	taskdag.DispatchIncompleteRecoveryStore
@@ -178,7 +187,7 @@ func enqueueActivePendingWakeup(t *testing.T, ctx context.Context, store wakeupR
 		RunID:          runID,
 		WakeupKind:     "manual_dispatch",
 		TargetAgentID:  "agent-alpha",
-		PromptPayload:  json.RawMessage(`{"kind":"manual_dispatch"}`),
+		PromptPayload:  mustMarshalDownstreamWakeupPayload(t, "agent-alpha"),
 		IdempotencyKey: "manual_dispatch:dag-active:run-active:root:agent-alpha:pending",
 	}); err != nil {
 		t.Fatalf("EnqueueWakeup() error = %v", err)

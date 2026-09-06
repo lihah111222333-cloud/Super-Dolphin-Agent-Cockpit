@@ -198,6 +198,35 @@ func assertScriptOrderAfter(t *testing.T, script, anchor, first, second string) 
 	assertScriptOrder(t, script[anchorIndex:], first, second)
 }
 
+func assertMacRecoveryCustodyCandidatePackageContract(t *testing.T, script string) {
+	t.Helper()
+	for _, want := range []string{
+		"recovery_custody_candidate_package=\"${RECOVERY_CUSTODY_CANDIDATE_PACKAGE:-0}\"",
+		"unsupported RECOVERY_CUSTODY_CANDIDATE_PACKAGE",
+		"if [[ \"$recovery_custody_candidate_package\" == \"1\" ]]; then",
+		"go_binary_cache_outputs+=(\"$root/bin/mcp-recovery-custody\")",
+		"input:RECOVERY_CUSTODY_CANDIDATE_PACKAGE=$recovery_custody_candidate_package",
+		"make APP_COMMIT=\"$app_commit\" build-recovery-custody-candidate",
+		"cp \"$root/bin/mcp-recovery-custody\" \"$resources/bin/mcp-recovery-custody\"",
+		"requires-external-evidence-finalizer-and-receipt-verifier",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptDoesNotContain(t, script, "exec \"$resources/bin/mcp-recovery-custody\"")
+}
+
+func assertRecoveryCustodyManifestContract(t *testing.T, body string) {
+	t.Helper()
+	for _, want := range []string{
+		"\"recovery_custody_candidate_path\": \"bin/mcp-recovery-custody\"",
+		"\"recovery_custody_candidate_status\": \"candidate\"",
+		"\"recovery_custody_candidate_runtime\": \"disabled\"",
+		"\"recovery_custody_candidate_startup\": \"requires-external-evidence-finalizer-and-receipt-verifier\"",
+	} {
+		assertScriptContains(t, body, want)
+	}
+}
+
 type testLSPServerFixture struct {
 	id      string
 	path    string
@@ -591,7 +620,7 @@ func writeLSPManifest(t *testing.T, resources string) {
 
 func writeRuntimeManifest(t *testing.T, resources string, fields map[string]string) {
 	t.Helper()
-	keys := []string{"bundled_codex_path", "bundled_gopls_path", "lsp_bundle_path", "lsp_manifest_path", "model_registry_path"}
+	keys := []string{"bundled_codex_path", "bundled_gopls_path", "lsp_bundle_path", "lsp_manifest_path", "model_registry_path", "recovery_custody_candidate_path", "recovery_custody_candidate_status", "recovery_custody_candidate_runtime", "recovery_custody_candidate_startup"}
 	var builder strings.Builder
 	builder.WriteString("{\n")
 	first := true

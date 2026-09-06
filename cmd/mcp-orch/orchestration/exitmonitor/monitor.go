@@ -15,7 +15,9 @@ import (
 )
 
 // Monitor 是本地编排进程 cmd.Wait 的唯一拥有者。
-// 它用 (agentID, launchSeq) 做 exactly-once 围栏，让本地 Wait 和远端合成退出事件不会重复推进状态。
+// 它用 (agentID, launchSeq) 做 channel enqueue 围栏，让本地 Wait 和远端合成退出事件不会重复入队。
+// 该围栏只约束当前进程内的 channel 入队，不等同于 consumer 的 durable ACK。
+// 入队后、consumer 处理前发生进程崩溃仍可能丢失内存事件，持久化对账不属于本监视器。
 //
 // 职责：
 //   - Arm 为本地 cmd 启动 Wait goroutine，并用 WaitGroup 让 Drain 能在关闭时等待收尾。
@@ -30,6 +32,8 @@ type Monitor struct {
 	wg     sync.WaitGroup
 	closed bool
 	fired  map[string]struct{}
+	// publishing 记录已经抢占、但尚未成功写入 events channel 的 fence。
+	publishing map[string]struct{}
 
 	// publishBlockTimeout 限制事件通道阻塞的最长等待时间。
 	// actor 卡住时宁可记录丢弃，也不能永久占住所有 Wait goroutine。
@@ -59,6 +63,7 @@ func New(logger *slog.Logger) *Monitor {
 		logger:              logger,
 		events:              make(chan Event, 32),
 		fired:               make(map[string]struct{}),
+		publishing:          make(map[string]struct{}),
 		publishBlockTimeout: 5 * time.Second,
 	}
 }
@@ -149,9 +154,17 @@ func (m *Monitor) publishExit(agentID string, seq uint64, err error) {
 	if !m.claimFire(agentID, seq) {
 		return
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			m.releaseFire(agentID, seq)
+		}
+	}()
 	result := Event{AgentID: agentID, LaunchSeq: seq, Err: err}
 	select {
 	case m.events <- result:
+		m.commitFire(agentID, seq)
+		committed = true
 		return
 	default:
 	}
@@ -161,14 +174,17 @@ func (m *Monitor) publishExit(agentID string, seq uint64, err error) {
 	defer timer.Stop()
 	select {
 	case m.events <- result:
+		m.commitFire(agentID, seq)
+		committed = true
 	case <-timer.C:
-		m.logger.Error("orchestration: dropped exit event after publishBlockTimeout",
-			"agent_id", agentID, "launch_seq", seq, "timeout", m.publishBlockTimeout)
+		m.logger.Error("orchestration: exit event publish timed out; retry remains eligible",
+			"agent_id", agentID, "launch_seq", seq, "timeout", m.publishBlockTimeout,
+			"retryable", true)
 	}
 }
 
-// claimFire 抢占 (agentID, launchSeq) 退出事件围栏。
-// 返回 false 表示同一进程生命周期的退出事件已发布过，调用方必须跳过重复投递。
+// claimFire 抢占 (agentID, launchSeq) 退出事件围栏，但只登记发送中的 claim。
+// 已成功写入 channel 的 fence 或正在发送的 fence 都拒绝重复投递。
 func (m *Monitor) claimFire(agentID string, seq uint64) bool {
 	key := exitMonitorFenceKey(agentID, seq)
 	m.mu.Lock()
@@ -176,8 +192,28 @@ func (m *Monitor) claimFire(agentID string, seq uint64) bool {
 	if _, done := m.fired[key]; done {
 		return false
 	}
-	m.fired[key] = struct{}{}
+	if _, publishing := m.publishing[key]; publishing {
+		return false
+	}
+	m.publishing[key] = struct{}{}
 	return true
+}
+
+// commitFire 在退出事件成功写入 Monitor channel 后提交 fence。
+func (m *Monitor) commitFire(agentID string, seq uint64) {
+	key := exitMonitorFenceKey(agentID, seq)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.publishing, key)
+	m.fired[key] = struct{}{}
+}
+
+// releaseFire 归还未成功写入 Monitor channel 的 fence，使调用方可以安全重试。
+func (m *Monitor) releaseFire(agentID string, seq uint64) {
+	key := exitMonitorFenceKey(agentID, seq)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.publishing, key)
 }
 
 func exitMonitorFenceKey(agentID string, seq uint64) string {

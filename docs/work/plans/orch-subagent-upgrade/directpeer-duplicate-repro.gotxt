@@ -1,0 +1,197 @@
+// Reproduction-only fixture from the current production handler, not an enabled CI guard.
+// 2026-09-01 guarded host run: SubmitTurn calls=2, want=1 (expected RED).
+// Restore as a tools package test when wiring the canonical command owner, then require GREEN.
+package tools
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"path/filepath"
+	"testing"
+
+	directpeerstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/directpeer"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
+)
+
+var errDirectPeerDuplicateReproMarkSubmitted = errors.New("simulated mark submitted failure")
+
+// directPeerDuplicateReproStore keeps the production Send idempotency path and
+// fails only the first receipt write, leaving the durable message accepted.
+type directPeerDuplicateReproStore struct {
+	*directpeerstore.Store
+	requests           []directpeerstore.SendRequest
+	accepted           directpeerstore.Message
+	markSubmittedCalls int
+}
+
+func (s *directPeerDuplicateReproStore) Send(ctx context.Context, request directpeerstore.SendRequest) (directpeerstore.Message, error) {
+	s.requests = append(s.requests, request)
+	message, err := s.Store.Send(ctx, request)
+	if err == nil {
+		s.accepted = message
+	}
+	return message, err
+}
+
+func (s *directPeerDuplicateReproStore) MarkSubmitted(ctx context.Context, messageID, submissionID string) (directpeerstore.Message, error) {
+	s.markSubmittedCalls++
+	if s.markSubmittedCalls == 1 {
+		return s.accepted, errDirectPeerDuplicateReproMarkSubmitted
+	}
+	return s.Store.MarkSubmitted(ctx, messageID, submissionID)
+}
+
+type directPeerDuplicateReproAgents struct{ workspace string }
+
+func (directPeerDuplicateReproAgents) ListAgents(context.Context) ([]contract.AgentSnapshot, error) {
+	return nil, nil
+}
+
+func (a directPeerDuplicateReproAgents) Snapshot(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+	if agentID != "sender" && agentID != "receiver" {
+		return contract.AgentSnapshot{}, contract.ErrAgentNotFound
+	}
+	return contract.AgentSnapshot{
+		ID:       agentID,
+		AgentID:  agentID,
+		ThreadID: "thread-" + agentID,
+		Cwd:      a.workspace,
+	}, nil
+}
+
+func (directPeerDuplicateReproAgents) GetState(context.Context, string) (contract.AgentStateResult, error) {
+	return contract.AgentStateResult{}, nil
+}
+
+type directPeerDuplicateReproTurns struct {
+	submissions []contract.TurnSubmission
+}
+
+func (s *directPeerDuplicateReproTurns) SubmitTurn(_ context.Context, submission contract.TurnSubmission) error {
+	s.submissions = append(s.submissions, submission)
+	return nil
+}
+
+func (directPeerDuplicateReproTurns) CompleteTurn(context.Context, string, string, bool, string) error {
+	return nil
+}
+
+// TestDirectPeerSameKeyAfterMarkFailureDoesNotResubmit locks the old handler's
+// duplicate provider submission after a durable accepted message's receipt fails.
+func TestDirectPeerSameKeyAfterMarkFailureDoesNotResubmit(t *testing.T) {
+	ctx := t.Context()
+	db, store, turns, callContext, handler := newDirectPeerDuplicateReproFixture(t, ctx)
+	input := json.RawMessage(`{"receiver_agent_id":"receiver","idempotency_key":"same-key","message":"hello"}`)
+	firstMessage := assertDirectPeerDuplicateReproFirstDelivery(t, ctx, db, store, turns, handler, callContext, input)
+	assertDirectPeerDuplicateReproRetry(t, store, turns, handler, callContext, input, firstMessage)
+}
+
+func newDirectPeerDuplicateReproFixture(t *testing.T, ctx context.Context) (*sql.DB, *directPeerDuplicateReproStore, *directPeerDuplicateReproTurns, context.Context, ToolHandler) {
+	t.Helper()
+	db := openDirectPeerDuplicateReproDB(t)
+	productionStore, err := directpeerstore.NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	if _, err := productionStore.GrantPeer(ctx, workspace, "sender", "receiver", "grant-key", true, true); err != nil {
+		t.Fatal(err)
+	}
+	store := &directPeerDuplicateReproStore{Store: productionStore}
+	turns := &directPeerDuplicateReproTurns{}
+	registry := NewRegistry(Dependencies{
+		DirectPeer:       store,
+		DirectPeerAgents: directPeerDuplicateReproAgents{workspace: workspace},
+		DirectPeerTurns:  turns,
+	})
+	tool, ok := registry.Lookup("send_direct_peer")
+	if !ok || tool.Handler == nil {
+		t.Fatal("send_direct_peer is not registered in the production tool registry")
+	}
+	callContext := mcpcommon.WithToolScope(ctx, mcpcommon.ToolScope{CWD: workspace, AgentID: "sender"})
+	return db, store, turns, callContext, tool.Handler
+}
+
+func assertDirectPeerDuplicateReproFirstDelivery(t *testing.T, ctx context.Context, db *sql.DB, store *directPeerDuplicateReproStore, turns *directPeerDuplicateReproTurns, handler ToolHandler, callContext context.Context, input json.RawMessage) directpeerstore.Message {
+	t.Helper()
+	result, err := handler(callContext, input)
+	if !errors.Is(err, errDirectPeerDuplicateReproMarkSubmitted) {
+		t.Fatalf("first send error=%v, want MarkSubmitted failure", err)
+	}
+	message := requireDirectPeerDuplicateReproMessage(t, result, "accepted")
+	if len(turns.submissions) != 1 {
+		t.Fatalf("first provider submissions=%d, want=1", len(turns.submissions))
+	}
+	assertDirectPeerDuplicateReproStatus(t, ctx, db, message.MessageID, "accepted")
+	return message
+}
+
+func assertDirectPeerDuplicateReproRetry(t *testing.T, store *directPeerDuplicateReproStore, turns *directPeerDuplicateReproTurns, handler ToolHandler, callContext context.Context, input json.RawMessage, firstMessage directpeerstore.Message) {
+	t.Helper()
+	secondResult, secondErr := handler(callContext, input)
+	if secondErr != nil {
+		t.Fatalf("same-key retry error=%v, want successful receipt", secondErr)
+	}
+	secondMessage := requireDirectPeerDuplicateReproMessage(t, secondResult, "submitted")
+	if secondMessage.MessageID != firstMessage.MessageID {
+		t.Fatalf("same-key retry message=%q, want original=%q", secondMessage.MessageID, firstMessage.MessageID)
+	}
+	assertDirectPeerDuplicateReproRequests(t, store.requests)
+	if store.markSubmittedCalls != 2 {
+		t.Fatalf("MarkSubmitted calls=%d, want=2", store.markSubmittedCalls)
+	}
+	if got := len(turns.submissions); got != 1 {
+		t.Fatalf("provider SubmitTurn calls=%d, want=1; old handler resubmitted accepted message", got)
+	}
+}
+
+func requireDirectPeerDuplicateReproMessage(t *testing.T, result any, wantStatus string) directpeerstore.Message {
+	t.Helper()
+	message, ok := result.(directpeerstore.Message)
+	if !ok || message.Status != wantStatus {
+		t.Fatalf("receipt=%#v, want %s message", result, wantStatus)
+	}
+	return message
+}
+
+func assertDirectPeerDuplicateReproRequests(t *testing.T, requests []directpeerstore.SendRequest) {
+	t.Helper()
+	if len(requests) != 2 {
+		t.Fatalf("same-key send requests=%d, want=2", len(requests))
+	}
+	if requests[0] != requests[1] {
+		t.Fatalf("same-key requests=%#v, want two identical namespace/key requests", requests)
+	}
+}
+
+func openDirectPeerDuplicateReproDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sqliteruntime.Open(t.Context(), sqliteruntime.OpenOptions{Path: filepath.Join(t.TempDir(), "direct-peer-duplicate.sqlite")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close direct-peer duplicate repro database: %v", err)
+		}
+	})
+	if err := sqliteruntime.RunEmbeddedMigrations(t.Context(), db); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func assertDirectPeerDuplicateReproStatus(t *testing.T, ctx context.Context, db *sql.DB, messageID, want string) {
+	t.Helper()
+	var got string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM orchestration_direct_peer_messages WHERE message_id = ?`, messageID).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("durable message status=%q, want=%q", got, want)
+	}
+}

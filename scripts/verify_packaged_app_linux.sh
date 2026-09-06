@@ -46,6 +46,7 @@ lsp_server_specs=(
   "sg|bin/sg"
   "go|bin/go"
 )
+recovery_custody_candidate_present=0
 
 verify_packaged_node_version() {
   local node_path="$package_root/lsp/node/bin/node"
@@ -305,6 +306,7 @@ verify_runtime_manifest() {
     exit 1
   fi
   local bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path
+  local recovery_custody_candidate_path recovery_custody_candidate_status recovery_custody_candidate_runtime recovery_custody_candidate_startup
   for key in bundled_codex_path bundled_gopls_path lsp_bundle_path lsp_manifest_path model_registry_path; do
     if ! value="$(manifest_string "$manifest" "$key")"; then
       echo "runtime manifest missing $key: $manifest" >&2
@@ -327,6 +329,42 @@ verify_runtime_manifest() {
     exit 1
   fi
   require_runtime_manifest_path model_registry_path "$model_registry_path" "models.yaml" file
+  local recovery_custody_candidate_key_count=0
+  local recovery_custody_candidate_declared=0
+  if grep -Eq '"recovery_custody_candidate_[[:alnum:]_]+"[[:space:]]*:' "$manifest"; then
+    recovery_custody_candidate_declared=1
+  fi
+  for key in recovery_custody_candidate_path recovery_custody_candidate_status recovery_custody_candidate_runtime recovery_custody_candidate_startup; do
+    if ! value="$(manifest_string "$manifest" "$key")"; then
+      continue
+    fi
+    recovery_custody_candidate_key_count=$((recovery_custody_candidate_key_count + 1))
+    case "$key" in
+      recovery_custody_candidate_path) recovery_custody_candidate_path="$value" ;;
+      recovery_custody_candidate_status) recovery_custody_candidate_status="$value" ;;
+      recovery_custody_candidate_runtime) recovery_custody_candidate_runtime="$value" ;;
+      recovery_custody_candidate_startup) recovery_custody_candidate_startup="$value" ;;
+    esac
+  done
+  if [[ "$recovery_custody_candidate_key_count" == "0" ]]; then
+    if [[ "$recovery_custody_candidate_declared" == "1" ]]; then
+      echo "runtime manifest recovery custody candidate metadata is incomplete: $manifest" >&2
+      exit 1
+    fi
+    return 0
+  fi
+  if [[ "$recovery_custody_candidate_key_count" != "4" ]]; then
+    echo "runtime manifest recovery custody candidate metadata is incomplete: $manifest" >&2
+    exit 1
+  fi
+  require_runtime_manifest_path recovery_custody_candidate_path "$recovery_custody_candidate_path" "bin/mcp-recovery-custody" exec
+  if [[ "$recovery_custody_candidate_status" != "candidate" ||
+        "$recovery_custody_candidate_runtime" != "disabled" ||
+        "$recovery_custody_candidate_startup" != "requires-external-evidence-finalizer-and-receipt-verifier" ]]; then
+    echo "runtime manifest recovery custody candidate metadata is not fail-closed: $manifest" >&2
+    exit 1
+  fi
+  recovery_custody_candidate_present=1
 }
 
 require_launcher_export() {
@@ -359,6 +397,10 @@ verify_linux_launcher_runtime_env() {
   # shellcheck disable=SC2016
   if grep -Eq '^[[:space:]]*export[[:space:]]+SUPER_DOLPHIN_HOME=.*(\$here|\$\{?SUPER_DOLPHIN_PACKAGE_ROOT\}?)' "$launcher"; then
     echo "Linux launcher must not resolve SQLite home under package root" >&2
+    exit 1
+  fi
+  if grep -Eq 'mcp-recovery-custody' "$launcher"; then
+    echo "Linux launcher must not launch the RecoveryCustody candidate" >&2
     exit 1
   fi
 }
@@ -450,6 +492,9 @@ required_execs=(
   "$package_root/lsp/bin/python3"
   "$package_root/lsp/bin/go"
 )
+if [[ "$recovery_custody_candidate_present" == "1" ]]; then
+  required_execs+=("$package_root/bin/mcp-recovery-custody")
+fi
 if [[ ! -f "$package_root/bin/mcp-schema-compiler-helper.manifest.json" ]]; then
   echo "missing schema helper manifest" >&2
   exit 1

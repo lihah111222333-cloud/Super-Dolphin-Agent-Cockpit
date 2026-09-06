@@ -57,12 +57,8 @@ func TestTerminalOutcomeFieldGuardProducerMapperAndSchemaStayClosed(t *testing.T
 	assertExactFieldSet(t, "terminal head activation registry", activationFields, terminalHeadActivationFieldRegistry())
 	assertExactFieldSet(t, "durable terminal head registry", durableHeadFields, durableTerminalHeadFieldRegistry())
 
-	source, err := os.ReadFile("store.go")
-	if err != nil {
-		t.Fatalf("read terminal outcome store source: %v", err)
-	}
 	for mapper, required := range terminalMapperFieldRegistry() {
-		selectors := selectorNamesInFunctions(t, source, mapper)
+		selectors := selectorNamesInStoreFunctions(t, mapper)
 		for _, goField := range required {
 			if !selectors[goField] {
 				t.Fatalf("terminal mapper %s missing field %s", mapper, goField)
@@ -169,6 +165,21 @@ func assertExactFieldSet(t *testing.T, name string, producer map[string]bool, re
 	if len(missing) != 0 || len(stale) != 0 {
 		t.Fatalf("%s drift: missing=%v stale_or_unreasoned=%v", name, missing, stale)
 	}
+}
+
+func selectorNamesInStoreFunctions(t *testing.T, names string) map[string]bool {
+	t.Helper()
+	selectors := map[string]bool{}
+	for _, path := range []string{"store.go", "integrity.go"} {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read terminal outcome store source %s: %v", path, err)
+		}
+		for selector := range selectorNamesInFunctions(t, source, names) {
+			selectors[selector] = true
+		}
+	}
+	return selectors
 }
 
 func selectorNamesInFunctions(t *testing.T, source []byte, names string) map[string]bool {

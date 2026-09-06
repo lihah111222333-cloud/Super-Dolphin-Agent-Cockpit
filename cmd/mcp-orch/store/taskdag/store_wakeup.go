@@ -3,8 +3,10 @@ package taskdag
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
@@ -47,19 +49,115 @@ func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (in
 	if input.RunID <= 0 {
 		return 0, fmt.Errorf("enqueue task dag wakeup: run_id required")
 	}
+	if err := validateWakeupIdempotencyKey(input.IdempotencyKey); err != nil {
+		return 0, err
+	}
+	if err := validateEnqueueWakeupPayload(input.WakeupKind, input.TargetAgentID, input.PromptPayload); err != nil {
+		return 0, fmt.Errorf("enqueue task dag wakeup: %w", err)
+	}
 	return queryValueWrite(ctx, func() (int64, error) {
 		_, inserted, err := enqueueWakeupTx(ctx, s.q, input)
 		return inserted, err
 	}, "enqueue", "task_dag_wakeup")
 }
 
+// validateEnqueueWakeupPayload 在可启动 wakeup 入队处拒绝未标记或混合载荷。
+// turn-complete retry 与终态补偿携带内部结果协议，由各自事务消费者校验，不是 launch payload。
+func validateEnqueueWakeupPayload(kind, targetAgentID string, payload json.RawMessage) error {
+	switch kind {
+	case "turn_complete_retry":
+		return validateInternalWakeupPayload(targetAgentID, payload, false)
+	case "terminal_failure_compensation":
+		return validateInternalWakeupPayload(targetAgentID, payload, true)
+	case "node_start", "manual_dispatch":
+		return validateWakeupPayloadBranch(payload, targetAgentID, WakeupPayloadKindDownstream)
+	case "start":
+		return validateWakeupPayloadBranch(payload, targetAgentID, WakeupPayloadKindLegacyLaunch)
+	default:
+		return fmt.Errorf("%w: unknown wakeup_kind %q", ErrInvalidWakeupPayload, kind)
+	}
+}
+
+// validateInternalWakeupPayload 校验内部补偿/重试载荷及固定 mcp-orch 目标。
+func validateInternalWakeupPayload(targetAgentID string, payload json.RawMessage, terminal bool) error {
+	if targetAgentID != "mcp-orch" {
+		return fmt.Errorf("%w: internal wakeup target must be mcp-orch", ErrInvalidWakeupPayload)
+	}
+	if len(payload) > maxWakeupPayloadBytes {
+		return fmt.Errorf("%w: internal payload exceeds %d bytes", ErrInvalidWakeupPayload, maxWakeupPayloadBytes)
+	}
+	if !terminal {
+		return validateInternalObjectPayload(payload)
+	}
+	var compensation struct {
+		Reason     *string `json:"reason"`
+		StoreError *string `json:"store_error"`
+		FailFast   *bool   `json:"fail_fast"`
+	}
+	if err := decodeStrict(payload, &compensation); err != nil {
+		return fmt.Errorf("%w: terminal compensation: %v", ErrInvalidWakeupPayload, err)
+	}
+	if compensation.Reason == nil || compensation.StoreError == nil || compensation.FailFast == nil {
+		return fmt.Errorf("%w: terminal compensation fields are required", ErrInvalidWakeupPayload)
+	}
+	if len(*compensation.Reason) > maxWakeupInternalTextBytes || len(*compensation.StoreError) > maxWakeupInternalTextBytes {
+		return fmt.Errorf("%w: terminal compensation text exceeds %d bytes", ErrInvalidWakeupPayload, maxWakeupInternalTextBytes)
+	}
+	return nil
+}
+
+// ValidateWakeupPayloadForKind 在 dispatcher 路由前复用入队时的 kind/branch/target 校验。
+func ValidateWakeupPayloadForKind(kind, targetAgentID string, payload json.RawMessage) error {
+	return validateEnqueueWakeupPayload(kind, targetAgentID, payload)
+}
+
+func validateInternalObjectPayload(payload json.RawMessage) error {
+	var value map[string]json.RawMessage
+	if err := decodeStrict(payload, &value); err != nil {
+		return fmt.Errorf("%w: internal payload: %v", ErrInvalidWakeupPayload, err)
+	}
+	if value == nil {
+		return fmt.Errorf("%w: internal payload object required", ErrInvalidWakeupPayload)
+	}
+	return nil
+}
+
+// validateWakeupPayloadBranch 校验 wakeup kind、载荷分支和目标 agent 三者一致。
+func validateWakeupPayloadBranch(payload json.RawMessage, targetAgentID, wantKind string) error {
+	decoded, err := DecodeWakeupPayload(payload)
+	if err != nil {
+		return err
+	}
+	if decoded.Kind != wantKind {
+		return fmt.Errorf("%w: wakeup_kind requires payload kind %q, got %q", ErrInvalidWakeupPayload, wantKind, decoded.Kind)
+	}
+	payloadAgentID := ""
+	if decoded.Downstream != nil {
+		payloadAgentID = decoded.Downstream.AgentID
+	} else if decoded.Legacy != nil {
+		payloadAgentID = decoded.Legacy.AgentID
+	}
+	if targetAgentID == "" || targetAgentID != strings.TrimSpace(targetAgentID) ||
+		payloadAgentID == "" || payloadAgentID != strings.TrimSpace(payloadAgentID) ||
+		payloadAgentID != targetAgentID {
+		return fmt.Errorf("%w: target_agent_id %q disagrees with payload agent_id %q", ErrInvalidWakeupPayload, targetAgentID, payloadAgentID)
+	}
+	return nil
+}
+
 // enqueueWakeupTx 插入 wakeup，并按唯一 idempotency_key 回读权威 ID。
 // 唯一冲突保持旧 ON CONFLICT DO NOTHING 语义，inserted=0 且返回已有行 ID。
 func enqueueWakeupTx(ctx context.Context, q *sqlc.Queries, input EnqueueWakeupInput) (id, inserted int64, err error) {
+	if err := validateWakeupIdempotencyKey(input.IdempotencyKey); err != nil {
+		return 0, 0, err
+	}
+	if err := validateEnqueueWakeupPayload(input.WakeupKind, input.TargetAgentID, input.PromptPayload); err != nil {
+		return 0, 0, err
+	}
 	inserted, err = q.InsertTaskDagWakeup(ctx, sqlc.InsertTaskDagWakeupParams{
 		DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: int64Ptr(input.RunID),
 		WakeupKind: input.WakeupKind, TargetAgentID: input.TargetAgentID,
-		PromptPayload: input.PromptPayload, IdempotencyKey: input.IdempotencyKey,
+		PromptPayload: input.PromptPayload, PayloadSchemaVersion: 1, IdempotencyKey: input.IdempotencyKey,
 	})
 	if err != nil && !platformdb.IsUniqueViolation(err) {
 		return 0, 0, err
@@ -77,10 +175,36 @@ func enqueueWakeupTx(ctx context.Context, q *sqlc.Queries, input EnqueueWakeupIn
 	return row.ID, inserted, nil
 }
 
+func validateWakeupIdempotencyKey(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("enqueue task dag wakeup: idempotency_key required")
+	}
+	if value != strings.TrimSpace(value) {
+		return fmt.Errorf("enqueue task dag wakeup: idempotency_key must not have surrounding whitespace")
+	}
+	if len(value) > 512 || strings.IndexByte(value, 0) >= 0 {
+		return fmt.Errorf("enqueue task dag wakeup: idempotency_key is invalid")
+	}
+	return nil
+}
+
+func validateWakeupWorkerID(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("claim task dag wakeup: claimed_by required")
+	}
+	if value != strings.TrimSpace(value) || len(value) > 256 || strings.IndexByte(value, 0) >= 0 {
+		return fmt.Errorf("claim task dag wakeup: claimed_by is invalid")
+	}
+	return nil
+}
+
 // ClaimDueWakeups 把 due pending wakeup 抢成 dispatching，并写入 claimed_by /
 // claimed_at / lease_expires_at。返回行里的这些 fence 字段必须原样带到
 // MarkWakeupSent/RetryWakeup/FailWakeup，过期被 reclaim 后旧副本会 rows=0。
 func (s *wakeupCommandStore) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error) {
+	if err := validateWakeupWorkerID(input.ClaimedBy); err != nil {
+		return nil, err
+	}
 	leaseInterval, err := parseLeaseDuration(input.LeaseInterval, "claim_due", "task_dag_wakeup")
 	if err != nil {
 		return nil, err
@@ -406,99 +530,103 @@ func (s *wakeupQueryStore) GetWakeup(ctx context.Context, id int64) (*Wakeup, er
 
 func fromClaimedWakeup(row sqlc.ListTaskDagWakeupsByClaimFenceRow) Wakeup {
 	return Wakeup{
-		ID:             row.ID,
-		DagKey:         row.DagKey,
-		NodeKey:        row.NodeKey,
-		RunID:          sqlc.Int8Ptr(row.RunID),
-		WakeupKind:     row.WakeupKind,
-		TargetAgentID:  row.TargetAgentID,
-		PromptPayload:  row.PromptPayload,
-		IdempotencyKey: row.IdempotencyKey,
-		Status:         row.Status,
-		AttemptCount:   int32(row.AttemptCount),
-		NextRetryAt:    timeValue(row.NextRetryAt),
-		ClaimedAt:      timestampPtr(row.ClaimedAt),
-		ClaimedBy:      row.ClaimedBy,
-		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
-		SentAt:         timestampPtr(row.SentAt),
-		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
-		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
-		LastError:      row.LastError,
-		CreatedAt:      timeValue(row.CreatedAt),
-		UpdatedAt:      timeValue(row.UpdatedAt),
+		ID:                   row.ID,
+		DagKey:               row.DagKey,
+		NodeKey:              row.NodeKey,
+		RunID:                sqlc.Int8Ptr(row.RunID),
+		WakeupKind:           row.WakeupKind,
+		TargetAgentID:        row.TargetAgentID,
+		PromptPayload:        row.PromptPayload,
+		PayloadSchemaVersion: row.PayloadSchemaVersion,
+		IdempotencyKey:       row.IdempotencyKey,
+		Status:               row.Status,
+		AttemptCount:         int32(row.AttemptCount),
+		NextRetryAt:          timeValue(row.NextRetryAt),
+		ClaimedAt:            timestampPtr(row.ClaimedAt),
+		ClaimedBy:            row.ClaimedBy,
+		LeaseExpiresAt:       timestampPtr(row.LeaseExpiresAt),
+		SentAt:               timestampPtr(row.SentAt),
+		BoundTurnID:          sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:          timestampPtr(row.TurnBoundAt),
+		LastError:            row.LastError,
+		CreatedAt:            timeValue(row.CreatedAt),
+		UpdatedAt:            timeValue(row.UpdatedAt),
 	}
 }
 
 func fromGetWakeup(row sqlc.GetTaskDagWakeupRow) Wakeup {
 	return Wakeup{
-		ID:             row.ID,
-		DagKey:         row.DagKey,
-		NodeKey:        row.NodeKey,
-		RunID:          sqlc.Int8Ptr(row.RunID),
-		WakeupKind:     row.WakeupKind,
-		TargetAgentID:  row.TargetAgentID,
-		PromptPayload:  row.PromptPayload,
-		IdempotencyKey: row.IdempotencyKey,
-		Status:         row.Status,
-		AttemptCount:   int32(row.AttemptCount),
-		NextRetryAt:    timeValue(row.NextRetryAt),
-		ClaimedAt:      timestampPtr(row.ClaimedAt),
-		ClaimedBy:      row.ClaimedBy,
-		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
-		SentAt:         timestampPtr(row.SentAt),
-		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
-		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
-		LastError:      row.LastError,
-		CreatedAt:      timeValue(row.CreatedAt),
-		UpdatedAt:      timeValue(row.UpdatedAt),
+		ID:                   row.ID,
+		DagKey:               row.DagKey,
+		NodeKey:              row.NodeKey,
+		RunID:                sqlc.Int8Ptr(row.RunID),
+		WakeupKind:           row.WakeupKind,
+		TargetAgentID:        row.TargetAgentID,
+		PromptPayload:        row.PromptPayload,
+		PayloadSchemaVersion: row.PayloadSchemaVersion,
+		IdempotencyKey:       row.IdempotencyKey,
+		Status:               row.Status,
+		AttemptCount:         int32(row.AttemptCount),
+		NextRetryAt:          timeValue(row.NextRetryAt),
+		ClaimedAt:            timestampPtr(row.ClaimedAt),
+		ClaimedBy:            row.ClaimedBy,
+		LeaseExpiresAt:       timestampPtr(row.LeaseExpiresAt),
+		SentAt:               timestampPtr(row.SentAt),
+		BoundTurnID:          sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:          timestampPtr(row.TurnBoundAt),
+		LastError:            row.LastError,
+		CreatedAt:            timeValue(row.CreatedAt),
+		UpdatedAt:            timeValue(row.UpdatedAt),
 	}
 }
 
 func fromSentUnboundWakeup(row sqlc.ListSentUnboundTaskDagWakeupsRow) Wakeup {
 	return Wakeup{
-		ID:             row.ID,
-		DagKey:         row.DagKey,
-		NodeKey:        row.NodeKey,
-		RunID:          sqlc.Int8Ptr(row.RunID),
-		WakeupKind:     row.WakeupKind,
-		TargetAgentID:  row.TargetAgentID,
-		IdempotencyKey: row.IdempotencyKey,
-		Status:         row.Status,
-		AttemptCount:   int32(row.AttemptCount),
-		NextRetryAt:    timeValue(row.NextRetryAt),
-		ClaimedAt:      timestampPtr(row.ClaimedAt),
-		ClaimedBy:      row.ClaimedBy,
-		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
-		SentAt:         timestampPtr(row.SentAt),
-		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
-		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
-		LastError:      row.LastError,
-		CreatedAt:      timeValue(row.CreatedAt),
-		UpdatedAt:      timeValue(row.UpdatedAt),
+		ID:                   row.ID,
+		DagKey:               row.DagKey,
+		NodeKey:              row.NodeKey,
+		RunID:                sqlc.Int8Ptr(row.RunID),
+		WakeupKind:           row.WakeupKind,
+		TargetAgentID:        row.TargetAgentID,
+		PayloadSchemaVersion: row.PayloadSchemaVersion,
+		IdempotencyKey:       row.IdempotencyKey,
+		Status:               row.Status,
+		AttemptCount:         int32(row.AttemptCount),
+		NextRetryAt:          timeValue(row.NextRetryAt),
+		ClaimedAt:            timestampPtr(row.ClaimedAt),
+		ClaimedBy:            row.ClaimedBy,
+		LeaseExpiresAt:       timestampPtr(row.LeaseExpiresAt),
+		SentAt:               timestampPtr(row.SentAt),
+		BoundTurnID:          sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:          timestampPtr(row.TurnBoundAt),
+		LastError:            row.LastError,
+		CreatedAt:            timeValue(row.CreatedAt),
+		UpdatedAt:            timeValue(row.UpdatedAt),
 	}
 }
 
 func fromPendingOrDispatchingWakeup(row sqlc.ListPendingOrDispatchingTaskDagWakeupsRow) Wakeup {
 	return Wakeup{
-		ID:             row.ID,
-		DagKey:         row.DagKey,
-		NodeKey:        row.NodeKey,
-		RunID:          sqlc.Int8Ptr(row.RunID),
-		WakeupKind:     row.WakeupKind,
-		TargetAgentID:  row.TargetAgentID,
-		IdempotencyKey: row.IdempotencyKey,
-		Status:         row.Status,
-		AttemptCount:   int32(row.AttemptCount),
-		NextRetryAt:    timeValue(row.NextRetryAt),
-		ClaimedAt:      timestampPtr(row.ClaimedAt),
-		ClaimedBy:      row.ClaimedBy,
-		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
-		SentAt:         timestampPtr(row.SentAt),
-		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
-		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
-		LastError:      row.LastError,
-		CreatedAt:      timeValue(row.CreatedAt),
-		UpdatedAt:      timeValue(row.UpdatedAt),
+		ID:                   row.ID,
+		DagKey:               row.DagKey,
+		NodeKey:              row.NodeKey,
+		RunID:                sqlc.Int8Ptr(row.RunID),
+		WakeupKind:           row.WakeupKind,
+		TargetAgentID:        row.TargetAgentID,
+		PayloadSchemaVersion: row.PayloadSchemaVersion,
+		IdempotencyKey:       row.IdempotencyKey,
+		Status:               row.Status,
+		AttemptCount:         int32(row.AttemptCount),
+		NextRetryAt:          timeValue(row.NextRetryAt),
+		ClaimedAt:            timestampPtr(row.ClaimedAt),
+		ClaimedBy:            row.ClaimedBy,
+		LeaseExpiresAt:       timestampPtr(row.LeaseExpiresAt),
+		SentAt:               timestampPtr(row.SentAt),
+		BoundTurnID:          sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:          timestampPtr(row.TurnBoundAt),
+		LastError:            row.LastError,
+		CreatedAt:            timeValue(row.CreatedAt),
+		UpdatedAt:            timeValue(row.UpdatedAt),
 	}
 }
 

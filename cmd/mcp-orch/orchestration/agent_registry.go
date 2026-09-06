@@ -225,6 +225,22 @@ func (r *agentRegistry) addRehydratedRuntimeAgent(agent *agentRuntime) bool {
 	return true
 }
 
+// removeRehydratedRuntimeAgent 撤销尚未完成 provider activation 的本地投影。
+// 只删除仍由调用方插入的同一指针，避免并发新 runtime 被误删。
+func (r *agentRegistry) removeRehydratedRuntimeAgent(agent *agentRuntime) bool {
+	if r == nil || agent == nil {
+		return false
+	}
+	r.lock()
+	defer r.unlock()
+	existing, ok := r.agents[agent.id]
+	if !ok || existing != agent {
+		return false
+	}
+	delete(r.agents, agent.id)
+	return true
+}
+
 func (r *agentRegistry) hasRuntimeAgent(agentID string) bool {
 	r.rLock()
 	defer r.rUnlock()

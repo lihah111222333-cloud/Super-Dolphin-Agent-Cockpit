@@ -4,23 +4,23 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:acab37c6a39849fce5c4af79ef66336755b676b6705bcc77a390cd34adad3277",
-    "source_sha256": "sha256:887e0be072e6a9d22e39cf8c8ccbb76c0375339fb0cd3192a3603b0867825bae",
-    "entries_sha256": "sha256:2049e17c8c2fc5e680367909a1fbb334b9483fefad8cf7c52a701e49db072df5"
+    "source_sha256": "sha256:95eb1d2a178ece74affccf2c0781ed400d148679aaab10a529a3a135e12f3e31",
+    "entries_sha256": "sha256:da3c77f15c4a205187c23e808ff2502f0670a6e112535328b717a1e24a83220c"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 4898,
+  "files": 5664,
   "domains": {
-    "other": 1030,
+    "other": 1062,
     "remote-ci": 191,
-    "docs-agent": 100,
+    "docs-agent": 172,
     "app-ui": 710,
-    "platform-provider": 1754,
-    "orchestration": 410,
+    "platform-provider": 1823,
+    "orchestration": 986,
     "modules": 476,
-    "store-sql": 227
+    "store-sql": 244
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -36,8 +36,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 410,
-        "size_kb": 93,
+        "file_count": 986,
+        "size_kb": 242.2,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -50,15 +50,15 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1754,
-        "size_kb": 333.5,
+        "file_count": 1823,
+        "size_kb": 346.1,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 227,
-        "size_kb": 35.6,
+        "file_count": 244,
+        "size_kb": 40,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -71,15 +71,15 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 100,
-        "size_kb": 15,
+        "file_count": 172,
+        "size_kb": 29.1,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1030,
-        "size_kb": 208.7,
+        "file_count": 1062,
+        "size_kb": 215.9,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -87,12 +87,12 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1254,
-    "docs": 93,
+    "cmd": 1839,
+    "docs": 165,
     "frontend-app": 702,
-    "internal": 2469,
+    "internal": 2570,
     "pkg": 30,
-    "scripts": 285,
+    "scripts": 293,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -272,15 +272,15 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0047,
-    "unknown_files": 23,
+    "unknown_ratio": 0.0056,
+    "unknown_files": 32,
     "thresholds": {
       "max_unknown_ratio": 0.05
     },
     "warnings": [],
     "top_unknown_modules": {
       ".githooks": 2,
-      "cmd": 19,
+      "cmd": 28,
       "internal": 2
     }
   }

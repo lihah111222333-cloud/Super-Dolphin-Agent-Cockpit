@@ -2,7 +2,6 @@ package taskdag
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 )
 
@@ -15,7 +14,7 @@ func TestSQLiteTaskDAGFailWakeupCascadeCommitsAtomically(t *testing.T) {
 	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-wakeup-fail", run.ID)
 	claimed := enqueueAndClaimSQLiteWakeup(t, ctx, store, EnqueueWakeupInput{
 		DagKey: "dag-wakeup-fail", NodeKey: "root", RunID: run.ID, WakeupKind: "node_start",
-		TargetAgentID: "agent-root", PromptPayload: json.RawMessage(`{"prompt":"start"}`), IdempotencyKey: "wakeup-fail-root",
+		TargetAgentID: "agent-root", PromptPayload: canonicalDownstreamPayload("agent-root"), IdempotencyKey: "wakeup-fail-root",
 	})
 
 	rows, result, err := store.FailWakeupAndFailNodeAndCancelDownstream(ctx, failSQLiteWakeupInput(claimed, "hard failure"), FailNodeInput{
@@ -49,7 +48,7 @@ func TestSQLiteTaskDAGFailWakeupCascadeRollsBackAtomically(t *testing.T) {
 	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-wakeup-rollback", run.ID)
 	claimed := enqueueAndClaimSQLiteWakeup(t, ctx, store, EnqueueWakeupInput{
 		DagKey: "dag-wakeup-rollback", NodeKey: "root", RunID: run.ID, WakeupKind: "node_start",
-		TargetAgentID: "agent-root", PromptPayload: json.RawMessage(`{"prompt":"start"}`), IdempotencyKey: "wakeup-rollback-root",
+		TargetAgentID: "agent-root", PromptPayload: canonicalDownstreamPayload("agent-root"), IdempotencyKey: "wakeup-rollback-root",
 	})
 	if _, err := db.ExecContext(ctx, `UPDATE task_dag_nodes SET status = 'done' WHERE dag_key = ? AND run_id = ? AND node_key = ?`, "dag-wakeup-rollback", run.ID, "root"); err != nil {
 		t.Fatalf("seed terminal root: %v", err)

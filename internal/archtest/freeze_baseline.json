@@ -2,9 +2,9 @@
   "version": 3,
   "acceptance": {
     "owner": "codex",
-    "reason": "memory skill 清理后真实代码缩减",
-    "reviewed_at": "2026-08-30T00:00:00Z",
-    "review_by": "2026-09-01"
+    "reason": "完成编排服务与双 CLI 二进制互通修复",
+    "reviewed_at": "2026-09-06T22:30:00Z",
+    "review_by": "2026-09-30"
   },
   "approved": {
     "metrics": {
@@ -966,10 +966,10 @@
           "todo_count": 0
         },
         "cmd/mcp-orch/main.go": {
-          "lines": 30,
-          "max_func_len": 20,
-          "max_nesting": 1,
-          "max_complexity": 5,
+          "lines": 37,
+          "max_func_len": 27,
+          "max_nesting": 2,
+          "max_complexity": 7,
           "max_params": 0,
           "max_returns": 0,
           "max_underscore": 0,
@@ -1011,10 +1011,10 @@
           "max_struct_methods": 4
         },
         "cmd/mcp-orch/orchestration/wakeup_dispatcher.go": {
-          "lines": 431,
+          "lines": 490,
           "max_func_len": 36,
           "max_nesting": 2,
-          "max_complexity": 7,
+          "max_complexity": 8,
           "max_params": 5,
           "max_returns": 3,
           "max_underscore": 0,
@@ -1025,6 +1025,37 @@
           "todo_count": 0,
           "max_struct_fields": 10,
           "max_struct_methods": 6
+        },
+        "cmd/mcp-orch/standalone/config.go": {
+          "lines": 208,
+          "max_func_len": 30,
+          "max_nesting": 2,
+          "max_complexity": 15,
+          "max_params": 2,
+          "max_returns": 2,
+          "max_underscore": 0,
+          "global_vars": 0,
+          "panic_count": 0,
+          "naked_returns": 0,
+          "empty_funcs": 0,
+          "todo_count": 0,
+          "max_struct_fields": 8,
+          "max_struct_methods": 2
+        },
+        "cmd/mcp-orch/standalone/execution_turn.go": {
+          "lines": 342,
+          "max_func_len": 42,
+          "max_nesting": 2,
+          "max_complexity": 11,
+          "max_params": 6,
+          "max_returns": 3,
+          "max_underscore": 0,
+          "global_vars": 0,
+          "panic_count": 0,
+          "naked_returns": 0,
+          "empty_funcs": 0,
+          "todo_count": 0,
+          "max_struct_methods": 7
         },
         "cmd/mcp-orch/tools/factory.go": {
           "lines": 287,
@@ -1042,10 +1073,10 @@
           "max_struct_fields": 8
         },
         "cmd/mcp-orch/tools/registry.go": {
-          "lines": 129,
-          "max_func_len": 23,
-          "max_nesting": 1,
-          "max_complexity": 3,
+          "lines": 154,
+          "max_func_len": 20,
+          "max_nesting": 2,
+          "max_complexity": 5,
           "max_params": 2,
           "max_returns": 2,
           "max_underscore": 0,
@@ -1101,10 +1132,10 @@
           "todo_count": 0
         },
         "internal/app/modules.go": {
-          "lines": 162,
-          "max_func_len": 69,
+          "lines": 143,
+          "max_func_len": 68,
           "max_nesting": 1,
-          "max_complexity": 4,
+          "max_complexity": 2,
           "max_params": 1,
           "max_returns": 2,
           "max_underscore": 0,
@@ -1468,8 +1499,8 @@
           "max_struct_methods": 3
         },
         "internal/mcpserver/common/http_transport.go": {
-          "lines": 383,
-          "max_func_len": 52,
+          "lines": 431,
+          "max_func_len": 55,
           "max_nesting": 2,
           "max_complexity": 9,
           "max_params": 5,
@@ -1480,7 +1511,7 @@
           "naked_returns": 0,
           "empty_funcs": 0,
           "todo_count": 0,
-          "max_struct_fields": 15,
+          "max_struct_fields": 17,
           "max_struct_methods": 2
         },
         "internal/mcpserver/common/server.go": {
@@ -1577,7 +1608,7 @@
           "todo_count": 0
         },
         "internal/platform/db/sqlite/migrate.go": {
-          "lines": 586,
+          "lines": 642,
           "max_func_len": 35,
           "max_nesting": 3,
           "max_complexity": 9,
@@ -1588,7 +1619,8 @@
           "panic_count": 0,
           "naked_returns": 0,
           "empty_funcs": 0,
-          "todo_count": 0
+          "todo_count": 0,
+          "max_struct_fields": 3
         },
         "internal/platform/metrics/dag.go": {
           "lines": 8,
@@ -1943,7 +1975,7 @@
           "max_struct_methods": 5
         },
         "internal/provider/codexapp/session.go": {
-          "lines": 793,
+          "lines": 799,
           "max_func_len": 77,
           "max_nesting": 2,
           "max_complexity": 10,
@@ -2020,10 +2052,10 @@
           "max_struct_methods": 2
         },
         "internal/util/idgen/idgen.go": {
-          "lines": 41,
-          "max_func_len": 13,
+          "lines": 49,
+          "max_func_len": 20,
           "max_nesting": 2,
-          "max_complexity": 4,
+          "max_complexity": 6,
           "max_params": 2,
           "max_returns": 1,
           "max_underscore": 0,
@@ -3426,9 +3458,9 @@
           "max_struct_methods": 6
         },
         "cmd/mcp-orch/store/terminaloutcome/repair_characterization_test.go": {
-          "lines": 261,
+          "lines": 331,
           "max_func_len": 68,
-          "max_nesting": 2,
+          "max_nesting": 3,
           "max_complexity": 14,
           "max_params": 4,
           "max_returns": 1,
@@ -3440,7 +3472,7 @@
           "todo_count": 0
         },
         "cmd/mcp-orch/store/terminaloutcome/store_test.go": {
-          "lines": 397,
+          "lines": 414,
           "max_func_len": 42,
           "max_nesting": 2,
           "max_complexity": 15,
@@ -3586,7 +3618,7 @@
           "todo_count": 0
         },
         "internal/archtest/provider_recovery_migration_guard_test.go": {
-          "lines": 762,
+          "lines": 790,
           "max_func_len": 45,
           "max_nesting": 3,
           "max_complexity": 9,
@@ -3643,7 +3675,7 @@
           "todo_count": 0
         },
         "internal/archtest/timeout_locality_test.go": {
-          "lines": 86,
+          "lines": 89,
           "max_func_len": 16,
           "max_nesting": 2,
           "max_complexity": 6,
@@ -3657,7 +3689,7 @@
           "todo_count": 0
         },
         "internal/contract/orchestration_tools_test.go": {
-          "lines": 111,
+          "lines": 112,
           "max_func_len": 26,
           "max_nesting": 2,
           "max_complexity": 5,
@@ -3762,8 +3794,8 @@
           "max_struct_methods": 2
         },
         "internal/module/dashboard/wire_dto_contract_test.go": {
-          "lines": 59,
-          "max_func_len": 26,
+          "lines": 57,
+          "max_func_len": 25,
           "max_nesting": 2,
           "max_complexity": 6,
           "max_params": 1,
@@ -3821,8 +3853,8 @@
           "max_struct_fields": 2
         },
         "internal/module/uistate/builtin_tools_test.go": {
-          "lines": 332,
-          "max_func_len": 25,
+          "lines": 329,
+          "max_func_len": 24,
           "max_nesting": 2,
           "max_complexity": 6,
           "max_params": 3,
@@ -3909,10 +3941,10 @@
           "max_struct_fields": 6
         },
         "internal/platform/db/sqlite/schema_baseline_test.go": {
-          "lines": 440,
+          "lines": 521,
           "max_func_len": 35,
           "max_nesting": 3,
-          "max_complexity": 8,
+          "max_complexity": 9,
           "max_params": 6,
           "max_returns": 1,
           "max_underscore": 0,
@@ -5153,10 +5185,10 @@
         "todo_count": 0
       },
       "cmd/mcp-orch/main.go": {
-        "lines": 30,
-        "max_func_len": 20,
-        "max_nesting": 1,
-        "max_complexity": 5,
+        "lines": 37,
+        "max_func_len": 27,
+        "max_nesting": 2,
+        "max_complexity": 7,
         "max_params": 0,
         "max_returns": 0,
         "max_underscore": 0,
@@ -5198,10 +5230,10 @@
         "max_struct_methods": 4
       },
       "cmd/mcp-orch/orchestration/wakeup_dispatcher.go": {
-        "lines": 431,
+        "lines": 490,
         "max_func_len": 36,
         "max_nesting": 2,
-        "max_complexity": 7,
+        "max_complexity": 8,
         "max_params": 5,
         "max_returns": 3,
         "max_underscore": 0,
@@ -5212,6 +5244,37 @@
         "todo_count": 0,
         "max_struct_fields": 10,
         "max_struct_methods": 6
+      },
+      "cmd/mcp-orch/standalone/config.go": {
+        "lines": 208,
+        "max_func_len": 30,
+        "max_nesting": 2,
+        "max_complexity": 15,
+        "max_params": 2,
+        "max_returns": 2,
+        "max_underscore": 0,
+        "global_vars": 0,
+        "panic_count": 0,
+        "naked_returns": 0,
+        "empty_funcs": 0,
+        "todo_count": 0,
+        "max_struct_fields": 8,
+        "max_struct_methods": 2
+      },
+      "cmd/mcp-orch/standalone/execution_turn.go": {
+        "lines": 342,
+        "max_func_len": 42,
+        "max_nesting": 2,
+        "max_complexity": 11,
+        "max_params": 6,
+        "max_returns": 3,
+        "max_underscore": 0,
+        "global_vars": 0,
+        "panic_count": 0,
+        "naked_returns": 0,
+        "empty_funcs": 0,
+        "todo_count": 0,
+        "max_struct_methods": 7
       },
       "cmd/mcp-orch/tools/factory.go": {
         "lines": 287,
@@ -5229,10 +5292,10 @@
         "max_struct_fields": 8
       },
       "cmd/mcp-orch/tools/registry.go": {
-        "lines": 129,
-        "max_func_len": 23,
-        "max_nesting": 1,
-        "max_complexity": 3,
+        "lines": 154,
+        "max_func_len": 20,
+        "max_nesting": 2,
+        "max_complexity": 5,
         "max_params": 2,
         "max_returns": 2,
         "max_underscore": 0,
@@ -5288,10 +5351,10 @@
         "todo_count": 0
       },
       "internal/app/modules.go": {
-        "lines": 162,
-        "max_func_len": 69,
+        "lines": 143,
+        "max_func_len": 68,
         "max_nesting": 1,
-        "max_complexity": 4,
+        "max_complexity": 2,
         "max_params": 1,
         "max_returns": 2,
         "max_underscore": 0,
@@ -5655,8 +5718,8 @@
         "max_struct_methods": 3
       },
       "internal/mcpserver/common/http_transport.go": {
-        "lines": 383,
-        "max_func_len": 52,
+        "lines": 431,
+        "max_func_len": 55,
         "max_nesting": 2,
         "max_complexity": 9,
         "max_params": 5,
@@ -5667,7 +5730,7 @@
         "naked_returns": 0,
         "empty_funcs": 0,
         "todo_count": 0,
-        "max_struct_fields": 15,
+        "max_struct_fields": 17,
         "max_struct_methods": 2
       },
       "internal/mcpserver/common/server.go": {
@@ -5764,7 +5827,7 @@
         "todo_count": 0
       },
       "internal/platform/db/sqlite/migrate.go": {
-        "lines": 586,
+        "lines": 642,
         "max_func_len": 35,
         "max_nesting": 3,
         "max_complexity": 9,
@@ -5775,7 +5838,8 @@
         "panic_count": 0,
         "naked_returns": 0,
         "empty_funcs": 0,
-        "todo_count": 0
+        "todo_count": 0,
+        "max_struct_fields": 3
       },
       "internal/platform/metrics/dag.go": {
         "lines": 8,
@@ -6130,7 +6194,7 @@
         "max_struct_methods": 5
       },
       "internal/provider/codexapp/session.go": {
-        "lines": 793,
+        "lines": 799,
         "max_func_len": 77,
         "max_nesting": 2,
         "max_complexity": 10,
@@ -6207,10 +6271,10 @@
         "max_struct_methods": 2
       },
       "internal/util/idgen/idgen.go": {
-        "lines": 41,
-        "max_func_len": 13,
+        "lines": 49,
+        "max_func_len": 20,
         "max_nesting": 2,
-        "max_complexity": 4,
+        "max_complexity": 6,
         "max_params": 2,
         "max_returns": 1,
         "max_underscore": 0,
@@ -7613,9 +7677,9 @@
         "max_struct_methods": 6
       },
       "cmd/mcp-orch/store/terminaloutcome/repair_characterization_test.go": {
-        "lines": 261,
+        "lines": 331,
         "max_func_len": 68,
-        "max_nesting": 2,
+        "max_nesting": 3,
         "max_complexity": 14,
         "max_params": 4,
         "max_returns": 1,
@@ -7627,7 +7691,7 @@
         "todo_count": 0
       },
       "cmd/mcp-orch/store/terminaloutcome/store_test.go": {
-        "lines": 397,
+        "lines": 414,
         "max_func_len": 42,
         "max_nesting": 2,
         "max_complexity": 15,
@@ -7773,7 +7837,7 @@
         "todo_count": 0
       },
       "internal/archtest/provider_recovery_migration_guard_test.go": {
-        "lines": 762,
+        "lines": 790,
         "max_func_len": 45,
         "max_nesting": 3,
         "max_complexity": 9,
@@ -7830,7 +7894,7 @@
         "todo_count": 0
       },
       "internal/archtest/timeout_locality_test.go": {
-        "lines": 86,
+        "lines": 89,
         "max_func_len": 16,
         "max_nesting": 2,
         "max_complexity": 6,
@@ -7844,7 +7908,7 @@
         "todo_count": 0
       },
       "internal/contract/orchestration_tools_test.go": {
-        "lines": 111,
+        "lines": 112,
         "max_func_len": 26,
         "max_nesting": 2,
         "max_complexity": 5,
@@ -7949,8 +8013,8 @@
         "max_struct_methods": 2
       },
       "internal/module/dashboard/wire_dto_contract_test.go": {
-        "lines": 59,
-        "max_func_len": 26,
+        "lines": 57,
+        "max_func_len": 25,
         "max_nesting": 2,
         "max_complexity": 6,
         "max_params": 1,
@@ -8008,8 +8072,8 @@
         "max_struct_fields": 2
       },
       "internal/module/uistate/builtin_tools_test.go": {
-        "lines": 332,
-        "max_func_len": 25,
+        "lines": 329,
+        "max_func_len": 24,
         "max_nesting": 2,
         "max_complexity": 6,
         "max_params": 3,
@@ -8096,10 +8160,10 @@
         "max_struct_fields": 6
       },
       "internal/platform/db/sqlite/schema_baseline_test.go": {
-        "lines": 440,
+        "lines": 521,
         "max_func_len": 35,
         "max_nesting": 3,
-        "max_complexity": 8,
+        "max_complexity": 9,
         "max_params": 6,
         "max_returns": 1,
         "max_underscore": 0,

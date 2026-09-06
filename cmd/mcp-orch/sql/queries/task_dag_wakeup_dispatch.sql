@@ -1,6 +1,6 @@
 -- name: InsertTaskDagWakeup :execrows
-INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, next_retry_at, created_at, updated_at)
-VALUES (:dag_key, :node_key, :run_id, :wakeup_kind, :target_agent_id, :prompt_payload, :idempotency_key, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000));
+INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, payload_schema_version, idempotency_key, next_retry_at, created_at, updated_at)
+VALUES (:dag_key, :node_key, :run_id, :wakeup_kind, :target_agent_id, :prompt_payload, :payload_schema_version, :idempotency_key, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000));
 
 -- name: ClaimDueTaskDagWakeups :execrows
 UPDATE task_dag_wakeups
@@ -15,16 +15,37 @@ WHERE
     SELECT w.id
     FROM task_dag_wakeups w
     WHERE w.status = 'pending'
+      AND w.payload_schema_version = 1
       AND w.next_retry_at <= (CAST(strftime('%s','now') AS INTEGER) * 1000)
       AND (
-        trim(w.dag_key) = ''
-        OR trim(w.node_key) = ''
-        OR w.run_id IN (
-          SELECT r.id
-          FROM task_dag_runs r
-          WHERE r.id = w.run_id
-            AND r.dag_key = w.dag_key
-            AND r.status = 'running'
+        (
+          w.wakeup_kind IN ('node_start', 'manual_dispatch', 'turn_complete_retry')
+          AND trim(w.dag_key) <> ''
+          AND trim(w.node_key) <> ''
+          AND w.run_id IN (
+            SELECT r.id
+            FROM task_dag_runs r
+            WHERE r.id = w.run_id
+              AND r.dag_key = w.dag_key
+              AND r.status = 'running'
+          )
+        )
+        OR (
+          w.wakeup_kind = 'terminal_failure_compensation'
+          AND trim(w.dag_key) <> ''
+          AND trim(w.node_key) <> ''
+          AND w.run_id IN (
+            SELECT r.id
+            FROM task_dag_runs r
+            WHERE r.id = w.run_id
+              AND r.dag_key = w.dag_key
+          )
+        )
+        OR (
+          w.wakeup_kind = 'start'
+          AND trim(w.dag_key) = ''
+          AND trim(w.node_key) = ''
+          AND w.run_id IS NULL
         )
       )
     ORDER BY next_retry_at, id
@@ -32,7 +53,7 @@ WHERE
 );
 
 -- name: ListTaskDagWakeupsByClaimFence :many
-SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload, payload_schema_version,
        idempotency_key, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
