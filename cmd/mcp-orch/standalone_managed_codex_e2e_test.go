@@ -85,16 +85,22 @@ func TestStandaloneManagedCodexFork(t *testing.T) {
 	defer cancel()
 	parent := contract.LaunchRequest{AgentID: "managed-codex-parent", Name: "managed-codex-parent", Cwd: workspace,
 		Env: []string{"AGENT_PROVIDER=codex", "AGENT_MODEL=" + model}}
+	phaseStarted := time.Now()
 	parentResult := launchManagedCodexParent(t, ctx, execution, terminal, parent)
+	t.Logf("fork_phase=parent_launch_and_first_turn elapsed=%s", time.Since(phaseStarted))
 	child := contract.LaunchRequest{AgentID: "managed-codex-child", Name: "managed-codex-child", ParentID: parent.AgentID,
 		Cwd: workspace, Env: []string{"AGENT_PROVIDER=codex", "AGENT_MODEL=" + model}}
+	phaseStarted = time.Now()
 	childResult := forkManagedCodexChild(t, ctx, execution, parent.AgentID, child)
+	t.Logf("fork_phase=execution_fork_including_child_process elapsed=%s", time.Since(phaseStarted))
 	assertManagedCodexForkPersistence(t, ctx, db, parent, child, parentResult, childResult)
+	phaseStarted = time.Now()
 	if _, err := execution.SubmitTurn(ctx, contract.TurnSubmission{AgentID: child.AgentID,
 		Inputs: []turndto.InputItem{{Type: "text", Content: "Reply briefly that the forked Codex thread is active. Do not use tools."}}}); err != nil {
 		t.Fatal(err)
 	}
 	waitManagedCodexSuccess(t, ctx, terminal, "child")
+	t.Logf("fork_phase=child_turn elapsed=%s", time.Since(phaseStarted))
 }
 
 // TestStandaloneManagedCodexResume 验证新 Execution 可用持久 thread/resume 接管旧 daemon 的身份。

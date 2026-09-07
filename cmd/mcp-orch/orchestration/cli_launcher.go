@@ -119,9 +119,18 @@ func (l *cliLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	return l.backend.Archive(ctx, agent.id)
 }
 
-// Interrupt 只打断当前 turn，不与停止整个 agent 混同。
+// Interrupt 透传调用方快照 fence，旧轮清理不得重定向到当前代际。
 func (l *cliLauncher) Interrupt(ctx context.Context, agent *agentRuntime, source string) error {
-	return l.backend.Interrupt(ctx, agent.id, source)
+	if agent == nil {
+		return contract.ErrAgentNotFound
+	}
+	backend, ok := l.backend.(interface {
+		InterruptTurn(context.Context, string, turndto.TurnRefV1, uint64, string) error
+	})
+	if !ok {
+		return errors.New("CLI execution backend does not support fenced turn interrupt")
+	}
+	return backend.InterruptTurn(ctx, agent.id, turndto.TurnRefV1{ThreadID: agent.remoteThreadID, TurnID: agent.activeTurnID}, agent.launchSeq, source)
 }
 
 // SubmitTurn 保留规范 submission 交给独立执行器。

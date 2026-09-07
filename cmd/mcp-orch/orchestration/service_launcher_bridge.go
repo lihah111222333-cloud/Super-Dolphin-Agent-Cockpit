@@ -199,7 +199,7 @@ func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string,
 	threadID := strings.TrimSpace(result.ThreadID)
 	submission := TurnSubmission{AgentID: agentID, ThreadID: threadID, Inputs: []shareddto.InputItem{{Type: "text", Content: prompt}}}
 	pkglogger.Warn("orchestration: launch prompt auto-submit begin", "agent_id", agentID, "thread_id", threadID, "prompt_len", len([]rune(prompt)))
-	if err := s.submitTurnViaLauncher(ctx, submission); err != nil {
+	if err := s.SubmitTurn(ctx, submission); err != nil {
 		pkglogger.Warn("orchestration: launch prompt auto-submit failed", "agent_id", agentID, "thread_id", threadID, "error", err)
 		return err
 	}
@@ -572,18 +572,6 @@ func (c *lifecycleController) prepareLauncherStop(ctx context.Context, owner lif
 	return agentRef, launchSeq, nil
 }
 
-// submitTurnViaLauncher 优先提交到远端 launcher，无法远端处理时回落到本地队列。
-func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission) error {
-	if s == nil || s.turns == nil {
-		return errors.New("turn controller is not configured")
-	}
-	terminals, err := s.turns.SubmitTurn(ctx, req)
-	for _, terminal := range terminals {
-		s.handleRemoteTurnTerminal(ctx, terminal)
-	}
-	return err
-}
-
 // remoteTurnSubmitAttempt 保存远端 turn 提交的 active turn fence 和请求副本。
 type remoteTurnSubmitAttempt struct {
 	agentID   string
@@ -605,19 +593,21 @@ func (s *service) InterruptAgent(ctx context.Context, agentID string, source str
 // SubmitTurn 统一处理 turn 提交：远端 launcher 优先，无法远端处理时进入本地队列。
 // It returns terminal notifications that arrived before turn/start returned and were reconciled
 // against the canonical turn ID.
-func (c *turnController) SubmitTurn(ctx context.Context, req TurnSubmission) ([]turndto.TurnTerminalV2, error) {
+func (c *turnController) SubmitTurn(ctx context.Context, req TurnSubmission) ([]turndto.TurnTerminalV2, remoteTurnSubmitRef, error) {
 	agentID := strings.TrimSpace(req.AgentID)
 	if agentID == "" {
-		return nil, errors.New("agent id is required")
+		return nil, remoteTurnSubmitRef{}, errors.New("agent id is required")
 	}
 	if c.rehydrator != nil {
 		c.rehydrator.ensureRuntimeForPersistedAgent(ctx, agentID)
 	}
-	handled, terminals, err := c.trySubmitRemoteTurn(ctx, agentID, req)
+	handled, terminals, ref, err := c.trySubmitRemoteTurn(ctx, agentID, req, func(ctx context.Context, agent *agentRuntime, req TurnSubmission) (string, error) {
+		return c.launcher.SubmitTurn(ctx, agent, req)
+	})
 	if handled || err != nil {
-		return terminals, err
+		return terminals, ref, err
 	}
-	return nil, c.enqueueLocalTurnSubmission(ctx, agentID, req)
+	return nil, ref, c.enqueueLocalTurnSubmission(ctx, agentID, req)
 }
 
 // InterruptAgent 请求远端 launcher 中断当前 active turn，并轮询等待状态收口。

@@ -11,7 +11,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/standalone/codexwire"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 // SubmitTurn 向真实 CLI thread 提交文本，并保留服务侧的 turn fence。
@@ -30,6 +29,11 @@ func (e *Execution) SubmitTurn(ctx context.Context, sub contract.TurnSubmission)
 	if session.provider.Name == "claude" {
 		return e.submitClaude(ctx, session, sub)
 	}
+	return e.submitCodex(ctx, session, input)
+}
+
+// submitCodex 固定会话指针执行真实 RPC，避免投递期间代际替换。
+func (e *Execution) submitCodex(ctx context.Context, session *cliSession, input []map[string]string) (string, error) {
 	process, threadID, err := session.beginTurn()
 	if err != nil {
 		return "", err
@@ -132,18 +136,11 @@ func (e *Execution) Interrupt(ctx context.Context, agentID, _ string) error {
 	if err != nil {
 		return err
 	}
-	if session.provider.Name == "claude" {
-		return unsupportedCLICapability(providerdto.CapTurnInterrupt, session.provider.Name)
+	process, ref, err := session.captureInterrupt(nil, 0)
+	if err != nil {
+		return err
 	}
-	session.mu.Lock()
-	process, threadID, turnID := session.process, session.threadID, session.turnID
-	session.interruptRequestID = shared.NewID("orch-interrupt")
-	session.mu.Unlock()
-	if process == nil || turnID == "" {
-		return errors.New("CLI agent has no active turn")
-	}
-	var result map[string]any
-	return process.Client.CallResult(ctx, "turn/interrupt", map[string]string{"threadId": threadID, "turnId": turnID}, &result)
+	return interruptCapturedTurn(ctx, process, ref)
 }
 
 // IsRunning 同时检查已激活 thread 和真实进程，不根据旧 metadata 推断存活。

@@ -2,11 +2,13 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
@@ -36,12 +38,15 @@ func waitForStopAgentSettlement(ctx context.Context, svc contract.AgentStopWaitP
 	ticker := time.NewTicker(agentReportPollInterval)
 	defer ticker.Stop()
 	for {
+		if err := waitCtx.Err(); err != nil {
+			return "", stopAgentOperationError(agentID, err)
+		}
 		state, found, err := stopAgentSettlementState(waitCtx, svc, agentID)
 		if err != nil {
 			if waitCtx.Err() != nil {
-				return "", stopAgentWaitTimeoutError(agentID, waitCtx.Err())
+				return "", stopAgentOperationError(agentID, waitCtx.Err())
 			}
-			return "", err
+			return "", stopAgentOperationError(agentID, err)
 		}
 		if !found {
 			return missingStopAgentState(archived), nil
@@ -51,7 +56,7 @@ func waitForStopAgentSettlement(ctx context.Context, svc contract.AgentStopWaitP
 		}
 		select {
 		case <-waitCtx.Done():
-			return "", stopAgentWaitTimeoutError(agentID, waitCtx.Err())
+			return "", stopAgentOperationError(agentID, waitCtx.Err())
 		case <-ticker.C:
 		}
 	}
@@ -109,7 +114,14 @@ func missingStopAgentState(archived bool) string {
 	return "stopped"
 }
 
-// stopAgentWaitTimeoutError 保留 agent id 与底层超时原因，方便调用端诊断。
-func stopAgentWaitTimeoutError(agentID string, cause error) error {
-	return fmt.Errorf("timed out waiting for stop_agent agent %q to settle: %w", agentID, cause)
+// stopAgentOperationError 在停止操作边界固定错误语义，只保留安全的 context 原因。
+func stopAgentOperationError(agentID string, cause error) error {
+	const hint = "next: inspect list_agents for the agent state before another stop_agent request; stop completion is not confirmed"
+	if errors.Is(cause, context.Canceled) {
+		return mcpcommon.NewCodedToolError("stop_agent_canceled", fmt.Errorf("stop_agent agent %q was canceled: %w", agentID, context.Canceled), false, hint)
+	}
+	if errors.Is(cause, context.DeadlineExceeded) {
+		return mcpcommon.NewCodedToolError("stop_agent_timeout", fmt.Errorf("stop_agent agent %q did not settle before the deadline: %w", agentID, context.DeadlineExceeded), false, hint)
+	}
+	return cause
 }

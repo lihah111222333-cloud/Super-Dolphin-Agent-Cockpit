@@ -29,35 +29,47 @@ func (s *service) BindSessionGeneration(ctx context.Context, agentID string, gen
 		return errors.New("session generation is required")
 	}
 	return s.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		nextVersion := agent.terminalHeadVersion
-		nextUpdatedAt := resolveEventTime(ctx, agent.updatedAt)
-		if s.terminalOutcomes != nil {
-			threadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
-			sessionID := agentSessionID(agent)
-			if threadID == "" || sessionID == "" {
-				return errors.New("terminal outcome session head activation requires thread and session identity")
-			}
-			var err error
-			nextVersion, err = s.resolveTerminalHeadVersion(ctx, agent, threadID, sessionID, generation)
-			if err != nil {
-				return err
-			}
-			head, err := s.terminalOutcomes.ActivateTerminalOutcomeHead(ctx, contract.TerminalOutcomeHeadActivation{
-				Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id),
-				PublicThreadID: threadID, ProviderTurnID: "session-terminal:" + sessionID,
-				SessionID: sessionID, Generation: generation, ExpectedActiveState: string(agent.state),
-				ExpectedHeadVersion: nextVersion, ActivatedAt: nextUpdatedAt,
-			})
-			if err != nil {
-				return fmt.Errorf("activate terminal outcome session head: %w", err)
-			}
-			nextVersion = head.Version
-		}
-		agent.sessionGeneration = generation
-		agent.terminalHeadVersion = nextVersion
-		agent.updatedAt = nextUpdatedAt
-		return nil
+		return s.bindSessionGenerationLocked(ctx, agent, generation, agent.state)
 	})
+}
+
+// bindSessionGenerationLocked 共用首次启动与恢复的head CAS，只在落库成功后绑定runtime代际。
+func (s *service) bindSessionGenerationLocked(ctx context.Context, agent *agentRuntime, generation uint64, expectedState agentdto.AgentState) error {
+	if s.terminalOutcomes == nil {
+		agent.sessionGeneration = generation
+		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+		return nil
+	}
+	_, err := s.bindDurableSessionGenerationLocked(ctx, agent, generation, expectedState)
+	return err
+}
+
+// bindDurableSessionGenerationLocked 返回store实际提交的head，不从runtime重建持久化证明。
+func (s *service) bindDurableSessionGenerationLocked(ctx context.Context, agent *agentRuntime, generation uint64, expectedState agentdto.AgentState) (contract.TerminalOutcomeHead, error) {
+	if s.terminalOutcomes == nil {
+		return contract.TerminalOutcomeHead{}, errors.New("durable session generation requires terminal outcome store")
+	}
+	nextUpdatedAt := resolveEventTime(ctx, agent.updatedAt)
+	threadID := strings.TrimSpace(firstNonEmpty(agent.remoteThreadID, agent.threadID))
+	sessionID := agentSessionID(agent)
+	if threadID == "" || sessionID == "" {
+		return contract.TerminalOutcomeHead{}, errors.New("terminal outcome session head activation requires thread and session identity")
+	}
+	version, err := s.resolveTerminalHeadVersion(ctx, agent, threadID, sessionID, generation)
+	if err != nil {
+		return contract.TerminalOutcomeHead{}, err
+	}
+	head, err := s.terminalOutcomes.ActivateTerminalOutcomeHead(ctx, contract.TerminalOutcomeHeadActivation{
+		Capability: contract.TerminalOutcomeCapabilityV2, AgentID: strings.TrimSpace(agent.id), PublicThreadID: threadID, ProviderTurnID: "session-terminal:" + sessionID,
+		SessionID: sessionID, Generation: generation, ExpectedActiveState: string(expectedState), ExpectedHeadVersion: version, ActivatedAt: nextUpdatedAt,
+	})
+	if err != nil {
+		return contract.TerminalOutcomeHead{}, fmt.Errorf("activate terminal outcome session head: %w", err)
+	}
+	agent.sessionGeneration = generation
+	agent.terminalHeadVersion = head.Version
+	agent.updatedAt = nextUpdatedAt
+	return head, nil
 }
 
 // resolveTerminalHeadVersion 从 durable head 恢复 terminal 代际，拒绝身份漂移。
@@ -223,8 +235,7 @@ func (s *service) handleCLIProcessExit(event contract.CLIProcessExit) {
 		return
 	}
 	if cliProcessExitSessionMatches(agent, sessionID) {
-		s.registry.unlock()
-		s.handleProcessExit(context.Background(), agentID, event.LaunchSeq, event.Err)
+		s.dispatchBoundCLIProcessExitLocked(agent, event)
 		return
 	}
 	if canBufferCLIProcessExitLocked(agent, event) {
@@ -352,8 +363,8 @@ func (c *lifecycleController) handleProcessExit(
 	stateBefore := agent.state
 	shouldRecover := shouldAutoRecoverProcessExitLocked(c.launcher, agent, err)
 	recoverViaLauncher := shouldRecover && shouldRecoverViaLauncher(ctx, c.launcher, agent)
-	terminalCommitted, lookupErr := commitNonRecoveringProcessExitTerminal(
-		ctx, state, agent, launchSeq, err, shouldRecover,
+	terminalCommitted, lookupErr := commitProcessExitTerminal(
+		ctx, state, agent, launchSeq, err,
 	)
 	if lookupErr != nil {
 		loggerOrDefault(logger).Warn("orchestration: process exit terminal commit failed",
@@ -399,20 +410,6 @@ func commitProcessExitTerminal(
 		return false, nil
 	}
 	return committer.CommitProcessExitTerminalLocked(ctx, agent, launchSeq, processErr)
-}
-
-func commitNonRecoveringProcessExitTerminal(
-	ctx context.Context,
-	state lifecycleTransitionPort,
-	agent *agentRuntime,
-	launchSeq uint64,
-	processErr error,
-	shouldRecover bool,
-) (bool, error) {
-	if shouldRecover {
-		return false, nil
-	}
-	return commitProcessExitTerminal(ctx, state, agent, launchSeq, processErr)
 }
 
 func (c *lifecycleController) recordProcessExitError(eventBus *event.Dispatcher, agent *agentRuntime, err error) {

@@ -68,6 +68,7 @@ type recoveryStoreProvider interface {
 }
 
 type recoveryStatePort interface {
+	prepareRecoveryTerminal(context.Context, string) error
 	fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error
 }
 
@@ -76,6 +77,8 @@ type recoveryLocalProcessPort interface {
 }
 
 type recoveryLaunchCommitPort interface {
+	bindDurableSessionGenerationLocked(context.Context, *agentRuntime, uint64, agentdto.AgentState) (contract.TerminalOutcomeHead, error)
+	failCommittedRecoveryLocked(context.Context, *agentRuntime, contract.TerminalOutcomeHead, error) error
 	commitLaunchFailureLocked(ctx context.Context, agent *agentRuntime, launchErr error, details ...string) error
 	commitLaunchSuccessLocked(ctx context.Context, agent *agentRuntime) error
 	rekeyLaunchedAgentLocked(agent *agentRuntime) error
@@ -137,7 +140,7 @@ func (c *recoveryController) currentRecoveryStore() recoveryTurnStore {
 	return c.store.currentRecoveryStore()
 }
 
-// Recover 恢复 agent 运行态，并在 DAG wakeup 仍绑定同一 active turn 时重放待执行工作。
+// Recover 恢复 agent 运行态；managed CLI 必须先终结旧 turn，只恢复线程而不重放输入。
 func (s *service) Recover(ctx context.Context, agentID string) error {
 	if s == nil || s.lifecycle == nil || s.lifecycle.recovery == nil {
 		return errors.New("recovery controller is not configured")
@@ -151,6 +154,12 @@ func (c *recoveryController) recoverWithReason(ctx context.Context, agentID, rea
 		return errors.New("recovery controller is not configured")
 	}
 	if err, blocked := c.managedClaudeRecoveryError(agentID); blocked {
+		return err
+	}
+	if c.state == nil {
+		return errors.New("recovery state port is not configured")
+	}
+	if err := c.state.prepareRecoveryTerminal(ctx, agentID); err != nil {
 		return err
 	}
 	if c.canRecoverAgentViaLauncher(ctx, agentID) {
@@ -432,6 +441,7 @@ func replayRecoveredTurn(ctx context.Context, state recoveryStatePort, agent *ag
 
 // launcherRecoveryAttempt 保存 launcher 恢复跨锁阶段所需的快照和 seq fence。
 type launcherRecoveryAttempt struct {
+	recoveryHead              *contract.TerminalOutcomeHead
 	agentID, threadID, turnID string         // 恢复前的身份与 turn，用于提交后发布 resumed 事件
 	expectedSeq               uint64         // launchSeq fence，防止旧启动结果覆盖新 agent
 	launching                 agentRuntime   // 传给 launcher 的锁外运行快照
@@ -465,8 +475,11 @@ func (c *recoveryController) recoverLauncherWithReason(ctx context.Context, agen
 		return c.commitLauncherRecoveryFailure(ctx, attempt, err)
 	}
 	attempt.replay, attempt.shouldReplay = replay, shouldReplay
-	if err := c.launcher.Stop(ctx, &attempt.launching); err != nil {
+	if err := c.stopLauncherForRecovery(ctx, &attempt.launching); err != nil {
 		return c.commitLauncherRecoveryFailure(ctx, attempt, err)
+	}
+	if launcher, managedCLI := c.launcher.(*cliLauncher); managedCLI {
+		return c.recoverManagedCLI(ctx, launcher, attempt)
 	}
 	result, err := c.launcher.Launch(ctx, &attempt.launching, attempt.req)
 	if err != nil {
@@ -484,6 +497,10 @@ func (c *recoveryController) prepareLauncherRecovery(ctx context.Context, agentI
 	err := c.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !shouldRecoverViaLauncher(ctx, c.launcher, agent) {
 			return fmt.Errorf("agent %q is not running under launcher", agent.id)
+		}
+
+		if err := c.validateManagedCLIRecoveryLocked(ctx, agent, reason); err != nil {
+			return err
 		}
 		threadID, turnID := agent.threadID, agent.activeTurnID
 		if err := normalizeRecoveryState(ctx, c.state, agent); err != nil {
@@ -559,46 +576,46 @@ func (c *recoveryController) commitLauncherRecoverySuccess(ctx context.Context, 
 		c.registry.unlock()
 		return c.discardStaleSuccessfulLaunch(ctx, &attempt.launching, err)
 	}
+
 	if agent.state != agentdto.StateRecovering {
 		staleErr := fmt.Errorf("recovery launch state changed: agent %s state=%s", attempt.agentID, agent.state)
-		c.registry.unlock()
-		return c.discardStaleSuccessfulLaunch(ctx, &attempt.launching, staleErr)
+		return c.rejectRecoveryResultLocked(ctx, agent, attempt, staleErr)
 	}
 	if agent.stopRequested {
 		staleErr := fmt.Errorf("recovery launch stop requested: agent %s", attempt.agentID)
-		c.registry.unlock()
-		return c.discardStaleSuccessfulLaunch(ctx, &attempt.launching, staleErr)
+		return c.rejectRecoveryResultLocked(ctx, agent, attempt, staleErr)
 	}
 	adoptLaunchStateLocked(agent, &attempt.launching)
 	bindLaunchResult(agent, result)
 	agent.activeTurnID, agent.monitoredSeq = "", 0
 	agent.stopRequested = false
 	if err := c.launchCommit.rekeyLaunchedAgentLocked(agent); err != nil {
-		return c.commitRecoveryRekeyFailure(ctx, agent, &attempt.launching, err)
+		return c.failRecoveryResultLocked(ctx, agent, attempt, err)
+	}
+	if err := c.bindRecoveryHeadLocked(ctx, agent, &attempt); err != nil {
+		return c.failPreparedLauncherRecoveryLocked(ctx, agent, &attempt.launching, err)
 	}
 	if err := c.launchCommit.commitLaunchSuccessLocked(ctx, agent); err != nil {
-		return c.rollbackRecoveryCommitSuccessFailure(ctx, agent, &attempt.launching, err)
+		return c.rollbackRecoveryResultLocked(ctx, agent, attempt, err)
 	}
 	if err := c.finishLauncherRecoveryTurnLocked(ctx, agent, attempt); err != nil {
-		c.registry.unlock()
-		return err
+		return c.finishRecoveryResultErrorLocked(ctx, agent, attempt, err)
 	}
 	c.registry.unlock()
 	return nil
 }
 
-func (c *recoveryController) commitRecoveryRekeyFailure(
+// failPreparedLauncherRecoveryLocked 在head或rekey失败时拒绝启动成功并停止新provider，保留清理错误。
+func (c *recoveryController) failPreparedLauncherRecoveryLocked(
 	ctx context.Context,
 	agent *agentRuntime,
 	launching *agentRuntime,
-	rekeyErr error,
+	launchErr error,
 ) error {
-	commitErr := c.launchCommit.commitLaunchFailureLocked(ctx, agent, rekeyErr)
+	commitErr := c.launchCommit.commitLaunchFailureLocked(ctx, agent, launchErr)
 	c.registry.unlock()
-	if stopErr := c.launcher.Stop(ctx, launching); stopErr != nil {
-		c.log().Warn("orchestration: recovery rekey failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
-	}
-	return commitErr
+	stopErr := c.launcher.Stop(ctx, launching)
+	return errors.Join(commitErr, stopErr)
 }
 
 func (c *recoveryController) rollbackRecoveryCommitSuccessFailure(
@@ -662,7 +679,10 @@ func (c *recoveryController) recoverAfterProcessExit(ctx context.Context, agentI
 	if !shouldRecover {
 		return
 	}
-	if recoverErr := c.recoverWithReason(ctx, agentID, recoverReasonProcessExit); recoverErr != nil {
+	if recoverErr := c.recoverWithReason(contract.WithLaunchSeq(ctx, launchSeq), agentID, recoverReasonProcessExit); recoverErr != nil {
+		if errors.Is(recoverErr, errStaleProcessExitRecovery) {
+			return
+		}
 		c.log().Warn("orchestration: process exit recovery failed",
 			"agent_id", agentID, "launch_seq", launchSeq, "error", recoverErr)
 		if notifyErr := c.notifyRecoveryFailure(ctx, agentID, recoverErr); notifyErr != nil {

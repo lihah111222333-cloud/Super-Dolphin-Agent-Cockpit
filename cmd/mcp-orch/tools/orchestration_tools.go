@@ -446,7 +446,7 @@ func HandleStopAgent(svc contract.AgentStopWaitPort) ToolHandler {
 		}
 		archived, err := stopAgentViaArchiveOrStop(ctx, svc, agentID)
 		if err != nil {
-			return nil, err
+			return nil, stopAgentOperationError(agentID, err)
 		}
 		return stopAgentResult(ctx, svc, agentID, archived, in)
 	})

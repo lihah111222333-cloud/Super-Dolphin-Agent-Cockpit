@@ -73,6 +73,7 @@ type cliSession struct {
 	// Readiness must not be signalled while this fence is set.
 	claudeAttachPending bool
 	pendingClaudeResult *claudewire.Event
+	pendingNativeAck    *nativeSubmissionAck
 	// pendingTerminal is a single bounded canonical receipt slot. It is claimed
 	// outside session.mu before invoking a sink, so re-entrant callbacks cannot
 	// deadlock or issue duplicate provider work.

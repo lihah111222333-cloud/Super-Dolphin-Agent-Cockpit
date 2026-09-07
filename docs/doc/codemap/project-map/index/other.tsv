@@ -432,6 +432,7 @@ internal/contract/provider_native_context.go	internal	other	go-source	28248	跨�
 internal/contract/provider_native_context_test.go	internal	other	go-test	19566	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,native,context,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/provider_skill_ref.go	internal	other	go-source	581	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,skill,ref,跨模块稳定接口,事件和,DTO,边界
 internal/contract/provider_skill_ref_test.go	internal	other	go-test	960	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,skill,ref,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/provider_submission_receipt.go	internal	other	go-source	1136	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,submission,receipt,跨模块稳定接口,事件和,DTO,边界
 internal/contract/recovery_failure_test.go	internal	other	go-test	4027	跨模块稳定接口、事件和 DTO 边界	internal,contract,recovery,failure,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/room_capability.go	internal	other	go-source	3096	跨模块稳定接口、事件和 DTO 边界	internal,contract,room,capability,跨模块稳定接口,事件和,DTO,边界
 internal/contract/room_capability_test.go	internal	other	go-test	1431	跨模块稳定接口、事件和 DTO 边界	internal,contract,room,capability,test,跨模块稳定接口,事件和,DTO,边界

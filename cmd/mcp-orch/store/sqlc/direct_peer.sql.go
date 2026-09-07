@@ -313,6 +313,36 @@ func (q *Queries) GetDirectPeerMessageByKey(ctx context.Context, arg GetDirectPe
 	return i, err
 }
 
+const getDirectPeerSubmittedEvent = `-- name: GetDirectPeerSubmittedEvent :one
+SELECT id, event_id, event_type, workspace_root, grant_id, message_id,
+       sender_agent_id, receiver_agent_id, grant_revision, payload_json, created_at
+FROM orchestration_direct_peer_events
+WHERE message_id = ? AND event_type = 'message.submitted'
+`
+
+type GetDirectPeerSubmittedEventParams struct {
+	MessageID string `db:"message_id" json:"message_id"`
+}
+
+func (q *Queries) GetDirectPeerSubmittedEvent(ctx context.Context, arg GetDirectPeerSubmittedEventParams) (OrchestrationDirectPeerEvent, error) {
+	row := q.db.QueryRowContext(ctx, getDirectPeerSubmittedEvent, arg.MessageID)
+	var i OrchestrationDirectPeerEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.EventType,
+		&i.WorkspaceRoot,
+		&i.GrantID,
+		&i.MessageID,
+		&i.SenderAgentID,
+		&i.ReceiverAgentID,
+		&i.GrantRevision,
+		&i.PayloadJson,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listDirectPeerEventOutboxCandidates = `-- name: ListDirectPeerEventOutboxCandidates :many
 SELECT o.id, o.event_id, o.status, o.claimed_by, o.claim_token, o.lease_expires_at,
        o.attempt_count, o.last_error, o.projected_at, o.created_at,

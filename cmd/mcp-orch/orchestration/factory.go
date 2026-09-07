@@ -56,12 +56,20 @@ func (s *service) markStoppingLocked(ctx context.Context, agent *agentState, rea
 		setStopReasonIfEmpty(agent, reason)
 		return false, nil
 	}
+	if err := s.prepareProcessTerminalHeadLocked(ctx, agent); err != nil {
+		return false, err
+	}
 	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerStopRequested); err != nil {
 		return false, err
 	}
 	agent.stopRequested = true
 	setStopReasonIfEmpty(agent, reason)
-	cleanupAgentState(agent)
+	// durable process terminal 必须仍能匹配活动 turn/thread；只清队列，身份留到 projector。
+	if s.terminalOutcomes == nil {
+		cleanupAgentState(agent)
+	} else if agent.queue != nil {
+		agent.queue.Clear()
+	}
 	return true, nil
 }
 
@@ -242,7 +250,13 @@ func clearAgentAutoRecoveryLocked(agent *agentRuntime) {
 
 // shouldRecoverViaLauncher 判断 agent 是否应通过 launcher 而非本地进程恢复。
 func shouldRecoverViaLauncher(ctx context.Context, launcher recoveryLauncherPort, agent *agentRuntime) bool {
-	if launcher == nil || agent == nil || agent.cmd != nil {
+	if launcher == nil || agent == nil {
+		return false
+	}
+	if isManagedCLIRecovery(launcher, agent) {
+		return true
+	}
+	if agent.cmd != nil {
 		return false
 	}
 	if launcher.IsRunning(ctx, agent) {
@@ -252,7 +266,7 @@ func shouldRecoverViaLauncher(ctx context.Context, launcher recoveryLauncherPort
 }
 
 // stoppedCodexAgentRecoverableViaLauncher 识别已停止但仍属于远端 Codex 启动器的 agent。
-// stop/archive 会清掉 remoteThreadID，recover 仍要重新 launch，不能退回本地进程路径。
+// 非CLI远端启动器保留既有恢复选择；managed CLI 的归属不依赖活体状态。
 func stoppedCodexAgentRecoverableViaLauncher(agent *agentRuntime) bool {
 	if agent == nil || !agentStateMatches(agent.state, agentdto.StateStopped, agentdto.StateFailed) {
 		return false

@@ -21,7 +21,8 @@ func terminalProjectionStateMatches(agent *agentRuntime, identity contract.Canon
 	if string(agent.state) == identity.ExpectedActiveState {
 		return true
 	}
-	return projectionKind == "process_stopped" && agent.state == agentdto.StateStopping
+	return (projectionKind == "process_stopped" && agent.state == agentdto.StateStopping) ||
+		(projectionKind == "process_failed" && agent.state == agentdto.StateRecovering)
 }
 
 // terminalProjectionTurnMatches 校验终态投影仍指向当前 turn 或 session terminal。
@@ -40,9 +41,24 @@ func terminalProjectionAlreadyApplied(agent *agentRuntime, commit contract.Termi
 	}
 	expected := agentOutcomeFromPublic(commit.PublicOutcome)
 	return terminalProjectionReplayFenceFromAgent(agent) == terminalProjectionReplayFenceFromIdentity(commit.Identity) &&
-		string(agent.state) == publicTerminalState(commit) &&
+		terminalProjectionRuntimeStateMatches(agent.state, commit.ProjectionKind) &&
 		strings.TrimSpace(agent.lastReport) == strings.TrimSpace(commit.PublicReport) &&
 		terminalProjectionOutcomeMatches(agent.outcome, expected, commit.ProjectionKind)
+}
+
+// terminalProjectionRuntimeStateMatches 按唯一投影器的生命周期目标判定，而非public outcome展示状态。
+// turn成功或中止均释放本轮并回到idle；只有agent/process终态结束runtime生命周期。
+func terminalProjectionRuntimeStateMatches(state agentdto.AgentState, projectionKind string) bool {
+	switch projectionKind {
+	case "turn_completed":
+		return state == agentdto.StateIdle
+	case "agent_stopped", "process_stopped":
+		return state == agentdto.StateStopped
+	case "agent_failed", "process_failed":
+		return state == agentdto.StateFailed
+	default:
+		return false
+	}
 }
 
 // terminalProjectionOutcomeMatches 允许受控 process terminal 的旧 outcome 形状重放。
@@ -102,6 +118,9 @@ func processExitHeadMatches(head contract.DurableTerminalOutcomeHead, identity c
 
 // terminalProjectionSuperseded 判断旧 process-exit commit 是否已被新代际明确取代。
 func (s *service) terminalProjectionSuperseded(ctx context.Context, agent *agentRuntime, commit contract.TerminalOutcomeCommit) (bool, error) {
+	if commit.ProjectionKind == "turn_completed" {
+		return s.completedTurnSupersededByProcessHead(ctx, agent, commit.Identity)
+	}
 	if agent == nil || !isProcessTerminalProjection(commit.ProjectionKind) {
 		return false, nil
 	}

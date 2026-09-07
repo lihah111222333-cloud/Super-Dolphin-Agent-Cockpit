@@ -238,27 +238,20 @@ func directPeerSendPayload() json.RawMessage {
 	return json.RawMessage(`{"receiver_agent_id":"b","idempotency_key":"k","message":"hello"}`)
 }
 
-// TestDirectPeerSubmittedReplayRemainsReceipt proves a replay that already
-// carries a submitted receipt is returned without another provider call.
-func TestDirectPeerSubmittedReplayRemainsReceipt(t *testing.T) {
+// TestDirectPeerSubmittedReplayWithoutNativeReceiptFailsClosed 拒绝旧 submitted 状态冒充持久原生确认。
+func TestDirectPeerSubmittedReplayWithoutNativeReceiptFailsClosed(t *testing.T) {
 	stub := &directPeerStub{replayStatus: "submitted"}
 	turns := &directPeerTurnStub{}
 	ports := DirectPeerPorts{Store: stub, Agents: directPeerAgentStub{workspace: t.TempDir()}, Turns: turns}
 	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{CWD: t.TempDir(), AgentID: "a"})
-	first, err := handleSendDirectPeer(ports)(ctx, json.RawMessage(`{"receiver_agent_id":"b","idempotency_key":"k","message":"hello"}`))
-	if first != nil || !errors.Is(err, directpeerstore.ErrDeliveryOutcomeUnknown) {
-		t.Fatalf("first submit result=%#v err=%v, want non-authorizing unknown", first, err)
-	}
-	replay, err := handleSendDirectPeer(ports)(ctx, json.RawMessage(`{"receiver_agent_id":"b","idempotency_key":"k","message":"hello"}`))
-	if err != nil {
-		t.Fatalf("submitted replay error=%v", err)
-	}
-	message, ok := replay.(directpeerstore.Message)
-	if !ok || message.Status != "submitted" {
-		t.Fatalf("submitted replay=%#v", replay)
+	for range 2 {
+		result, err := handleSendDirectPeer(ports)(ctx, directPeerSendPayload())
+		if result != nil || !errors.Is(err, directpeerstore.ErrDeliveryOutcomeUnknown) {
+			t.Fatalf("missing native receipt result=%#v error=%v", result, err)
+		}
 	}
 	if len(turns.submissions) != 1 || stub.markSubmitted != 0 {
-		t.Fatalf("submitted replay invoked provider: calls=%d marks=%d", len(turns.submissions), stub.markSubmitted)
+		t.Fatalf("legacy replay submitted twice: calls=%d marks=%d", len(turns.submissions), stub.markSubmitted)
 	}
 }
 

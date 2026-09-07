@@ -25,6 +25,9 @@ func TestMCPOrchServeOperatorSourceHTTPFence(t *testing.T) {
 	sessionB, _ := initializeServeE2E(t, clientB, process.ready.Endpoint, fixture.token)
 	assertServeTools(t, clientA, process.ready.Endpoint, fixture.token, sessionA, 2)
 	assertServeTools(t, clientB, process.ready.Endpoint, fixture.token, sessionB, 2)
+	// 撤权前先成功执行与拒绝断言完全相同的合法请求，排除 schema 错误假阳性。
+	assertServeListAgents(t, clientA, process.ready.Endpoint, fixture.token, sessionA, 3)
+	assertServeListAgents(t, clientB, process.ready.Endpoint, fixture.token, sessionB, 3)
 	cfg, err := standalone.LoadConfig(fixture.config)
 	operatorSourceRequireNoError(t, err)
 	db, err := newStandaloneDB(newStandalonePlatformConfig(cfg))
@@ -54,7 +57,7 @@ func TestMCPOrchServeOperatorSourceHTTPFence(t *testing.T) {
 
 func assertServeFenceDenied(t *testing.T, client *http.Client, endpoint, token, session string, id int) {
 	t.Helper()
-	reply := requestServeE2E(t, client, endpoint, token, session, id, "tools/call", map[string]any{"name": "list_agents", "arguments": map[string]any{"_meta": map[string]any{"principal_ref": "forged", "source_id": "forged"}}})
+	reply := requestServeE2E(t, client, endpoint, token, session, id, "tools/call", map[string]any{"name": "list_agents", "arguments": map[string]any{}})
 	decoded := decodeServeE2E(t, reply)
 	if decoded.Error == nil && len(decoded.Result) == 0 {
 		t.Fatalf("empty non-error denial response")

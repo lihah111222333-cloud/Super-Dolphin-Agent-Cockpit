@@ -49,12 +49,9 @@ func TestStandaloneOfficialClaudeToolCall(t *testing.T) {
 	if !filepath.IsAbs(cli) {
 		t.Fatal("ORCH_E2E_CLAUDE_BIN must name the installed official CLI absolute path")
 	}
-	authDir := strings.TrimSpace(os.Getenv("ORCH_E2E_CLAUDE_AUTH_DIR"))
-	if !filepath.IsAbs(authDir) {
-		t.Fatal("ORCH_E2E_CLAUDE_AUTH_DIR must name an explicit authenticated Claude config directory")
-	}
-	if info, err := os.Stat(authDir); err != nil || !info.IsDir() {
-		t.Fatalf("ORCH_E2E_CLAUDE_AUTH_DIR is not a directory: %v", err)
+	model := strings.TrimSpace(os.Getenv("ORCH_E2E_CLAUDE_MODEL"))
+	if model == "" {
+		t.Fatal("ORCH_E2E_CLAUDE_MODEL must explicitly select a cheap Claude model")
 	}
 	binary := buildServeE2EBinary(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -62,45 +59,15 @@ func TestStandaloneOfficialClaudeToolCall(t *testing.T) {
 	fixture := writeServeE2EFixture(t, binary)
 	daemon := startServeE2E(t, ctx, binary, fixture)
 	mcpConfig := writeClaudeToolCallConfig(t, daemon.ready.Endpoint, fixture.token)
-	env := claudeToolCallEnv(t, authDir)
+	env := claudeToolCallEnv(t)
 	output := runClaudeToolCallCommand(t, ctx, cli, fixture.workspace, env,
 		"-p", "Use the orch MCP server's list_agents tool exactly once. After the tool returns, reply with the exact marker ORCH_TOOL_CALL_OK and no other text.",
-		"--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
-		"--allowed-tools", "mcp__orch__list_agents", "--strict-mcp-config", "--mcp-config", mcpConfig,
+		"--model", model, "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
+		"--tools", "", "--allowed-tools", "mcp__orch__list_agents", "--strict-mcp-config", "--mcp-config", mcpConfig,
 		"--no-session-persistence")
-	if !strings.Contains(output, "ORCH_TOOL_CALL_OK") || !claudeStreamHasToolUse(output, "mcp__orch__list_agents") {
-		t.Fatalf("Claude did not complete the orch tool call: %s", output)
+	if err := validateClaudeToolCallStream(output); err != nil {
+		t.Fatalf("Claude did not complete the orch tool call: %v", err)
 	}
-}
-
-func claudeStreamHasToolUse(output, toolName string) bool {
-	for _, line := range strings.Split(output, "\n") {
-		var frame struct {
-			Type         string `json:"type"`
-			ContentBlock struct {
-				Type string `json:"type"`
-				Name string `json:"name"`
-			} `json:"content_block"`
-			Message struct {
-				Content []struct {
-					Type string `json:"type"`
-					Name string `json:"name"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal([]byte(line), &frame) != nil || frame.Type != "assistant" {
-			if frame.Type == "content_block_start" && frame.ContentBlock.Type == "tool_use" && frame.ContentBlock.Name == toolName {
-				return true
-			}
-			continue
-		}
-		for _, content := range frame.Message.Content {
-			if content.Type == "tool_use" && content.Name == toolName {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func writeClaudeToolCallConfig(t *testing.T, endpoint, token string) string {
@@ -117,7 +84,7 @@ func writeClaudeToolCallConfig(t *testing.T, endpoint, token string) string {
 	return path
 }
 
-func claudeToolCallEnv(t *testing.T, _ string) []string {
+func claudeToolCallEnv(t *testing.T) []string {
 	t.Helper()
 	home := strings.TrimSpace(os.Getenv("HOME"))
 	if !filepath.IsAbs(home) {
@@ -126,7 +93,7 @@ func claudeToolCallEnv(t *testing.T, _ string) []string {
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, value := range os.Environ() {
 		key, _, _ := strings.Cut(value, "=")
-		if strings.HasPrefix(key, "ANTHROPIC_") || key == "CLAUDE_CONFIG_DIR" || strings.HasPrefix(key, "SUPER_DOLPHIN_") {
+		if strings.HasPrefix(key, "ANTHROPIC_") || key == "CLAUDE_CONFIG_DIR" || key == "CLAUDE_CODE_OAUTH_TOKEN" || strings.HasPrefix(key, "SUPER_DOLPHIN_") {
 			continue
 		}
 		env = append(env, value)
@@ -162,7 +129,7 @@ func runClaudeToolCallCommand(t *testing.T, parent context.Context, cli, cwd str
 	raw, err := command.CombinedOutput()
 	output := strings.ReplaceAll(string(raw), serveE2EToken, "<test-token>")
 	if err != nil {
-		t.Fatalf("Claude tool call failed: %v; output=%s", err, output)
+		t.Fatalf("Claude tool call failed: %v (raw authenticated CLI output withheld)", err)
 	}
 	return output
 }

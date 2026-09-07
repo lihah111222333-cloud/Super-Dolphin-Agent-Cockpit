@@ -327,14 +327,14 @@ func TestSubmitRemoteTurnPermanentAuthFailureStopsAgent(t *testing.T) {
 	agent.launchSeq = 1
 	svc.registry.agents[agent.id] = agent
 
-	err := svc.submitTurnViaLauncher(context.Background(), TurnSubmission{
+	err := svc.SubmitTurn(context.Background(), TurnSubmission{
 		AgentID:  agent.id,
 		ThreadID: agent.remoteThreadID,
 		Inputs:   []shareddto.InputItem{{Type: "text", Content: "continue"}},
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "401 unauthorized") {
-		t.Fatalf("submitTurnViaLauncher() error = %v, want auth failure", err)
+		t.Fatalf("SubmitTurn() error = %v, want auth failure", err)
 	}
 	if launcher.stopCalls != 1 || !containsString(launcher.stopThreads, "thread-remote") {
 		t.Fatalf("launcher stop calls=%d stopThreads=%v, want auth failure cleanup stop", launcher.stopCalls, launcher.stopThreads)
@@ -354,14 +354,14 @@ func TestSubmitRemoteTurnClaudeAPIConnectionRefusedStopsAgent(t *testing.T) {
 	agent.launchSeq = 1
 	svc.registry.agents[agent.id] = agent
 
-	err := svc.submitTurnViaLauncher(context.Background(), TurnSubmission{
+	err := svc.SubmitTurn(context.Background(), TurnSubmission{
 		AgentID:  agent.id,
 		ThreadID: agent.remoteThreadID,
 		Inputs:   []shareddto.InputItem{{Type: "text", Content: "continue"}},
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "Unable to connect to API") {
-		t.Fatalf("submitTurnViaLauncher() error = %v, want Claude API connection refusal", err)
+		t.Fatalf("SubmitTurn() error = %v, want Claude API connection refusal", err)
 	}
 	if launcher.stopCalls != 1 || !containsString(launcher.stopThreads, "thread-remote") {
 		t.Fatalf("launcher stop calls=%d stopThreads=%v, want Claude API connection refusal cleanup stop", launcher.stopCalls, launcher.stopThreads)
@@ -381,14 +381,14 @@ func TestSubmitRemoteTurnClaudeModelUnavailableStopsAgent(t *testing.T) {
 	agent.launchSeq = 1
 	svc.registry.agents[agent.id] = agent
 
-	err := svc.submitTurnViaLauncher(context.Background(), TurnSubmission{
+	err := svc.SubmitTurn(context.Background(), TurnSubmission{
 		AgentID:  agent.id,
 		ThreadID: agent.remoteThreadID,
 		Inputs:   []shareddto.InputItem{{Type: "text", Content: "continue"}},
 	})
 
 	if err == nil || !strings.Contains(err.Error(), "selected model") {
-		t.Fatalf("submitTurnViaLauncher() error = %v, want Claude model unavailable", err)
+		t.Fatalf("SubmitTurn() error = %v, want Claude model unavailable", err)
 	}
 	if launcher.stopCalls != 1 || !containsString(launcher.stopThreads, "thread-remote") {
 		t.Fatalf("launcher stop calls=%d stopThreads=%v, want Claude model unavailable cleanup stop", launcher.stopCalls, launcher.stopThreads)

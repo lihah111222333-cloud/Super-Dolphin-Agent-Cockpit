@@ -132,3 +132,9 @@ UPDATE orchestration_direct_peer_event_outbox
 SET status = 'poisoned', claimed_by = '', claim_token = '', lease_expires_at = NULL,
     attempt_count = attempt_count + 1, last_error = ?
 WHERE id = ? AND status IN ('pending', 'claimed');
+
+-- name: GetDirectPeerSubmittedEvent :one
+SELECT id, event_id, event_type, workspace_root, grant_id, message_id,
+       sender_agent_id, receiver_agent_id, grant_revision, payload_json, created_at
+FROM orchestration_direct_peer_events
+WHERE message_id = ? AND event_type = 'message.submitted';

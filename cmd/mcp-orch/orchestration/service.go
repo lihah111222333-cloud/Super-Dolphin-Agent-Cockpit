@@ -146,10 +146,6 @@ type turnRuntimeRehydrator interface {
 	ensureRuntimeForPersistedAgent(ctx context.Context, agentID string)
 }
 
-type turnStopPort interface {
-	stopAgentViaLauncher(ctx context.Context, agentID, reason string) error
-}
-
 type turnControllerDeps struct {
 	registry         *agentRegistry
 	launcher         AgentLauncher
@@ -748,18 +744,6 @@ func (s *service) DrainAsync(ctx context.Context) {
 	case <-ctx.Done():
 		s.logger.Warn("orchestration: async drain deadline reached", "error", ctx.Err())
 	}
-}
-
-// SubmitTurn 提交一次 turn，远端 agent 优先走 launcher，其他 agent 进入本地队列。
-func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
-	if s == nil || s.turns == nil {
-		return errors.New("turn controller is not configured")
-	}
-	terminals, err := s.turns.SubmitTurn(ctx, req)
-	for _, terminal := range terminals {
-		s.handleRemoteTurnTerminal(ctx, terminal)
-	}
-	return err
 }
 
 // ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。

@@ -428,7 +428,7 @@ func (s *service) projectTerminalOutcomeLocked(ctx context.Context, agent *agent
 	}); err != nil {
 		return err
 	}
-	setReportLocked(ctx, agent, commit.PublicReport)
+	setCanonicalTerminalReportLocked(ctx, agent, commit)
 	agent.outcome = agentOutcomeFromPublic(commit.PublicOutcome)
 	drainReportRequestersLocked(ctx, agent)
 	return nil
@@ -467,7 +467,7 @@ func (s *service) projectAgentTerminalOutcomeLocked(ctx context.Context, agent *
 	}
 	agent.activeTurnID = ""
 	agent.providerTurnAlias = providerTurnAlias{}
-	setReportLocked(ctx, agent, commit.PublicReport)
+	setCanonicalTerminalReportLocked(ctx, agent, commit)
 	agent.outcome = agentOutcomeFromPublic(commit.PublicOutcome)
 	drainReportRequestersLocked(ctx, agent)
 	if target == string(agentdto.StateStopped) {
@@ -489,6 +489,14 @@ func (s *service) CommitProcessExitTerminalLocked(ctx context.Context, agent *ag
 	if terminalFailedOrStopped(agent.state) {
 		return true, s.validateExistingProcessTerminal(ctx, agent)
 	}
+	if err := s.prepareProcessTerminalHeadLocked(ctx, agent); err != nil {
+		return true, err
+	}
+	return s.commitPreparedProcessTerminalLocked(ctx, agent)
+}
+
+// commitPreparedProcessTerminalLocked 仅使用已经校验的head提交进程终态。
+func (s *service) commitPreparedProcessTerminalLocked(ctx context.Context, agent *agentRuntime) (bool, error) {
 	projectionKind := processTerminalProjectionKind(agent)
 	commit, err := terminalOutcomeCommitFromAgentTerminal(
 		agent, firstNonEmpty(agent.remoteThreadID, agent.threadID), agentSessionID(agent),
@@ -506,7 +514,6 @@ func (s *service) CommitProcessExitTerminalLocked(ctx context.Context, agent *ag
 	if err != nil {
 		return true, err
 	}
-	_ = processErr
 	return true, nil
 }
 
@@ -770,4 +777,12 @@ func publicTurnCompletedFromCommit(commit contract.TerminalOutcomeCommit, privat
 		Result:  result,
 		Summary: strings.TrimSpace(commit.PublicOutcome.Summary),
 	}
+}
+
+// setCanonicalTerminalReportLocked 只镜像持久报告真相，避免恢复切回runtime读端时独立计数倒退。
+func setCanonicalTerminalReportLocked(ctx context.Context, agent *agentRuntime, commit contract.TerminalOutcomeCommit) {
+	agent.lastReport = commit.PublicReport
+	agent.lastReportSeq = int64(commit.Identity.HeadVersion)
+	agent.lastReportUpdatedAt = commit.OccurredAt
+	agent.updatedAt = resolveEventTime(ctx)
 }

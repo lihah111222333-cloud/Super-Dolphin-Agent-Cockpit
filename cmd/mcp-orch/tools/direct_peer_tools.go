@@ -130,8 +130,14 @@ func handleSendDirectPeer(ports DirectPeerPorts) ToolHandler {
 		}
 		message, err := ports.Store.Send(ctx, directpeerstore.SendRequest{WorkspaceRoot: scope.CWD, SenderAgentID: scope.AgentID,
 			ReceiverAgentID: strings.TrimSpace(input.ReceiverAgentID), IdempotencyKey: strings.TrimSpace(input.IdempotencyKey), Body: input.Message})
-		if err != nil || message.Status != "accepted" {
+		if err != nil {
 			return message, err
+		}
+		if message.Status == "submitted" {
+			return readDirectPeerNativeReplay(ctx, ports.Store, message)
+		}
+		if message.Status != "accepted" {
+			return message, nil
 		}
 		if !message.Fresh {
 			// An accepted replay proves only durable intent, not provider custody.
@@ -165,6 +171,9 @@ func submitDirectPeerTurn(ctx context.Context, ports DirectPeerPorts, message di
 	}
 	submission := contract.TurnSubmission{AgentID: message.ReceiverAgentID, ThreadID: snapshot.ThreadID,
 		Inputs: []turndto.InputItem{{Type: "text", Content: message.Body}}}
+	if native, ok := ports.Turns.(nativeTurnSubmitter); ok {
+		return submitDirectPeerNative(ctx, ports.Store, native, message, submission)
+	}
 	if err := ports.Turns.SubmitTurn(ctx, submission); err != nil {
 		// TurnSubmissionPort 只返回 error，无法证明 provider 是否已经接受请求。
 		// 保留 durable accepted 消息并返回脱敏的不可授权 unknown；不写伪造失败回执，

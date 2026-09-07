@@ -5,15 +5,51 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/creachadair/jrpc2"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 type testWriteCloser struct{ bytes.Buffer }
 
 func (*testWriteCloser) Close() error { return nil }
+
+// TestCodexNotificationRoutingPreservesReverseRequests 防止通知快路径吞掉带 ID 的反向请求。
+func TestCodexNotificationRoutingPreservesReverseRequests(t *testing.T) {
+	for _, id := range []string{`1`, `0`, `"approval-1"`, `""`, `null`, `{}`, `true`} {
+		t.Run(id, func(t *testing.T) {
+			raw := `{"id":` + id + `,"method":"item/commandExecution/requestApproval","params":{"command":"pwd"},"extension":{"keep":true}}`
+			channel := NewChannel(io.NopCloser(strings.NewReader(raw+"\n")), &testWriteCloser{})
+			t.Cleanup(func() {
+				if err := channel.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			notifications := 0
+			channel.onNotify = func(*jrpc2.Request) { notifications++ }
+			frame, err := channel.Recv()
+			if err != nil || notifications != 0 {
+				t.Fatalf("reverse request consumed: notifications=%d err=%v", notifications, err)
+			}
+			var want, got map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(raw), &want); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(frame, &got); err != nil {
+				t.Fatal(err)
+			}
+			want["jsonrpc"] = json.RawMessage(`"2.0"`)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("request fields changed before jrpc2 validation: got=%s want=%s", frame, raw)
+			}
+		})
+	}
+	// The existing real jrpc2 client fixture also proves notification ordering.
+	t.Run("notification-order", TestCodexNotificationsKeepWireOrder)
+}
 
 func TestCodexJSONLChannelContract(t *testing.T) {
 	writer := &testWriteCloser{}

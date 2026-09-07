@@ -14,26 +14,27 @@ import (
 )
 
 // trySubmitRemoteTurn 以本地代际快照提交远端 turn，并收束提交窗口内提前到达的终态。
-func (c *turnController) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, []turndto.TurnTerminalV2, error) {
+func (c *turnController) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission, submit func(context.Context, *agentRuntime, TurnSubmission) (string, error)) (bool, []turndto.TurnTerminalV2, remoteTurnSubmitRef, error) {
 	attempt, handled, err := c.prepareRemoteTurnSubmit(ctx, agentID, req)
+	ref := attempt.ref()
 	if !handled || err != nil {
-		return handled, nil, err
+		return handled, nil, ref, err
 	}
 	if err := c.beginRemoteTurnSubmit(attempt); err != nil {
 		c.finishRemoteTurnSubmitFailure(ctx, attempt, err)
-		return true, nil, err
+		return true, nil, ref, err
 	}
-	remoteTurnID, submitErr := c.launcher.SubmitTurn(ctx, &attempt.agent, attempt.req)
+	remoteTurnID, submitErr := submit(ctx, &attempt.agent, attempt.req)
 	if submitErr != nil {
-		return true, nil, c.handleRemoteTurnSubmitError(ctx, attempt, submitErr)
+		return true, nil, ref, c.handleRemoteTurnSubmitError(ctx, attempt, submitErr)
 	}
 	terminals, finishErr := c.finishRemoteTurnSubmitSuccess(ctx, attempt, remoteTurnID)
 	if finishErr == nil {
-		return true, terminals, nil
+		return true, terminals, ref, nil
 	}
 	cleanupErr := c.interruptRemoteTurnSubmitOrphan(attempt, remoteTurnID)
 	c.finishRemoteTurnSubmitFailure(ctx, attempt, finishErr)
-	return true, nil, errors.Join(finishErr, cleanupErr)
+	return true, nil, ref, errors.Join(finishErr, cleanupErr)
 }
 
 func (c *turnController) handleRemoteTurnSubmitError(ctx context.Context, attempt remoteTurnSubmitAttempt, submitErr error) error {

@@ -8,6 +8,7 @@ import (
 
 // Event 保留独立执行器消费的 CLI 事件字段；正文不能被当成控制命令。
 type Event struct {
+	IsReplay        bool     `json:"isReplay"`
 	Type            string   `json:"type"`
 	Subtype         string   `json:"subtype"`
 	SessionID       string   `json:"session_id"`

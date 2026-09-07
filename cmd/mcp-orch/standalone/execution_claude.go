@@ -69,6 +69,11 @@ func (e *Execution) launchClaude(ctx context.Context, session *cliSession, req c
 
 // submitClaude 使用一次明确的请求 UUID，写入失败后不自动重发。
 func (e *Execution) submitClaude(ctx context.Context, session *cliSession, sub contract.TurnSubmission) (string, error) {
+	return e.submitClaudeTracked(ctx, session, sub, nil)
+}
+
+// submitClaudeTracked 在写入前登记有界确认槽，普通调用不等待确认。
+func (e *Execution) submitClaudeTracked(ctx context.Context, session *cliSession, sub contract.TurnSubmission, ack *nativeSubmissionAck) (string, error) {
 	parts := make([]string, 0, len(sub.Inputs))
 	for _, item := range sub.Inputs {
 		parts = append(parts, item.Content)
@@ -76,7 +81,7 @@ func (e *Execution) submitClaude(ctx context.Context, session *cliSession, sub c
 	session.mu.Lock()
 	// 官方 CLI 先接收首条 user 再发送 system/init；已绑定进程即可投递，
 	// 但 ready 和结果发布仍由真实 init 确认，turnID 在本锁内占位以拒绝重复投递。
-	if session.stopped || session.failed != nil || session.claude == nil || session.turnID != "" {
+	if session.stopped || session.failed != nil || session.claude == nil || session.turnID != "" || session.pendingNativeAck != nil {
 		session.mu.Unlock()
 		return "", errors.New("Claude session is unavailable or busy")
 	}
@@ -86,6 +91,10 @@ func (e *Execution) submitClaude(ctx context.Context, session *cliSession, sub c
 		return "", err
 	}
 	turnID := identity.String()
+	if ack != nil {
+		ack.threadID, ack.turnID = session.threadID, turnID
+		session.pendingNativeAck = ack
+	}
 	session.turnID, session.output = turnID, ""
 	process, threadID := session.claude, session.threadID
 	session.mu.Unlock()
@@ -99,6 +108,7 @@ func (e *Execution) submitClaude(ctx context.Context, session *cliSession, sub c
 // claudeEventHandler 只将当前根 session 的 result 转成规范终态；init 竞态期间保留一条有界结果。
 func (e *Execution) claudeEventHandler(session *cliSession) func(claudewire.Event) {
 	return func(event claudewire.Event) {
+		acceptNativeClaudeAck(session, event)
 		if pending, ok := e.acceptClaudeInit(session, event); ok {
 			e.replayClaudePendingResult(session, pending)
 			return

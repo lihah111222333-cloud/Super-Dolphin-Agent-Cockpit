@@ -107,7 +107,7 @@ func validateLaunch(ctx context.Context, executable, cwd, model, sessionID strin
 
 func claudeLaunchArgs(model, sessionID, instructions string) []string {
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json",
-		"--verbose", "--model", model, "--session-id", sessionID, "--permission-mode", "dontAsk"}
+		"--verbose", "--replay-user-messages", "--model", model, "--session-id", sessionID, "--permission-mode", "dontAsk"}
 	if instructions != "" {
 		args = append(args, "--append-system-prompt", instructions)
 	}

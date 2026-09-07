@@ -113,15 +113,19 @@ func (e *Execution) resumeCodexThread(ctx context.Context, session *cliSession, 
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
+	if recoverArchived, _ := ctx.Value(recoverArchivedThreadKey{}).(bool); recoverArchived {
+		if err := prepareArchivedCodexRecovery(ctx, process.Client.CallResult, threadID, req.Cwd); err != nil {
+			e.failSession(session, err)
+			return errors.Join(err, process.Close())
+		}
+	}
 	err = process.Client.CallResult(ctx, "thread/resume", map[string]any{
 		"threadId": threadID, "cwd": req.Cwd, "sandbox": provider.Sandbox, "approvalPolicy": "never",
 	}, &result)
-	if err == nil && result.Thread.ID == "" {
-		err = errors.New("Codex thread/resume returned empty thread id")
+	if err == nil {
+		err = validateResumedThreadID(result.Thread.ID, threadID)
 	}
-	if err == nil && result.Thread.ID != threadID {
-		err = errors.New("Codex thread/resume returned a foreign thread")
-	}
+
 	if err != nil {
 		e.failSession(session, err)
 		return errors.Join(err, process.Close())
@@ -140,5 +144,13 @@ func (e *Execution) resumeCodexThread(ctx context.Context, session *cliSession, 
 	session.activated = true
 	session.mu.Unlock()
 	session.signalReady(nil)
+	return nil
+}
+
+// validateResumedThreadID 要求provider真实resume返回原thread，空值或外部身份均失败。
+func validateResumedThreadID(actual, expected string) error {
+	if actual == "" || actual != expected {
+		return errors.New("Codex thread/resume returned empty or foreign thread id")
+	}
 	return nil
 }

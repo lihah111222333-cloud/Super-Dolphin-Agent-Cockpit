@@ -64,7 +64,9 @@ docs/open-source/RELEASE_CHECKLIST.md	docs	docs-agent	doc	5049	项目文档体�
 docs/open-source/ROADMAP.md	docs	docs-agent	doc	3152	项目文档体系	docs,open,source,ROADMAP,项目文档体系
 docs/reference/README.md	docs	docs-agent	doc	659	项目文档体系	docs,reference,README,项目文档体系
 docs/reference/mcp-lsp-standalone-clients.md	docs	docs-agent	doc	7929	项目文档体系	docs,reference,mcp,lsp,standalone,clients,项目文档体系
-docs/reference/mcp-orch-standalone-clients.md	docs	docs-agent	doc	13122	项目文档体系	docs,reference,mcp,orch,standalone,clients,项目文档体系
+docs/reference/mcp-orch-standalone-auto-recovery-validation-2026-09-08.md	docs	docs-agent	doc	10184	项目文档体系	docs,reference,mcp,orch,standalone,auto,recovery,validation,2026,09,08,项目文档体系
+docs/reference/mcp-orch-standalone-clients.md	docs	docs-agent	doc	16492	项目文档体系	docs,reference,mcp,orch,standalone,clients,项目文档体系
+docs/reference/mcp-orch-standalone-validation-2026-09-07.md	docs	docs-agent	doc	8980	项目文档体系	docs,reference,mcp,orch,standalone,validation,2026,09,07,项目文档体系
 docs/reference/orch-standalone-runbook.md	docs	docs-agent	doc	10836	项目文档体系	docs,reference,orch,standalone,runbook,项目文档体系
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	当前文档维护、发布 smoke 与验证脚本	docs,scripts,macos,release,smoke,当前文档维护,发布,与验证脚本
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
@@ -157,6 +159,7 @@ docs/契约/provider-native-context-convention.md	docs	docs-agent	doc	1269	项�
 docs/契约/recall-topic-naming.md	docs	docs-agent	doc	1328	项目文档体系	docs,契约,recall,topic,naming,项目文档体系
 docs/契约/rungroup-convention.md	docs	docs-agent	doc	3717	项目文档体系	docs,契约,rungroup,convention,项目文档体系
 docs/契约/sqlc-convention.md	docs	docs-agent	doc	3949	项目文档体系	docs,契约,sqlc,convention,项目文档体系
+docs/契约/standalone-native-submission-ack.md	docs	docs-agent	doc	5872	项目文档体系	docs,契约,standalone,native,submission,ack,项目文档体系
 docs/契约/standalone-provider-auth-convention.md	docs	docs-agent	doc	1063	项目文档体系	docs,契约,standalone,provider,auth,convention,项目文档体系
 docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文档体系	docs,契约,statemachine,event,convention,项目文档体系
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系

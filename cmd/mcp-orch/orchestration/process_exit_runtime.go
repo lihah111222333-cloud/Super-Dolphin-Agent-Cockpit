@@ -17,8 +17,8 @@ func (c *lifecycleController) finalizeProcessExitRuntimeLocked(
 	agent.exitedAt = &now
 	agent.lastExitedSeq = launchSeq
 	agent.updatedAt = now
-	resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
 	if !terminalCommitted {
+		resetRuntimeAfterProcessExitLocked(agent, recoverViaLauncher)
 		c.removeSession(agent)
 	}
 }

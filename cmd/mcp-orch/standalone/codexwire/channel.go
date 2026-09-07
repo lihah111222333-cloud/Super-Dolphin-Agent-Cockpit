@@ -94,13 +94,16 @@ func (c *Channel) deliverNotification(frame []byte) (bool, error) {
 		return false, nil
 	}
 	var envelope struct {
+		ID     json.RawMessage `json:"id"`
 		Method string          `json:"method"`
 		Params json.RawMessage `json:"params"`
 	}
 	if err := json.Unmarshal(frame, &envelope); err != nil {
 		return false, err
 	}
-	if envelope.Method == "" {
+	// Any explicit ID belongs to jrpc2, including null or malformed IDs: the
+	// notification fast path must not erase identity before protocol validation.
+	if len(envelope.ID) != 0 || envelope.Method == "" {
 		return false, nil
 	}
 	normalized, err := json.Marshal(struct {

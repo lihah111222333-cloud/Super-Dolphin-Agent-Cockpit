@@ -4,21 +4,21 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:acab37c6a39849fce5c4af79ef66336755b676b6705bcc77a390cd34adad3277",
-    "source_sha256": "sha256:225cea8ea00f8c58bbb6b28b0a611d9f31072f28b3b2eae54768742051f59be2",
-    "entries_sha256": "sha256:cde6829f53dfd6a580d93b03222a4113edd4359a9db3eecc9278e11fa54933d9"
+    "source_sha256": "sha256:5e4f70ab806abf371d6ab065fdca0befef58efa7c3529d407775f7d375bbe06e",
+    "entries_sha256": "sha256:9687ec8514eaf65b255ff8021c5962dab4b391711a8077e8574996e44b617cf3"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5664,
+  "files": 5709,
   "domains": {
-    "other": 1062,
+    "other": 1063,
     "remote-ci": 191,
-    "docs-agent": 172,
+    "docs-agent": 175,
     "app-ui": 710,
     "platform-provider": 1823,
-    "orchestration": 986,
+    "orchestration": 1027,
     "modules": 476,
     "store-sql": 244
   },
@@ -36,8 +36,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 986,
-        "size_kb": 242.2,
+        "file_count": 1027,
+        "size_kb": 253,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -71,15 +71,15 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 172,
-        "size_kb": 29.1,
+        "file_count": 175,
+        "size_kb": 29.7,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 1062,
-        "size_kb": 215.9,
+        "file_count": 1063,
+        "size_kb": 216.1,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -87,10 +87,10 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1839,
-    "docs": 165,
+    "cmd": 1880,
+    "docs": 168,
     "frontend-app": 702,
-    "internal": 2570,
+    "internal": 2571,
     "pkg": 30,
     "scripts": 293,
     "sql": 29,
