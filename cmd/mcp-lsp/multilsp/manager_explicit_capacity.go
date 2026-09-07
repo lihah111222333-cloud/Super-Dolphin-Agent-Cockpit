@@ -9,8 +9,8 @@ const (
 	defaultExplicitDocumentLimit  = 512
 	defaultDirtyDocumentLimit     = 64
 	defaultDirtyDocumentByteLimit = 16 << 20
-	defaultCleanDocumentByteLimit = 4 << 20
-	defaultCleanRefreshByteLimit  = 16 << 20
+	defaultCleanDocumentByteLimit = 100 << 20
+	defaultCleanRefreshByteLimit  = 100 << 20
 )
 
 func positiveDocumentLimit(configured, fallback int) int {

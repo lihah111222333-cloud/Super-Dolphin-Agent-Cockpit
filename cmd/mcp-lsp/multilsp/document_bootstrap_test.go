@@ -212,6 +212,46 @@ func TestOpenManagedSnapshotKeepsAuthoritativeReadCleanAcrossLaterDiskWrite(t *t
 	}
 }
 
+func TestCleanDocumentRead100MiBBoundary(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "large.json")
+	writeBootstrapTestFile(t, target, "x")
+	ref := documentRef{uri: fileURIFromPath(target), absPath: target, languageID: "json"}
+	mgr := &manager{}
+	states := []explicitDocumentState{{uri: ref.uri, absPath: target, fileBacked: true, diskClean: true}}
+	const limit = 100 << 20
+	if err := os.Truncate(target, limit); err != nil {
+		t.Fatalf("create boundary document: %v", err)
+	}
+	if err := mgr.preflightExplicitDocumentSyncReads(states); err != nil {
+		t.Fatalf("100 MiB refresh preflight: %v", err)
+	}
+	snapshot, err := readDocumentSnapshot(ref)
+	if err != nil {
+		t.Fatalf("read 100 MiB document: %v", err)
+	}
+	if snapshot.size != limit || len(snapshot.text) != limit || snapshot.text[0] != 'x' {
+		t.Fatal("boundary document snapshot is incomplete")
+	}
+	requireCleanDocumentOverflowRejected(t, mgr, ref, states)
+}
+
+func requireCleanDocumentOverflowRejected(t *testing.T, mgr *manager, ref documentRef, states []explicitDocumentState) {
+	t.Helper()
+	if err := mgr.preflightExplicitDocumentSyncReads(append(states, states[0])); err == nil ||
+		!strings.Contains(err.Error(), "aggregate exceeds read limit") {
+		t.Fatalf("aggregate overflow error = %v", err)
+	}
+	if err := os.Truncate(ref.absPath, (100<<20)+1); err != nil {
+		t.Fatalf("grow beyond document limit: %v", err)
+	}
+	if _, err := readDocumentSnapshot(ref); err == nil || !strings.Contains(err.Error(), "exceeds read limit") {
+		t.Fatalf("oversized snapshot error = %v", err)
+	}
+	if err := mgr.preflightExplicitDocumentSyncReads(states); err == nil || !strings.Contains(err.Error(), "exceeds read limit") {
+		t.Fatalf("oversized refresh error = %v", err)
+	}
+}
+
 func TestReadDocumentSnapshotRejectsOrBlocksAtomicPathReplacementAfterOpen(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "atomic.js")
