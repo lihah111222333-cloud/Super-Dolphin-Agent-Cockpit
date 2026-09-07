@@ -750,7 +750,7 @@ cmd/mcp-lsp/tools/tool_structure_ranking_test.go	cmd	platform-provider	go-test	4
 cmd/mcp-lsp/tools/tool_structure_test.go	cmd	platform-provider	go-test	29161	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_structure_timeout_nonwindows_test.go	cmd	platform-provider	go-test	1465	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,timeout,nonwindows,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_structure_timeout_windows_test.go	cmd	platform-provider	go-test	1275	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,timeout,windows,test,LSP,MCP,实现
-cmd/mcp-lsp/tools/tool_support.go	cmd	platform-provider	go-source	8060	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,support,LSP,MCP,实现
+cmd/mcp-lsp/tools/tool_support.go	cmd	platform-provider	go-source	8062	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,support,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_topology_hints_test.go	cmd	platform-provider	go-test	13268	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,topology,hints,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_xref.go	cmd	platform-provider	go-source	21764	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_xref_test.go	cmd	platform-provider	go-test	13267	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,test,LSP,MCP,实现

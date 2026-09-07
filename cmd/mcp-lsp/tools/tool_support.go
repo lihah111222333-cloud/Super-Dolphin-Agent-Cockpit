@@ -15,7 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/search"
 )
 
-const maxDiagnosticFileBytes = 2 << 20
+const maxDiagnosticFileBytes = 100 << 20
 
 var errManagerUnavailable = errors.New("LSP manager is not configured")
 
