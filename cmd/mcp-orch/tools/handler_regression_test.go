@@ -41,7 +41,7 @@ func TestHandleListDAGsReturnsWrappedDAGs(t *testing.T) {
 	}
 }
 
-func TestHandleListAgentsEnvelopeKeepsLegacyArrayDefault(t *testing.T) {
+func TestHandleListAgentsAlwaysReturnsObject(t *testing.T) {
 	handler := handleListAgentsWithStub(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return []contract.AgentSnapshot{{AgentID: "agent-1", State: "idle"}}, nil
@@ -52,8 +52,8 @@ func TestHandleListAgentsEnvelopeKeepsLegacyArrayDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() legacy error = %v", err)
 	}
-	if _, ok := legacy.([]contract.AgentSnapshot); !ok {
-		t.Fatalf("HandleListAgents() legacy response = %T, want []contract.AgentSnapshot", legacy)
+	if _, ok := legacy.(ListAgentsOutput); !ok {
+		t.Fatalf("HandleListAgents() legacy response = %T, want ListAgentsOutput", legacy)
 	}
 
 	result, err := handler(context.Background(), json.RawMessage(`{"envelope":true,"limit":5}`))

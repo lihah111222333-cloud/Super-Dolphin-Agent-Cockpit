@@ -16,7 +16,6 @@ import (
 
 	storedb "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
-	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
@@ -140,7 +139,7 @@ func NewStore(db *sql.DB) (*Store, error) {
 	return store, nil
 }
 
-// GrantPeer 以 required key 激活一个有向权限；同 key 同请求返回原 grant。
+// GrantPeer 以新key激活有向权限或重授已撤销关系；旧key重放只读取当前grant，不改变版本。
 func (s *Store) GrantPeer(ctx context.Context, workspaceRoot, sender, receiver, key string, canSend, canRead bool) (Grant, error) {
 	if err := validateGrantInput(workspaceRoot, sender, receiver, canSend, canRead); err != nil {
 		return Grant{}, err
@@ -149,13 +148,13 @@ func (s *Store) GrantPeer(ctx context.Context, workspaceRoot, sender, receiver, 
 		return Grant{}, errors.New("direct peer grant requires idempotency key")
 	}
 	digest := grantRequestDigest("grant", workspaceRoot, sender, receiver, canSend, canRead)
-	if existing, found, err := s.grantByKey(ctx, workspaceRoot, key, digest); found || err != nil {
-		return existing, err
-	}
 	now := time.Now().UTC().UnixMilli()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Grant{}, err
+	}
+	if existing, found, lookupErr := grantByKeyWithQueries(ctx, storedb.New(tx), workspaceRoot, key, digest); found || lookupErr != nil {
+		return existing, errors.Join(lookupErr, tx.Rollback())
 	}
 	row, err := storedb.New(tx).CreateDirectPeerGrant(ctx, storedb.CreateDirectPeerGrantParams{
 		GrantID: shared.NewID("direct-peer-grant"), WorkspaceRoot: workspaceRoot,
@@ -163,11 +162,7 @@ func (s *Store) GrantPeer(ctx context.Context, workspaceRoot, sender, receiver, 
 		CanSend: boolInt(canSend), CanRead: boolInt(canRead), CreatedAt: now, UpdatedAt: now,
 	})
 	if err != nil {
-		_ = tx.Rollback()
-		if platformdb.IsConflict(err) {
-			return Grant{}, fmt.Errorf("direct peer grant identity conflict: %w", ErrIdempotencyConflict)
-		}
-		return Grant{}, err
+		return s.resolveGrantWriteError(ctx, workspaceRoot, key, digest, errors.Join(err, tx.Rollback()))
 	}
 	grant := grantFromRow(row)
 	if err := appendGrantEventTx(ctx, tx, grant, eventGrantActive); err != nil {
@@ -188,12 +183,12 @@ func (s *Store) RevokePeer(ctx context.Context, workspaceRoot, sender, receiver,
 		return Grant{}, errors.New("direct peer revoke requires idempotency key")
 	}
 	digest := grantRequestDigest("revoke", workspaceRoot, sender, receiver, false, false)
-	if existing, found, err := s.grantByKey(ctx, workspaceRoot, key, digest); found || err != nil {
-		return existing, err
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Grant{}, err
+	}
+	if existing, found, lookupErr := grantByKeyWithQueries(ctx, storedb.New(tx), workspaceRoot, key, digest); found || lookupErr != nil {
+		return existing, errors.Join(lookupErr, tx.Rollback())
 	}
 	current, err := storedb.New(tx).GetDirectPeerGrant(ctx, storedb.GetDirectPeerGrantParams{WorkspaceRoot: workspaceRoot, SenderAgentID: sender, ReceiverAgentID: receiver})
 	if err != nil {
@@ -216,19 +211,9 @@ func (s *Store) RevokePeer(ctx context.Context, workspaceRoot, sender, receiver,
 	return grant, nil
 }
 
-// grantByKey 返回同 digest 的原 grant，异 digest 稳定冲突。
+// grantByKey 校验当前及历史操作身份；幂等重放不重新施加历史权限。
 func (s *Store) grantByKey(ctx context.Context, workspaceRoot, key, digest string) (Grant, bool, error) {
-	row, err := storedb.New(s.db).GetDirectPeerGrantByKey(ctx, storedb.GetDirectPeerGrantByKeyParams{WorkspaceRoot: workspaceRoot, IdempotencyKey: key})
-	if errors.Is(err, sql.ErrNoRows) {
-		return Grant{}, false, nil
-	}
-	if err != nil {
-		return Grant{}, false, err
-	}
-	if row.RequestDigest != digest {
-		return Grant{}, true, ErrIdempotencyConflict
-	}
-	return grantFromRow(row), true, nil
+	return grantByKeyWithQueries(ctx, storedb.New(s.db), workspaceRoot, key, digest)
 }
 
 // Send 原子验证当前 grant 并插入消息；同 key 同 digest 返回原消息，异 digest 冲突。
@@ -269,6 +254,9 @@ func sendInTransaction(ctx context.Context, tx *sql.Tx, request SendRequest, dig
 	if err == nil {
 		if existing.RequestDigest != digest {
 			return Message{}, false, ErrIdempotencyConflict
+		}
+		if existing.GrantRevision != grant.Revision {
+			return Message{}, false, ErrUnauthorized
 		}
 		return messageFromRow(existing), false, nil
 	}

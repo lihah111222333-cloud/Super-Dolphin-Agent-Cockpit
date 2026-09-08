@@ -8,16 +8,13 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
 // filterListAgentSnapshots 按 state/cwd/active 规则过滤快照，并在 include_reports=false 时清空报告正文。
 func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInput, cwdFilter string) []contract.AgentSnapshot {
 	states := parseAgentStateFilter(in.State)
-	limit := in.Limit
-	if limit < 0 {
-		limit = 0
-	}
 	filtered := make([]contract.AgentSnapshot, 0, len(agents))
 	for _, agent := range agents {
 		if !includeAgentSnapshotInList(agent, states, in.IncludeInactive, cwdFilter) {
@@ -27,9 +24,6 @@ func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInpu
 			agent.LastReport = ""
 		}
 		filtered = append(filtered, agent)
-		if limit > 0 && len(filtered) >= limit {
-			break
-		}
 	}
 	return filtered
 }
@@ -116,4 +110,28 @@ func inactiveAgentListState(state string) bool {
 	default:
 		return false
 	}
+}
+
+// validateListAgentsInput 在读取服务前拒绝负分页值和未知状态。
+func validateListAgentsInput(in ListAgentsInput) error {
+	if in.Envelope != nil && !*in.Envelope {
+		return fmt.Errorf("list_agents returns an object envelope; omit envelope or set it to true")
+	}
+	if in.Limit < 0 {
+		return fmt.Errorf("list_agents limit must be non-negative")
+	}
+	known := map[string]bool{"archived": true, "expired": true}
+	for _, state := range agentdto.StateDefinitions() {
+		known[string(state.Name)] = true
+	}
+	states := parseAgentStateFilter(in.State)
+	if strings.TrimSpace(in.State) != "" && len(states) == 0 {
+		return fmt.Errorf("list_agents state filter must contain a known state")
+	}
+	for state := range states {
+		if !known[state] {
+			return fmt.Errorf("list_agents unknown state %q", state)
+		}
+	}
+	return nil
 }

@@ -403,7 +403,11 @@ func terminalIdentity(eventID, agentID, threadID, turnID, sessionID string, gene
 
 // projectTerminalOutcomeLocked 是 durable commit 到 runtime/report/event 的唯一投影器。
 func (s *service) projectTerminalOutcomeLocked(ctx context.Context, agent *agentRuntime, commit contract.TerminalOutcomeCommit) error {
-	if terminalProjectionAlreadyApplied(agent, commit) {
+	applied, err := terminalProjectionAlreadyApplied(agent, commit)
+	if err != nil {
+		return err
+	}
+	if applied {
 		return nil
 	}
 	if err := validateTerminalProjectionIdentity(agent, commit.Identity, commit.ProjectionKind); err != nil {
@@ -458,10 +462,11 @@ func validateTerminalProjectionIdentity(agent *agentRuntime, identity contract.C
 }
 
 func (s *service) projectAgentTerminalOutcomeLocked(ctx context.Context, agent *agentRuntime, commit contract.TerminalOutcomeCommit) error {
-	target := string(agentdto.StateFailed)
-	if commit.ProjectionKind == "agent_stopped" || commit.ProjectionKind == "process_stopped" {
-		target = string(agentdto.StateStopped)
+	state, err := terminalProjectionRuntimeState(commit.ProjectionKind)
+	if err != nil {
+		return err
 	}
+	target := string(state)
 	if err := s.syncStateChangedHookLocked(ctx, agent, target); err != nil {
 		return err
 	}
@@ -569,17 +574,14 @@ func (s *service) overlayPublicTerminalOutcome(ctx context.Context, snapshot *Ag
 	if outcome.Identity.AgentID != strings.TrimSpace(snapshot.AgentID) {
 		return errors.New("public terminal outcome agent identity mismatch")
 	}
+	state, err := publicTerminalState(outcome)
+	if err != nil {
+		return err
+	}
 	snapshot.LastReport = outcome.PublicReport
 	snapshot.Outcome = agentOutcomeFromPublic(outcome.PublicOutcome)
 	snapshot.UpdatedAt = outcome.OccurredAt
-	switch outcome.PublicOutcome.Kind {
-	case "success":
-		snapshot.State = string(agentdto.StateIdle)
-	case "stopped":
-		snapshot.State = string(agentdto.StateStopped)
-	default:
-		snapshot.State = string(agentdto.StateFailed)
-	}
+	snapshot.State = state
 	return nil
 }
 

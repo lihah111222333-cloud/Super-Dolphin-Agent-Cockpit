@@ -28,9 +28,10 @@ func TestListAgentsHandlerSkipsReportHydrationWhenReportsOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok || !deadlineSeen {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot with deadline", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput with deadline", result)
 	}
 	if len(got) != 1 || got[0].AgentID != "agent-idle" || got[0].LastReport != "" {
 		t.Fatalf("HandleListAgents() = %#v, want compact snapshot without report", got)
@@ -60,7 +61,8 @@ func TestListAgentsHandlerCanIncludeInactiveReportsAndLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok || len(got) != 1 || got[0].AgentID != "agent-stopped" || got[0].LastReport != "old report" {
 		t.Fatalf("HandleListAgents() = %#v, want stopped with report", result)
 	}
@@ -86,7 +88,8 @@ func TestListAgentsHandlerIncludeReportsKeepsAgentsWithoutReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok || len(got) != 2 {
 		t.Fatalf("HandleListAgents() = %#v, want two snapshots", result)
 	}

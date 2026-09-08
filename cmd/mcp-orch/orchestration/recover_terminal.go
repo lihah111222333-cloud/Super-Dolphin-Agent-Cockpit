@@ -7,7 +7,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
-// prepareRecoveryTerminal 在选择恢复执行器前只协调同生命周期已提交的失败或停止真相。
+// prepareRecoveryTerminal 在选择恢复执行器前协调同生命周期已提交的终态，包含尚未投影的完成turn。
 func (s *service) prepareRecoveryTerminal(ctx context.Context, agentID string) error {
 	if s.terminalOutcomes == nil {
 		return nil
@@ -37,16 +37,17 @@ func (s *service) projectRecoveryTerminalLocked(ctx context.Context, agent *agen
 		return err
 	}
 	if agent.sessionGeneration == 0 {
-		if !processTerminalProjectionAppliedAfterCleanup(agent, head, outcome) {
+		applied, err := processTerminalProjectionAppliedAfterCleanup(agent, head, outcome)
+		if err != nil {
+			return err
+		}
+		if !applied {
 			return contract.ErrTerminalOutcomeConflict
 		}
 		return nil
 	}
 	if !processTerminalHeadOwnerMatches(agent, head) {
 		return contract.ErrTerminalOutcomeConflict
-	}
-	if !terminalFailedOrStoppedString(publicTerminalState(outcome)) {
-		return nil
 	}
 	return s.projectTerminalOutcomeLocked(ctx, agent, outcome)
 }

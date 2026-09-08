@@ -581,9 +581,10 @@ func TestListAgentsHandlerDefaultsToActiveCompactSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
 	}
 	if len(got) != 2 {
 		t.Fatalf("HandleListAgents() len = %d, want 2: %#v", len(got), got)
@@ -613,9 +614,10 @@ func TestListAgentsHandlerFiltersCommaSeparatedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
 	}
 	if len(got) != 2 || got[0].AgentID != "agent-idle" || got[1].AgentID != "agent-running" {
 		t.Fatalf("HandleListAgents() = %#v, want idle and running", got)
@@ -637,9 +639,10 @@ func TestListAgentsHandlerDefaultsToTrustedScopeCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
 	}
 	if len(got) != 1 || got[0].AgentID != "current-agent" {
 		t.Fatalf("HandleListAgents() = %#v, want only current cwd agent", got)
@@ -662,9 +665,10 @@ func TestListAgentsHandlerExcludesLegacyAgentsWithoutCWDWhenFiltering(t *testing
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
 	}
 	gotIDs := []string{}
 	for _, agent := range got {
@@ -690,9 +694,10 @@ func TestListAgentsHandlerCWDFilterStillDefaultsToActiveAgents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
 	}
 	if len(got) != 1 || got[0].AgentID != "current-agent" {
 		t.Fatalf("HandleListAgents() = %#v, want only active current cwd agent", got)
@@ -713,9 +718,10 @@ func TestListAgentsHandlerFiltersExplicitCWDWithoutTrustedScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
 	}
 	if len(got) != 1 || got[0].AgentID != "current-agent" {
 		t.Fatalf("HandleListAgents() = %#v, want explicit cwd agent", got)
@@ -737,9 +743,10 @@ func TestListAgentsHandlerTrustedScopeCWDOverridesArgumentCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleListAgents() error = %v", err)
 	}
-	got, ok := result.([]contract.AgentSnapshot)
+	envelope, ok := result.(ListAgentsOutput)
+	got := envelope.Agents
 	if !ok {
-		t.Fatalf("HandleListAgents() result type = %T, want []contract.AgentSnapshot", result)
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
 	}
 	if len(got) != 1 || got[0].AgentID != "trusted-agent" {
 		t.Fatalf("HandleListAgents() = %#v, want trusted cwd agent", got)

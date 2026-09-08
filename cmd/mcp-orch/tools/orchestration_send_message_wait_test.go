@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	mcpcommon "github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
 
@@ -77,7 +79,7 @@ func TestSendMessageWaitReportRequiresIdleAgent(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 				SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
-					return contract.AgentSnapshot{AgentID: agentID, State: state}, nil
+					return contract.AgentSnapshot{AgentID: agentID, ThreadID: "thread-b", State: state}, nil
 				},
 				GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
 					return contract.AgentReportResult{AgentID: agentID, State: state, Report: "old", ReportSeq: 3}, nil
@@ -138,7 +140,7 @@ func TestSendMessageWaitReportSubmitFailureDoesNotWait(t *testing.T) {
 	getReportCalls := 0
 	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
-			return contract.AgentSnapshot{AgentID: agentID, State: "idle"}, nil
+			return contract.AgentSnapshot{AgentID: agentID, ThreadID: "thread-b", State: "idle"}, nil
 		},
 		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
 			getReportCalls++
@@ -166,7 +168,7 @@ func TestSendMessageWaitReportSubmitFailureDoesNotWait(t *testing.T) {
 func TestSendMessageWaitReportTimeoutCoversSubmitTurn(t *testing.T) {
 	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
-			return contract.AgentSnapshot{AgentID: agentID, State: "idle"}, nil
+			return contract.AgentSnapshot{AgentID: agentID, ThreadID: "thread-b", State: "idle"}, nil
 		},
 		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
 			return contract.AgentReportResult{AgentID: agentID, State: "idle", Report: "old", ReportSeq: 3}, nil
@@ -208,7 +210,7 @@ func TestSendMessageWaitReportTimeoutCoversSubmitTurn(t *testing.T) {
 func TestSendMessageWaitReportTimeoutMentionsAgentAndSeq(t *testing.T) {
 	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
-			return contract.AgentSnapshot{AgentID: agentID, State: "idle"}, nil
+			return contract.AgentSnapshot{AgentID: agentID, ThreadID: "thread-b", State: "idle"}, nil
 		},
 		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
 			return contract.AgentReportResult{AgentID: agentID, State: "idle", Report: "old", ReportSeq: 3}, nil
@@ -270,4 +272,80 @@ func (s *sendMessageReportStore) setReport(report contract.AgentReportResult) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.report = report
+}
+
+func TestSendMessageRejectsMissingThreadIdentityBeforeSubmit(t *testing.T) {
+	for _, wait := range []bool{false, true} {
+		for _, snapshotErr := range []error{nil, fmt.Errorf("snapshot unavailable")} {
+			submitted := false
+			handler := handleSendMessageWithStub(&golden.OrchestrationStub{
+				SnapshotFunc: func(context.Context, string) (contract.AgentSnapshot, error) {
+					return contract.AgentSnapshot{AgentID: "agent-b", State: "idle"}, snapshotErr
+				},
+				GetReportFunc: func(context.Context, string) (contract.AgentReportResult, error) {
+					return contract.AgentReportResult{ReportSeq: 3}, nil
+				},
+				SubmitTurnFunc: func(context.Context, contract.TurnSubmission) error { submitted = true; return nil },
+			})
+			_, err := handler(context.Background(), mustReportWaitJSON(t, map[string]any{"agent_id": "agent-b", "message": "follow up", "wait_report": wait}))
+			if err == nil || submitted {
+				t.Fatalf("wait=%v snapshotErr=%v err=%v submitted=%v, want failure before submit", wait, snapshotErr, err, submitted)
+			}
+			if snapshotErr != nil && !strings.Contains(err.Error(), snapshotErr.Error()) {
+				t.Fatalf("error lost snapshot cause: %v", err)
+			}
+			if snapshotErr == nil && !strings.Contains(err.Error(), "empty thread_id") {
+				t.Fatalf("want missing thread error: %v", err)
+			}
+		}
+	}
+}
+
+func TestSendMessageFailureGuidancePreservesSubmissionStage(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		wait      bool
+		submitErr error
+		code      string
+		hint      string
+	}{
+		{"normal ambiguous", false, context.DeadlineExceeded, "submission_outcome_unknown", "Do not automatically resend"},
+		{"follow-up ambiguous", true, context.DeadlineExceeded, "submission_outcome_unknown", "Do not automatically resend"},
+		{"submitted report pending", true, nil, "report_wait_incomplete", `"after_report_seq":3`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			submits := 0
+			handler := handleSendMessageWithStub(&golden.OrchestrationStub{
+				SnapshotFunc: func(context.Context, string) (contract.AgentSnapshot, error) {
+					return contract.AgentSnapshot{ThreadID: "thread-b", State: "idle"}, nil
+				},
+				GetReportFunc: func(context.Context, string) (contract.AgentReportResult, error) {
+					return contract.AgentReportResult{ReportSeq: 3, Report: "old", State: "idle"}, nil
+				},
+				SubmitTurnFunc: func(context.Context, contract.TurnSubmission) error { submits++; return tc.submitErr },
+			})
+			_, err := handler(context.Background(), mustReportWaitJSON(t, map[string]any{"agent_id": "agent-b", "message": "follow-up", "wait_report": tc.wait, "timeout_ms": 10}))
+			var coded *mcpcommon.CodedToolError
+			if !errors.As(err, &coded) || coded.Code != tc.code || coded.Retryable || !strings.Contains(coded.Hint, tc.hint) || submits != 1 {
+				t.Fatalf("error=%v coded=%#v submits=%d, want nonretryable stage-specific guidance", err, coded, submits)
+			}
+		})
+	}
+}
+
+func TestSendMessageRejectsNegativeBaselineBeforeSubmit(t *testing.T) {
+	submitted := false
+	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
+		GetReportFunc: func(context.Context, string) (contract.AgentReportResult, error) {
+			return contract.AgentReportResult{ReportSeq: -1}, nil
+		},
+		SubmitTurnFunc: func(context.Context, contract.TurnSubmission) error {
+			submitted = true
+			return nil
+		},
+	})
+	_, err := handler(context.Background(), mustReportWaitJSON(t, map[string]any{"agent_id": "agent-b", "message": "follow-up", "wait_report": true}))
+	if err == nil || !strings.Contains(err.Error(), "negative report_seq") || submitted {
+		t.Fatalf("error=%v submitted=%v, want invalid baseline rejected before submitting", err, submitted)
+	}
 }

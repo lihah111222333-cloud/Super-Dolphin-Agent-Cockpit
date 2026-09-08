@@ -76,7 +76,7 @@ func taskToolDefinitionsWithRuntimeState(ports ToolPorts, state *toolRuntimeStat
 	return buildToolDefinitions(
 		defineTaskWriteTool("task_create_dag", "Create a new DAG template and its nodes in the orchestration store. Existing dag_key values are not replaced; scheduled triggers must be enabled later via task_dag_apply_ops with base_version and cron_expr. This does not start execution; if the user asked to run/execute now, call task_start_dag after create succeeds.", createDAGSchemaWithRuntimeState(state), handleCreateDAGWithRuntimeState(ports.DAGCreate, state), "workflow.dag.create", ToolIdempotencyRequired, "workflow.definition.write"),
 		defineTaskWriteTool("task_dag_apply_ops", "Apply a typed ops batch or one flat action (add_node / update_node / remove_node / update_dag) with base_version OCC. Use action+flat fields for common edits; use ops for advanced raw batches.", applyOpsInputSchemaWithRuntimeState(state), handleApplyOpsWithRuntimeState(ports.DAGRuntime, state), "workflow.dag.apply_ops", ToolIdempotencyRequired, "workflow.definition.write"),
-		defineTaskWriteTool("task_update_node", "Update the runtime status for a DAG node.", ObjectSchema(map[string]Schema{
+		defineTaskWriteTool("task_update_node", "Update only a runtime node status in a specific run_id. To edit node title/config/dependencies, use task_dag_apply_ops(action=update_node) with base_version.", ObjectSchema(map[string]Schema{
 			"pos":      StringSchema("Flattened runtime-node locator, e.g. dag:<dag_key>/run_id:<run_id>/node:<node_key>. Preferred over legacy dag_key/node_key/run_id."),
 			"dag_key":  StringSchema("DAG key."),
 			"node_key": StringSchema("Node key within the DAG."),

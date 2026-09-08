@@ -20,7 +20,7 @@ const (
 )
 
 // GetAgentReportInput 是 get_agent_report 工具的单 agent 入参。
-// AfterReportSeq 用来等待新报告版本，防止调用方拿到上一轮残留报告。
+// wait=true 必须显式提供 AfterReportSeq；首次为 0，后续为已观察到的持久化序号。
 type GetAgentReportInput struct {
 	AgentID        string `json:"agent_id"`
 	Pos            string `json:"pos,omitempty"`
@@ -81,6 +81,9 @@ func HandleGetAgentReport(reports agentReportPort) ToolHandler {
 		if !agentReportShouldWait(in) {
 			return reports.GetReport(ctx, agentID)
 		}
+		if in.AfterReportSeq == nil {
+			return nil, fmt.Errorf("after_report_seq is required when wait=true; use 0 for the first report or the last observed report_seq")
+		}
 		return waitForAgentReport(ctx, reports, in, agentID)
 	})
 }
@@ -116,31 +119,80 @@ func validateAgentReportsInput(in getAgentReportsInput) (agentReportsRequest, er
 	if in.TimeoutMS > 0 {
 		timeout = time.Duration(in.TimeoutMS) * time.Millisecond
 	}
-	agentIDs := make([]string, 0, len(in.AgentIDs))
-	for _, raw := range in.AgentIDs {
-		agentID := strings.TrimSpace(raw)
-		if agentID == "" {
-			return agentReportsRequest{}, fmt.Errorf("agent_ids must not contain empty agent id")
-		}
-		agentIDs = append(agentIDs, agentID)
+	agentIDs, err := normalizeAgentReportTargets(in.AgentIDs)
+	if err != nil {
+		return agentReportsRequest{}, err
 	}
-	afterByAgent := make(map[string]int64, len(in.AfterReportSeqByAgent))
-	for rawAgentID, seq := range in.AfterReportSeqByAgent {
-		agentID := strings.TrimSpace(rawAgentID)
-		if agentID == "" {
-			return agentReportsRequest{}, fmt.Errorf("after_report_seq_by_agent must not contain empty agent id")
+	afterByAgent, err := normalizeAgentReportCursors(in.AfterReportSeqByAgent)
+	if err != nil {
+		return agentReportsRequest{}, err
+	}
+	wait := in.Wait != nil && *in.Wait
+	if wait {
+		if err := requireAgentReportCursors(agentIDs, afterByAgent); err != nil {
+			return agentReportsRequest{}, err
 		}
-		if seq < 0 {
-			return agentReportsRequest{}, fmt.Errorf("after_report_seq_by_agent values must be non-negative")
-		}
-		afterByAgent[agentID] = seq
 	}
 	return agentReportsRequest{
 		agentIDs:              agentIDs,
-		wait:                  in.Wait != nil && *in.Wait,
+		wait:                  wait,
 		timeout:               timeout,
 		afterReportSeqByAgent: afterByAgent,
 	}, nil
+}
+
+// normalizeAgentReportTargets 规范化批量目标并拒绝同一身份重复计数。
+func normalizeAgentReportTargets(rawIDs []string) ([]string, error) {
+	ids := make([]string, 0, len(rawIDs))
+	seen := make(map[string]bool, len(rawIDs))
+	for _, raw := range rawIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			return nil, fmt.Errorf("agent_ids must not contain empty agent id")
+		}
+		if seen[id] {
+			return nil, fmt.Errorf("agent_ids contains duplicate normalized agent %q", id)
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// normalizeAgentReportCursors 校验并规范化调用方提供的游标键，拒绝重复身份。
+func normalizeAgentReportCursors(cursors map[string]int64) (map[string]int64, error) {
+	afterByAgent := make(map[string]int64, len(cursors))
+	for rawAgentID, seq := range cursors {
+		agentID := strings.TrimSpace(rawAgentID)
+		if agentID == "" {
+			return nil, fmt.Errorf("after_report_seq_by_agent must not contain empty agent id")
+		}
+		if seq < 0 {
+			return nil, fmt.Errorf("after_report_seq_by_agent values must be non-negative")
+		}
+		if _, exists := afterByAgent[agentID]; exists {
+			return nil, fmt.Errorf("after_report_seq_by_agent contains duplicate normalized agent id %q", agentID)
+		}
+		afterByAgent[agentID] = seq
+	}
+	return afterByAgent, nil
+}
+
+// requireAgentReportCursors 要求批量等待游标完整覆盖目标且没有多余键。
+func requireAgentReportCursors(agentIDs []string, afterByAgent map[string]int64) error {
+	targets := make(map[string]struct{}, len(agentIDs))
+	for _, agentID := range agentIDs {
+		targets[agentID] = struct{}{}
+		if _, exists := afterByAgent[agentID]; !exists {
+			return fmt.Errorf("after_report_seq_by_agent is required for agent %q when wait=true; use 0 for the first report or the last observed report_seq", agentID)
+		}
+	}
+	for agentID := range afterByAgent {
+		if _, exists := targets[agentID]; !exists {
+			return fmt.Errorf("after_report_seq_by_agent contains unrequested agent %q", agentID)
+		}
+	}
+	return nil
 }
 
 // readAgentReportsSnapshot 读取批量报告即时快照，不等待 pending agent 完成。
@@ -215,8 +267,8 @@ func pollPendingAgentReport(
 		items[i] = agentReportItemFromResult(agentID, report, err)
 		return false, true, false
 	}
-	afterSeq, hasAfterSeq := req.afterReportSeqByAgent[agentID]
-	completedReport, ok, terminalErr := completedBatchAgentReport(report, afterSeq, hasAfterSeq, agentID)
+	afterSeq := req.afterReportSeqByAgent[agentID]
+	completedReport, ok, terminalErr := completedBatchAgentReport(report, afterSeq, agentID)
 	if terminalErr != nil {
 		items[i] = agentReportItemFromResult(agentID, report, terminalErr)
 		return false, true, false
@@ -230,14 +282,11 @@ func pollPendingAgentReport(
 
 // completedBatchAgentReport 判定批量等待中的单个报告是否已经满足完成条件。
 // after_seq fence 未越过时继续等待；若 agent 已终态但没有新报告则返回 item 级错误。
-func completedBatchAgentReport(result contract.AgentReportResult, afterSeq int64, hasAfterSeq bool, agentID string) (contract.AgentReportResult, bool, error) {
-	if hasAfterSeq && result.ReportSeq <= afterSeq {
-		if err := terminalAgentReportNoNewReportError(result, &afterSeq, agentID); err != nil {
-			return contract.AgentReportResult{}, false, err
-		}
-		return contract.AgentReportResult{}, false, nil
+func completedBatchAgentReport(result contract.AgentReportResult, afterSeq int64, agentID string) (contract.AgentReportResult, bool, error) {
+	if err := terminalAgentReportNoNewReportError(result, &afterSeq, agentID); err != nil {
+		return contract.AgentReportResult{}, false, err
 	}
-	completed, ok := completedAgentReport(result, nil)
+	completed, ok := completedAgentReport(result, &afterSeq)
 	return completed, ok, nil
 }
 
@@ -384,7 +433,7 @@ func pollAgentReport(
 }
 
 // completedAgentReport 判定单次读取结果是否可作为完成报告返回。
-// 终态 agent 没有 report 文本时生成兜底文案，但 after_seq 未越过时仍继续等待。
+// 只返回真实报告文本；终态空报告由终态错误判定显式阻断。
 func completedAgentReport(result contract.AgentReportResult, afterReportSeq *int64) (contract.AgentReportResult, bool) {
 	if afterReportSeq != nil && result.ReportSeq <= *afterReportSeq {
 		return contract.AgentReportResult{}, false
@@ -392,11 +441,7 @@ func completedAgentReport(result contract.AgentReportResult, afterReportSeq *int
 	if strings.TrimSpace(result.Report) != "" {
 		return result, true
 	}
-	if !terminalAgentReportState(result.State) {
-		return contract.AgentReportResult{}, false
-	}
-	result.Report = agentReportNoReportFallback(result.State)
-	return result, true
+	return contract.AgentReportResult{}, false
 }
 
 // terminalAgentReportState 判断没有新报告时是否应停止等待并返回终态错误。
@@ -409,18 +454,15 @@ func terminalAgentReportState(state string) bool {
 	}
 }
 
-// agentReportNoReportFallback 为已终止但没有报告文本的 agent 生成稳定展示文案。
-func agentReportNoReportFallback(state string) string {
-	state = strings.TrimSpace(state)
-	if state == "" {
-		return "agent ended without producing a turn report"
-	}
-	return "agent ended in state '" + state + "' without producing a turn report"
-}
-
-// terminalAgentReportNoNewReportError 在终态且 report_seq 未推进时生成 fail-fast 错误。
+// terminalAgentReportNoNewReportError 在终态报告缺失或 report_seq 未推进时生成明确错误。
 func terminalAgentReportNoNewReportError(result contract.AgentReportResult, afterReportSeq *int64, agentID string) error {
-	if afterReportSeq == nil || !terminalAgentReportState(result.State) || result.ReportSeq > *afterReportSeq {
+	if !terminalAgentReportState(result.State) {
+		return nil
+	}
+	if strings.TrimSpace(result.Report) == "" {
+		return fmt.Errorf("agent %q ended in state %q without producing a turn report", agentID, result.State)
+	}
+	if afterReportSeq == nil || result.ReportSeq > *afterReportSeq {
 		return nil
 	}
 	return fmt.Errorf("agent %q ended in state %q without a report after report_seq %d", agentID, result.State, *afterReportSeq)

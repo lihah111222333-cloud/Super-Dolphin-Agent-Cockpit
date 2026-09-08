@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-08",
+  "verification": "single_command_fresh_source_binary_e2e",
+  "base_commit": "07b5ee1414758b009807e37600bb61a98c7be412",
+  "workspace": "uncommitted current source",
+  "build": "Each selected test invokes go build -buildvcs=false -o <temporary binary> ./cmd/mcp-orch; no prebuilt orch binary reused.",
+  "codex_cli": "0.153.3",
+  "claude_code": "2.1.237",
+  "passed": 19,
+  "failed": 0,
+  "skipped": 0,
+  "exit_code": 0,
+  "elapsed_seconds": 235.879,
+  "source_log": "/tmp/orch-real-binary-run.jsonl",
+  "scope": "All registered layers beginning with binary; excludes in-process direct-peer success scenarios and synthetic fault tests. Direct-peer binary coverage here is operator authorization rejection.",
+  "scenarios": {
+    "TestStandaloneAgentContract": {
+      "status": "pass",
+      "elapsed_seconds": 0.72,
+      "layer": "binary-agent-contract"
+    },
+    "TestStandaloneBinaryDirectPeerOperatorBoundary": {
+      "status": "pass",
+      "elapsed_seconds": 0.71,
+      "layer": "binary-operator-authorization-negative"
+    },
+    "TestMCPOrchServeBearerBoundary": {
+      "status": "pass",
+      "elapsed_seconds": 0.74,
+      "layer": "binary"
+    },
+    "TestMCPOrchServeBlackBoxSingleInstance": {
+      "status": "pass",
+      "elapsed_seconds": 0.68,
+      "layer": "binary"
+    },
+    "TestMCPOrchServeRejectsSecondInstance": {
+      "status": "pass",
+      "elapsed_seconds": 0.72,
+      "layer": "binary"
+    },
+    "TestMCPOrchServeReclaimsAfterOwnerKilled": {
+      "status": "pass",
+      "elapsed_seconds": 0.73,
+      "layer": "binary"
+    },
+    "TestMCPOrchServeRejectsInvalidCLIAndConfig": {
+      "status": "pass",
+      "elapsed_seconds": 0.62,
+      "layer": "binary"
+    },
+    "TestMCPOrchServeIndependentStateDomains": {
+      "status": "pass",
+      "elapsed_seconds": 0.79,
+      "layer": "binary"
+    },
+    "TestMCPOrchServeOperatorSourceLifecycle": {
+      "status": "pass",
+      "elapsed_seconds": 0.73,
+      "layer": "binary+db-observation"
+    },
+    "TestMCPOrchServeOperatorSourceHTTPFence": {
+      "status": "pass",
+      "elapsed_seconds": 0.69,
+      "layer": "binary+db-injected-revoke"
+    },
+    "TestStandaloneBinaryCodexLifecycleThroughMCP": {
+      "status": "pass",
+      "elapsed_seconds": 72.69,
+      "layer": "binary+http-managed-real-model"
+    },
+    "TestStandaloneBinaryCodexMessageRecovery": {
+      "status": "pass",
+      "elapsed_seconds": 61.19,
+      "layer": "binary+http-managed-real-model+provider-input-observation"
+    },
+    "TestStandaloneOfficialClaudeConnection": {
+      "status": "pass",
+      "elapsed_seconds": 1.2,
+      "layer": "binary+official-cli-no-model"
+    },
+    "TestStandaloneOfficialCodexClient": {
+      "status": "pass",
+      "elapsed_seconds": 0.77,
+      "layer": "binary+official-cli-no-model"
+    },
+    "TestStandaloneOfficialClaudeToolCall": {
+      "status": "pass",
+      "elapsed_seconds": 8.01,
+      "layer": "binary+official-cli-real-model"
+    },
+    "TestStandaloneCodexClientLaunchesManagedCodexThroughMCP": {
+      "status": "pass",
+      "elapsed_seconds": 19.59,
+      "layer": "binary+official-cli-managed-real-model"
+    },
+    "TestStandaloneBinaryLaunchesManagedClaudeThroughMCP": {
+      "status": "pass",
+      "elapsed_seconds": 9.18,
+      "layer": "binary+http-managed-real-model"
+    },
+    "TestStandaloneBinaryFullClaudeLifecycle": {
+      "status": "pass",
+      "elapsed_seconds": 11.23,
+      "layer": "binary+http-managed-real-model+db-observation"
+    },
+    "TestStandaloneBinaryCodexAutoRecoversProviderCrash": {
+      "status": "pass",
+      "elapsed_seconds": 44.87,
+      "layer": "binary+http-managed-real-model+os-process-identity+provider-history-observation+db-observation"
+    }
+  }
+}

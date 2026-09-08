@@ -317,6 +317,9 @@ func TestMutationHandlersAcceptPosSelectors(t *testing.T) {
 func assertSendMessagePosSelector(t *testing.T) {
 	var got contract.TurnSubmission
 	handler := handleSendMessageWithStub(&golden.OrchestrationStub{
+		SnapshotFunc: func(_ context.Context, id string) (contract.AgentSnapshot, error) {
+			return contract.AgentSnapshot{AgentID: id, ThreadID: "thread-1"}, nil
+		},
 		SubmitTurnFunc: func(_ context.Context, req contract.TurnSubmission) error {
 			got = req
 			return nil
@@ -325,7 +328,7 @@ func assertSendMessagePosSelector(t *testing.T) {
 	if _, err := handler(context.Background(), json.RawMessage(`{"pos":"agent:agent-1","message":"hello"}`)); err != nil {
 		t.Fatalf("HandleSendMessage() error = %v", err)
 	}
-	if got.AgentID != "agent-1" || got.ThreadID != "agent-1" || len(got.Inputs) != 1 {
+	if got.AgentID != "agent-1" || got.ThreadID != "thread-1" || len(got.Inputs) != 1 {
 		t.Fatalf("send_message pos submission = %#v", got)
 	}
 }

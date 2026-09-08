@@ -22,6 +22,8 @@ type standaloneScenario struct {
 func standaloneScenarios() map[string][]standaloneScenario {
 	return map[string][]standaloneScenario{
 		"control": {
+			{"synthetic-provider-input", TestStandaloneInterruptPromptEvidence},
+			{"binary-agent-contract", TestStandaloneAgentContract},
 			{"binary-operator-authorization-negative", TestStandaloneBinaryDirectPeerOperatorBoundary},
 			{"binary", TestMCPOrchServeBearerBoundary},
 			{"binary", TestMCPOrchServeBlackBoxSingleInstance},
@@ -37,9 +39,23 @@ func standaloneScenarios() map[string][]standaloneScenario {
 			{"simulated-process-identity", TestStandaloneManagedProcessReapingEvidence},
 			{"synthetic-client-frames", TestStandaloneClaudeStreamAssertions},
 			{"real-sqlite-owner-fixtures", TestStandaloneClaudeTerminalEvidenceRejectsUnrelatedPersistence},
+			{"in-process-fx-registry+sqlite-cursors", TestStandaloneDirectPeerCursorContract},
+			{"in-process-fx-registry+sqlite-permissions", TestStandaloneDirectPeerScopeAndPermissions},
+			{"in-process-fx-registry+sqlite-revisions", TestStandaloneDirectPeerUnknownRevisionContract},
+			{"in-process-registry+sqlite-input-contract", TestStandaloneDirectPeerInputContract},
+			{"synthetic-native-user-history-parser", TestClaudePeerNativeInputParser},
+			{"real-sqlite-registry-gated-native-fixture", TestStandaloneDirectPeerConcurrentSubmissionFault},
+			{"real-sqlite-registry-native-fixture+commit-fault+restart", TestStandaloneDirectPeerReceiptCommitFailureRestartFault},
+			{"real-sqlite-registry-controlled-native-identity-fault", TestStandaloneDirectPeerReceiverIdentityFault},
+			{"real-sqlite-registry-failed-replay-port-recovery", TestStandaloneDirectPeerFailedReplayRecoveryFault},
+			{"real-subprocess-sigkill+sqlite-registry-gated-native", TestStandaloneDirectPeerAcceptedProcessCrash},
+			{"real-subprocess-sigkill+sqlite-registry-stub-receipt", TestStandaloneDirectPeerSubmittedProcessCrash},
+			{"real-subprocess-kill+sqlite-projector+idempotent-test-sink", TestStandaloneDirectPeerOutboxSinkProcessCrash},
+			{"real-sqlite+two-production-projectors+gated-test-sink", TestStandaloneDirectPeerOutboxWorkerTakeover},
 		},
 		"clients": {
 			{"binary+http-managed-real-model", TestStandaloneBinaryCodexLifecycleThroughMCP},
+			{"binary+http-managed-real-model+provider-input-observation", TestStandaloneBinaryCodexMessageRecovery},
 			{"binary+official-cli-no-model", TestStandaloneOfficialClaudeConnection},
 			{"official-cli-control-no-model", TestStandaloneOfficialClaudeProbe},
 			{"binary+official-cli-no-model", TestStandaloneOfficialCodexClient},
@@ -63,6 +79,15 @@ func standaloneScenarios() map[string][]standaloneScenario {
 			{"in-process-fx-real-cli", TestStandaloneDirectPeerSubmitsReceiverTurn},
 			{"in-process-fx-real-cli", TestStandaloneDirectPeerSubmitsClaudeReceiverTurn},
 			{"in-process-fx-real-cli", TestStandaloneDirectPeerCrossProviderConversation},
+			{"in-process-fx-real-cli+ordered-message-cursors", TestStandaloneDirectPeerCodexOrderedDelivery},
+			{"in-process-fx-real-cli+ordered-message-cursors", TestStandaloneDirectPeerClaudeOrderedDelivery},
+			{"in-process-fx-real-cli+native-history+sqlite-receipts", TestStandaloneDirectPeerCodexIdempotency},
+			{"in-process-fx-real-cli+busy-unknown+native-history", TestStandaloneDirectPeerCodexBusyDelivery},
+			{"in-process-fx-real-cli+authorization+native-history+sqlite", TestStandaloneDirectPeerDeliveryBoundaries},
+			{"in-process-fx-real-cli+restart+native-history", TestStandaloneDirectPeerCodexRestartReplay},
+			{"in-process-fx-real-claude+native-uuid-history+sqlite", TestStandaloneDirectPeerClaudeIdempotency},
+			{"in-process-fx-real-claude+busy-unknown+native-history", TestStandaloneDirectPeerClaudeBusyDelivery},
+			{"in-process-fx-real-claude+restart+native-history", TestStandaloneDirectPeerClaudeRestartReplay},
 		},
 	}
 }

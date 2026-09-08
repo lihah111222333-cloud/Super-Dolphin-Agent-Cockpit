@@ -103,7 +103,7 @@ func (e *Execution) Stop(ctx context.Context, agentID string) error {
 	return e.stopSession(session)
 }
 
-// Archive 先请求 provider 归档，再关闭其受管 CLI 进程。
+// Archive 阻断新turn，清理provider工具资源并归档，再关闭受管CLI进程。
 func (e *Execution) Archive(ctx context.Context, agentID string) error {
 	if err := requireActiveExecutionContext(ctx); err != nil {
 		return err
@@ -122,8 +122,7 @@ func (e *Execution) Archive(ctx context.Context, agentID string) error {
 	if process == nil || threadID == "" {
 		return errors.New("CLI session has no thread to archive")
 	}
-	var result map[string]any
-	err = process.Client.CallResult(ctx, "thread/archive", map[string]string{"threadId": threadID}, &result)
+	err = process.ArchiveThread(ctx, threadID)
 	return errors.Join(err, process.Close())
 }
 

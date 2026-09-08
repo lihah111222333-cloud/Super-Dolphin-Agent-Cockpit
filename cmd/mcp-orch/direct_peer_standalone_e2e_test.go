@@ -84,8 +84,8 @@ func TestStandaloneDirectPeerOutboxProjectsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	awaitDirectPeerProjection(t, ctx, notifications, grant.GrantID)
-	assertDirectPeerOutboxProjected(t, db)
+	eventID := awaitDirectPeerProjection(t, ctx, notifications, grant.GrantID)
+	assertDirectPeerOutboxProjected(t, db, eventID)
 }
 
 func newDirectPeerProjectionApp(t *testing.T) (string, *sql.DB, chan directpeerstore.PublishedEvent, *fx.App) {
@@ -115,26 +115,43 @@ func newDirectPeerProjectionApp(t *testing.T) (string, *sql.DB, chan directpeers
 	return workspace, db, notifications, app
 }
 
-func awaitDirectPeerProjection(t *testing.T, ctx context.Context, notifications <-chan directpeerstore.PublishedEvent, grantID string) {
+func awaitDirectPeerProjection(t *testing.T, ctx context.Context, notifications <-chan directpeerstore.PublishedEvent, grantID string) string {
 	t.Helper()
 	select {
 	case notification := <-notifications:
 		if notification.Event.EventID == "" || notification.Event.GrantID != grantID || notification.Event.EventType != "grant.active" {
 			t.Fatalf("projected notification=%#v", notification)
 		}
+		return notification.Event.EventID
 	case <-ctx.Done():
 		t.Fatalf("direct peer event projection timeout: %v", ctx.Err())
 	}
+	return ""
 }
 
-func assertDirectPeerOutboxProjected(t *testing.T, db *sql.DB) {
+// assertDirectPeerOutboxProjected 等待sink通知之后的owner ACK落盘，不把通知可见当作事务已完成。
+func assertDirectPeerOutboxProjected(t *testing.T, db *sql.DB, eventID string) {
 	t.Helper()
-	var status string
-	if err := db.QueryRow(`SELECT status FROM orchestration_direct_peer_event_outbox ORDER BY id DESC LIMIT 1`).Scan(&status); err != nil {
-		t.Fatal(err)
-	}
-	if status != "projected" {
-		t.Fatalf("direct peer event outbox status=%q want projected", status)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var status string
+		if err := db.QueryRowContext(ctx, `SELECT status FROM orchestration_direct_peer_event_outbox WHERE event_id=?`, eventID).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if status == "projected" {
+			return
+		}
+		if status != "claimed" {
+			t.Fatalf("direct peer event outbox status=%q want projected", status)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("sink notification arrived but its outbox ACK did not commit")
+		case <-ticker.C:
+		}
 	}
 }
 

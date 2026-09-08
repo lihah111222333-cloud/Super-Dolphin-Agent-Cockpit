@@ -84,12 +84,15 @@ func assertTurnReplayPublicState(t *testing.T, svc *service, agent *agentRuntime
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPublic := string(agentdto.StateFailed)
-	if success {
-		wantPublic = string(agentdto.StateIdle)
+	if state.State != string(agentdto.StateIdle) {
+		t.Fatalf("public state=%s want=idle", state.State)
 	}
-	if state.State != wantPublic {
-		t.Fatalf("public state=%s want=%s", state.State, wantPublic)
+	wantOutcome := agentdto.OutcomeKindFailure
+	if success {
+		wantOutcome = agentdto.OutcomeKindSuccess
+	}
+	if agent.outcome == nil || agent.outcome.Kind != wantOutcome {
+		t.Fatalf("turn outcome=%#v want=%s", agent.outcome, wantOutcome)
 	}
 }
 
@@ -127,11 +130,11 @@ func testFailedTurnReplayFence(t *testing.T) {
 			if err := svc.projectTerminalOutcomeLocked(context.Background(), agent, commit); err != nil {
 				t.Fatal(err)
 			}
-			if !terminalProjectionAlreadyApplied(agent, commit) {
+			if applied, err := terminalProjectionAlreadyApplied(agent, commit); err != nil || !applied {
 				t.Fatal("matching failed turn not recognized")
 			}
 			tc.mutate(agent)
-			if terminalProjectionAlreadyApplied(agent, commit) {
+			if applied, err := terminalProjectionAlreadyApplied(agent, commit); err != nil || applied {
 				t.Fatal("mismatched replay accepted")
 			}
 		})

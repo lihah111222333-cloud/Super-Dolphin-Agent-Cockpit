@@ -162,14 +162,7 @@ func testRequiredConfigFields(t *testing.T, raw []byte) {
 	assertRequiredConfigObject(t, top, reflect.TypeFor[Config](), func(item map[string]json.RawMessage) []byte {
 		return marshalConfigTest(t, item)
 	})
-	var providers []map[string]json.RawMessage
-	if err := json.Unmarshal(top["providers"], &providers); err != nil {
-		t.Fatal(err)
-	}
-	assertRequiredConfigObject(t, providers[0], reflect.TypeFor[Provider](), func(item map[string]json.RawMessage) []byte {
-		top["providers"] = marshalConfigTest(t, []map[string]json.RawMessage{item})
-		return marshalConfigTest(t, top)
-	})
+	assertProviderConfigFieldMatrix(t, validTestConfig(t))
 }
 
 func assertRequiredConfigObject(t *testing.T, object map[string]json.RawMessage, producer reflect.Type, encode func(map[string]json.RawMessage) []byte) {

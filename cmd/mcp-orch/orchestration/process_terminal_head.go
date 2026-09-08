@@ -105,16 +105,23 @@ func (s *service) cleanedProcessHeadSupersedesTurn(ctx context.Context, agent *a
 	if err != nil {
 		return false, err
 	}
-	if !processTerminalProjectionAppliedAfterCleanup(agent, head, outcome) {
+	applied, err := processTerminalProjectionAppliedAfterCleanup(agent, head, outcome)
+	if err != nil {
+		return false, err
+	}
+	if !applied {
 		return false, contract.ErrTerminalOutcomeConflict
 	}
 	return true, nil
 }
 
 // processTerminalProjectionAppliedAfterCleanup 用durable终态及完整投影字段证明generation已被安全清理。
-func processTerminalProjectionAppliedAfterCleanup(agent *agentRuntime, head contract.DurableTerminalOutcomeHead, outcome contract.TerminalOutcomeCommit) bool {
+func processTerminalProjectionAppliedAfterCleanup(agent *agentRuntime, head contract.DurableTerminalOutcomeHead, outcome contract.TerminalOutcomeCommit) (bool, error) {
+	if _, err := terminalProjectionRuntimeState(outcome.ProjectionKind); err != nil {
+		return false, err
+	}
 	if agent.sessionGeneration != 0 || head.State != "terminal" || !isProcessTerminalProjection(outcome.ProjectionKind) || outcome.Identity.ProviderTurnID != head.ProviderTurnID {
-		return false
+		return false, nil
 	}
 
 	// 只构造投影比较字段；generation必须来自已提交head，其余字段全部保持runtime现值。
@@ -124,7 +131,10 @@ func processTerminalProjectionAppliedAfterCleanup(agent *agentRuntime, head cont
 		terminalHeadVersion: agent.terminalHeadVersion, activeTurnID: agent.activeTurnID,
 		state: agent.state, lastReport: agent.lastReport, outcome: agent.outcome,
 	}
-	return processTerminalHeadOwnerMatches(projected, head) && terminalProjectionAlreadyApplied(projected, outcome)
+	if !processTerminalHeadOwnerMatches(projected, head) {
+		return false, nil
+	}
+	return terminalProjectionAlreadyApplied(projected, outcome)
 }
 
 // recoveredHeadSupersedesCompletedTurn 仅认可同owner且会话与generation均严格递增的已接受head。

@@ -21,18 +21,19 @@ var ErrContextRequired = errors.New("Codex process context is required")
 
 // Process 拥有一个官方 CLI app-server 进程和其全部管道/等待生命周期。
 type Process struct {
-	Client    *jrpc2.Client
-	cmd       *exec.Cmd
-	guard     *processctl.Guard
-	done      chan struct{}
-	workers   sync.WaitGroup
-	closeOnce sync.Once
-	closeErr  error
-	exitErr   error
-	exitMu    sync.Mutex
-	exitBind  contract.CLIProcessExitBinding
-	exitOnce  sync.Once
-	closeReq  bool
+	Client           *jrpc2.Client
+	cmd              *exec.Cmd
+	guard            *processctl.Guard
+	done             chan struct{}
+	workers          sync.WaitGroup
+	closeOnce        sync.Once
+	closeErr         error
+	exitErr          error
+	exitMu           sync.Mutex
+	exitBind         contract.CLIProcessExitBinding
+	exitOnce         sync.Once
+	closeReq         bool
+	archivedThreadID string
 }
 
 // Start 启动已明确配置的 executable，不经 shell 或 V3 宿主。
@@ -176,7 +177,8 @@ func initialize(ctx context.Context, client *jrpc2.Client) error {
 		UserAgent string `json:"userAgent"`
 	}
 	err := client.CallResult(ctx, "initialize", map[string]any{
-		"clientInfo": map[string]string{"name": "mcp_orch", "version": "standalone-v1"},
+		"clientInfo":   map[string]string{"name": "mcp_orch", "version": "standalone-v1"},
+		"capabilities": map[string]bool{"experimentalApi": true},
 	}, &result)
 	if err != nil {
 		return fmt.Errorf("initialize Codex CLI: %w", err)
@@ -206,13 +208,20 @@ func (p *Process) ExitError() error {
 	}
 }
 
-// Close 先关闭协议流，请求进程组终止；超时后强制回收并等待。
+// Close 先清理原生thread工具资源，再关闭协议流及受管进程；所有清理错误返回调用者。
 func (p *Process) Close() error {
 	p.closeOnce.Do(func() {
 		p.exitMu.Lock()
 		p.closeReq = true
+		threadID := p.exitBind.SessionID
+		archived := p.archivedThreadID == threadID
 		p.exitMu.Unlock()
-		p.closeErr = p.Client.Close()
+		if threadID != "" && !archived && p.Running() {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			p.closeErr = p.CleanBackgroundTerminals(ctx, threadID)
+			cancel()
+		}
+		p.closeErr = errors.Join(p.closeErr, p.Client.Close())
 		if p.Running() {
 			p.closeErr = errors.Join(p.closeErr, processctl.RequestStop(p.cmd, p.guard))
 		}

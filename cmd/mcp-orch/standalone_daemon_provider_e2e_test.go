@@ -276,7 +276,11 @@ func assertNoStandaloneManagedDescendants(t *testing.T, observed standaloneManag
 		}
 		select {
 		case <-deadline.C:
-			t.Fatalf("standalone daemon left observed managed processes alive: pids=%v", alive)
+			for _, pid := range alive {
+				state, stateErr := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "pid=,ppid=,pgid=,stat=,etime=,comm=").CombinedOutput()
+				t.Logf("remaining process state: %s; read_error=%v", state, stateErr)
+			}
+			t.Fatalf("observed managed processes remain alive after expected termination: pids=%v", alive)
 		case <-ticker.C:
 		}
 	}

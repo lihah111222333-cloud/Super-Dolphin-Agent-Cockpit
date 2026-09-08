@@ -2,12 +2,17 @@
 package claudewire
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 )
 
 // Event 保留独立执行器消费的 CLI 事件字段；正文不能被当成控制命令。
 type Event struct {
+	// SystemMessage只保存system事件的文本元数据，不参与result或native acknowledgement。
+	SystemMessage   string   `json:"-"`
 	IsReplay        bool     `json:"isReplay"`
 	Type            string   `json:"type"`
 	Subtype         string   `json:"subtype"`
@@ -61,8 +66,16 @@ func EncodeUser(sessionID, requestID, text string) ([]byte, error) {
 // DecodeEvent 只接受完整 JSON object，拒绝 stdout 日志或缺失事件类型。
 func DecodeEvent(raw []byte) (Event, error) {
 	var event Event
-	if err := json.Unmarshal(raw, &event); err != nil {
-		return Event{}, errors.New("invalid Claude stream-json event")
+	type eventFields Event
+	wire := struct {
+		*eventFields
+		Message json.RawMessage `json:"message"`
+	}{eventFields: (*eventFields)(&event)}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return Event{}, safeEventDecodeError(raw, err)
+	}
+	if err := decodeEventMessage(&event, wire.Message); err != nil {
+		return Event{}, safeEventDecodeError(raw, err)
 	}
 	if event.Type == "" {
 		return Event{}, errors.New("Claude event type is required")
@@ -79,4 +92,75 @@ func (e Event) ResultText(expectedSession string) (string, error) {
 		return "", errors.New("Claude CLI returned a failed result")
 	}
 	return e.Result, nil
+}
+
+// safeEventDecodeError 只报告静态字段路径和JSON类型，禁止将解析正文或数值嵌入日志。
+func safeEventDecodeError(raw []byte, cause error) error {
+	kind, subtype := safeClaudeEventKind(raw)
+	var mismatch *json.UnmarshalTypeError
+	if errors.As(cause, &mismatch) {
+		actual := strings.SplitN(mismatch.Value, " ", 2)[0]
+		return fmt.Errorf("invalid Claude stream-json event: event_type=%s subtype=%s field=%s json_type=%s expected=%s", kind, subtype, strings.TrimPrefix(mismatch.Field, "eventFields."), actual, mismatch.Type.Kind())
+	}
+	var syntax *json.SyntaxError
+	if errors.As(cause, &syntax) {
+		return fmt.Errorf("invalid Claude stream-json event: JSON syntax at byte %d", syntax.Offset)
+	}
+	return errors.New("invalid Claude stream-json event: invalid JSON structure")
+}
+
+// safeClaudeEventKind 只发布已知协议枚举，未知事件标签也不能携带用户正文进入错误日志。
+func safeClaudeEventKind(raw []byte) (string, string) {
+	var header struct {
+		Type    string `json:"type"`
+		Subtype string `json:"subtype"`
+	}
+	if json.Unmarshal(raw, &header) != nil {
+		return "unknown", "unknown"
+	}
+	kind := "unknown"
+	switch header.Type {
+	case "system", "user", "assistant", "result", "tool_progress", "tool_use_summary", "auth_status", "rate_limit_event", "stream_event", "control_response", "control_request", "keep_alive":
+		kind = header.Type
+	}
+	subtype := "redacted"
+	if safeClaudeSubtypeToken(header.Subtype) {
+		subtype = header.Subtype
+	}
+	return kind, subtype
+}
+
+// decodeEventMessage 按event type区分system字符串元数据和用户/assistant的对象消息；其他类型仍严格拒绝。
+func decodeEventMessage(event *Event, raw json.RawMessage) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	if event.Type == "system" && bytes.HasPrefix(bytes.TrimSpace(raw), []byte(`"`)) {
+		return json.Unmarshal(raw, &event.SystemMessage)
+	}
+	if err := json.Unmarshal(raw, &event.Message); err != nil {
+		var mismatch *json.UnmarshalTypeError
+		if errors.As(err, &mismatch) {
+			field := mismatch.Field
+			mismatch.Field = "message"
+			if field != "" {
+				mismatch.Field += "." + field
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+// safeClaudeSubtypeToken 允许有限长度小写协议标签用于诊断，禁止正文、路径或凭据进入日志。
+func safeClaudeSubtypeToken(value string) bool {
+	if len(value) > 48 {
+		return false
+	}
+	for _, char := range value {
+		if char != '_' && (char < 'a' || char > 'z') {
+			return false
+		}
+	}
+	return true
 }

@@ -138,6 +138,10 @@ func newRegistryFromToolDefinitions(runtimeState *toolRuntimeState, tools []Tool
 		if err != nil {
 			return Registry{runtimeState: runtimeState, initErr: err}
 		}
+		tool, err = withAgentInputSchema(tool)
+		if err != nil {
+			return Registry{runtimeState: runtimeState, initErr: err}
+		}
 		tool = withToolOutputSchema(tool, outputValidator)
 		tool = withToolPathPolicy(tool)
 		tools[i] = tool

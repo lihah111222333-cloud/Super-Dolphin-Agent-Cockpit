@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/tools"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/testutil/golden"
 )
 
 func TestStandaloneHTTPToolSurfaceHidesTaskDirectPeerWithoutAttribution(t *testing.T) {
@@ -80,4 +84,75 @@ func standaloneTaskAttributionContext(t *testing.T) context.Context {
 		t.Fatal(err)
 	}
 	return ctx
+}
+
+// TestStandaloneLaunchModelProjection 验证 task/operator 投影公开必填模型，且共享 peer schema 未被污染。
+func TestStandaloneLaunchModelProjection(t *testing.T) {
+	base := registryToolProvider{registry: newRegistry(newRegistryParamsForTest())}
+	before, err := base.ListTools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ctx := range []context.Context{context.Background(), standaloneTaskAttributionContext(t)} {
+		listed, err := (standaloneHTTPToolProvider{base: base}).ListTools(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertLaunchModelRequired(t, listed, true)
+	}
+	after, err := base.ListTools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLaunchModelRequired(t, after, false)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("standalone projection changed shared peer catalog")
+	}
+}
+
+// assertLaunchModelRequired 检查真实公开 schema 的模式约束与对应说明。
+func assertLaunchModelRequired(t *testing.T, listed []common.MCPTool, want bool) {
+	t.Helper()
+	for _, tool := range listed {
+		if tool.Name != "launch_agent" {
+			continue
+		}
+		var schema struct{ Required []string }
+		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(schema.Required, "model") != want {
+			t.Fatalf("launch required=%v want model=%v", schema.Required, want)
+		}
+		if want && !strings.Contains(tool.Description, "Standalone requires explicit model") {
+			t.Fatal("standalone model guidance omitted")
+		}
+		return
+	}
+	t.Fatal("launch_agent missing")
+}
+
+// TestStandaloneLaunchModelFailsBeforeBase 验证缺失模型不能进入基础 launch handler 的读写端口。
+func TestStandaloneLaunchModelFailsBeforeBase(t *testing.T) {
+	calls := 0
+	probe := errors.New("underlying handler reached")
+	params := newRegistryParamsForTest()
+	params.AgentLaunch = &golden.OrchestrationStub{ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) { calls++; return nil, probe }}
+	provider := standaloneHTTPToolProvider{base: registryToolProvider{registry: newRegistry(params)}}
+	for _, model := range []string{"", `,"model":null`, `,"model":""`, `,"model":"  "`, `,"model":12`} {
+		input := json.RawMessage(`{"name":"review","cwd":"/tmp","agent_id":"a"` + model + `}`)
+		if _, err := provider.CallTool(context.Background(), "launch_agent", input); err == nil || errors.Is(err, probe) {
+			t.Fatalf("invalid model reached base: %s err=%v", input, err)
+		}
+	}
+	if _, err := provider.CallTool(context.Background(), " launch_agent ", json.RawMessage(`{"name":"review","cwd":"/tmp","agent_id":"a"}`)); err == nil {
+		t.Fatal("space-padded launch bypassed model validation")
+	}
+	if calls != 0 {
+		t.Fatalf("invalid model reached base %d times", calls)
+	}
+	_, err := provider.CallTool(context.Background(), "launch_agent", json.RawMessage(`{"name":"review","cwd":"/tmp","agent_id":"a","model":"configured-model"}`))
+	if !errors.Is(err, probe) || calls != 1 {
+		t.Fatalf("valid model did not reach base once: calls=%d err=%v", calls, err)
+	}
 }

@@ -1294,7 +1294,7 @@ internal/platform/shared/builtinprompts/assets/sections/main-default/10-engineer
 internal/platform/shared/builtinprompts/assets/sections/main-default/20-risky-actions.md	internal	platform-provider	doc	591	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,20,risky,actions,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-default/30-tone-style.md	internal	platform-provider	doc	448	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,30,tone,style,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-default/40-orchestrator-context.md	internal	platform-provider	doc	1587	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,40,orchestrator,context,共享基础工具
-internal/platform/shared/builtinprompts/assets/sections/main-default/41-orchestrator-report-context.md	internal	platform-provider	doc	992	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,41,orchestrator,report,context,共享基础工具
+internal/platform/shared/builtinprompts/assets/sections/main-default/41-orchestrator-report-context.md	internal	platform-provider	doc	1294	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,41,orchestrator,report,context,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-default/50-worktree-reminder.md	internal	platform-provider	doc	137	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,50,worktree,reminder,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-default/60-zh-courtesy.md	internal	platform-provider	doc	142	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,60,zh,courtesy,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-docs/00-identity.md	internal	platform-provider	doc	155	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,docs,00,identity,共享基础工具
@@ -1304,7 +1304,7 @@ internal/platform/shared/builtinprompts/assets/sections/main-general-zh/20-syste
 internal/platform/shared/builtinprompts/assets/sections/main-general-zh/30-engineering.md	internal	platform-provider	doc	2143	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,30,engineering,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-general-zh/40-actions.md	internal	platform-provider	doc	982	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,40,actions,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-general-zh/50-tool-preferences.md	internal	platform-provider	doc	555	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,50,tool,preferences,共享基础工具
-internal/platform/shared/builtinprompts/assets/sections/main-general-zh/55-lsp-basics.md	internal	platform-provider	doc	3790	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,55,lsp,basics,共享基础工具
+internal/platform/shared/builtinprompts/assets/sections/main-general-zh/55-lsp-basics.md	internal	platform-provider	doc	3772	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,55,lsp,basics,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-general-zh/56-round-state.md	internal	platform-provider	doc	495	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,56,round,state,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-general-zh/60-style.md	internal	platform-provider	doc	289	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,60,style,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-general-zh/70-output-efficiency.md	internal	platform-provider	doc	532	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,general,zh,70,output,efficiency,共享基础工具
@@ -1326,7 +1326,7 @@ internal/platform/shared/builtinprompts/assets/templates/main-git-ops.json	inter
 internal/platform/shared/builtinprompts/dag_designer_prompt_contract_test.go	internal	platform-provider	go-test	2281	共享基础工具	internal,platform,shared,builtinprompts,dag,designer,prompt,contract,test,共享基础工具
 internal/platform/shared/builtinprompts/embedded_assets_test.go	internal	platform-provider	go-test	768	共享基础工具	internal,platform,shared,builtinprompts,embedded,assets,test,共享基础工具
 internal/platform/shared/builtinprompts/load.go	internal	platform-provider	go-source	5194	共享基础工具	internal,platform,shared,builtinprompts,load,共享基础工具
-internal/platform/shared/builtinprompts/orchestrator_context_test.go	internal	platform-provider	go-test	1414	共享基础工具	internal,platform,shared,builtinprompts,orchestrator,context,test,共享基础工具
+internal/platform/shared/builtinprompts/orchestrator_context_test.go	internal	platform-provider	go-test	1487	共享基础工具	internal,platform,shared,builtinprompts,orchestrator,context,test,共享基础工具
 internal/platform/shared/builtinprompts/registry.go	internal	platform-provider	go-source	5372	共享基础工具	internal,platform,shared,builtinprompts,registry,共享基础工具
 internal/platform/shared/builtinprompts/registry_test.go	internal	platform-provider	go-test	25931	共享基础工具	internal,platform,shared,builtinprompts,registry,test,共享基础工具
 internal/platform/shared/builtinprompts/schema.go	internal	platform-provider	go-source	2392	共享基础工具	internal,platform,shared,builtinprompts,schema,共享基础工具

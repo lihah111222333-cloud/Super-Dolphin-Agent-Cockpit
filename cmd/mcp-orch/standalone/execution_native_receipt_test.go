@@ -27,6 +27,7 @@ func TestNativeAckIdentityAndWait(t *testing.T) {
 		{"wrong-uuid", claudewire.Event{Type: "user", IsReplay: true, SessionID: "thread", UUID: "other"}, false},
 		{"child", claudewire.Event{Type: "user", IsReplay: true, SessionID: "thread", UUID: "turn", ParentToolUseID: &parent}, false},
 		{"init-not-ack", claudewire.Event{Type: "system", Subtype: "init", SessionID: "thread", UUID: "turn"}, false},
+		{"system-metadata-not-ack", claudewire.Event{Type: "system", SystemMessage: "metadata", IsReplay: true, SessionID: "thread", UUID: "turn"}, false},
 		{"result-not-ack", claudewire.Event{Type: "result", SessionID: "thread", UUID: "turn"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

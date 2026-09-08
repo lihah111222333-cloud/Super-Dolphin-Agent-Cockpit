@@ -14,11 +14,11 @@ func orchestrationToolDefinitions(ports ToolPorts) []ToolDefinition {
 
 func orchestrationToolDefinitionsWithRuntimeState(ports ToolPorts, state *toolRuntimeState) []ToolDefinition {
 	return buildToolDefinitions(
-		defineTool("launch_agent", "Launch a managed orchestration agent.", ObjectSchema(map[string]Schema{
+		defineAgentTool("launch_agent", "Launch a managed agent asynchronously. Common call: name + prompt + absolute cwd; optional read_only/model/effort. Advanced template/provider identity fields can be omitted. Success means launch accepted, not task completed. Keep returned agent_id; wait for the first report with get_agent_report(wait=true, after_report_seq=0). Reuse agent_id to retry the same launch; an existing agent does not receive a new prompt (use send_message).", ObjectSchema(map[string]Schema{
 			"agent_id":     StringSchema("Stable persisted orchestration agent ID for this subtask. Reuse the same agent_id when polling or retrying the same subtask; omit only when intentionally launching a separate parallel agent. An active duplicate agent_id returns the existing agent instead of launching another."),
 			"name":         StringSchema("User-facing agent name. Prefer a short friendly name tied to the task; avoid paths, IDs, and generic labels like worker-agent."),
 			"prompt":       StringSchema("Optional initial prompt to submit as the launched agent's first turn."),
-			"context_mode": EnumStringSchema("Optional context mode for the first turn. Defaults to minimal. Use minimal for prompt-only launches; use focused only when the single context field carries caller-selected context; use forked to fork the parent provider thread. Do not copy the parent conversation history unless using forked.", state.launchAgentContextModeEnum...),
+			"context_mode": EnumStringSchema("Optional context mode for the first turn. Defaults to minimal. Use minimal for prompt-only launches; use focused only when the single context field carries caller-selected context; use forked with a required parent_id to fork the parent provider thread. Do not copy the parent conversation history unless using forked.", state.launchAgentContextModeEnum...),
 			"context":      StringSchema("Optional focused-mode context selected by the parent agent. Required when context_mode is focused; rejected when context_mode is minimal or forked. Suggested focused context: background, confirmed decisions, relevant file paths, forbidden actions, return format, and known risks. Prefer file paths, function names, line numbers, and constraints. Do not paste large code blocks unless the child cannot read them directly. The child still uses the fixed Markdown report template and must not delegate again."),
 			"parent_id":    StringSchema("Optional parent agent ID for child-agent launches."),
 			"agent_type":   StringSchema("Optional stable agent identity for child-agent routing; display name is not used as a fallback."),
@@ -37,7 +37,7 @@ func orchestrationToolDefinitionsWithRuntimeState(ports ToolPorts, state *toolRu
 			"language":             StringSchema("Optional language tag for the launched agent (e.g. 'zh', 'en'). Propagated to BuildCtx.Language for prompt match_when / section enable_when evaluation."),
 			"disabled_tools":       StringSchema("Optional comma-separated list of tool names to disable for the launched agent. Merged with the default deny list."),
 		}, "name"), handleLaunchAgentWithExeFnAndRuntimeState(ports.AgentLaunch, os.Executable, state)),
-		defineTool("send_message", "Submit a text turn to an existing orchestration agent.", ObjectSchema(map[string]Schema{
+		defineAgentTool("send_message", "Submit a new text turn to an existing agent (non-idempotent). Success confirms submission, not task completion. Use wait_report=true for an idle follow-up and its new report. If a call times out or delivery is unknown, inspect the original agent/report before retrying; resending can duplicate work.", ObjectSchema(map[string]Schema{
 			"pos":         StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id":    StringSchema("Target orchestration agent ID."),
 			"message":     StringSchema("Message content to submit as a text input."),
@@ -45,43 +45,43 @@ func orchestrationToolDefinitionsWithRuntimeState(ports ToolPorts, state *toolRu
 			"timeout_ms":  IntegerSchema("Optional maximum wait in milliseconds when wait_report=true. Defaults to the RPC request timeout."),
 		}, "message"), HandleSendMessage(ports.AgentMessenger)),
 		stopAgentToolDefinition(ports.AgentStopWait),
-		defineTool("recover_agent", "Recover a stopped or failed orchestration agent and return its latest snapshot.", ObjectSchema(map[string]Schema{
+		defineAgentTool("recover_agent", "Recover a stopped or failed runtime agent and return its latest snapshot. Supported providers can unarchive/resume the existing persisted thread; verify the returned thread_id/state before follow-up.", ObjectSchema(map[string]Schema{
 			"pos":      StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id": StringSchema("Target orchestration agent ID."),
 		}), HandleRecoverAgent(ports.AgentRecovery)),
-		defineTool("interrupt_agent", "Interrupt the current turn of a running orchestration agent and wait for state settlement.", ObjectSchema(map[string]Schema{
+		defineAgentTool("interrupt_agent", "Interrupt only the current turn and wait for state settlement. Background commands may keep running; use stop_agent to end the agent and clean up its resources. Does not archive the persisted thread; inspect returned state before sending follow-up work.", ObjectSchema(map[string]Schema{
 			"pos":        StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id":   StringSchema("Target orchestration agent ID."),
 			"source":     StringSchema("Optional interrupt source. Defaults to parent_agent."),
 			"timeout_ms": IntegerSchema("Optional maximum wait in milliseconds for idle/stopped/failed settlement. Defaults to the RPC request timeout."),
 		}), HandleInterruptAgent(ports.AgentInterrupt)),
-		defineTool("list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use get_agent_report for one agent or get_agent_reports for multiple reports.", ObjectSchema(map[string]Schema{
-			"state":            StringSchema("Optional state filter, e.g. idle, turn_running, stopped. Comma-separated values are accepted."),
+		defineAgentTool("list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use get_agent_report for one agent or get_agent_reports for multiple reports.", ObjectSchema(map[string]Schema{
+			"state":            StringSchema("Optional lifecycle state filter, e.g. idle, turn_running, stopped. Comma-separated known states are accepted; unknown states are rejected."),
 			"cwd":              StringSchema("Optional absolute cwd filter. When trusted tool-call scope includes _cwd, list_agents defaults to that trusted _cwd and uses it instead of this argument."),
 			"include_inactive": BooleanSchema("Include stopped/failed historical agents. Defaults to false."),
 			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; use get_agent_report for one target or get_agent_reports for multiple targets."),
 			"limit":            IntegerSchema("Maximum number of agents to return after filtering. 0 means no explicit limit."),
-			"envelope":         BooleanSchema("When true, return {agents,data,total,showing,truncated,hint}; default false keeps the legacy array response."),
+			"envelope":         BooleanSchema("Always returns {agents,data,total,showing,truncated,hint}. Omit this parameter or pass true; false is rejected. total is the filtered count before limit; data aliases agents."),
 		}), HandleListAgents(ports.AgentList)),
-		defineTool("get_agent_report", "Read the current report snapshot for an orchestration agent. Pass wait=true when a parent agent must block for a child report. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
+		defineAgentTool("get_agent_report", "Read the current report snapshot for an orchestration agent. Pass wait=true with after_report_seq to wait for a NEW report; use 0 for the first report and the last observed report_seq thereafter. A missing cursor is rejected. Pass the persisted agent_id returned by launch/list; display name is not an identifier.", ObjectSchema(map[string]Schema{
 			"pos":              StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id":         StringSchema("Persisted target orchestration agent ID returned by launch/list; do not pass name."),
-			"wait":             BooleanSchema("Defaults to false. When true, wait until a report, failed/stopped fallback, or timeout."),
+			"wait":             BooleanSchema("Defaults to false. When true, wait for a newer report. A terminal agent without a newer report returns an error; timeout does not stop the agent."),
 			"requester_id":     StringSchema("Optional explicit parent/requester agent id. Defaults to the trusted tool scope agent_id when available."),
 			"timeout_ms":       IntegerSchema("Optional maximum wait in milliseconds when wait=true. Defaults to the RPC request timeout."),
-			"after_report_seq": IntegerSchema("Optional when wait=true. If set, return only a report whose report_seq is greater than this value; use it to avoid reading a previous turn's report."),
+			"after_report_seq": IntegerSchema("Required when wait=true. Use 0 for the first report; otherwise supply the last observed report_seq. Only a strictly newer report completes the wait."),
 		}), HandleGetAgentReport(ports.AgentReports)),
-		defineTool("get_agent_reports", "Read current report snapshots for multiple orchestration agents, or wait for all target agents to produce reports using one shared timeout. wait=true supports only all semantics; any/quorum/first_success are intentionally unsupported.", ObjectSchema(map[string]Schema{
+		defineAgentTool("get_agent_reports", "Read current report snapshots for multiple orchestration agents, or wait for all target agents to produce reports using one shared timeout. wait=true supports only all semantics; any/quorum/first_success are intentionally unsupported.", ObjectSchema(map[string]Schema{
 			"agent_ids":                 ArraySchema(StringSchema("Persisted target orchestration agent ID."), "Persisted target orchestration agent IDs returned by launch/list; display names are not identifiers."),
-			"wait":                      BooleanSchema("Defaults to false. When true, wait until all target agents have a report or failed/stopped fallback, or until the shared timeout."),
+			"wait":                      BooleanSchema("Defaults to false. When true, wait until all target agents have a newer report or a per-target terminal error, or until the shared timeout. Inspect each result.ok and status; timeout does not stop agents."),
 			"timeout_ms":                IntegerSchema("Optional shared maximum wait in milliseconds when wait=true. Defaults to the RPC request timeout and is not multiplied by agent count."),
-			"after_report_seq_by_agent": RawObjectSchema("Optional object mapping agent_id to the last seen report_seq. When wait=true, old reports at or below that seq do not complete that agent."),
+			"after_report_seq_by_agent": RawObjectSchema("Required when wait=true: map EVERY target agent_id to its last observed report_seq (0 initially), with no extra targets. Old reports do not complete the wait."),
 		}, "agent_ids"), HandleGetAgentReports(ports.AgentReports)),
 	)
 }
 
 func stopAgentToolDefinition(svc contract.AgentStopWaitPort) ToolDefinition {
-	return defineTool("stop_agent", "Stop an orchestration agent; archive its persisted thread when the provider supports archive, otherwise stop without claiming archived.", ObjectSchema(map[string]Schema{
+	return defineAgentTool("stop_agent", "Stop the agent and archive its persisted thread when the provider supports archive. This is end-of-agent cleanup; use interrupt_agent to end only the current turn. Read archived in the result; success without wait confirms the request, not settlement. recover_agent targets stopped/failed runtime agents; supported providers may unarchive and resume the same persisted thread.", ObjectSchema(map[string]Schema{
 		"pos":        StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 		"agent_id":   StringSchema("Target orchestration agent ID."),
 		"wait":       BooleanSchema("Optional. When true, wait for stop state settlement after requesting stop/archive."),

@@ -67,7 +67,14 @@ docs/reference/mcp-lsp-standalone-clients.md	docs	docs-agent	doc	7929	项目文�
 docs/reference/mcp-orch-standalone-auto-recovery-validation-2026-09-08.md	docs	docs-agent	doc	10184	项目文档体系	docs,reference,mcp,orch,standalone,auto,recovery,validation,2026,09,08,项目文档体系
 docs/reference/mcp-orch-standalone-clients.md	docs	docs-agent	doc	16492	项目文档体系	docs,reference,mcp,orch,standalone,clients,项目文档体系
 docs/reference/mcp-orch-standalone-validation-2026-09-07.md	docs	docs-agent	doc	8980	项目文档体系	docs,reference,mcp,orch,standalone,validation,2026,09,07,项目文档体系
+docs/reference/orch-mcp-agent-contract.md	docs	docs-agent	doc	5974	项目文档体系	docs,reference,orch,mcp,agent,contract,项目文档体系
+docs/reference/orch-mcp-cognition-review.md	docs	docs-agent	doc	7322	项目文档体系	docs,reference,orch,mcp,cognition,review,项目文档体系
+docs/reference/orch-mcp-e2e-validation.md	docs	docs-agent	doc	15633	项目文档体系	docs,reference,orch,mcp,e2e,validation,项目文档体系
+docs/reference/orch-message-delivery-coverage.md	docs	docs-agent	doc	14223	项目文档体系	docs,reference,orch,message,delivery,coverage,项目文档体系
+docs/reference/orch-message-delivery-results.json	docs	docs-agent	json	14813	项目文档体系	docs,reference,orch,message,delivery,results,项目文档体系
+docs/reference/orch-real-binary-e2e-results.json	docs	docs-agent	json	3754	项目文档体系	docs,reference,orch,real,binary,e2e,results,项目文档体系
 docs/reference/orch-standalone-runbook.md	docs	docs-agent	doc	10836	项目文档体系	docs,reference,orch,standalone,runbook,项目文档体系
+docs/reference/orch-visible-session-e2e.md	docs	docs-agent	doc	5541	项目文档体系	docs,reference,orch,visible,session,e2e,项目文档体系
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	当前文档维护、发布 smoke 与验证脚本	docs,scripts,macos,release,smoke,当前文档维护,发布,与验证脚本
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	8209	项目文档体系	docs,security,p21,redteam,项目文档体系

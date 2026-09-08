@@ -29,10 +29,7 @@ LSP 是可选语义能力，不是调用配额。工具可用但任务无需调�
   "file_paths": ["internal/pkg/collector.go", "internal/pkg/admin.go"],
   "diff_filter": {
     "mode": "changed_lines",
-    "changed_lines": {
-      "internal/pkg/collector.go": [42, 43, 44],
-      "internal/pkg/admin.go": [18, 19]
-    }
+    "changed_lines": {"internal/pkg/collector.go": [42, 43, 44], "internal/pkg/admin.go": [18, 19]}
   }
 }
 ```

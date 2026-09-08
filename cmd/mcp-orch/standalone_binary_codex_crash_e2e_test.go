@@ -171,6 +171,12 @@ func assertBinaryCodexInputCount(t *testing.T, home, threadID, marker string, wa
 			t.Error(err)
 		}
 	}()
+	assertBinaryCodexRolloutInputCount(t, file, marker, want)
+}
+
+// assertBinaryCodexRolloutInputCount 从已绑定的精确历史句柄验证输入次数，归档移动路径不会改变所有权。
+func assertBinaryCodexRolloutInputCount(t *testing.T, file *os.File, marker string, want int) {
+	t.Helper()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	count := 0

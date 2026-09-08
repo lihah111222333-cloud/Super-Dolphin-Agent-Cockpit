@@ -238,11 +238,11 @@ func TestTerminalProjectionReplayRequiresMatchingCanonicalFence(t *testing.T) {
 	if err := svc.projectTerminalOutcomeLocked(context.Background(), agent, commit); err != nil {
 		t.Fatalf("projectTerminalOutcomeLocked() error = %v", err)
 	}
-	if !terminalProjectionAlreadyApplied(agent, commit) {
+	if applied, err := terminalProjectionAlreadyApplied(agent, commit); err != nil || !applied {
 		t.Fatal("matching projected terminal must be recognized as idempotent")
 	}
 	agent.sessionGeneration++
-	if terminalProjectionAlreadyApplied(agent, commit) {
+	if applied, err := terminalProjectionAlreadyApplied(agent, commit); err != nil || applied {
 		t.Fatal("same public report with stale generation must not bypass the canonical fence")
 	}
 }

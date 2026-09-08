@@ -75,13 +75,18 @@ func submitMessageAndWaitForReport(ctx context.Context, ports SendMessagePorts, 
 	if err := requireIdleFollowUpAgent(agentID, snapshot.State); err != nil {
 		return nil, err
 	}
-	submission := turnSubmissionFromMessage(agentID, threadIDFromSnapshot(snapshot, agentID), message)
+	threadID, err := threadIDFromSnapshot(snapshot, agentID)
+	if err != nil {
+		return nil, err
+	}
+	submission := turnSubmissionFromMessage(agentID, threadID, message)
 	if err := submitSendMessageTurn(followUpCtx, ports.Turns, submission, message); err != nil {
-		return nil, sendMessageSubmitError(agentID, timeout, err)
+		return nil, sendMessageRecoveryError("submission_outcome_unknown", sendMessageSubmitError(agentID, timeout, err), submission, &previousReportSeq)
 	}
 	report, err := waitForFollowUpReport(ctx, followUpCtx, ports.Reports, waitInput, agentID, timeout, previousReportSeq)
 	if err != nil {
-		return nil, err
+		return nil, sendMessageRecoveryError("report_wait_incomplete",
+			fmt.Errorf("turn submitted for agent %q; report wait incomplete after previous_report_seq %d: %w", agentID, previousReportSeq, err), submission, &previousReportSeq)
 	}
 	return successResult(map[string]any{
 		"agent_id":            agentID,
@@ -121,6 +126,9 @@ func previousFollowUpReportSeq(ctx context.Context, reports sendMessageReportWai
 	if err != nil {
 		return 0, fmt.Errorf("read current report before follow-up for agent %q: %w", agentID, err)
 	}
+	if report.ReportSeq < 0 {
+		return 0, fmt.Errorf("agent %q has invalid negative report_seq %d", agentID, report.ReportSeq)
+	}
 	return report.ReportSeq, nil
 }
 
@@ -134,12 +142,12 @@ func requireIdleFollowUpAgent(agentID, state string) error {
 	return fmt.Errorf("send_message wait_report=true requires idle agent follow-up; agent %q is in state %q", agentID, state)
 }
 
-// threadIDFromSnapshot 优先使用快照里的 thread_id，缺失时退回 agentID 保持旧接口兼容。
-func threadIDFromSnapshot(snapshot contract.AgentSnapshot, agentID string) string {
+// threadIDFromSnapshot 要求快照具有真实 thread_id，缺失时阻止后续提交。
+func threadIDFromSnapshot(snapshot contract.AgentSnapshot, agentID string) (string, error) {
 	if threadID := strings.TrimSpace(snapshot.ThreadID); threadID != "" {
-		return threadID
+		return threadID, nil
 	}
-	return agentID
+	return "", fmt.Errorf("snapshot agent %q has empty thread_id", agentID)
 }
 
 // submitSendMessageTurn 向 orchestration service 提交后续 turn，并记录最小诊断日志。
@@ -154,7 +162,8 @@ func submitSendMessageTurn(ctx context.Context, submitter sendMessageTurnSubmitt
 			"agent_id", submission.AgentID,
 			"thread_id", submission.ThreadID,
 			"error", err)
-		return err
+		return sendMessageRecoveryError("submission_outcome_unknown",
+			fmt.Errorf("submit turn for agent %q has unknown outcome: %w", submission.AgentID, err), submission, nil)
 	}
 	pkglogger.Warn("send_message: submit accepted",
 		"agent_id", submission.AgentID,
@@ -173,7 +182,11 @@ func submissionFromMessage(
 	if err != nil {
 		return contract.TurnSubmission{}, err
 	}
-	return turnSubmissionFromMessage(agentID, submissionThreadID(ctx, snapshots, agentID), message), nil
+	threadID, err := submissionThreadID(ctx, snapshots, agentID)
+	if err != nil {
+		return contract.TurnSubmission{}, err
+	}
+	return turnSubmissionFromMessage(agentID, threadID, message), nil
 }
 
 // sendMessageParts 解析 send_message 的目标 agent 和正文，两者都不能为空。
@@ -201,11 +214,11 @@ func turnSubmissionFromMessage(agentID, threadID, message string) contract.TurnS
 	}
 }
 
-// submissionThreadID 从快照读取 thread_id；读取失败或为空时使用 agentID 保持可提交。
-func submissionThreadID(ctx context.Context, snapshots sendMessageSnapshotReader, agentID string) string {
+// submissionThreadID 读取真实线程身份，快照失败或缺失时立即阻止提交。
+func submissionThreadID(ctx context.Context, snapshots sendMessageSnapshotReader, agentID string) (string, error) {
 	snapshot, err := snapshots.Snapshot(ctx, agentID)
-	if err == nil && strings.TrimSpace(snapshot.ThreadID) != "" {
-		return strings.TrimSpace(snapshot.ThreadID)
+	if err != nil {
+		return "", fmt.Errorf("snapshot agent %q before message: %w", agentID, err)
 	}
-	return agentID
+	return threadIDFromSnapshot(snapshot, agentID)
 }

@@ -110,6 +110,12 @@ INSERT INTO orchestration_direct_peer_grants (
     grant_id, workspace_root, sender_agent_id, receiver_agent_id, idempotency_key, request_digest,
     can_send, can_read, status, revision, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)
+ON CONFLICT(workspace_root, sender_agent_id, receiver_agent_id) DO UPDATE SET
+    grant_id = excluded.grant_id,
+    idempotency_key = excluded.idempotency_key, request_digest = excluded.request_digest,
+    can_send = excluded.can_send, can_read = excluded.can_read, status = 'active',
+    revision = orchestration_direct_peer_grants.revision + 1, updated_at = excluded.updated_at
+WHERE orchestration_direct_peer_grants.status = 'revoked'
 RETURNING grant_id, workspace_root, sender_agent_id, receiver_agent_id, idempotency_key, request_digest,
           can_send, can_read, status, revision, created_at, updated_at
 `
@@ -274,6 +280,32 @@ func (q *Queries) GetDirectPeerGrantByKey(ctx context.Context, arg GetDirectPeer
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getDirectPeerGrantEventByKey = `-- name: GetDirectPeerGrantEventByKey :one
+SELECT event_type, payload_json
+FROM orchestration_direct_peer_events
+WHERE workspace_root = ? AND event_type IN ('grant.active', 'grant.revoked')
+  AND json_extract(payload_json, '$.idempotency_key') = ?
+ORDER BY id ASC
+LIMIT 1
+`
+
+type GetDirectPeerGrantEventByKeyParams struct {
+	WorkspaceRoot string `db:"workspace_root" json:"workspace_root"`
+	PayloadJson   string `db:"payload_json" json:"payload_json"`
+}
+
+type GetDirectPeerGrantEventByKeyRow struct {
+	EventType   string `db:"event_type" json:"event_type"`
+	PayloadJson string `db:"payload_json" json:"payload_json"`
+}
+
+func (q *Queries) GetDirectPeerGrantEventByKey(ctx context.Context, arg GetDirectPeerGrantEventByKeyParams) (GetDirectPeerGrantEventByKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, getDirectPeerGrantEventByKey, arg.WorkspaceRoot, arg.PayloadJson)
+	var i GetDirectPeerGrantEventByKeyRow
+	err := row.Scan(&i.EventType, &i.PayloadJson)
 	return i, err
 }
 
@@ -500,7 +532,7 @@ JOIN orchestration_direct_peer_grants g
  AND g.sender_agent_id = m.sender_agent_id
  AND g.receiver_agent_id = m.receiver_agent_id
 WHERE m.workspace_root = ? AND m.receiver_agent_id = ? AND m.id > ?
-  AND g.status = 'active' AND g.can_read = 1
+  AND g.status = 'active' AND g.can_read = 1 AND m.grant_revision = g.revision
 ORDER BY m.id ASC
 LIMIT ?
 `

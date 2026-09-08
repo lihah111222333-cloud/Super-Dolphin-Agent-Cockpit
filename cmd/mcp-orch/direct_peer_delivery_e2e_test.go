@@ -4,10 +4,13 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +33,7 @@ func TestStandaloneDirectPeerSubmitsClaudeReceiverTurn(t *testing.T) {
 	runDirectPeerDelivery(t, "CLAUDE", "claude")
 }
 
-// TestStandaloneDirectPeerCrossProviderConversation 验证 Codex 与 Claude root task 通过 direct-peer 双向往返。
+// TestStandaloneDirectPeerCrossProviderConversation 由测试经Registry注入两个方向的消息，验证真实Codex与Claude接收成功。
 func TestStandaloneDirectPeerCrossProviderConversation(t *testing.T) {
 	codexCLI, codexHome, codexModel := requireManagedProviderInputs(t, "CODEX")
 	claudeCLI, claudeHome, claudeModel := requireManagedProviderInputs(t, "CLAUDE")
@@ -48,12 +51,10 @@ func TestStandaloneDirectPeerCrossProviderConversation(t *testing.T) {
 	launchDirectPeerAgent(t, app.registry, workspace, "receiver", "claude", claudeModel)
 	grantDirectPeerDirectionThroughRegistry(t, directPeerTestApp{registry: app.registry}, workspace, "sender", "receiver", "cross-grant-1")
 	grantDirectPeerDirectionThroughRegistry(t, directPeerTestApp{registry: app.registry}, workspace, "receiver", "sender", "cross-grant-2")
-	assertDirectPeerSubmittedReceipt(t, app.registry, workspace, "sender", "receiver", "cross-message-1", "Reply briefly that you received the Codex message.")
-	waitDirectPeerAgentIdle(t, ctx, app.agents, "receiver")
-	assertDirectPeerReceiverReport(t, app.reports, ctx, "receiver")
-	assertDirectPeerSubmittedReceipt(t, app.registry, workspace, "receiver", "sender", "cross-message-2", "Reply briefly that you received the Claude message.")
-	waitDirectPeerAgentIdle(t, ctx, app.agents, "sender")
-	assertDirectPeerReceiverReport(t, app.reports, ctx, "sender")
+	for round := 0; round < 3; round++ {
+		assertDirectPeerDeliveryDirection(t, ctx, app, workspace, "sender", "receiver", fmt.Sprintf("cross-to-claude-%d", round))
+		assertDirectPeerDeliveryDirection(t, ctx, app, workspace, "receiver", "sender", fmt.Sprintf("cross-to-codex-%d", round))
+	}
 	stopStandaloneTestApp(t, app.app)
 }
 
@@ -71,21 +72,7 @@ func runDirectPeerDelivery(t *testing.T, prefix, providerName string) {
 	persistDirectPeerSender(t, db, workspace, model)
 	launchDirectPeerReceiver(t, app.registry, workspace, providerName, model)
 	grantDirectPeerThroughRegistry(t, directPeerTestApp{registry: app.registry}, workspace)
-	result := callDirectPeerRegistry(t, app.registry, "send_direct_peer", mcpcommon.ToolScope{CWD: workspace, AgentID: "sender"},
-		`{"receiver_agent_id":"receiver","idempotency_key":"delivery-1","message":"Reply briefly that the direct peer message was received. Do not use tools."}`)
-	raw, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var receipt struct {
-		Status       string `json:"status"`
-		SubmissionID string `json:"submission_id"`
-	}
-	if err := json.Unmarshal(raw, &receipt); err != nil || receipt.Status != "submitted" || receipt.SubmissionID == "" {
-		t.Fatalf("delivery receipt=%s err=%v", raw, err)
-	}
-	waitDirectPeerReceiverIdle(t, ctx, app.agents)
-	assertDirectPeerReceiverReport(t, app.reports, ctx, "receiver")
+	assertDirectPeerDeliveryDirection(t, ctx, app, workspace, "sender", "receiver", "delivery-1")
 	stopStandaloneTestApp(t, app.app)
 }
 
@@ -126,15 +113,37 @@ func startDirectPeerDeliveryApp(t *testing.T, cfg standalone.Config, db *sql.DB)
 	return directPeerDeliveryApp{app: app, registry: registry, agents: agents, reports: reports, execution: execution}
 }
 
-// assertDirectPeerReceiverReport 通过 service report 端口确认 provider terminal 已回到 orchestration owner。
-func assertDirectPeerReceiverReport(t *testing.T, reports contract.AgentReportPort, ctx context.Context, agentID string) {
+// assertDirectPeerDeliveryDirection 由测试显式投递单向消息，以随机标记关联本次成功报告，不声称模型自主发信。
+func assertDirectPeerDeliveryDirection(t *testing.T, ctx context.Context, app directPeerDeliveryApp, workspace, sender, receiver, key string) {
 	t.Helper()
-	if reports == nil {
-		t.Fatal("standalone graph did not expose agent report port")
+	waitDirectPeerAgentIdle(t, ctx, app.agents, receiver)
+	baseline, err := app.reports.GetReport(ctx, receiver)
+	if err != nil || baseline.AgentID != receiver || baseline.ReportSeq < 0 {
+		t.Fatalf("invalid receiver report baseline: agent=%s seq=%d err=%v", baseline.AgentID, baseline.ReportSeq, err)
 	}
-	result, err := reports.GetReport(ctx, agentID)
-	if err != nil || result.ReportSeq < 1 || result.Report == "" {
-		t.Fatalf("receiver service report=%#v err=%v", result, err)
+	marker := "DIRECT_PEER_" + rand.Text()
+	message := fmt.Sprintf("Reply with the exact marker %s and no other text. Do not use tools or delegate.", marker)
+	assertDirectPeerSubmittedReceipt(t, app.registry, workspace, sender, receiver, key, message)
+	waitDirectPeerAgentIdle(t, ctx, app.agents, receiver)
+	assertDirectPeerDeliveryReport(t, ctx, app, receiver, baseline.ReportSeq, marker)
+}
+
+// assertDirectPeerDeliveryReport 要求本次接收者的新报告包含唯一标记，且对应公开outcome为success。
+func assertDirectPeerDeliveryReport(t *testing.T, ctx context.Context, app directPeerDeliveryApp, agentID string, baseline int64, marker string) {
+	t.Helper()
+	result, err := app.reports.GetReport(ctx, agentID)
+	if err != nil || result.AgentID != agentID || result.ReportSeq <= baseline || result.State != "idle" || !strings.Contains(result.Report, marker) {
+		t.Fatalf("receiver report mismatch: agent=%s seq=%d baseline=%d state=%s marker_present=%t report=%q err=%v", result.AgentID, result.ReportSeq, baseline, result.State, strings.Contains(result.Report, marker), result.Report, err)
+	}
+	assertDirectPeerDeliveryOutcome(t, ctx, app.agents, agentID, result.Report)
+}
+
+// assertDirectPeerDeliveryOutcome 关联同一报告的成功终态，拒绝idle失败或旧报告。
+func assertDirectPeerDeliveryOutcome(t *testing.T, ctx context.Context, agents contract.AgentStateReader, agentID, report string) {
+	t.Helper()
+	snapshot, err := agents.Snapshot(ctx, agentID)
+	if err != nil || snapshot.AgentID != agentID || snapshot.State != "idle" || snapshot.ActiveTurnID != "" || snapshot.Outcome == nil || string(snapshot.Outcome.Kind) != "success" || snapshot.LastReport != report {
+		t.Fatalf("receiver terminal does not prove this successful report: agent=%s state=%s outcome=%+v err=%v", snapshot.AgentID, snapshot.State, snapshot.Outcome, err)
 	}
 }
 
@@ -148,7 +157,13 @@ func waitDirectPeerAgentIdle(t *testing.T, ctx context.Context, agents contract.
 	defer ticker.Stop()
 	for {
 		snapshot, err := agents.Snapshot(ctx, agentID)
-		if err == nil && snapshot.State == "idle" && snapshot.ActiveTurnID == "" {
+		if err != nil {
+			t.Fatalf("read direct peer receiver state: %v", err)
+		}
+		if snapshot.State == "failed" || snapshot.State == "stopped" {
+			t.Fatalf("direct peer receiver terminated before idle: state=%s outcome=%+v", snapshot.State, snapshot.Outcome)
+		}
+		if snapshot.State == "idle" && snapshot.ActiveTurnID == "" {
 			return
 		}
 		select {
@@ -212,4 +227,16 @@ func providerSandbox(provider string) string {
 		return "workspace-write"
 	}
 	return ""
+}
+
+// assertDirectPeerReceiverReport 为既有恢复场景保留报告存在性检查；消息内容闭包由delivery专用断言承担。
+func assertDirectPeerReceiverReport(t *testing.T, reports contract.AgentReportPort, ctx context.Context, agentID string) {
+	t.Helper()
+	if reports == nil {
+		t.Fatal("standalone graph did not expose agent report port")
+	}
+	result, err := reports.GetReport(ctx, agentID)
+	if err != nil || result.ReportSeq < 1 || result.Report == "" {
+		t.Fatalf("receiver service report=%#v err=%v", result, err)
+	}
 }

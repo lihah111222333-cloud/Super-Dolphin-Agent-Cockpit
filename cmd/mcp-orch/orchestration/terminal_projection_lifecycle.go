@@ -35,29 +35,31 @@ func terminalProjectionTurnMatches(agent *agentRuntime, identity contract.Canoni
 }
 
 // terminalProjectionAlreadyApplied 判断相同 identity、状态和报告是否已投影完成。
-func terminalProjectionAlreadyApplied(agent *agentRuntime, commit contract.TerminalOutcomeCommit) bool {
+func terminalProjectionAlreadyApplied(agent *agentRuntime, commit contract.TerminalOutcomeCommit) (bool, error) {
+	expectedState, err := terminalProjectionRuntimeState(commit.ProjectionKind)
+	if err != nil {
+		return false, err
+	}
 	if agent == nil || strings.TrimSpace(agent.activeTurnID) != "" || agent.outcome == nil {
-		return false
+		return false, nil
 	}
 	expected := agentOutcomeFromPublic(commit.PublicOutcome)
 	return terminalProjectionReplayFenceFromAgent(agent) == terminalProjectionReplayFenceFromIdentity(commit.Identity) &&
-		terminalProjectionRuntimeStateMatches(agent.state, commit.ProjectionKind) &&
-		strings.TrimSpace(agent.lastReport) == strings.TrimSpace(commit.PublicReport) &&
-		terminalProjectionOutcomeMatches(agent.outcome, expected, commit.ProjectionKind)
+		agent.state == expectedState && strings.TrimSpace(agent.lastReport) == strings.TrimSpace(commit.PublicReport) &&
+		terminalProjectionOutcomeMatches(agent.outcome, expected, commit.ProjectionKind), nil
 }
 
-// terminalProjectionRuntimeStateMatches 按唯一投影器的生命周期目标判定，而非public outcome展示状态。
-// turn成功或中止均释放本轮并回到idle；只有agent/process终态结束runtime生命周期。
-func terminalProjectionRuntimeStateMatches(state agentdto.AgentState, projectionKind string) bool {
+// terminalProjectionRuntimeState 唯一映射投影类别到runtime生命周期；turn任意结果都回idle，未知类别立即报错。
+func terminalProjectionRuntimeState(projectionKind string) (agentdto.AgentState, error) {
 	switch projectionKind {
 	case "turn_completed":
-		return state == agentdto.StateIdle
+		return agentdto.StateIdle, nil
 	case "agent_stopped", "process_stopped":
-		return state == agentdto.StateStopped
+		return agentdto.StateStopped, nil
 	case "agent_failed", "process_failed":
-		return state == agentdto.StateFailed
+		return agentdto.StateFailed, nil
 	default:
-		return false
+		return "", fmt.Errorf("terminal outcome projection kind %q is unsupported", projectionKind)
 	}
 }
 

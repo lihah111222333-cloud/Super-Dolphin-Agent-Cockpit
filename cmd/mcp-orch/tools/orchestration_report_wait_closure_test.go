@@ -63,30 +63,19 @@ func TestReportWaitClosureUsesLaunchReturnedAgentID(t *testing.T) {
 	}
 }
 
-func TestReportWaitClosureReturnsFallbackForStoppedAgentWithoutReport(t *testing.T) {
+func TestReportWaitClosureRejectsStoppedAgentWithoutReport(t *testing.T) {
 	handler := HandleGetAgentReport(&golden.OrchestrationStub{
 		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
 			return contract.AgentReportResult{AgentID: agentID, State: "stopped"}, nil
 		},
 	})
 
-	result, err := handler(context.Background(), mustReportWaitJSON(t, map[string]any{
-		"agent_id":   "agent-stopped-report-wait",
-		"wait":       true,
-		"timeout_ms": 500,
+	_, err := handler(context.Background(), mustReportWaitJSON(t, map[string]any{
+		"agent_id": "agent-stopped-report-wait",
+		"wait":     true, "after_report_seq": 0, "timeout_ms": 500,
 	}))
-	if err != nil {
-		t.Fatalf("HandleGetAgentReport() error = %v", err)
-	}
-	got, ok := result.(contract.AgentReportResult)
-	if !ok {
-		t.Fatalf("HandleGetAgentReport() result type = %T, want AgentReportResult", result)
-	}
-	if got.State != "stopped" {
-		t.Fatalf("HandleGetAgentReport().State = %q, want stopped", got.State)
-	}
-	if !strings.Contains(got.Report, "without producing a turn report") {
-		t.Fatalf("HandleGetAgentReport().Report = %q, want stopped fallback", got.Report)
+	if err == nil || !strings.Contains(err.Error(), "without producing a turn report") {
+		t.Fatalf("error=%v, want explicit stopped-without-report failure", err)
 	}
 }
 
@@ -135,7 +124,7 @@ func (s *reportWaitClosureStore) remember(_ context.Context, req contract.Rememb
 func (s *reportWaitClosureStore) setReport(agentID, report, state string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reports[agentID] = contract.AgentReportResult{AgentID: agentID, Report: report, State: state}
+	s.reports[agentID] = contract.AgentReportResult{AgentID: agentID, Report: report, State: state, ReportSeq: s.reports[agentID].ReportSeq + 1}
 }
 
 type reportWaitResult struct {
@@ -149,10 +138,11 @@ func waitForAgentReportAsync(t *testing.T, svc agentReportPort, agentID, request
 	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {
 		result, err := HandleGetAgentReport(svc)(context.Background(), mustReportWaitJSON(t, map[string]any{
-			"agent_id":     agentID,
-			"requester_id": requesterID,
-			"wait":         true,
-			"timeout_ms":   1000,
+			"agent_id":         agentID,
+			"requester_id":     requesterID,
+			"wait":             true,
+			"after_report_seq": 0,
+			"timeout_ms":       1000,
 		}))
 		if err != nil {
 			done <- reportWaitResult{err: err}

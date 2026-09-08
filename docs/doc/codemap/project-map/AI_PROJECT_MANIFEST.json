@@ -4,21 +4,21 @@
   "input_fingerprint": {
     "schema": "project-map-input/v1",
     "generator_rules_sha256": "sha256:acab37c6a39849fce5c4af79ef66336755b676b6705bcc77a390cd34adad3277",
-    "source_sha256": "sha256:5e4f70ab806abf371d6ab065fdca0befef58efa7c3529d407775f7d375bbe06e",
-    "entries_sha256": "sha256:9687ec8514eaf65b255ff8021c5962dab4b391711a8077e8574996e44b617cf3"
+    "source_sha256": "sha256:1c8db3093b54b030c7895f7a5a65f2e509785d91326acaf9a57cc1abe7cfa316",
+    "entries_sha256": "sha256:d333e3a0e3d4fcab1dc6abfe892536fe6e47aa3dfb7f987521cb2a2350589f16"
   },
   "rules_sources": [
     "scripts/codemap_policy.txt",
     ".ai-project-map.overrides.json"
   ],
-  "files": 5709,
+  "files": 5749,
   "domains": {
     "other": 1063,
     "remote-ci": 191,
-    "docs-agent": 175,
+    "docs-agent": 182,
     "app-ui": 710,
     "platform-provider": 1823,
-    "orchestration": 1027,
+    "orchestration": 1060,
     "modules": 476,
     "store-sql": 244
   },
@@ -36,8 +36,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 1027,
-        "size_kb": 253,
+        "file_count": 1060,
+        "size_kb": 261.4,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -71,8 +71,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 175,
-        "size_kb": 29.7,
+        "file_count": 182,
+        "size_kb": 30.7,
         "desc": "代码地图、ADR、契约与 docs 项目知识"
       },
       {
@@ -87,8 +87,8 @@
   "module_counts": {
     ".githooks": 5,
     "(root)": 12,
-    "cmd": 1880,
-    "docs": 168,
+    "cmd": 1913,
+    "docs": 175,
     "frontend-app": 702,
     "internal": 2571,
     "pkg": 30,

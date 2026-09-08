@@ -210,4 +210,89 @@ func TestNativeReceiptStoreContract(t *testing.T) {
 	t.Run("legacy-unknown", TestNativeReceiptLegacySubmittedIsUnknown)
 	t.Run("transaction-rollback", TestNativeReceiptTransactionRollback)
 	t.Run("corrupt-payload", TestNativeReceiptReadRejectsCorruptPayload)
+	t.Run("corrupt-envelope", TestNativeReceiptReadRejectsEnvelopeCorruption)
+	t.Run("trailing-json", TestNativeReceiptSQLRejectsTrailingJSON)
+	t.Run("failed-replay", TestDeliveryFailedReplayRemainsFinal)
+}
+
+// TestNativeReceiptReadRejectsEnvelopeCorruption 通过真实SQL读路径拒绝事件外层身份与未知JSON字段污染。
+func TestNativeReceiptReadRejectsEnvelopeCorruption(t *testing.T) {
+	cases := []struct {
+		name, assignment string
+		value            any
+	}{
+		{"workspace", "workspace_root = ?", "/foreign-workspace"},
+		{"sender", "sender_agent_id = ?", "foreign-sender"},
+		{"receiver", "receiver_agent_id = ?", "foreign-receiver"},
+		{"revision", "grant_revision = ?", int64(999)},
+		{"unknown-envelope-field", "payload_json = json_set(payload_json, '$.unknown_field', ?)", "unexpected"},
+		{"unknown-receipt-field", "payload_json = json_set(payload_json, '$.provider_receipt.unknown_field', ?)", "unexpected"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store, db, message, capability, receipt := nativeReceiptFixture(t)
+			submitted, err := store.RecordNativeReceipt(t.Context(), capability, message.MessageID, receipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			query := "UPDATE orchestration_direct_peer_events SET " + tc.assignment + " WHERE message_id = ? AND event_type = 'message.submitted'"
+			if _, err := db.Exec(query, tc.value, message.MessageID); err != nil {
+				t.Fatal(err)
+			}
+			reopened, err := NewStore(db)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := reopened.ReadNativeReceipt(t.Context(), submitted); !errors.Is(err, ErrDeliveryOutcomeUnknown) {
+				t.Fatalf("corrupt envelope accepted: %v", err)
+			}
+		})
+	}
+}
+
+// TestNativeReceiptSQLRejectsTrailingJSON 保留生产json_valid约束，尾随文档不能进入持久读取面。
+func TestNativeReceiptSQLRejectsTrailingJSON(t *testing.T) {
+	store, db, message, capability, receipt := nativeReceiptFixture(t)
+	submitted, err := store.RecordNativeReceipt(t.Context(), capability, message.MessageID, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`UPDATE orchestration_direct_peer_events SET payload_json = payload_json || ' {}' WHERE message_id = ? AND event_type = 'message.submitted'`, message.MessageID)
+	if err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
+		t.Fatalf("SQL accepted trailing JSON or failed for unrelated reason: %v", err)
+	}
+	reopened, err := NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := reopened.ReadNativeReceipt(t.Context(), submitted)
+	if err != nil || !reflect.DeepEqual(actual, receipt) {
+		t.Fatalf("rejected corruption changed receipt: actual=%+v err=%v", actual, err)
+	}
+}
+
+// TestDeliveryFailedReplayRemainsFinal 同key重放返回原失败记录且Fresh为false，不能再次获得投递资格。
+func TestDeliveryFailedReplayRemainsFinal(t *testing.T) {
+	store, db, message, capability, _ := nativeReceiptFixture(t)
+	failed, err := store.MarkDeliveryFailedByOwner(t.Context(), capability, message.MessageID, "receiver unavailable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := SendRequest{WorkspaceRoot: message.WorkspaceRoot, SenderAgentID: message.SenderAgentID, ReceiverAgentID: message.ReceiverAgentID, IdempotencyKey: "message", Body: message.Body}
+	replay, err := reopened.Send(t.Context(), request)
+	if err != nil || replay.Fresh || replay != failed || replay.Status != "delivery_failed" {
+		t.Fatalf("failed replay=%+v original=%+v err=%v", replay, failed, err)
+	}
+	assertPendingDirectPeerEvents(t, db, 3)
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM orchestration_direct_peer_messages WHERE workspace_root = ? AND sender_agent_id = ?`, message.WorkspaceRoot, message.SenderAgentID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("failed replay inserted another message: count=%d", count)
+	}
 }

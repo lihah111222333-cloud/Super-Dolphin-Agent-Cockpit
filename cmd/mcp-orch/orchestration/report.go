@@ -24,7 +24,11 @@ func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResul
 	if s != nil && s.terminalOutcomes != nil {
 		outcome, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(agentID))
 		if err == nil {
-			return AgentStateResult{AgentID: outcome.Identity.AgentID, State: publicTerminalState(outcome)}, nil
+			state, err := publicTerminalState(outcome)
+			if err != nil {
+				return AgentStateResult{}, err
+			}
+			return AgentStateResult{AgentID: outcome.Identity.AgentID, State: state}, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, contract.ErrTerminalOutcomeActive) {
 			return AgentStateResult{}, err
@@ -75,7 +79,7 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 	if s != nil && s.terminalOutcomes != nil {
 		outcome, err := s.terminalOutcomes.GetPublicTerminalOutcome(ctx, strings.TrimSpace(agentID))
 		if err == nil {
-			return publicTerminalReportResult(outcome), nil
+			return publicTerminalReportResult(outcome)
 		}
 		if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, contract.ErrTerminalOutcomeActive) {
 			return AgentReportResult{}, err
@@ -88,28 +92,23 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 	return reports.GetReport(ctx, agentID)
 }
 
-func publicTerminalReportResult(outcome contract.TerminalOutcomeCommit) AgentReportResult {
-	state := publicTerminalState(outcome)
+// publicTerminalReportResult 保留报告内容和版本，按projectionKind单源派生agent状态。
+func publicTerminalReportResult(outcome contract.TerminalOutcomeCommit) (AgentReportResult, error) {
+	state, err := publicTerminalState(outcome)
+	if err != nil {
+		return AgentReportResult{}, err
+	}
 	return AgentReportResult{
 		AgentID: outcome.Identity.AgentID, Report: outcome.PublicReport,
-		// The terminal SSOT does not carry the legacy report-file counter. Its
-		// canonical head version is nevertheless a strictly advancing fence for
-		// each activated turn, so expose it as the report sequence instead of
-		// resetting every terminal outcome to one. This keeps wait_report from
-		// returning a previous turn after the public terminal head changes.
+		// Canonical head version advances for each activated turn and preserves the report cursor fence.
 		ReportSeq: int64(outcome.Identity.HeadVersion), UpdatedAt: outcome.OccurredAt, State: state,
-	}
+	}, nil
 }
 
-func publicTerminalState(outcome contract.TerminalOutcomeCommit) string {
-	state := string(agentdto.StateFailed)
-	switch outcome.PublicOutcome.Kind {
-	case "success":
-		state = string(agentdto.StateIdle)
-	case "stopped":
-		state = string(agentdto.StateStopped)
-	}
-	return state
+// publicTerminalState 通过唯一生命周期映射派生公开状态，不把turn结果误当agent终态。
+func publicTerminalState(outcome contract.TerminalOutcomeCommit) (string, error) {
+	state, err := terminalProjectionRuntimeState(outcome.ProjectionKind)
+	return string(state), err
 }
 
 // RememberReportRequest 记录哪个 agent 请求了目标 agent 的最终 report。

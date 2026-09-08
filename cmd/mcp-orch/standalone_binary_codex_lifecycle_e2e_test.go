@@ -75,7 +75,7 @@ func (h *binaryCodexLifecycleClient) prompt(marker string) string {
 // launch 对 root 和 fork 使用同一公开 schema，任何工具失败都立即阻断。
 func (h *binaryCodexLifecycleClient) launch(agentID, parentID, marker string) {
 	h.t.Helper()
-	args := map[string]any{"agent_id": agentID, "name": agentID, "cwd": h.fixture.workspace, "provider": "codex", "model": h.model, "prompt": h.prompt(marker)}
+	args := map[string]any{"agent_id": agentID, "name": agentID, "cwd": h.fixture.workspace, "provider": "codex", "model": h.model, "effort": "low", "prompt": h.prompt(marker)}
 	if parentID != "" {
 		args["parent_id"], args["context_mode"] = parentID, "forked"
 		args["prompt"] = h.prompt(marker) + " Also report the exact old random proof that the parent read in its PARENT_FIRST turn, using only the inherited conversation. Label it PARENT_INHERITED_PROOF. The on-disk proof has changed. Do not read history, rollout, transcript, report, or state files; do not call any other tools or commands beyond the exact pwd/cat command above. Do not infer or fabricate the parent proof; if the inherited conversation is unavailable, explicitly report that failure."

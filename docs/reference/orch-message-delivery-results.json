@@ -1,0 +1,414 @@
+{
+  "date": "2026-09-08",
+  "verification": "single_command_full60_retest",
+  "registered_scenarios": 60,
+  "passed": 60,
+  "skipped": 0,
+  "unverified": 0,
+  "full_attempt_status": "passed_latest_full60",
+  "repair_evidence": {
+    "outbox_repetitions": 30,
+    "outbox_log": "/tmp/orch-outbox-ack-race-green.log",
+    "complete_control_group_passed": 26
+  },
+  "scope_limit": "Registered scenarios only; not exhaustive OS scheduling or cross-fault combinations.",
+  "scenarios": {
+    "TestStandaloneInterruptPromptEvidence": {
+      "status": "pass",
+      "elapsed_seconds": 0,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneAgentContract": {
+      "status": "pass",
+      "elapsed_seconds": 0.94,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneBinaryDirectPeerOperatorBoundary": {
+      "status": "pass",
+      "elapsed_seconds": 1.68,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeBearerBoundary": {
+      "status": "pass",
+      "elapsed_seconds": 1.19,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeBlackBoxSingleInstance": {
+      "status": "pass",
+      "elapsed_seconds": 1.08,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeRejectsSecondInstance": {
+      "status": "pass",
+      "elapsed_seconds": 1.12,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeReclaimsAfterOwnerKilled": {
+      "status": "pass",
+      "elapsed_seconds": 1.08,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeRejectsInvalidCLIAndConfig": {
+      "status": "pass",
+      "elapsed_seconds": 0.84,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeIndependentStateDomains": {
+      "status": "pass",
+      "elapsed_seconds": 1,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeOperatorSourceLifecycle": {
+      "status": "pass",
+      "elapsed_seconds": 0.85,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestMCPOrchServeOperatorSourceHTTPFence": {
+      "status": "pass",
+      "elapsed_seconds": 0.78,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerPersistsAcrossRestart": {
+      "status": "pass",
+      "elapsed_seconds": 0.12,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerSupportsBidirectionalConversation": {
+      "status": "pass",
+      "elapsed_seconds": 0.07,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerOutboxProjectsEvent": {
+      "status": "pass",
+      "elapsed_seconds": 0.07,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedProcessReapingEvidence": {
+      "status": "pass",
+      "elapsed_seconds": 0,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneClaudeStreamAssertions": {
+      "status": "pass",
+      "elapsed_seconds": 0,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneClaudeTerminalEvidenceRejectsUnrelatedPersistence": {
+      "status": "pass",
+      "elapsed_seconds": 0.06,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerCursorContract": {
+      "status": "pass",
+      "elapsed_seconds": 0.07,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerScopeAndPermissions": {
+      "status": "pass",
+      "elapsed_seconds": 0.22,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerUnknownRevisionContract": {
+      "status": "pass",
+      "elapsed_seconds": 0.07,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerInputContract": {
+      "status": "pass",
+      "elapsed_seconds": 0.19,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestClaudePeerNativeInputParser": {
+      "status": "pass",
+      "elapsed_seconds": 0,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerConcurrentSubmissionFault": {
+      "status": "pass",
+      "elapsed_seconds": 0.07,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerReceiptCommitFailureRestartFault": {
+      "status": "pass",
+      "elapsed_seconds": 0.18,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerReceiverIdentityFault": {
+      "status": "pass",
+      "elapsed_seconds": 0.23,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerFailedReplayRecoveryFault": {
+      "status": "pass",
+      "elapsed_seconds": 0.08,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerAcceptedProcessCrash": {
+      "status": "pass",
+      "elapsed_seconds": 0.1,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerSubmittedProcessCrash": {
+      "status": "pass",
+      "elapsed_seconds": 0.1,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerOutboxSinkProcessCrash": {
+      "status": "pass",
+      "elapsed_seconds": 0.17,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerOutboxWorkerTakeover": {
+      "status": "pass",
+      "elapsed_seconds": 0.15,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneBinaryCodexLifecycleThroughMCP": {
+      "status": "pass",
+      "elapsed_seconds": 75.83,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneBinaryCodexMessageRecovery": {
+      "status": "pass",
+      "elapsed_seconds": 60.12,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneOfficialClaudeConnection": {
+      "status": "pass",
+      "elapsed_seconds": 1.71,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneOfficialClaudeProbe": {
+      "status": "pass",
+      "elapsed_seconds": 2.47,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneOfficialCodexClient": {
+      "status": "pass",
+      "elapsed_seconds": 0.77,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneOfficialClaudeToolCall": {
+      "status": "pass",
+      "elapsed_seconds": 9.95,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneCodexClientLaunchesManagedCodexThroughMCP": {
+      "status": "pass",
+      "elapsed_seconds": 16.21,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneBinaryLaunchesManagedClaudeThroughMCP": {
+      "status": "pass",
+      "elapsed_seconds": 11.86,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneBinaryFullClaudeLifecycle": {
+      "status": "pass",
+      "elapsed_seconds": 13.26,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneBinaryCodexAutoRecoversProviderCrash": {
+      "status": "pass",
+      "elapsed_seconds": 44.78,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedCodexTurn": {
+      "status": "pass",
+      "elapsed_seconds": 15.05,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedCodexFork": {
+      "status": "pass",
+      "elapsed_seconds": 19.61,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedCodexResume": {
+      "status": "pass",
+      "elapsed_seconds": 20.91,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedCodexArchive": {
+      "status": "pass",
+      "elapsed_seconds": 11.32,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedCodexInterrupt": {
+      "status": "pass",
+      "elapsed_seconds": 0.26,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedClaudeTurn": {
+      "status": "pass",
+      "elapsed_seconds": 7.83,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedClaudeStop": {
+      "status": "pass",
+      "elapsed_seconds": 0.08,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneManagedDaemonRehydratesCodexAfterExecutionLoss": {
+      "status": "pass",
+      "elapsed_seconds": 27.11,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerSubmitsReceiverTurn": {
+      "status": "pass",
+      "elapsed_seconds": 12.07,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerSubmitsClaudeReceiverTurn": {
+      "status": "pass",
+      "elapsed_seconds": 8.59,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerCrossProviderConversation": {
+      "status": "pass",
+      "elapsed_seconds": 27.59,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerCodexOrderedDelivery": {
+      "status": "pass",
+      "elapsed_seconds": 32.09,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerClaudeOrderedDelivery": {
+      "status": "pass",
+      "elapsed_seconds": 15.58,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerCodexIdempotency": {
+      "status": "pass",
+      "elapsed_seconds": 13.08,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerCodexBusyDelivery": {
+      "status": "pass",
+      "elapsed_seconds": 30.09,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerDeliveryBoundaries": {
+      "status": "pass",
+      "elapsed_seconds": 15.1,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerCodexRestartReplay": {
+      "status": "pass",
+      "elapsed_seconds": 22.1,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerClaudeIdempotency": {
+      "status": "pass",
+      "elapsed_seconds": 8.63,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerClaudeBusyDelivery": {
+      "status": "pass",
+      "elapsed_seconds": 9.64,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    },
+    "TestStandaloneDirectPeerClaudeRestartReplay": {
+      "status": "pass",
+      "elapsed_seconds": 8.61,
+      "source_log": "/tmp/orch-full60-final-20260908.jsonl"
+    }
+  },
+  "coverage_extension": {
+    "control_scenarios_passed": 28,
+    "control_log": "/tmp/orch-coverage-enhanced-control28-final.jsonl",
+    "receipt_single_field_mutations_passed": 72,
+    "process_crash_windows": [
+      "accepted_committed_before_stub_receipt",
+      "receipt_event_outbox_committed"
+    ],
+    "native_provider_for_crash_tests": "controlled_stub",
+    "store_race_log": "/tmp/orch-coverage-enhanced-store-race.log",
+    "store_race_elapsed_seconds": 101.377,
+    "regression_log": "/tmp/orch-coverage-enhanced-regression.log",
+    "guard_log": "/tmp/orch-coverage-enhanced-guard.log"
+  },
+  "outbox_recovery_extension": {
+    "control_scenarios_passed": 29,
+    "control_log": "/tmp/orch-outbox-enhanced-control29.jsonl",
+    "batch_faults": [
+      "sink_error",
+      "ack_sql_failure",
+      "context_cancel_before_ack"
+    ],
+    "batch_positions": [
+      "first",
+      "middle",
+      "last"
+    ],
+    "batch_cases": 9,
+    "pre_refactor_race_repetitions": 3,
+    "pre_refactor_race_log": "/tmp/orch-outbox-batch-recovery-race.jsonl",
+    "store_regression_log": "/tmp/orch-outbox-enhanced-store.log",
+    "guard_log": "/tmp/orch-outbox-enhanced-guard-final.log",
+    "scope": "Real subprocess and SQLite/projector; idempotent test consumer. Lease expiration uses explicit SQL injection; no product exactly-once claim.",
+    "final_race_log": "/tmp/orch-outbox-batch-recovery-final.jsonl",
+    "final_race_cases_passed": 9,
+    "final_race_elapsed_seconds": 14.921
+  },
+  "worker_takeover_extension": {
+    "control_scenarios_passed": 30,
+    "control_log": "/tmp/orch-claim-takeover-control30.jsonl",
+    "control_elapsed_seconds": 9.202,
+    "takeover_subcases": [
+      "active_lease_no_theft",
+      "expired_lease_late_ack_fenced"
+    ],
+    "takeover_race_repetitions": 3,
+    "takeover_race_log": "/tmp/orch-outbox-takeover.jsonl",
+    "claim_rollback_cases": 6,
+    "claim_rollback_final_race_log": "/tmp/orch-claim-rollback-final.jsonl",
+    "claim_rollback_final_race_elapsed_seconds": 10.566,
+    "store_regression_log": "/tmp/orch-claim-takeover-store.log",
+    "guard_log": "/tmp/orch-claim-takeover-guard-complete.log",
+    "scope": "Real SQLite and production projectors; controlled sinks and SQL lease/failure injection; no live provider or OS crash in these added cases."
+  },
+  "previous_full_attempt_status": "failed_outbox_assertion_before_fix",
+  "full_command_exit_code": 0,
+  "full_elapsed_seconds": 554.897,
+  "source_log": "/tmp/orch-full60-final-20260908.jsonl",
+  "groups": {
+    "control": {
+      "status": "pass",
+      "elapsed_seconds": 12.55
+    },
+    "clients": {
+      "status": "pass",
+      "elapsed_seconds": 192.18
+    },
+    "lifecycle": {
+      "status": "pass",
+      "elapsed_seconds": 146.96
+    },
+    "delivery": {
+      "status": "pass",
+      "elapsed_seconds": 203.19
+    }
+  },
+  "fresh_real_user_configuration_verification": {
+    "status": "pass",
+    "first_attempt_pass": true,
+    "source_result": "/Volumes/hello/wj/super-agent-v3/.workspace/orch-visible-e2e/20260908-151715/full-real-config-160052/result.json",
+    "agent_id": "full-real-config-160052",
+    "thread_id": "01a07fd2-7a74-78f1-bd9f-0f53cbab4858",
+    "final_report_seq": 6,
+    "approval": "orch default_tools_approval_mode=approve",
+    "scope": "Fresh application-model -> registered orch MCP -> live binary -> native Codex child -> child MCP calls; 3 turns plus stop/recover"
+  },
+  "latest_regression": {
+    "tested_packages_passed": 78,
+    "log": "/tmp/orch-full60-regression-20260908.log",
+    "directpeer_race_passed": true,
+    "race_elapsed_seconds": 128.313,
+    "race_log": "/tmp/orch-full60-race-20260908.log",
+    "guard_log": "/tmp/orch-full60-guard-20260908.log",
+    "project_map_initial_result": "drift_detected",
+    "project_map_final_result": "pass_after_refresh",
+    "project_map_log": "/tmp/orch-full60-map-refresh-20260908.log"
+  }
+}

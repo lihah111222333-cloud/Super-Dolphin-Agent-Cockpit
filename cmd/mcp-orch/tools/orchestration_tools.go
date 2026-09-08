@@ -78,10 +78,10 @@ type ListAgentsInput struct {
 	IncludeInactive bool   `json:"include_inactive,omitempty"`
 	IncludeReports  bool   `json:"include_reports,omitempty"`
 	Limit           int    `json:"limit,omitempty"`
-	Envelope        bool   `json:"envelope,omitempty"`
+	Envelope        *bool  `json:"envelope,omitempty"`
 }
 
-// ListAgentsOutput 是 list_agents 工具在 envelope 模式下的返回结构体。
+// ListAgentsOutput 是 list_agents 工具唯一的对象返回结构体。
 type ListAgentsOutput struct {
 	Agents    []contract.AgentSnapshot `json:"agents"`
 	Data      []contract.AgentSnapshot `json:"data"`
@@ -488,6 +488,9 @@ func isArchiveCapabilityUnsupported(err error) bool {
 // HandleListAgents 列出 agent 快照，默认只返回活跃项且不携带报告正文。
 func HandleListAgents(ports AgentListPorts) ToolHandler {
 	return makeHandler(ports.configuredDependency(), "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
+		if err := validateListAgentsInput(in); err != nil {
+			return nil, err
+		}
 		cwdFilter, err := listAgentsCWDFilter(ctx, in.CWD)
 		if err != nil {
 			return nil, err
@@ -504,6 +507,10 @@ func HandleListAgents(ports AgentListPorts) ToolHandler {
 			return nil, err
 		}
 		filtered := filterListAgentSnapshots(agents, in, cwdFilter)
+		total := len(filtered)
+		if in.Limit > 0 && len(filtered) > in.Limit {
+			filtered = filtered[:in.Limit]
+		}
 		if in.IncludeReports {
 			if err := hydrateListAgentReports(ctx, ports.Reports, filtered); err != nil {
 				return nil, err
@@ -519,23 +526,15 @@ func HandleListAgents(ports AgentListPorts) ToolHandler {
 				"include_reports", in.IncludeReports,
 				"limit", in.Limit)
 		}
-		if in.Envelope {
-			return newListAgentsOutput(filtered, in.Limit), nil
-		}
-		return filtered, nil
+		return newListAgentsOutput(filtered, total), nil
 	})
 }
 
 // newListAgentsOutput 构造 list_agents 的 envelope 返回对象。
-func newListAgentsOutput(agents []contract.AgentSnapshot, limit int) ListAgentsOutput {
-	env := newListEnvelope(agents, limit, "next: single report -> get_agent_report pos=agent:<agent_id>; batch reports -> get_agent_reports agent_ids=[...]")
+func newListAgentsOutput(agents []contract.AgentSnapshot, total int) ListAgentsOutput {
 	return ListAgentsOutput{
-		Agents:    agents,
-		Data:      env.Data,
-		Total:     env.Total,
-		Showing:   env.Showing,
-		Truncated: env.Truncated,
-		Hint:      env.Hint,
+		Agents: agents, Data: agents, Total: total, Showing: len(agents), Truncated: total > len(agents),
+		Hint: "next: single report -> get_agent_report pos=agent:<agent_id>; batch reports -> get_agent_reports agent_ids=[...]",
 	}
 }
 

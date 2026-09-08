@@ -65,7 +65,7 @@ func directPeerToolDefinitions(ports DirectPeerPorts) []ToolDefinition {
 			"can_send":          BooleanSchema("Grant send capability."),
 			"can_read":          BooleanSchema("Grant receiver read capability."),
 		}, "action", "sender_agent_id", "receiver_agent_id", "idempotency_key"), handleManageDirectPeer(ports), "orchestration.direct_peer.manage", ToolIdempotencyRequired, "orchestration.direct_peer.grant"),
-		defineTaskWriteTool("send_direct_peer", "Persist one authorized message from the trusted caller agent.", ObjectSchema(map[string]Schema{
+		defineTaskWriteTool("send_direct_peer", "Persist an authorized message AND immediately submit a new turn to the receiver. accepted means durable intent; submitted requires an authoritative provider receipt, not task completion. Reuse the same idempotency_key for the same message. On delivery_outcome_unknown inspect read_direct_peer_events and reconcile the original submission; never resend with a new key.", ObjectSchema(map[string]Schema{
 			"receiver_agent_id": StringSchema("Authorized receiver agent ID."),
 			"idempotency_key":   StringSchema("Required stable key for safe retry."),
 			"message":           StringSchema("Nonempty message body."),

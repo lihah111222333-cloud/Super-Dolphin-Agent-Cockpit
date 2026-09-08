@@ -3,6 +3,12 @@ INSERT INTO orchestration_direct_peer_grants (
     grant_id, workspace_root, sender_agent_id, receiver_agent_id, idempotency_key, request_digest,
     can_send, can_read, status, revision, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)
+ON CONFLICT(workspace_root, sender_agent_id, receiver_agent_id) DO UPDATE SET
+    grant_id = excluded.grant_id,
+    idempotency_key = excluded.idempotency_key, request_digest = excluded.request_digest,
+    can_send = excluded.can_send, can_read = excluded.can_read, status = 'active',
+    revision = orchestration_direct_peer_grants.revision + 1, updated_at = excluded.updated_at
+WHERE orchestration_direct_peer_grants.status = 'revoked'
 RETURNING grant_id, workspace_root, sender_agent_id, receiver_agent_id, idempotency_key, request_digest,
           can_send, can_read, status, revision, created_at, updated_at;
 
@@ -52,7 +58,7 @@ JOIN orchestration_direct_peer_grants g
  AND g.sender_agent_id = m.sender_agent_id
  AND g.receiver_agent_id = m.receiver_agent_id
 WHERE m.workspace_root = ? AND m.receiver_agent_id = ? AND m.id > ?
-  AND g.status = 'active' AND g.can_read = 1
+  AND g.status = 'active' AND g.can_read = 1 AND m.grant_revision = g.revision
 ORDER BY m.id ASC
 LIMIT ?;
 
@@ -138,3 +144,11 @@ SELECT id, event_id, event_type, workspace_root, grant_id, message_id,
        sender_agent_id, receiver_agent_id, grant_revision, payload_json, created_at
 FROM orchestration_direct_peer_events
 WHERE message_id = ? AND event_type = 'message.submitted';
+
+-- name: GetDirectPeerGrantEventByKey :one
+SELECT event_type, payload_json
+FROM orchestration_direct_peer_events
+WHERE workspace_root = ? AND event_type IN ('grant.active', 'grant.revoked')
+  AND json_extract(payload_json, '$.idempotency_key') = ?
+ORDER BY id ASC
+LIMIT 1;
