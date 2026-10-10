@@ -13,7 +13,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 type runtimeBinaryOverride struct {
@@ -176,7 +175,7 @@ func appendRuntimeUnique(dst []string, values ...string) []string {
 	return dst
 }
 
-const defaultStdioEOFHardExitTimeout = 30 * time.Second
+const defaultStdioShutdownHardExitTimeout = 30 * time.Second
 
 type stdioRunner struct {
 	server       interface{ Run(context.Context) error }
@@ -189,16 +188,30 @@ func newStdioRunner(server *common.Server, manager *Manager) platformrunner.Runn
 	return stdioRunner{
 		server:       server,
 		manager:      manager,
-		hardTimeout:  defaultStdioEOFHardExitTimeout,
+		hardTimeout:  defaultStdioShutdownHardExitTimeout,
 		hardExitFunc: os.Exit,
 	}
 }
 
-// Run 启动LSP后台流程。
+// Run 启动 stdio 服务；取消或管道结束时启动一次退出时限，覆盖协议写入和 manager 清理阻塞。
 func (r stdioRunner) Run(ctx context.Context) (err error) {
 	if r.server == nil {
 		return errors.New("mcp-lsp server is not configured")
 	}
+	var deadlineOnce sync.Once
+	armHardExit := func() {
+		if r.hardTimeout <= 0 || r.hardExitFunc == nil {
+			return
+		}
+		deadlineOnce.Do(func() {
+			time.AfterFunc(r.hardTimeout, func() {
+				// 硬退出不能先写 stderr；客户端遗留的满管道可能让日志本身永久阻塞。
+				r.hardExitFunc(1)
+			})
+		})
+	}
+	stopCancellationWatch := context.AfterFunc(ctx, armHardExit)
+	defer stopCancellationWatch()
 	defer func() {
 		if r.manager != nil {
 			err = errors.Join(err, r.manager.Close())
@@ -206,17 +219,6 @@ func (r stdioRunner) Run(ctx context.Context) (err error) {
 	}()
 
 	serverErr := r.server.Run(ctx)
-
-	// 在 stdio 管道断开后，如果配置了硬超时保底，启动计时器。
-	// 若 30 秒内 fx/RunGroup 仍未完成资源释放，直接强制退出，避免挂起 goroutine 无限自旋。
-	if r.hardTimeout > 0 && r.hardExitFunc != nil {
-		time.AfterFunc(r.hardTimeout, func() {
-			pkglogger.Warn("mcp-lsp: stdio closed and graceful shutdown timed out, executing hard exit",
-				"timeout", r.hardTimeout,
-			)
-			r.hardExitFunc(0)
-		})
-	}
-
+	armHardExit()
 	return serverErr
 }

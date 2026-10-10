@@ -16,7 +16,7 @@ import (
 // errOrphanProcessSelfTerminated 是检测到进程为孤儿进程（PPID 失活或工作区已被删除）时的 Sentinel 错误。
 var errOrphanProcessSelfTerminated = errors.New("mcp-lsp: orphan process detected (parent inactive or CWD invalid), self-terminating")
 
-const defaultOrphanCheckInterval = 30 * time.Second
+const defaultOrphanCheckInterval = time.Second
 
 // orphanWatchdogRunner 定期校验本 mcp-lsp 进程是否为孤儿进程（父进程已失活）或当前工作目录已被删除。
 // 满足条件时返回 Sentinel 错误，触发 RunGroup 优雅取消并释放全部资源。
@@ -30,12 +30,15 @@ type orphanWatchdogRunner struct {
 
 // newOrphanWatchdogRunner 构建默认的孤儿进程自愈检测 runner。
 func newOrphanWatchdogRunner() platformrunner.Runner {
+	parentPID := os.Getppid()
 	return &orphanWatchdogRunner{
-		interval:         defaultOrphanCheckInterval,
-		getPpid:          os.Getppid,
-		isParentOrphaned: isParentOrphaned,
-		getCwd:           os.Getwd,
-		statPath:         os.Stat,
+		interval: defaultOrphanCheckInterval,
+		getPpid:  os.Getppid,
+		isParentOrphaned: func(ppid int) bool {
+			return ppid != parentPID || isParentOrphaned(ppid)
+		},
+		getCwd:   os.Getwd,
+		statPath: os.Stat,
 	}
 }
 
@@ -51,7 +54,7 @@ func (w *orphanWatchdogRunner) Run(ctx context.Context) error {
 	for {
 		if err := w.checkOrphanStatus(getPpid, isOrphanedProbe, getCwd, statPath); err != nil {
 			if errors.Is(err, errOrphanProcessSelfTerminated) {
-				pkglogger.Error("mcp-lsp orphan watchdog triggered", "error", err)
+				// 先交给 RunGroup 取消；退出根因由 runtime 记录，不能被已满的 stderr 管道拦住。
 				return err
 			}
 			pkglogger.Warn("mcp-lsp orphan watchdog probe failed", "error", err)

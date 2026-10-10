@@ -18,12 +18,37 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
 
-func TestNewLSPToolReceiptSinkRequiresExplicitConfiguration(t *testing.T) {
+// TestNewLSPToolReceiptSinkIsOptionalWithoutConfiguration 锁定无签名配置时可以正常启动。
+func TestNewLSPToolReceiptSinkIsOptionalWithoutConfiguration(t *testing.T) {
 	t.Setenv(mcpLSPToolReceiptLogPathEnv, "")
 	t.Setenv(mcpLSPToolReceiptKeyPathEnv, "")
-	_, err := newLSPToolReceiptSinkFromEnv()
-	if err == nil || !strings.Contains(err.Error(), mcpLSPToolReceiptLogPathEnv) || !strings.Contains(err.Error(), mcpLSPToolReceiptKeyPathEnv) {
-		t.Fatalf("newLSPToolReceiptSinkFromEnv() error = %v, want both explicit path names", err)
+	t.Setenv(mcpLSPCanonicalReceiptEnv, "")
+	sink, err := newLSPToolReceiptSinkFromEnv()
+	if err != nil || sink != nil {
+		t.Fatalf("unconfigured receipt sink = %v, error = %v; want disabled without error", sink, err)
+	}
+}
+
+// TestNewLSPToolReceiptSinkRejectsPartialConfiguration 锁定显式启用后的配置错误不能被忽略。
+func TestNewLSPToolReceiptSinkRejectsPartialConfiguration(t *testing.T) {
+	cases := []struct {
+		name, logPath, keyPath, canonical, wantError string
+	}{
+		{name: "log only", logPath: "/receipt.jsonl", wantError: mcpLSPToolReceiptKeyPathEnv},
+		{name: "key only", keyPath: "/receipt.pem", wantError: mcpLSPToolReceiptLogPathEnv},
+		{name: "canonical only", canonical: "1", wantError: mcpLSPToolReceiptLogPathEnv},
+		{name: "invalid canonical", canonical: "true", wantError: mcpLSPCanonicalReceiptEnv},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(mcpLSPToolReceiptLogPathEnv, test.logPath)
+			t.Setenv(mcpLSPToolReceiptKeyPathEnv, test.keyPath)
+			t.Setenv(mcpLSPCanonicalReceiptEnv, test.canonical)
+			sink, err := newLSPToolReceiptSinkFromEnv()
+			if sink != nil || err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("sink = %v, error = %v; want %s configuration failure", sink, err, test.wantError)
+			}
+		})
 	}
 }
 

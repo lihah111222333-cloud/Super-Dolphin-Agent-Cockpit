@@ -94,22 +94,24 @@ type lspToolReceiptUnsignedRecord struct {
 	SignerPublicKeySHA256 string                `json:"signer_public_key_sha256"`
 }
 
-// newLSPToolReceiptSinkFromEnv 从显式环境变量构造唯一生产回执 sink。
-// 任一路径缺失都阻断启动，禁止默认目录或临时密钥伪造权威回执。
+// newLSPToolReceiptSinkFromEnv 按显式路径选择可选签名回执；未配置时不启用。
+// 一旦配置回执，路径必须成对且有效，禁止用默认目录或临时密钥掩盖配置错误。
 func newLSPToolReceiptSinkFromEnv() (*lspToolReceiptSink, error) {
 	logPath := strings.TrimSpace(os.Getenv(mcpLSPToolReceiptLogPathEnv))
 	keyPath := strings.TrimSpace(os.Getenv(mcpLSPToolReceiptKeyPathEnv))
+	canonical := strings.TrimSpace(os.Getenv(mcpLSPCanonicalReceiptEnv))
+	if canonical != "" && canonical != "1" {
+		return nil, fmt.Errorf("%s must be exactly 1 when set", mcpLSPCanonicalReceiptEnv)
+	}
+	if logPath == "" && keyPath == "" && canonical == "" {
+		return nil, nil
+	}
 	if logPath == "" || keyPath == "" {
 		return nil, fmt.Errorf("mcp-lsp signed receipt requires explicit %s and %s", mcpLSPToolReceiptLogPathEnv, mcpLSPToolReceiptKeyPathEnv)
 	}
 	sink, err := newLSPToolReceiptSink(logPath, keyPath)
 	if err != nil {
 		return nil, err
-	}
-	canonical := strings.TrimSpace(os.Getenv(mcpLSPCanonicalReceiptEnv))
-	if canonical != "" && canonical != "1" {
-		_ = sink.file.Close()
-		return nil, fmt.Errorf("%s must be exactly 1 when set", mcpLSPCanonicalReceiptEnv)
 	}
 	sink.includeCanonicalIO = canonical == "1"
 	return sink, nil

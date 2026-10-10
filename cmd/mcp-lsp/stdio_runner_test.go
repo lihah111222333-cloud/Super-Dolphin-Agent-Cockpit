@@ -100,11 +100,55 @@ func TestStdioRunnerHardExitWatchdog(t *testing.T) {
 
 		select {
 		case code := <-exitCodeCh:
-			if code != 0 {
-				t.Fatalf("expected hardExitFunc to receive code 0, got %d", code)
+			if code != 1 {
+				t.Fatalf("expected hardExitFunc to receive failure code 1, got %d", code)
 			}
 		case <-time.After(1 * time.Second):
 			t.Fatal("timed out waiting for stdio EOF hard exit watchdog to fire")
 		}
 	})
+}
+
+// TestStdioRunnerCancellationStartsHardExitBeforeServerReturns 锁定取消时 stdio 阻塞不能阻止退出时限启动。
+func TestStdioRunnerCancellationStartsHardExitBeforeServerReturns(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	exitCodes := make(chan int, 2)
+	group := newTestGoroutineGroup(t)
+	defer group.Wait()
+	defer close(release)
+	runner := stdioRunner{
+		server: &mockServer{runFn: func(context.Context) error {
+			close(started)
+			<-release
+			return nil
+		}},
+		hardTimeout: 20 * time.Millisecond,
+		hardExitFunc: func(code int) {
+			exitCodes <- code
+		},
+	}
+	group.Go(func() {
+		if err := runner.Run(ctx); err != nil {
+			t.Errorf("Run() error = %v", err)
+		}
+	})
+	<-started
+	select {
+	case code := <-exitCodes:
+		t.Fatalf("active server triggered hard exit %d before cancellation", code)
+	case <-time.After(40 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case code := <-exitCodes:
+		if code != 1 {
+			t.Fatalf("hard shutdown exit code = %d, want 1", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not arm hard exit while server.Run remained blocked")
+	}
 }

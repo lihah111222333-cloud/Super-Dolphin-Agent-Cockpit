@@ -154,16 +154,13 @@ func newServer(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Run
 	return newServerWithReceiptSink(stdout, handlers, logRuntime, loggerGate, receiptSink)
 }
 
-// newServerWithReceiptSink 创建共享显式回执 sink 的 stdio MCP server。
+// newServerWithReceiptSink 创建 stdio MCP server；配置了签名回执时共享该 sink。
 func newServerWithReceiptSink(stdout *os.File, handlers ToolHandlers, logRuntime *pkglogger.Runtime, loggerGate *sidecarFileLoggerGate, receiptSink *lspToolReceiptSink) (*common.Server, error) {
 	if stdout == nil {
 		return nil, errors.New("mcp-lsp: stdout is nil; program assembly order is broken")
 	}
 	if loggerGate == nil {
 		return nil, errors.New("mcp-lsp file logger gate is required")
-	}
-	if receiptSink == nil {
-		return nil, errors.New("mcp-lsp signed receipt sink is required")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
 	// ToolErrorClassifier 是共享传输契约：它只识别显式 typed Windows 错误，

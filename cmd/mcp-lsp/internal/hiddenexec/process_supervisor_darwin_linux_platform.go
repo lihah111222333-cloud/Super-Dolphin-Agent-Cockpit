@@ -234,7 +234,6 @@ type unixSupervisorControlEvent struct {
 
 type unixProcessSupervisor struct {
 	control       *os.File
-	workingDir    string
 	waitDone      <-chan error
 	controlEvents <-chan unixSupervisorControlEvent
 	termSignals   chan os.Signal
@@ -290,7 +289,6 @@ func newUnixProcessSupervisor(workingDir, binary string, args ...string) (*unixP
 	})
 	return &unixProcessSupervisor{
 		control:       control,
-		workingDir:    workingDir,
 		waitDone:      waitDone,
 		controlEvents: controlEvents,
 		termSignals:   termSignals,
@@ -365,12 +363,12 @@ func supervisorEventResult(err error) (bool, int) {
 	return false, 0
 }
 
-// handleOrphanCheck 只在 PPID 与 CWD 的双重证据同时成立时启动组回收。
+// handleOrphanCheck 在父进程已被内核回收时启动本监管根拥有的进程组回收。
 func (s *unixProcessSupervisor) handleOrphanCheck() error {
-	if !unixProcessSupervisorOrphaned(os.Getppid, s.workingDir, os.Stat) {
+	if !unixProcessSupervisorOrphaned(os.Getppid) {
 		return nil
 	}
-	return s.beginTermination("orphan_deleted_cwd")
+	return s.beginTermination("parent_exited")
 }
 
 // handleControl 把父控制协议映射为监管根自己的 TERM/KILL 动作。
@@ -396,19 +394,17 @@ func (s *unixProcessSupervisor) beginTermination(event string) error {
 	}
 	s.terminating = true
 	if err := signalUnixSupervisorGroup(syscall.SIGTERM); err != nil {
-		return s.forceGroup("term_failed")
+		return s.forceGroup(event + "_term_failed")
 	}
-	_, _ = os.Stderr.WriteString("lsp_process_supervisor event=" + event + " action=terminate_group signal_sent=true\n")
+	// 清理控制路径不能写继承的 stderr；满管道会阻止事件循环进入强制回收。
 	s.forceTimer = time.After(unixSupervisorForceAfter)
 	return nil
 }
 
 // forceGroup 对监管根自己的稳定 PGID 发送 KILL；成功后当前进程不会继续执行。
 func (s *unixProcessSupervisor) forceGroup(event string) error {
-	_, _ = os.Stderr.WriteString("lsp_process_supervisor event=" + event + " action=force_group signal_requested=true\n")
 	if err := signalUnixSupervisorGroup(syscall.SIGKILL); err != nil {
-		_, _ = os.Stderr.WriteString("lsp_process_supervisor event=" + event + " action=force_group signal_sent=false\n")
-		return err
+		return fmt.Errorf("force Unix LSP supervisor owned group (event=%s): %w", event, err)
 	}
 	return nil
 }
@@ -443,21 +439,10 @@ func readUnixSupervisorControl(control *os.File, events chan<- unixSupervisorCon
 	}
 }
 
-// unixProcessSupervisorOrphaned 只在 PPID 已归 1 且被监管工作目录明确不存在时返回 true。
-// 权限或其他不确定探测错误不能授权破坏性动作。
-func unixProcessSupervisorOrphaned(
-	getPPID func() int,
-	workingDir string,
-	statPath func(string) (os.FileInfo, error),
-) bool {
-	if getPPID() > 1 {
-		return false
-	}
-	if !filepath.IsAbs(workingDir) {
-		return false
-	}
-	_, err := statPath(filepath.Clean(workingDir))
-	return errors.Is(err, os.ErrNotExist)
+// unixProcessSupervisorOrphaned 以 PPID 已归 init/launchd 为父进程死亡证据，不依赖工作目录被删除。
+// 终止动作仅针对监管根自己的独立 session/PGID，不从父 PID 重建外部进程的终止权限。
+func unixProcessSupervisorOrphaned(getPPID func() int) bool {
+	return getPPID() <= 1
 }
 
 // signalUnixSupervisorGroup 只向当前监管进程自己的稳定 PGID 发送信号。

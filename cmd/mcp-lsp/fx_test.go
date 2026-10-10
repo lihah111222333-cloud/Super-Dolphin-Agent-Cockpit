@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -66,6 +67,36 @@ func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "stdout") {
 		t.Fatalf("newServer() error = %q, want mention of stdout", err.Error())
+	}
+}
+
+// TestNewStdioServerStartsWithoutSignedReceipt 锁定签名回执未配置时 stdio 仍能正常装配。
+func TestNewStdioServerStartsWithoutSignedReceipt(t *testing.T) {
+	t.Setenv(mcpLSPToolReceiptLogPathEnv, "")
+	t.Setenv(mcpLSPToolReceiptKeyPathEnv, "")
+	t.Setenv(mcpLSPCanonicalReceiptEnv, "")
+	stdout, err := os.CreateTemp(t.TempDir(), "mcp-stdout-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := stdout.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	gate, err := newSidecarFileLoggerGate(func() error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlers := ToolHandlers{}
+	for _, manifest := range newLSPToolManifests() {
+		handlers[manifest.Name] = func(context.Context, json.RawMessage) (any, error) {
+			return "ok", nil
+		}
+	}
+	server, err := newServer(stdout, handlers, pkglogger.NewRuntime(pkglogger.RuntimeConfig{}), gate)
+	if err != nil || server == nil {
+		t.Fatalf("unsigned stdio server = %v, error = %v; want initialized server", server, err)
 	}
 }
 

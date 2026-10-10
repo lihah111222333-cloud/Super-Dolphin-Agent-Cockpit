@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// CallTool 调用当前 peer 暴露的工具，先补全工作区作用域并在完成后签发语义回执。
+// CallTool 调用当前 peer 暴露的工具，补全工作区作用域；启用签名回执时记录调用结果。
 func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
 	if p.ensureReady != nil {
 		if err := p.ensureReady(); err != nil {

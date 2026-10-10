@@ -136,26 +136,18 @@ func TestUnixProcessSupervisorOrphanPredicate(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name    string
-		ppid    int
-		cwd     string
-		statErr error
-		want    bool
+		name string
+		ppid int
+		want bool
 	}{
-		{name: "live parent", ppid: 42, cwd: "/workspace", statErr: os.ErrNotExist, want: false},
-		{name: "orphan valid cwd", ppid: 1, cwd: "/workspace", want: false},
-		{name: "orphan relative cwd", ppid: 1, cwd: "workspace", statErr: os.ErrNotExist, want: false},
-		{name: "orphan deleted cwd", ppid: 1, cwd: "/workspace", statErr: os.ErrNotExist, want: true},
-		{name: "orphan uncertain stat", ppid: 1, cwd: "/workspace", statErr: os.ErrPermission, want: false},
+		{name: "live parent", ppid: 42, want: false},
+		{name: "orphan with existing workspace", ppid: 1, want: true},
+		{name: "missing parent", ppid: 0, want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := unixProcessSupervisorOrphaned(
-				func() int { return tc.ppid },
-				tc.cwd,
-				func(string) (os.FileInfo, error) { return nil, tc.statErr },
-			)
+			got := unixProcessSupervisorOrphaned(func() int { return tc.ppid })
 			if got != tc.want {
 				t.Fatalf("unixProcessSupervisorOrphaned() = %v, want %v", got, tc.want)
 			}

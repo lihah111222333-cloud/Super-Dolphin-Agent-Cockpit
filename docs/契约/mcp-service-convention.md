@@ -59,6 +59,12 @@ V3 的目标契约是：
 
 因此本文是当前契约，不再是未落地目标说明。
 
+### 1.1.1 LSP 签名回执为可选能力
+
+`mcp-lsp` 未配置 `MCP_LSP_RECEIPT_LOG_PATH`、`MCP_LSP_RECEIPT_SIGNING_KEY_PATH` 和 `MCP_LSP_RECEIPT_INCLUDE_CANONICAL_IO` 时，不启用签名回执，stdio、HTTP 和 bootstrap 工具调用均可正常运行。签名不是启动或调用工具的必要条件。
+
+显式启用时，日志路径与 Ed25519 密钥路径必须成对配置，并继续执行路径、权限、日志链及签名校验；配置不完整或无效必须阻断启动，不自动生成密钥或选择默认路径。`MCP_LSP_RECEIPT_INCLUDE_CANONICAL_IO` 只能在完整签名配置下设置为 `1`，不能单独启用。三个入口共享同一个可选 sink，签名回执的结构和已启用时的校验规则保持一致。
+
 ### 1.2 DTO 迁移映射
 
 `ctl/register` 不再沿用旧的裸 `lease_id` 字符串；server-issued lease 统一抽象为 `LeaseKey{instance_id, generation}`。
